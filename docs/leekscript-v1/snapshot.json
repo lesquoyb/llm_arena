@@ -1,0 +1,27 @@
+{
+  "engine": {
+    "lock": {
+      "repository": "https://github.com/leek-wars/leek-wars-generator.git",
+      "commit": "b99a174dd938260d9e47b2e65a208cb32230e26e",
+      "leekscript_commit": "8152f399faf7b418bbc5b2216d755c3822cda23b",
+      "java_major": 25,
+      "gradle_version": "9.3.1",
+      "language": "leekscript",
+      "language_version": 4
+    },
+    "java_version": "openjdk version \"25.0.2\" 2026-01-20 LTS\nOpenJDK Runtime Environment Temurin-25.0.2+10 (build 25.0.2+10-LTS)\nOpenJDK 64-Bit Server VM Temurin-25.0.2+10 (build 25.0.2+10-LTS, mixed mode, sharing)",
+    "jar_sha256": "28b823176c22b5d9467d1ac484c53ccda57a27f124a796a757b08480f152b15a",
+    "bridge_sha256": "25837aaacb622c53b89d1f661dabf1f216736f1d8a16070386421492c4ed7f74",
+    "data_sha256": "badb8505d2f16cfb6c88005b509976f7979353a3dbb7764ad5ccb175b585cd08",
+    "adapter_sha256": "5ae7c37479c982480b8a95120a8ca942b975079356851d3dcdd3dc29e89071de",
+    "build_script_sha256": "e4033bc2f163efa729719750982d6b7b8d34e735bfe47608688b5553c16d8639"
+  },
+  "files": {
+    "api.json": "540629e7e14631f4ff5055e353053a4e326db95280d06255248f1fa9c5cd31ca",
+    "api.md": "22c5b4b4c78e05d64a98aefbb8e43249556686f95f02bcfef78987b320f54c27",
+    "chips.json": "89c61b56e00e5d1547febc117662bc3c8539ab768f7b0f44b27745df5faa93ab",
+    "components.json": "859f18217ee49c9965c044b78f9c9ffeda8547a468b5bd50d7e9b5a934e9490b",
+    "summons.json": "8fabd5423108e5fba4c0cb74bfc9f095bb7cdb527449fc930f4d0329861ca67f",
+    "weapons.json": "a6a9f75d7fbd8c520c9cb9be5976c82145cc24572231c46c17b67d47d59273ac"
+  }
+}

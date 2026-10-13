@@ -1,0 +1,7 @@
+// Deliberately weaker baseline: at most one shot per turn.
+var enemy = getNearestEnemy()
+if (enemy != null) {
+    setWeapon(getWeapons()[0])
+    moveToward(enemy)
+    useWeapon(enemy)
+}

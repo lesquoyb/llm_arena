@@ -1,0 +1,9 @@
+// Simple aggressive baseline: move into range, then spend available TP.
+var enemy = getNearestEnemy()
+if (enemy != null) {
+    setWeapon(getWeapons()[0])
+    moveToward(enemy)
+    while (getTP() >= getWeaponCost() && isAlive(enemy)) {
+        if (useWeapon(enemy) != USE_SUCCESS) break
+    }
+}

@@ -1,0 +1,3240 @@
+{
+  "status": "exported",
+  "functions": {
+    "abs": {
+      "base_operations": 1,
+      "namespace": "Number",
+      "signatures": [
+        "[real] => real",
+        "[integer] => integer",
+        "[big_integer] => big_integer"
+      ]
+    },
+    "acos": {
+      "base_operations": 3,
+      "namespace": "Number",
+      "signatures": [
+        "[real] => real"
+      ]
+    },
+    "arrayChunk": {
+      "base_operations": 0,
+      "namespace": "Array",
+      "signatures": [
+        "[Array, integer] => Array"
+      ]
+    },
+    "arrayClear": {
+      "base_operations": 1,
+      "namespace": "Array",
+      "signatures": [
+        "[Array] => Array"
+      ]
+    },
+    "arrayConcat": {
+      "base_operations": 0,
+      "namespace": "Array",
+      "signatures": [
+        "[Array, Array] => Array"
+      ]
+    },
+    "arrayEvery": {
+      "base_operations": 0,
+      "namespace": "Array",
+      "signatures": [
+        "[Array, Function<any, integer, Array => boolean>] => boolean"
+      ]
+    },
+    "arrayFilter": {
+      "base_operations": 0,
+      "namespace": "Array",
+      "signatures": [
+        "[Array, Function<any, integer, Array => boolean>] => Array"
+      ]
+    },
+    "arrayFind": {
+      "base_operations": 0,
+      "namespace": "Array",
+      "signatures": [
+        "[Array, Function<any, integer, Array => boolean>] => any"
+      ]
+    },
+    "arrayFlatten": {
+      "base_operations": 0,
+      "namespace": "Array",
+      "signatures": [
+        "[Array, integer] => Array",
+        "[Array] => Array"
+      ]
+    },
+    "arrayFoldLeft": {
+      "base_operations": 0,
+      "namespace": "Array",
+      "signatures": [
+        "[Array, Function<any, any, integer, Array => any>, any] => any"
+      ]
+    },
+    "arrayFoldRight": {
+      "base_operations": 0,
+      "namespace": "Array",
+      "signatures": [
+        "[Array, Function<any, any, integer, Array => any>, any] => any"
+      ]
+    },
+    "arrayFrequencies": {
+      "base_operations": 0,
+      "namespace": "Array",
+      "signatures": [
+        "[Array] => Map"
+      ]
+    },
+    "arrayGet": {
+      "base_operations": 1,
+      "namespace": "Array",
+      "signatures": [
+        "[Array, integer, any] => any",
+        "[Array, integer] => any"
+      ]
+    },
+    "arrayIter": {
+      "base_operations": 0,
+      "namespace": "Array",
+      "signatures": [
+        "[Array, Function<any, integer, Array => any>] => void"
+      ]
+    },
+    "arrayMap": {
+      "base_operations": 0,
+      "namespace": "Array",
+      "signatures": [
+        "[Array, Function<any, integer, Array => any>] => Array"
+      ]
+    },
+    "arrayMax": {
+      "base_operations": 0,
+      "namespace": "Array",
+      "signatures": [
+        "[Array] => any"
+      ]
+    },
+    "arrayMin": {
+      "base_operations": 0,
+      "namespace": "Array",
+      "signatures": [
+        "[Array] => any"
+      ]
+    },
+    "arrayPartition": {
+      "base_operations": 0,
+      "namespace": "Array",
+      "signatures": [
+        "[Array, Function<any, integer, Array => boolean>] => Array"
+      ]
+    },
+    "arrayRandom": {
+      "base_operations": 0,
+      "namespace": "Array",
+      "signatures": [
+        "[Array, integer] => Array",
+        "[Array] => Array"
+      ]
+    },
+    "arrayRemoveAll": {
+      "base_operations": 0,
+      "namespace": "Array",
+      "signatures": [
+        "[Array, any] => void"
+      ]
+    },
+    "arraySlice": {
+      "base_operations": 0,
+      "namespace": "Array",
+      "signatures": [
+        "[Array, any, any, integer] => Array",
+        "[Array, any, any] => Array",
+        "[Array, any] => Array"
+      ]
+    },
+    "arraySome": {
+      "base_operations": 0,
+      "namespace": "Array",
+      "signatures": [
+        "[Array, Function<any, integer, Array => boolean>] => boolean"
+      ]
+    },
+    "arraySort": {
+      "base_operations": 0,
+      "namespace": "Array",
+      "signatures": [
+        "[Array, Function<any, any => real | integer>] => Array",
+        "[Array] => Array"
+      ]
+    },
+    "arrayToSet": {
+      "base_operations": 0,
+      "namespace": "Array",
+      "signatures": [
+        "[Array] => Set"
+      ]
+    },
+    "arrayUnique": {
+      "base_operations": 0,
+      "namespace": "Array",
+      "signatures": [
+        "[Array] => Array"
+      ]
+    },
+    "asin": {
+      "base_operations": 3,
+      "namespace": "Number",
+      "signatures": [
+        "[real] => real"
+      ]
+    },
+    "atan": {
+      "base_operations": 3,
+      "namespace": "Number",
+      "signatures": [
+        "[real] => real"
+      ]
+    },
+    "atan2": {
+      "base_operations": 4,
+      "namespace": "Number",
+      "signatures": [
+        "[real, real] => real"
+      ]
+    },
+    "average": {
+      "base_operations": 0,
+      "namespace": "Array",
+      "signatures": [
+        "[Array] => real"
+      ]
+    },
+    "binString": {
+      "base_operations": 9,
+      "namespace": "Number",
+      "signatures": [
+        "[integer] => string",
+        "[big_integer] => string"
+      ]
+    },
+    "bitCount": {
+      "base_operations": 1,
+      "namespace": "Number",
+      "signatures": [
+        "[integer] => integer",
+        "[big_integer] => integer"
+      ]
+    },
+    "bitLength": {
+      "base_operations": 1,
+      "namespace": "Number",
+      "signatures": [
+        "[integer] => integer",
+        "[big_integer] => integer"
+      ]
+    },
+    "bitReverse": {
+      "base_operations": 1,
+      "namespace": "Number",
+      "signatures": [
+        "[integer] => integer"
+      ]
+    },
+    "bitsToReal": {
+      "base_operations": 3,
+      "namespace": "Number",
+      "signatures": [
+        "[integer] => real"
+      ]
+    },
+    "byteReverse": {
+      "base_operations": 1,
+      "namespace": "Number",
+      "signatures": [
+        "[integer] => integer"
+      ]
+    },
+    "canUseChip": {
+      "base_operations": 45,
+      "namespace": "Chip",
+      "signatures": [
+        "[integer, integer] => boolean"
+      ]
+    },
+    "canUseChipOnCell": {
+      "base_operations": 45,
+      "namespace": "Chip",
+      "signatures": [
+        "[integer, integer] => boolean"
+      ]
+    },
+    "canUseWeapon": {
+      "base_operations": 45,
+      "namespace": "Weapon",
+      "signatures": [
+        "[integer?, integer?] => boolean",
+        "[integer?] => boolean"
+      ]
+    },
+    "canUseWeaponOnCell": {
+      "base_operations": 45,
+      "namespace": "Weapon",
+      "signatures": [
+        "[integer?, integer?] => boolean",
+        "[integer?] => boolean"
+      ]
+    },
+    "cbrt": {
+      "base_operations": 5,
+      "namespace": "Number",
+      "signatures": [
+        "[real] => real"
+      ]
+    },
+    "ceil": {
+      "base_operations": 1,
+      "namespace": "Number",
+      "signatures": [
+        "[real] => integer",
+        "[integer] => integer"
+      ]
+    },
+    "charAt": {
+      "base_operations": 4,
+      "namespace": "String",
+      "signatures": [
+        "[string, integer] => string"
+      ]
+    },
+    "chipNeedLos": {
+      "base_operations": 10,
+      "namespace": "Chip",
+      "signatures": [
+        "[integer] => boolean"
+      ]
+    },
+    "clearMarks": {
+      "base_operations": 15,
+      "namespace": "Util",
+      "signatures": [
+        "[] => void"
+      ]
+    },
+    "clone": {
+      "base_operations": 0,
+      "namespace": "Value",
+      "signatures": [
+        "[any, integer] => any",
+        "[any] => any"
+      ]
+    },
+    "codePointAt": {
+      "base_operations": 1,
+      "namespace": "String",
+      "signatures": [
+        "[string, integer] => integer",
+        "[string] => integer"
+      ]
+    },
+    "contains": {
+      "base_operations": 0,
+      "namespace": "String",
+      "signatures": [
+        "[string, string] => boolean"
+      ]
+    },
+    "cos": {
+      "base_operations": 3,
+      "namespace": "Number",
+      "signatures": [
+        "[real] => real"
+      ]
+    },
+    "count": {
+      "base_operations": 1,
+      "namespace": "Array",
+      "signatures": [
+        "[Array] => integer"
+      ]
+    },
+    "debug": {
+      "base_operations": 100,
+      "namespace": "System",
+      "signatures": [
+        "[any] => void"
+      ]
+    },
+    "debugC": {
+      "base_operations": 100,
+      "namespace": "System",
+      "signatures": [
+        "[any, integer] => void"
+      ]
+    },
+    "debugE": {
+      "base_operations": 100,
+      "namespace": "System",
+      "signatures": [
+        "[any] => void"
+      ]
+    },
+    "debugW": {
+      "base_operations": 100,
+      "namespace": "System",
+      "signatures": [
+        "[any] => void"
+      ]
+    },
+    "deleteRegister": {
+      "base_operations": 16,
+      "namespace": "Util",
+      "signatures": [
+        "[string] => void"
+      ]
+    },
+    "endsWith": {
+      "base_operations": 0,
+      "namespace": "String",
+      "signatures": [
+        "[string, string] => boolean"
+      ]
+    },
+    "exp": {
+      "base_operations": 2,
+      "namespace": "Number",
+      "signatures": [
+        "[real] => real"
+      ]
+    },
+    "fill": {
+      "base_operations": 0,
+      "namespace": "Array",
+      "signatures": [
+        "[Array, any, integer] => void",
+        "[Array, any] => void"
+      ]
+    },
+    "floor": {
+      "base_operations": 1,
+      "namespace": "Number",
+      "signatures": [
+        "[real] => integer",
+        "[integer] => integer"
+      ]
+    },
+    "getAIID": {
+      "base_operations": 15,
+      "namespace": "Entity",
+      "signatures": [
+        "[integer?] => integer?",
+        "[] => integer"
+      ]
+    },
+    "getAIName": {
+      "base_operations": 15,
+      "namespace": "Entity",
+      "signatures": [
+        "[integer?] => string?",
+        "[] => string"
+      ]
+    },
+    "getAbsoluteShield": {
+      "base_operations": 15,
+      "namespace": "Entity",
+      "signatures": [
+        "[integer?] => integer?",
+        "[] => integer"
+      ]
+    },
+    "getAgility": {
+      "base_operations": 15,
+      "namespace": "Entity",
+      "signatures": [
+        "[integer?] => integer?",
+        "[] => integer"
+      ]
+    },
+    "getAliveAllies": {
+      "base_operations": 100,
+      "namespace": "Fight",
+      "signatures": [
+        "[] => Array<integer>"
+      ]
+    },
+    "getAliveAlliesCount": {
+      "base_operations": 100,
+      "namespace": "Fight",
+      "signatures": [
+        "[] => integer"
+      ]
+    },
+    "getAliveEnemies": {
+      "base_operations": 100,
+      "namespace": "Fight",
+      "signatures": [
+        "[] => Array<integer>"
+      ]
+    },
+    "getAliveEnemiesCount": {
+      "base_operations": 25,
+      "namespace": "Fight",
+      "signatures": [
+        "[] => integer"
+      ]
+    },
+    "getAllChips": {
+      "base_operations": 200,
+      "namespace": "Chip",
+      "signatures": [
+        "[] => Array<integer>"
+      ]
+    },
+    "getAllEffects": {
+      "base_operations": 200,
+      "namespace": "Fight",
+      "signatures": [
+        "[] => Array<integer>"
+      ]
+    },
+    "getAllWeapons": {
+      "base_operations": 200,
+      "namespace": "Weapon",
+      "signatures": [
+        "[] => Array<integer>"
+      ]
+    },
+    "getAlliedTurret": {
+      "base_operations": 15,
+      "namespace": "Fight",
+      "signatures": [
+        "[] => integer?"
+      ]
+    },
+    "getAllies": {
+      "base_operations": 100,
+      "namespace": "Fight",
+      "signatures": [
+        "[] => Array<integer>"
+      ]
+    },
+    "getAlliesCount": {
+      "base_operations": 25,
+      "namespace": "Fight",
+      "signatures": [
+        "[] => integer"
+      ]
+    },
+    "getAlliesLife": {
+      "base_operations": 50,
+      "namespace": "Fight",
+      "signatures": [
+        "[] => integer"
+      ]
+    },
+    "getAwakeningZone": {
+      "base_operations": 15,
+      "namespace": "Entity",
+      "signatures": [
+        "[integer?] => integer?",
+        "[] => integer"
+      ]
+    },
+    "getBirthTurn": {
+      "base_operations": 15,
+      "namespace": "Entity",
+      "signatures": [
+        "[integer?] => integer?",
+        "[] => integer"
+      ]
+    },
+    "getBlue": {
+      "base_operations": 1,
+      "namespace": "Color",
+      "signatures": [
+        "[integer] => integer"
+      ]
+    },
+    "getBulbCharacteristics": {
+      "base_operations": 40,
+      "namespace": "Fight",
+      "signatures": [
+        "[integer] => Map"
+      ]
+    },
+    "getBulbChips": {
+      "base_operations": 40,
+      "namespace": "Fight",
+      "signatures": [
+        "[integer] => Array?"
+      ]
+    },
+    "getBulbStats": {
+      "base_operations": 40,
+      "namespace": "Fight",
+      "signatures": [
+        "[integer] => Map"
+      ]
+    },
+    "getBulbType": {
+      "base_operations": 15,
+      "namespace": "Entity",
+      "signatures": [
+        "[integer?] => integer?",
+        "[] => integer"
+      ]
+    },
+    "getCell": {
+      "base_operations": 5,
+      "namespace": "Entity",
+      "signatures": [
+        "[integer?] => integer?",
+        "[] => integer?"
+      ]
+    },
+    "getCellContent": {
+      "base_operations": 6,
+      "namespace": "Field",
+      "signatures": [
+        "[integer] => integer"
+      ]
+    },
+    "getCellDistance": {
+      "base_operations": 15,
+      "namespace": "Field",
+      "signatures": [
+        "[integer, integer] => integer"
+      ]
+    },
+    "getCellFromXY": {
+      "base_operations": 5,
+      "namespace": "Field",
+      "signatures": [
+        "[integer, integer] => integer?"
+      ]
+    },
+    "getCellToUseChip": {
+      "base_operations": 38080,
+      "namespace": "Fight",
+      "signatures": [
+        "[integer, integer?, Array<integer>?] => integer",
+        "[integer, integer?] => integer"
+      ]
+    },
+    "getCellToUseChipOnCell": {
+      "base_operations": 38080,
+      "namespace": "Fight",
+      "signatures": [
+        "[integer, integer?, Array<integer>?] => integer",
+        "[integer, integer?] => integer"
+      ]
+    },
+    "getCellToUseWeapon": {
+      "base_operations": 38080,
+      "namespace": "Fight",
+      "signatures": [
+        "[integer, integer?, Array<integer>?] => integer",
+        "[integer, integer?] => integer",
+        "[integer] => integer"
+      ]
+    },
+    "getCellToUseWeaponOnCell": {
+      "base_operations": 38080,
+      "namespace": "Fight",
+      "signatures": [
+        "[integer, integer?, Array<integer>?] => integer",
+        "[integer, integer?] => integer",
+        "[integer] => integer"
+      ]
+    },
+    "getCellX": {
+      "base_operations": 5,
+      "namespace": "Field",
+      "signatures": [
+        "[integer] => integer?"
+      ]
+    },
+    "getCellY": {
+      "base_operations": 5,
+      "namespace": "Field",
+      "signatures": [
+        "[integer] => integer?"
+      ]
+    },
+    "getCellsToUseChip": {
+      "base_operations": 25834,
+      "namespace": "Fight",
+      "signatures": [
+        "[integer, integer, Array<integer>?] => Array<integer>?",
+        "[integer, integer] => Array<integer>?"
+      ]
+    },
+    "getCellsToUseChipOnCell": {
+      "base_operations": 25834,
+      "namespace": "Fight",
+      "signatures": [
+        "[integer, integer, Array<integer>?] => Array<integer>?",
+        "[integer, integer] => Array<integer>?"
+      ]
+    },
+    "getCellsToUseWeapon": {
+      "base_operations": 25834,
+      "namespace": "Fight",
+      "signatures": [
+        "[integer, integer?, Array<integer>?] => Array<integer>?",
+        "[integer, integer?] => Array<integer>?",
+        "[integer] => Array<integer>?"
+      ]
+    },
+    "getCellsToUseWeaponOnCell": {
+      "base_operations": 25834,
+      "namespace": "Fight",
+      "signatures": [
+        "[integer, integer, Array<integer>?] => Array<integer>?",
+        "[integer, integer] => Array<integer>?",
+        "[integer] => Array<integer>?"
+      ]
+    },
+    "getChestType": {
+      "base_operations": 15,
+      "namespace": "Entity",
+      "signatures": [
+        "[integer?] => integer?",
+        "[] => integer"
+      ]
+    },
+    "getChipArea": {
+      "base_operations": 15,
+      "namespace": "Chip",
+      "signatures": [
+        "[integer] => integer?"
+      ]
+    },
+    "getChipCooldown": {
+      "base_operations": 15,
+      "namespace": "Chip",
+      "signatures": [
+        "[integer] => integer"
+      ]
+    },
+    "getChipCost": {
+      "base_operations": 15,
+      "namespace": "Chip",
+      "signatures": [
+        "[integer] => integer?"
+      ]
+    },
+    "getChipEffectiveArea": {
+      "base_operations": 78,
+      "namespace": "Chip",
+      "signatures": [
+        "[integer, integer, integer?] => Array<integer>?",
+        "[integer, integer] => Array<integer>?"
+      ]
+    },
+    "getChipEffects": {
+      "base_operations": 125,
+      "namespace": "Chip",
+      "signatures": [
+        "[integer] => Array<Array<real | integer>>?"
+      ]
+    },
+    "getChipFailure": {
+      "base_operations": 15,
+      "namespace": "Chip",
+      "signatures": [
+        "[integer] => integer"
+      ]
+    },
+    "getChipLaunchType": {
+      "base_operations": 15,
+      "namespace": "Chip",
+      "signatures": [
+        "[integer] => integer?"
+      ]
+    },
+    "getChipMaxRange": {
+      "base_operations": 15,
+      "namespace": "Chip",
+      "signatures": [
+        "[integer] => integer?"
+      ]
+    },
+    "getChipMaxScope": {
+      "base_operations": 15,
+      "namespace": "Chip",
+      "signatures": [
+        "[integer] => integer?"
+      ]
+    },
+    "getChipMaxUses": {
+      "base_operations": 15,
+      "namespace": "Chip",
+      "signatures": [
+        "[integer] => integer?"
+      ]
+    },
+    "getChipMinRange": {
+      "base_operations": 15,
+      "namespace": "Chip",
+      "signatures": [
+        "[integer] => integer?"
+      ]
+    },
+    "getChipMinScope": {
+      "base_operations": 15,
+      "namespace": "Chip",
+      "signatures": [
+        "[integer] => integer?"
+      ]
+    },
+    "getChipName": {
+      "base_operations": 15,
+      "namespace": "Chip",
+      "signatures": [
+        "[integer] => string"
+      ]
+    },
+    "getChipTargets": {
+      "base_operations": 40,
+      "namespace": "Chip",
+      "signatures": [
+        "[integer, integer] => Array<integer>?"
+      ]
+    },
+    "getChips": {
+      "base_operations": 40,
+      "namespace": "Entity",
+      "signatures": [
+        "[integer?] => Array<integer>?",
+        "[] => Array<integer>"
+      ]
+    },
+    "getColor": {
+      "base_operations": 7,
+      "namespace": "Color",
+      "signatures": [
+        "[integer, integer, integer] => integer"
+      ]
+    },
+    "getCompositionName": {
+      "base_operations": 15,
+      "namespace": "Entity",
+      "signatures": [
+        "[integer?] => string?",
+        "[] => string"
+      ]
+    },
+    "getCooldown": {
+      "base_operations": 30,
+      "namespace": "Chip",
+      "signatures": [
+        "[integer, integer?] => integer?",
+        "[integer] => integer"
+      ]
+    },
+    "getCores": {
+      "base_operations": 15,
+      "namespace": "Entity",
+      "signatures": [
+        "[integer?] => integer?",
+        "[] => integer"
+      ]
+    },
+    "getDamageReturn": {
+      "base_operations": 15,
+      "namespace": "Entity",
+      "signatures": [
+        "[integer?] => integer?",
+        "[] => integer"
+      ]
+    },
+    "getDate": {
+      "base_operations": 50,
+      "namespace": "System",
+      "signatures": [
+        "[] => string"
+      ]
+    },
+    "getDeadAllies": {
+      "base_operations": 100,
+      "namespace": "Fight",
+      "signatures": [
+        "[] => Array<integer>"
+      ]
+    },
+    "getDeadEnemies": {
+      "base_operations": 100,
+      "namespace": "Fight",
+      "signatures": [
+        "[] => Array<integer>"
+      ]
+    },
+    "getDeadEnemiesCount": {
+      "base_operations": 25,
+      "namespace": "Fight",
+      "signatures": [
+        "[] => integer"
+      ]
+    },
+    "getDistance": {
+      "base_operations": 15,
+      "namespace": "Field",
+      "signatures": [
+        "[integer, integer] => real"
+      ]
+    },
+    "getEffects": {
+      "base_operations": 25,
+      "namespace": "Entity",
+      "signatures": [
+        "[integer?] => Array<Array<boolean | integer>>?",
+        "[] => Array<Array<boolean | integer>>"
+      ]
+    },
+    "getEnemies": {
+      "base_operations": 100,
+      "namespace": "Fight",
+      "signatures": [
+        "[] => Array<integer>"
+      ]
+    },
+    "getEnemiesCount": {
+      "base_operations": 25,
+      "namespace": "Fight",
+      "signatures": [
+        "[] => integer"
+      ]
+    },
+    "getEnemiesLife": {
+      "base_operations": 50,
+      "namespace": "Fight",
+      "signatures": [
+        "[] => integer"
+      ]
+    },
+    "getEnemyTurret": {
+      "base_operations": 15,
+      "namespace": "Fight",
+      "signatures": [
+        "[] => integer?"
+      ]
+    },
+    "getEntity": {
+      "base_operations": 5,
+      "namespace": "Entity",
+      "signatures": [
+        "[] => integer"
+      ]
+    },
+    "getEntityOnCell": {
+      "base_operations": 15,
+      "namespace": "Field",
+      "signatures": [
+        "[integer] => integer"
+      ]
+    },
+    "getEntityTurnOrder": {
+      "base_operations": 30,
+      "namespace": "Entity",
+      "signatures": [
+        "[integer?] => integer?",
+        "[] => integer"
+      ]
+    },
+    "getFarmerCountry": {
+      "base_operations": 15,
+      "namespace": "Entity",
+      "signatures": [
+        "[integer?] => string?",
+        "[] => string"
+      ]
+    },
+    "getFarmerID": {
+      "base_operations": 15,
+      "namespace": "Entity",
+      "signatures": [
+        "[integer?] => integer?",
+        "[] => integer"
+      ]
+    },
+    "getFarmerName": {
+      "base_operations": 15,
+      "namespace": "Entity",
+      "signatures": [
+        "[integer?] => string?",
+        "[] => string"
+      ]
+    },
+    "getFarthestAlly": {
+      "base_operations": 31,
+      "namespace": "Fight",
+      "signatures": [
+        "[] => integer"
+      ]
+    },
+    "getFarthestEnemy": {
+      "base_operations": 31,
+      "namespace": "Fight",
+      "signatures": [
+        "[] => integer"
+      ]
+    },
+    "getFightBoss": {
+      "base_operations": 10,
+      "namespace": "Fight",
+      "signatures": [
+        "[] => integer"
+      ]
+    },
+    "getFightContext": {
+      "base_operations": 10,
+      "namespace": "Fight",
+      "signatures": [
+        "[] => integer"
+      ]
+    },
+    "getFightID": {
+      "base_operations": 5,
+      "namespace": "Fight",
+      "signatures": [
+        "[] => integer"
+      ]
+    },
+    "getFightType": {
+      "base_operations": 10,
+      "namespace": "Fight",
+      "signatures": [
+        "[] => integer"
+      ]
+    },
+    "getForce": {
+      "base_operations": 15,
+      "namespace": "Entity",
+      "signatures": [
+        "[integer?] => integer?",
+        "[] => integer"
+      ]
+    },
+    "getFrequency": {
+      "base_operations": 15,
+      "namespace": "Entity",
+      "signatures": [
+        "[integer?] => integer?",
+        "[] => integer"
+      ]
+    },
+    "getGreen": {
+      "base_operations": 2,
+      "namespace": "Color",
+      "signatures": [
+        "[integer] => integer"
+      ]
+    },
+    "getInstructionsCount": {
+      "base_operations": 1,
+      "namespace": "System",
+      "signatures": [
+        "[] => integer"
+      ]
+    },
+    "getItemUses": {
+      "base_operations": 15,
+      "namespace": "Entity",
+      "signatures": [
+        "[integer] => integer"
+      ]
+    },
+    "getLaunchedEffects": {
+      "base_operations": 25,
+      "namespace": "Entity",
+      "signatures": [
+        "[integer?] => Array<Array<boolean | integer>>?",
+        "[] => Array<Array<boolean | integer>>"
+      ]
+    },
+    "getLeekID": {
+      "base_operations": 15,
+      "namespace": "Entity",
+      "signatures": [
+        "[integer?] => integer?",
+        "[] => integer"
+      ]
+    },
+    "getLevel": {
+      "base_operations": 15,
+      "namespace": "Entity",
+      "signatures": [
+        "[integer?] => integer?",
+        "[] => integer"
+      ]
+    },
+    "getLife": {
+      "base_operations": 15,
+      "namespace": "Entity",
+      "signatures": [
+        "[integer?] => integer?",
+        "[] => integer"
+      ]
+    },
+    "getMP": {
+      "base_operations": 15,
+      "namespace": "Entity",
+      "signatures": [
+        "[integer?] => integer?",
+        "[] => integer"
+      ]
+    },
+    "getMagic": {
+      "base_operations": 15,
+      "namespace": "Entity",
+      "signatures": [
+        "[integer?] => integer?",
+        "[] => integer"
+      ]
+    },
+    "getMapType": {
+      "base_operations": 5,
+      "namespace": "Field",
+      "signatures": [
+        "[] => integer"
+      ]
+    },
+    "getMaxOperations": {
+      "base_operations": 1,
+      "namespace": "System",
+      "signatures": [
+        "[] => integer"
+      ]
+    },
+    "getMaxRAM": {
+      "base_operations": 1,
+      "namespace": "System",
+      "signatures": [
+        "[] => integer"
+      ]
+    },
+    "getMessageAuthor": {
+      "base_operations": 5,
+      "namespace": "Network",
+      "signatures": [
+        "[Array] => integer"
+      ]
+    },
+    "getMessageParams": {
+      "base_operations": 5,
+      "namespace": "Network",
+      "signatures": [
+        "[Array] => any"
+      ]
+    },
+    "getMessageType": {
+      "base_operations": 5,
+      "namespace": "Network",
+      "signatures": [
+        "[Array] => integer"
+      ]
+    },
+    "getMessages": {
+      "base_operations": 0,
+      "namespace": "Network",
+      "signatures": [
+        "[integer] => Array<Array>",
+        "[] => Array<Array>"
+      ]
+    },
+    "getMobType": {
+      "base_operations": 15,
+      "namespace": "Entity",
+      "signatures": [
+        "[integer?] => integer?",
+        "[] => integer"
+      ]
+    },
+    "getName": {
+      "base_operations": 15,
+      "namespace": "Entity",
+      "signatures": [
+        "[integer?] => string?",
+        "[] => string"
+      ]
+    },
+    "getNearestAlly": {
+      "base_operations": 25,
+      "namespace": "Fight",
+      "signatures": [
+        "[] => integer"
+      ]
+    },
+    "getNearestAllyTo": {
+      "base_operations": 35,
+      "namespace": "Fight",
+      "signatures": [
+        "[integer] => integer?"
+      ]
+    },
+    "getNearestAllyToCell": {
+      "base_operations": 35,
+      "namespace": "Fight",
+      "signatures": [
+        "[integer] => integer?"
+      ]
+    },
+    "getNearestEnemy": {
+      "base_operations": 25,
+      "namespace": "Fight",
+      "signatures": [
+        "[] => integer"
+      ]
+    },
+    "getNearestEnemyTo": {
+      "base_operations": 35,
+      "namespace": "Fight",
+      "signatures": [
+        "[integer] => integer?"
+      ]
+    },
+    "getNearestEnemyToCell": {
+      "base_operations": 35,
+      "namespace": "Fight",
+      "signatures": [
+        "[integer] => integer?"
+      ]
+    },
+    "getNextPlayer": {
+      "base_operations": 20,
+      "namespace": "Fight",
+      "signatures": [
+        "[integer?] => integer?",
+        "[] => integer"
+      ]
+    },
+    "getObstacles": {
+      "base_operations": 85,
+      "namespace": "Field",
+      "signatures": [
+        "[] => Array<integer>"
+      ]
+    },
+    "getOperations": {
+      "base_operations": 1,
+      "namespace": "System",
+      "signatures": [
+        "[] => integer"
+      ]
+    },
+    "getPassiveEffects": {
+      "base_operations": 125,
+      "namespace": "Entity",
+      "signatures": [
+        "[integer?] => Array<Array<real | integer>>?",
+        "[] => Array<Array<real | integer>>"
+      ]
+    },
+    "getPath": {
+      "base_operations": 0,
+      "namespace": "Field",
+      "signatures": [
+        "[integer, integer, Array?] => Array<integer>?",
+        "[integer, integer] => Array<integer>?"
+      ]
+    },
+    "getPathLength": {
+      "base_operations": 0,
+      "namespace": "Field",
+      "signatures": [
+        "[integer, integer, Array?] => integer?",
+        "[integer, integer] => integer?"
+      ]
+    },
+    "getPlantTrigger": {
+      "base_operations": 15,
+      "namespace": "Entity",
+      "signatures": [
+        "[] => integer"
+      ]
+    },
+    "getPlantType": {
+      "base_operations": 15,
+      "namespace": "Entity",
+      "signatures": [
+        "[integer?] => integer?",
+        "[] => integer"
+      ]
+    },
+    "getPower": {
+      "base_operations": 15,
+      "namespace": "Entity",
+      "signatures": [
+        "[integer?] => integer?",
+        "[] => integer"
+      ]
+    },
+    "getPreviousPlayer": {
+      "base_operations": 20,
+      "namespace": "Fight",
+      "signatures": [
+        "[integer?] => integer?",
+        "[] => integer"
+      ]
+    },
+    "getRAM": {
+      "base_operations": 15,
+      "namespace": "Entity",
+      "signatures": [
+        "[integer?] => integer?",
+        "[] => integer"
+      ]
+    },
+    "getRed": {
+      "base_operations": 2,
+      "namespace": "Color",
+      "signatures": [
+        "[integer] => integer"
+      ]
+    },
+    "getRegister": {
+      "base_operations": 15,
+      "namespace": "Util",
+      "signatures": [
+        "[string] => string?"
+      ]
+    },
+    "getRegisters": {
+      "base_operations": 25,
+      "namespace": "Util",
+      "signatures": [
+        "[] => Map<string, string>"
+      ]
+    },
+    "getRelativeShield": {
+      "base_operations": 15,
+      "namespace": "Entity",
+      "signatures": [
+        "[integer?] => integer?",
+        "[] => integer"
+      ]
+    },
+    "getResistance": {
+      "base_operations": 15,
+      "namespace": "Entity",
+      "signatures": [
+        "[integer?] => integer?",
+        "[] => integer"
+      ]
+    },
+    "getScience": {
+      "base_operations": 15,
+      "namespace": "Entity",
+      "signatures": [
+        "[integer?] => integer?",
+        "[] => integer"
+      ]
+    },
+    "getSide": {
+      "base_operations": 5,
+      "namespace": "Entity",
+      "signatures": [
+        "[integer?] => integer?",
+        "[] => integer"
+      ]
+    },
+    "getStat": {
+      "base_operations": 15,
+      "namespace": "Entity",
+      "signatures": [
+        "[integer?, integer] => integer?",
+        "[integer] => integer"
+      ]
+    },
+    "getStates": {
+      "base_operations": 25,
+      "namespace": "Entity",
+      "signatures": [
+        "[integer] => Set<integer>?",
+        "[] => Set<integer>"
+      ]
+    },
+    "getStats": {
+      "base_operations": 40,
+      "namespace": "Entity",
+      "signatures": [
+        "[integer?] => Map<integer, integer>?",
+        "[] => Map<integer, integer>"
+      ]
+    },
+    "getStrength": {
+      "base_operations": 15,
+      "namespace": "Entity",
+      "signatures": [
+        "[integer?] => integer?",
+        "[] => integer"
+      ]
+    },
+    "getSummoner": {
+      "base_operations": 15,
+      "namespace": "Entity",
+      "signatures": [
+        "[integer?] => integer?",
+        "[] => integer"
+      ]
+    },
+    "getSummons": {
+      "base_operations": 15,
+      "namespace": "Entity",
+      "signatures": [
+        "[integer?] => Array<integer>",
+        "[] => Array<integer>"
+      ]
+    },
+    "getTP": {
+      "base_operations": 15,
+      "namespace": "Entity",
+      "signatures": [
+        "[integer?] => integer?",
+        "[] => integer"
+      ]
+    },
+    "getTeamID": {
+      "base_operations": 15,
+      "namespace": "Entity",
+      "signatures": [
+        "[integer?] => integer?",
+        "[] => integer"
+      ]
+    },
+    "getTeamName": {
+      "base_operations": 15,
+      "namespace": "Entity",
+      "signatures": [
+        "[integer?] => string?",
+        "[] => string"
+      ]
+    },
+    "getTime": {
+      "base_operations": 50,
+      "namespace": "System",
+      "signatures": [
+        "[] => string"
+      ]
+    },
+    "getTimestamp": {
+      "base_operations": 5,
+      "namespace": "System",
+      "signatures": [
+        "[] => integer"
+      ]
+    },
+    "getTotalLife": {
+      "base_operations": 15,
+      "namespace": "Entity",
+      "signatures": [
+        "[integer?] => integer?",
+        "[] => integer"
+      ]
+    },
+    "getTotalMP": {
+      "base_operations": 15,
+      "namespace": "Entity",
+      "signatures": [
+        "[integer?] => integer?",
+        "[] => integer"
+      ]
+    },
+    "getTotalTP": {
+      "base_operations": 15,
+      "namespace": "Entity",
+      "signatures": [
+        "[integer?] => integer?",
+        "[] => integer"
+      ]
+    },
+    "getTurn": {
+      "base_operations": 15,
+      "namespace": "Fight",
+      "signatures": [
+        "[] => integer"
+      ]
+    },
+    "getType": {
+      "base_operations": 15,
+      "namespace": "Entity",
+      "signatures": [
+        "[integer?] => integer?",
+        "[] => integer"
+      ]
+    },
+    "getUsedRAM": {
+      "base_operations": 1,
+      "namespace": "System",
+      "signatures": [
+        "[] => integer"
+      ]
+    },
+    "getWeapon": {
+      "base_operations": 15,
+      "namespace": "Entity",
+      "signatures": [
+        "[integer?] => integer?",
+        "[] => integer?"
+      ]
+    },
+    "getWeaponArea": {
+      "base_operations": 15,
+      "namespace": "Weapon",
+      "signatures": [
+        "[integer] => integer?"
+      ]
+    },
+    "getWeaponCost": {
+      "base_operations": 15,
+      "namespace": "Weapon",
+      "signatures": [
+        "[integer] => integer",
+        "[] => integer"
+      ]
+    },
+    "getWeaponEffectiveArea": {
+      "base_operations": 78,
+      "namespace": "Weapon",
+      "signatures": [
+        "[integer, integer?, integer?] => Array<integer>?",
+        "[integer, integer?] => Array<integer>?",
+        "[integer] => Array<integer>?"
+      ]
+    },
+    "getWeaponEffects": {
+      "base_operations": 125,
+      "namespace": "Weapon",
+      "signatures": [
+        "[integer] => Array<Array<real | integer>>?",
+        "[] => Array<Array<real | integer>>?"
+      ]
+    },
+    "getWeaponFailure": {
+      "base_operations": 15,
+      "namespace": "Weapon",
+      "signatures": [
+        "[integer] => integer",
+        "[] => integer"
+      ]
+    },
+    "getWeaponLaunchType": {
+      "base_operations": 15,
+      "namespace": "Weapon",
+      "signatures": [
+        "[integer] => integer?",
+        "[] => integer?"
+      ]
+    },
+    "getWeaponMaxRange": {
+      "base_operations": 15,
+      "namespace": "Weapon",
+      "signatures": [
+        "[integer] => integer",
+        "[] => integer"
+      ]
+    },
+    "getWeaponMaxUses": {
+      "base_operations": 15,
+      "namespace": "Weapon",
+      "signatures": [
+        "[integer] => integer",
+        "[] => integer"
+      ]
+    },
+    "getWeaponMinRange": {
+      "base_operations": 15,
+      "namespace": "Weapon",
+      "signatures": [
+        "[integer] => integer",
+        "[] => integer"
+      ]
+    },
+    "getWeaponName": {
+      "base_operations": 15,
+      "namespace": "Weapon",
+      "signatures": [
+        "[integer] => string",
+        "[] => string"
+      ]
+    },
+    "getWeaponPassiveEffects": {
+      "base_operations": 125,
+      "namespace": "Weapon",
+      "signatures": [
+        "[integer] => Array<Array<real | integer>>",
+        "[] => Array<Array<real | integer>>"
+      ]
+    },
+    "getWeaponTargets": {
+      "base_operations": 40,
+      "namespace": "Weapon",
+      "signatures": [
+        "[integer, integer?] => Array<integer>?",
+        "[integer] => Array<integer>?"
+      ]
+    },
+    "getWeapons": {
+      "base_operations": 50,
+      "namespace": "Entity",
+      "signatures": [
+        "[integer?] => Array<integer>?",
+        "[] => Array<integer>"
+      ]
+    },
+    "getWinner": {
+      "base_operations": 5,
+      "namespace": "Fight",
+      "signatures": [
+        "[] => integer"
+      ]
+    },
+    "getWisdom": {
+      "base_operations": 15,
+      "namespace": "Entity",
+      "signatures": [
+        "[integer?] => integer?",
+        "[] => integer"
+      ]
+    },
+    "hexString": {
+      "base_operations": 6,
+      "namespace": "Number",
+      "signatures": [
+        "[integer] => string",
+        "[big_integer] => string"
+      ]
+    },
+    "hypot": {
+      "base_operations": 2,
+      "namespace": "Number",
+      "signatures": [
+        "[real, real] => real"
+      ]
+    },
+    "inArray": {
+      "base_operations": 0,
+      "namespace": "Array",
+      "signatures": [
+        "[Array, any] => boolean"
+      ]
+    },
+    "indexOf": {
+      "base_operations": 0,
+      "namespace": "String",
+      "signatures": [
+        "[string, string, integer] => integer",
+        "[string, string] => integer"
+      ]
+    },
+    "insert": {
+      "base_operations": 0,
+      "namespace": "Array",
+      "signatures": [
+        "[Array, any, integer] => void"
+      ]
+    },
+    "intervalAverage": {
+      "base_operations": 3,
+      "namespace": "Interval",
+      "signatures": [
+        "[Interval] => real"
+      ]
+    },
+    "intervalCombine": {
+      "base_operations": 3,
+      "namespace": "Interval",
+      "signatures": [
+        "[Interval<real>, Interval<real>] => Interval<real>",
+        "[Interval<integer>, Interval<real>] => Interval<real>",
+        "[Interval<real>, Interval<integer>] => Interval<real>",
+        "[Interval<integer>, Interval<integer>] => Interval<integer>"
+      ]
+    },
+    "intervalContains": {
+      "base_operations": 2,
+      "namespace": "Interval",
+      "signatures": [
+        "[Interval, integer] => boolean",
+        "[Interval, real] => boolean",
+        "[Interval, real | integer] => boolean"
+      ]
+    },
+    "intervalIntersection": {
+      "base_operations": 3,
+      "namespace": "Interval",
+      "signatures": [
+        "[Interval<real>, Interval<real>] => Interval<real>",
+        "[Interval<integer>, Interval<real>] => Interval<real>",
+        "[Interval<real>, Interval<integer>] => Interval<real>",
+        "[Interval<integer>, Interval<integer>] => Interval<integer>"
+      ]
+    },
+    "intervalIsBounded": {
+      "base_operations": 1,
+      "namespace": "Interval",
+      "signatures": [
+        "[Interval] => boolean"
+      ]
+    },
+    "intervalIsClosed": {
+      "base_operations": 1,
+      "namespace": "Interval",
+      "signatures": [
+        "[Interval] => boolean"
+      ]
+    },
+    "intervalIsEmpty": {
+      "base_operations": 1,
+      "namespace": "Interval",
+      "signatures": [
+        "[Interval] => boolean"
+      ]
+    },
+    "intervalIsLeftBounded": {
+      "base_operations": 1,
+      "namespace": "Interval",
+      "signatures": [
+        "[Interval] => boolean"
+      ]
+    },
+    "intervalIsLeftClosed": {
+      "base_operations": 1,
+      "namespace": "Interval",
+      "signatures": [
+        "[Interval] => boolean"
+      ]
+    },
+    "intervalIsRightBounded": {
+      "base_operations": 1,
+      "namespace": "Interval",
+      "signatures": [
+        "[Interval] => boolean"
+      ]
+    },
+    "intervalIsRightClosed": {
+      "base_operations": 1,
+      "namespace": "Interval",
+      "signatures": [
+        "[Interval] => boolean"
+      ]
+    },
+    "intervalMax": {
+      "base_operations": 1,
+      "namespace": "Interval",
+      "signatures": [
+        "[Interval<real>] => real",
+        "[Interval<integer>] => integer"
+      ]
+    },
+    "intervalMin": {
+      "base_operations": 1,
+      "namespace": "Interval",
+      "signatures": [
+        "[Interval<real>] => real",
+        "[Interval<integer>] => integer"
+      ]
+    },
+    "intervalSize": {
+      "base_operations": 1,
+      "namespace": "Interval",
+      "signatures": [
+        "[Interval<real>] => real",
+        "[Interval<integer>] => integer"
+      ]
+    },
+    "intervalToArray": {
+      "base_operations": 0,
+      "namespace": "Interval",
+      "signatures": [
+        "[Interval<real>, real] => Array<real>",
+        "[Interval<real>] => Array<real>",
+        "[Interval<integer>, real] => Array<real>",
+        "[Interval<integer>, integer] => Array<integer>",
+        "[Interval<integer>] => Array<integer>"
+      ]
+    },
+    "intervalToSet": {
+      "base_operations": 0,
+      "namespace": "Interval",
+      "signatures": [
+        "[Interval<real>, real] => Set<real>",
+        "[Interval<real>] => Set<real>",
+        "[Interval<integer>, real] => Set<real>",
+        "[Interval<integer>, integer] => Set<integer>",
+        "[Interval<integer>] => Set<integer>"
+      ]
+    },
+    "isAlive": {
+      "base_operations": 15,
+      "namespace": "Entity",
+      "signatures": [
+        "[integer] => boolean"
+      ]
+    },
+    "isAlly": {
+      "base_operations": 15,
+      "namespace": "Entity",
+      "signatures": [
+        "[integer] => boolean"
+      ]
+    },
+    "isBatchFight": {
+      "base_operations": 10,
+      "namespace": "Fight",
+      "signatures": [
+        "[] => boolean"
+      ]
+    },
+    "isChip": {
+      "base_operations": 10,
+      "namespace": "Chip",
+      "signatures": [
+        "[integer] => boolean"
+      ]
+    },
+    "isDead": {
+      "base_operations": 15,
+      "namespace": "Entity",
+      "signatures": [
+        "[integer] => boolean"
+      ]
+    },
+    "isEmpty": {
+      "base_operations": 2,
+      "namespace": "Array",
+      "signatures": [
+        "[Array] => boolean"
+      ]
+    },
+    "isEmptyCell": {
+      "base_operations": 10,
+      "namespace": "Field",
+      "signatures": [
+        "[integer] => boolean"
+      ]
+    },
+    "isEnemy": {
+      "base_operations": 15,
+      "namespace": "Entity",
+      "signatures": [
+        "[integer] => boolean"
+      ]
+    },
+    "isEntity": {
+      "base_operations": 10,
+      "namespace": "Field",
+      "signatures": [
+        "[integer] => boolean"
+      ]
+    },
+    "isFinite": {
+      "base_operations": 1,
+      "namespace": "Number",
+      "signatures": [
+        "[real] => boolean"
+      ]
+    },
+    "isInfinite": {
+      "base_operations": 1,
+      "namespace": "Number",
+      "signatures": [
+        "[real] => boolean"
+      ]
+    },
+    "isInlineChip": {
+      "base_operations": 10,
+      "namespace": "Chip",
+      "signatures": [
+        "[integer] => boolean"
+      ]
+    },
+    "isInlineWeapon": {
+      "base_operations": 10,
+      "namespace": "Weapon",
+      "signatures": [
+        "[integer] => boolean",
+        "[] => boolean"
+      ]
+    },
+    "isNaN": {
+      "base_operations": 1,
+      "namespace": "Number",
+      "signatures": [
+        "[real] => boolean"
+      ]
+    },
+    "isObstacle": {
+      "base_operations": 10,
+      "namespace": "Field",
+      "signatures": [
+        "[integer] => boolean"
+      ]
+    },
+    "isOnSameLine": {
+      "base_operations": 15,
+      "namespace": "Field",
+      "signatures": [
+        "[integer, integer] => boolean"
+      ]
+    },
+    "isPermutation": {
+      "base_operations": 10,
+      "namespace": "Number",
+      "signatures": [
+        "[integer, integer] => boolean"
+      ]
+    },
+    "isStatic": {
+      "base_operations": 15,
+      "namespace": "Entity",
+      "signatures": [
+        "[integer?] => boolean",
+        "[] => boolean"
+      ]
+    },
+    "isSummon": {
+      "base_operations": 10,
+      "namespace": "Entity",
+      "signatures": [
+        "[integer?] => boolean?",
+        "[] => boolean"
+      ]
+    },
+    "isWeapon": {
+      "base_operations": 15,
+      "namespace": "Weapon",
+      "signatures": [
+        "[integer] => boolean"
+      ]
+    },
+    "join": {
+      "base_operations": 0,
+      "namespace": "Array",
+      "signatures": [
+        "[Array, string] => string"
+      ]
+    },
+    "jsonDecode": {
+      "base_operations": 0,
+      "namespace": "JSON",
+      "signatures": [
+        "[string] => any"
+      ]
+    },
+    "jsonEncode": {
+      "base_operations": 0,
+      "namespace": "JSON",
+      "signatures": [
+        "[any] => string"
+      ]
+    },
+    "lama": {
+      "base_operations": 30,
+      "namespace": "Entity",
+      "signatures": [
+        "[] => void"
+      ]
+    },
+    "leadingZeros": {
+      "base_operations": 1,
+      "namespace": "Number",
+      "signatures": [
+        "[integer] => integer"
+      ]
+    },
+    "length": {
+      "base_operations": 1,
+      "namespace": "String",
+      "signatures": [
+        "[string] => integer"
+      ]
+    },
+    "lineOfSight": {
+      "base_operations": 31,
+      "namespace": "Field",
+      "signatures": [
+        "[integer, integer, null | Array<integer> | integer] => boolean?",
+        "[integer, integer] => boolean?"
+      ]
+    },
+    "listen": {
+      "base_operations": 78,
+      "namespace": "Entity",
+      "signatures": [
+        "[] => Array<Array>"
+      ]
+    },
+    "log": {
+      "base_operations": 4,
+      "namespace": "Number",
+      "signatures": [
+        "[real] => real"
+      ]
+    },
+    "log10": {
+      "base_operations": 5,
+      "namespace": "Number",
+      "signatures": [
+        "[real] => real"
+      ]
+    },
+    "log2": {
+      "base_operations": 5,
+      "namespace": "Number",
+      "signatures": [
+        "[real] => real"
+      ]
+    },
+    "mapAverage": {
+      "base_operations": 0,
+      "namespace": "Map",
+      "signatures": [
+        "[Map] => real"
+      ]
+    },
+    "mapClear": {
+      "base_operations": 1,
+      "namespace": "Map",
+      "signatures": [
+        "[Map] => Map"
+      ]
+    },
+    "mapContains": {
+      "base_operations": 0,
+      "namespace": "Map",
+      "signatures": [
+        "[Map, any] => boolean"
+      ]
+    },
+    "mapContainsKey": {
+      "base_operations": 1,
+      "namespace": "Map",
+      "signatures": [
+        "[Map, any] => boolean"
+      ]
+    },
+    "mapEvery": {
+      "base_operations": 0,
+      "namespace": "Map",
+      "signatures": [
+        "[Map, Function<any, any, Map => any>] => boolean"
+      ]
+    },
+    "mapFill": {
+      "base_operations": 0,
+      "namespace": "Map",
+      "signatures": [
+        "[Map, any] => void"
+      ]
+    },
+    "mapFilter": {
+      "base_operations": 0,
+      "namespace": "Map",
+      "signatures": [
+        "[Map, Function<any, any, Map => boolean>] => Map"
+      ]
+    },
+    "mapFold": {
+      "base_operations": 0,
+      "namespace": "Map",
+      "signatures": [
+        "[Map, Function<any, any, any, Map => any>, any] => any"
+      ]
+    },
+    "mapGet": {
+      "base_operations": 2,
+      "namespace": "Map",
+      "signatures": [
+        "[Map, any, any] => any",
+        "[Map, any] => any"
+      ]
+    },
+    "mapIsEmpty": {
+      "base_operations": 2,
+      "namespace": "Map",
+      "signatures": [
+        "[Map] => boolean"
+      ]
+    },
+    "mapIter": {
+      "base_operations": 0,
+      "namespace": "Map",
+      "signatures": [
+        "[Map, Function<any, any, Map => any>] => void"
+      ]
+    },
+    "mapKeys": {
+      "base_operations": 0,
+      "namespace": "Map",
+      "signatures": [
+        "[Map] => Array"
+      ]
+    },
+    "mapMap": {
+      "base_operations": 0,
+      "namespace": "Map",
+      "signatures": [
+        "[Map, Function<any, any, Map => any>] => Map"
+      ]
+    },
+    "mapMax": {
+      "base_operations": 0,
+      "namespace": "Map",
+      "signatures": [
+        "[Map] => any"
+      ]
+    },
+    "mapMerge": {
+      "base_operations": 0,
+      "namespace": "Map",
+      "signatures": [
+        "[Map, Map] => any"
+      ]
+    },
+    "mapMin": {
+      "base_operations": 0,
+      "namespace": "Map",
+      "signatures": [
+        "[Map] => any"
+      ]
+    },
+    "mapPut": {
+      "base_operations": 3,
+      "namespace": "Map",
+      "signatures": [
+        "[Map, any, any] => any"
+      ]
+    },
+    "mapPutAll": {
+      "base_operations": 0,
+      "namespace": "Map",
+      "signatures": [
+        "[Map, Map] => void"
+      ]
+    },
+    "mapRemove": {
+      "base_operations": 2,
+      "namespace": "Map",
+      "signatures": [
+        "[Map, any] => any"
+      ]
+    },
+    "mapRemoveAll": {
+      "base_operations": 0,
+      "namespace": "Map",
+      "signatures": [
+        "[Map, any] => void"
+      ]
+    },
+    "mapReplace": {
+      "base_operations": 3,
+      "namespace": "Map",
+      "signatures": [
+        "[Map, any, any] => any"
+      ]
+    },
+    "mapReplaceAll": {
+      "base_operations": 0,
+      "namespace": "Map",
+      "signatures": [
+        "[Map, Map] => void"
+      ]
+    },
+    "mapSearch": {
+      "base_operations": 0,
+      "namespace": "Map",
+      "signatures": [
+        "[Map, any] => any"
+      ]
+    },
+    "mapSize": {
+      "base_operations": 1,
+      "namespace": "Map",
+      "signatures": [
+        "[Map] => integer"
+      ]
+    },
+    "mapSome": {
+      "base_operations": 0,
+      "namespace": "Map",
+      "signatures": [
+        "[Map, Function<any, any, Map => any>] => boolean"
+      ]
+    },
+    "mapSum": {
+      "base_operations": 0,
+      "namespace": "Map",
+      "signatures": [
+        "[Map] => real"
+      ]
+    },
+    "mapValues": {
+      "base_operations": 0,
+      "namespace": "Map",
+      "signatures": [
+        "[Map] => Array"
+      ]
+    },
+    "mark": {
+      "base_operations": 164,
+      "namespace": "Util",
+      "signatures": [
+        "[Array<integer> | integer, integer, integer] => boolean",
+        "[Array<integer> | integer, integer] => boolean",
+        "[Array<integer> | integer] => boolean"
+      ]
+    },
+    "markText": {
+      "base_operations": 164,
+      "namespace": "Util",
+      "signatures": [
+        "[Array<integer> | integer, any, integer, integer] => boolean",
+        "[Array<integer> | integer, any, integer] => boolean",
+        "[Array<integer> | integer, any] => boolean",
+        "[Array<integer> | integer] => boolean"
+      ]
+    },
+    "max": {
+      "base_operations": 1,
+      "namespace": "Number",
+      "signatures": [
+        "[real, real] => real",
+        "[integer, integer] => integer",
+        "[big_integer, big_integer] => big_integer"
+      ]
+    },
+    "min": {
+      "base_operations": 1,
+      "namespace": "Number",
+      "signatures": [
+        "[real, real] => real",
+        "[integer, integer] => integer",
+        "[big_integer, big_integer] => big_integer"
+      ]
+    },
+    "moveAwayFrom": {
+      "base_operations": 500,
+      "namespace": "Fight",
+      "signatures": [
+        "[integer, integer] => integer",
+        "[integer] => integer"
+      ]
+    },
+    "moveAwayFromCell": {
+      "base_operations": 500,
+      "namespace": "Fight",
+      "signatures": [
+        "[integer, integer] => integer",
+        "[integer] => integer"
+      ]
+    },
+    "moveAwayFromCells": {
+      "base_operations": 500,
+      "namespace": "Fight",
+      "signatures": [
+        "[Array<integer>, integer] => integer",
+        "[Array<integer>] => integer"
+      ]
+    },
+    "moveAwayFromEntities": {
+      "base_operations": 500,
+      "namespace": "Fight",
+      "signatures": [
+        "[Array<integer>, integer] => integer",
+        "[Array<integer>] => integer"
+      ]
+    },
+    "moveAwayFromLeeks": {
+      "base_operations": 500,
+      "namespace": "Fight",
+      "signatures": [
+        "[Array<integer>, integer] => integer",
+        "[Array<integer>] => integer"
+      ]
+    },
+    "moveAwayFromLine": {
+      "base_operations": 500,
+      "namespace": "Fight",
+      "signatures": [
+        "[integer, integer, integer] => integer",
+        "[integer, integer] => integer"
+      ]
+    },
+    "moveToward": {
+      "base_operations": 500,
+      "namespace": "Fight",
+      "signatures": [
+        "[integer, integer] => integer",
+        "[integer] => integer"
+      ]
+    },
+    "moveTowardCell": {
+      "base_operations": 500,
+      "namespace": "Fight",
+      "signatures": [
+        "[integer, integer] => integer",
+        "[integer] => integer"
+      ]
+    },
+    "moveTowardCells": {
+      "base_operations": 500,
+      "namespace": "Fight",
+      "signatures": [
+        "[Array<integer>, integer] => integer",
+        "[Array<integer>] => integer"
+      ]
+    },
+    "moveTowardEntities": {
+      "base_operations": 500,
+      "namespace": "Fight",
+      "signatures": [
+        "[Array<integer>, integer] => integer",
+        "[Array<integer>] => integer"
+      ]
+    },
+    "moveTowardLeeks": {
+      "base_operations": 500,
+      "namespace": "Fight",
+      "signatures": [
+        "[Array<integer>, integer] => integer",
+        "[Array<integer>] => integer"
+      ]
+    },
+    "moveTowardLine": {
+      "base_operations": 500,
+      "namespace": "Fight",
+      "signatures": [
+        "[integer, integer, integer] => integer",
+        "[integer, integer] => integer"
+      ]
+    },
+    "number": {
+      "base_operations": 3,
+      "namespace": "Value",
+      "signatures": [
+        "[any] => real | integer"
+      ]
+    },
+    "pause": {
+      "base_operations": 30,
+      "namespace": "Util",
+      "signatures": [
+        "[] => void"
+      ]
+    },
+    "pop": {
+      "base_operations": 2,
+      "namespace": "Array",
+      "signatures": [
+        "[Array] => any"
+      ]
+    },
+    "pow": {
+      "base_operations": 7,
+      "namespace": "Number",
+      "signatures": [
+        "[real, real] => real",
+        "[big_integer, big_integer] => big_integer"
+      ]
+    },
+    "push": {
+      "base_operations": 2,
+      "namespace": "Array",
+      "signatures": [
+        "[Array, any] => void"
+      ]
+    },
+    "pushAll": {
+      "base_operations": 0,
+      "namespace": "Array",
+      "signatures": [
+        "[Array, Array] => void"
+      ]
+    },
+    "rand": {
+      "base_operations": 3,
+      "namespace": "Number",
+      "signatures": [
+        "[] => real"
+      ]
+    },
+    "randInt": {
+      "base_operations": 2,
+      "namespace": "Number",
+      "signatures": [
+        "[integer, integer] => integer"
+      ]
+    },
+    "randReal": {
+      "base_operations": 3,
+      "namespace": "Number",
+      "signatures": [
+        "[real, real] => real"
+      ]
+    },
+    "realBits": {
+      "base_operations": 1,
+      "namespace": "Number",
+      "signatures": [
+        "[real] => integer"
+      ]
+    },
+    "remove": {
+      "base_operations": 0,
+      "namespace": "Array",
+      "signatures": [
+        "[Array, integer] => any"
+      ]
+    },
+    "removeElement": {
+      "base_operations": 0,
+      "namespace": "Array",
+      "signatures": [
+        "[Array, any] => void"
+      ]
+    },
+    "replace": {
+      "base_operations": 0,
+      "namespace": "String",
+      "signatures": [
+        "[string, string, string] => string"
+      ]
+    },
+    "resurrect": {
+      "base_operations": 500,
+      "namespace": "Chip",
+      "signatures": [
+        "[integer, integer] => integer"
+      ]
+    },
+    "reverse": {
+      "base_operations": 0,
+      "namespace": "Array",
+      "signatures": [
+        "[Array] => void"
+      ]
+    },
+    "rotateLeft": {
+      "base_operations": 1,
+      "namespace": "Number",
+      "signatures": [
+        "[integer, integer] => integer"
+      ]
+    },
+    "rotateRight": {
+      "base_operations": 1,
+      "namespace": "Number",
+      "signatures": [
+        "[integer, integer] => integer"
+      ]
+    },
+    "round": {
+      "base_operations": 1,
+      "namespace": "Number",
+      "signatures": [
+        "[real] => integer",
+        "[integer] => integer"
+      ]
+    },
+    "say": {
+      "base_operations": 30,
+      "namespace": "Entity",
+      "signatures": [
+        "[any] => boolean"
+      ]
+    },
+    "search": {
+      "base_operations": 0,
+      "namespace": "Array",
+      "signatures": [
+        "[Array, any, integer] => any",
+        "[Array, any] => any"
+      ]
+    },
+    "sendAll": {
+      "base_operations": 40,
+      "namespace": "Network",
+      "signatures": [
+        "[integer, any] => void"
+      ]
+    },
+    "sendTo": {
+      "base_operations": 15,
+      "namespace": "Network",
+      "signatures": [
+        "[integer, integer, any] => boolean"
+      ]
+    },
+    "setBit": {
+      "base_operations": 1,
+      "namespace": "Number",
+      "signatures": [
+        "[integer, integer] => integer",
+        "[integer, integer, integer] => integer",
+        "[integer, integer, boolean] => integer",
+        "[big_integer, integer] => big_integer",
+        "[big_integer, integer, integer] => big_integer",
+        "[big_integer, integer, boolean] => big_integer"
+      ]
+    },
+    "setClear": {
+      "base_operations": 1,
+      "namespace": "Set",
+      "signatures": [
+        "[Set] => Set"
+      ]
+    },
+    "setContains": {
+      "base_operations": 1,
+      "namespace": "Set",
+      "signatures": [
+        "[Set, any] => boolean"
+      ]
+    },
+    "setDifference": {
+      "base_operations": 0,
+      "namespace": "Set",
+      "signatures": [
+        "[Set, Set] => Set"
+      ]
+    },
+    "setDisjunction": {
+      "base_operations": 0,
+      "namespace": "Set",
+      "signatures": [
+        "[Set, Set] => Set"
+      ]
+    },
+    "setFilter": {
+      "base_operations": 0,
+      "namespace": "Set",
+      "signatures": [
+        "[Set, Function<any, Set => boolean>] => Set"
+      ]
+    },
+    "setIntersection": {
+      "base_operations": 0,
+      "namespace": "Set",
+      "signatures": [
+        "[Set, Set] => Set"
+      ]
+    },
+    "setIsEmpty": {
+      "base_operations": 1,
+      "namespace": "Set",
+      "signatures": [
+        "[Set] => boolean"
+      ]
+    },
+    "setIsSubsetOf": {
+      "base_operations": 0,
+      "namespace": "Set",
+      "signatures": [
+        "[Set, Set] => boolean"
+      ]
+    },
+    "setLoadout": {
+      "base_operations": 100,
+      "namespace": "Fight",
+      "signatures": [
+        "[string] => boolean",
+        "[string, boolean] => boolean"
+      ]
+    },
+    "setPut": {
+      "base_operations": 3,
+      "namespace": "Set",
+      "signatures": [
+        "[Set, any] => boolean"
+      ]
+    },
+    "setRegister": {
+      "base_operations": 50,
+      "namespace": "Util",
+      "signatures": [
+        "[string, any] => boolean"
+      ]
+    },
+    "setRemove": {
+      "base_operations": 2,
+      "namespace": "Set",
+      "signatures": [
+        "[Set, any] => boolean"
+      ]
+    },
+    "setSize": {
+      "base_operations": 1,
+      "namespace": "Set",
+      "signatures": [
+        "[Set] => integer"
+      ]
+    },
+    "setToArray": {
+      "base_operations": 0,
+      "namespace": "Set",
+      "signatures": [
+        "[Set] => Array"
+      ]
+    },
+    "setUnion": {
+      "base_operations": 0,
+      "namespace": "Set",
+      "signatures": [
+        "[Set, Set] => Set"
+      ]
+    },
+    "setWeapon": {
+      "base_operations": 15,
+      "namespace": "Entity",
+      "signatures": [
+        "[integer] => boolean"
+      ]
+    },
+    "shift": {
+      "base_operations": 0,
+      "namespace": "Array",
+      "signatures": [
+        "[Array] => any"
+      ]
+    },
+    "show": {
+      "base_operations": 0,
+      "namespace": "Util",
+      "signatures": [
+        "[integer, integer] => boolean",
+        "[integer] => boolean"
+      ]
+    },
+    "shuffle": {
+      "base_operations": 0,
+      "namespace": "Array",
+      "signatures": [
+        "[Array] => void"
+      ]
+    },
+    "signum": {
+      "base_operations": 1,
+      "namespace": "Number",
+      "signatures": [
+        "[real] => integer",
+        "[integer] => integer",
+        "[big_integer] => integer"
+      ]
+    },
+    "sin": {
+      "base_operations": 3,
+      "namespace": "Number",
+      "signatures": [
+        "[real] => real"
+      ]
+    },
+    "sort": {
+      "base_operations": 0,
+      "namespace": "Array",
+      "signatures": [
+        "[Array, integer] => void",
+        "[Array] => void"
+      ]
+    },
+    "split": {
+      "base_operations": 0,
+      "namespace": "String",
+      "signatures": [
+        "[string, string, integer] => Array<string>",
+        "[string, string] => Array<string>"
+      ]
+    },
+    "sqrt": {
+      "base_operations": 3,
+      "namespace": "Number",
+      "signatures": [
+        "[real] => real"
+      ]
+    },
+    "startsWith": {
+      "base_operations": 0,
+      "namespace": "String",
+      "signatures": [
+        "[string, string] => boolean"
+      ]
+    },
+    "string": {
+      "base_operations": 6,
+      "namespace": "Value",
+      "signatures": [
+        "[any] => string"
+      ]
+    },
+    "substring": {
+      "base_operations": 0,
+      "namespace": "String",
+      "signatures": [
+        "[string, integer, integer] => string",
+        "[string, integer] => string"
+      ]
+    },
+    "sum": {
+      "base_operations": 0,
+      "namespace": "Array",
+      "signatures": [
+        "[Array] => real"
+      ]
+    },
+    "summon": {
+      "base_operations": 1750,
+      "namespace": "Chip",
+      "signatures": [
+        "[integer, integer, Function< => any>, string] => integer",
+        "[integer, integer, Function< => any>] => integer"
+      ]
+    },
+    "tan": {
+      "base_operations": 4,
+      "namespace": "Number",
+      "signatures": [
+        "[real] => real"
+      ]
+    },
+    "testBit": {
+      "base_operations": 1,
+      "namespace": "Number",
+      "signatures": [
+        "[integer, integer] => boolean",
+        "[big_integer, integer] => boolean"
+      ]
+    },
+    "toDegrees": {
+      "base_operations": 3,
+      "namespace": "Number",
+      "signatures": [
+        "[real] => real"
+      ]
+    },
+    "toFixed": {
+      "base_operations": 40,
+      "namespace": "Number",
+      "signatures": [
+        "[real, integer] => string",
+        "[integer, integer] => string",
+        "[big_integer, integer] => string"
+      ]
+    },
+    "toLower": {
+      "base_operations": 0,
+      "namespace": "String",
+      "signatures": [
+        "[string] => string"
+      ]
+    },
+    "toRadians": {
+      "base_operations": 3,
+      "namespace": "Number",
+      "signatures": [
+        "[real] => real"
+      ]
+    },
+    "toUpper": {
+      "base_operations": 0,
+      "namespace": "String",
+      "signatures": [
+        "[string] => string"
+      ]
+    },
+    "trailingZeros": {
+      "base_operations": 1,
+      "namespace": "Number",
+      "signatures": [
+        "[integer] => integer",
+        "[big_integer] => integer"
+      ]
+    },
+    "trim": {
+      "base_operations": 5,
+      "namespace": "String",
+      "signatures": [
+        "[string] => string"
+      ]
+    },
+    "typeOf": {
+      "base_operations": 1,
+      "namespace": "Value",
+      "signatures": [
+        "[any] => integer"
+      ]
+    },
+    "unknown": {
+      "base_operations": 100,
+      "namespace": "Value",
+      "signatures": [
+        "[any] => any"
+      ]
+    },
+    "unshift": {
+      "base_operations": 0,
+      "namespace": "Array",
+      "signatures": [
+        "[Array, any] => void"
+      ]
+    },
+    "useChip": {
+      "base_operations": 3000,
+      "namespace": "Chip",
+      "signatures": [
+        "[integer, integer] => integer",
+        "[integer] => integer"
+      ]
+    },
+    "useChipOnCell": {
+      "base_operations": 3000,
+      "namespace": "Chip",
+      "signatures": [
+        "[integer, integer] => integer"
+      ]
+    },
+    "useWeapon": {
+      "base_operations": 3000,
+      "namespace": "Weapon",
+      "signatures": [
+        "[integer] => integer"
+      ]
+    },
+    "useWeaponOnCell": {
+      "base_operations": 3000,
+      "namespace": "Weapon",
+      "signatures": [
+        "[integer] => integer"
+      ]
+    },
+    "weaponNeedLos": {
+      "base_operations": 10,
+      "namespace": "Weapon",
+      "signatures": [
+        "[integer] => boolean",
+        "[] => boolean"
+      ]
+    }
+  },
+  "constants": {
+    "MAX_TURNS": 64.0,
+    "CELL_EMPTY": "0.0",
+    "CELL_PLAYER": "1.0",
+    "CELL_ENTITY": 1.0,
+    "CELL_OBSTACLE": "2.0",
+    "ENTITY_LEEK": 1.0,
+    "ENTITY_BULB": 2.0,
+    "ENTITY_TURRET": 3.0,
+    "ENTITY_CHEST": 4.0,
+    "ENTITY_MOB": 5.0,
+    "ENTITY_PLANT": 6.0,
+    "BULB_PUNY": 1.0,
+    "BULB_FIRE": 2.0,
+    "BULB_HEALER": 3.0,
+    "BULB_ROCKY": 4.0,
+    "BULB_ICED": 5.0,
+    "BULB_LIGHTNING": 6.0,
+    "BULB_METALLIC": 7.0,
+    "BULB_WIZARD": 8.0,
+    "BULB_TACTICIAN": 11.0,
+    "BULB_SAVANT": 12.0,
+    "PLANT_CORN": 9.0,
+    "PLANT_CHILLI_PEPPER": 10.0,
+    "PLANT_PROTOTAXITE": 13.0,
+    "EFFECT_TARGET_ALLIES": 2.0,
+    "EFFECT_TARGET_ENEMIES": 1.0,
+    "EFFECT_TARGET_CASTER": 4.0,
+    "EFFECT_TARGET_NOT_CASTER": 0.0,
+    "EFFECT_TARGET_NON_SUMMONS": 8.0,
+    "EFFECT_TARGET_SUMMONS": 16.0,
+    "EFFECT_TARGET_ALWAYS_CASTER": 0.0,
+    "EFFECT_MODIFIER_STACKABLE": 1.0,
+    "EFFECT_MODIFIER_MULTIPLIED_BY_TARGETS": 2.0,
+    "EFFECT_MODIFIER_ON_CASTER": 4.0,
+    "EFFECT_MODIFIER_NOT_REPLACEABLE": 8.0,
+    "EFFECT_MODIFIER_IRREDUCTIBLE": 16.0,
+    "EFFECT_DAMAGE": 1.0,
+    "EFFECT_HEAL": 2.0,
+    "EFFECT_FORCE": 3.0,
+    "EFFECT_AGILITY": 4.0,
+    "EFFECT_RELATIVE_SHIELD": 5.0,
+    "EFFECT_ABSOLUTE_SHIELD": 6.0,
+    "EFFECT_MP": 7.0,
+    "EFFECT_TP": 8.0,
+    "EFFECT_TELEPORT": 10.0,
+    "EFFECT_INVERT": 11.0,
+    "EFFECT_RESURRECT": 15.0,
+    "EFFECT_BUFF_DAMAGE": 1.0,
+    "EFFECT_BUFF_HEAL": 2.0,
+    "EFFECT_BUFF_FORCE": 3.0,
+    "EFFECT_BUFF_STRENGTH": 3.0,
+    "EFFECT_BUFF_AGILITY": 4.0,
+    "EFFECT_BUFF_RELATIVE_SHIELD": 5.0,
+    "EFFECT_BUFF_ABSOLUTE_SHIELD": 6.0,
+    "EFFECT_BUFF_MP": 7.0,
+    "EFFECT_BUFF_TP": 8.0,
+    "EFFECT_BUFF_DEBUFF": 9.0,
+    "EFFECT_BUFF_TELEPORTATION": 10.0,
+    "EFFECT_BOOST_MAX_LIFE": 12.0,
+    "EFFECT_POISON": 13.0,
+    "EFFECT_SUMMON": 14.0,
+    "EFFECT_DEBUFF": 9.0,
+    "EFFECT_KILL": 16.0,
+    "EFFECT_SHACKLE_MP": 17.0,
+    "EFFECT_SHACKLE_TP": 18.0,
+    "EFFECT_SHACKLE_STRENGTH": 19.0,
+    "EFFECT_DAMAGE_RETURN": 20.0,
+    "EFFECT_BUFF_RESISTANCE": 21.0,
+    "EFFECT_BUFF_WISDOM": 22.0,
+    "EFFECT_SHACKLE_MAGIC": 24.0,
+    "EFFECT_ANTIDOTE": 23.0,
+    "EFFECT_AFTEREFFECT": 25.0,
+    "EFFECT_VULNERABILITY": 26.0,
+    "EFFECT_ABSOLUTE_VULNERABILITY": 27.0,
+    "EFFECT_LIFE_DAMAGE": 28.0,
+    "EFFECT_STEAL_ABSOLUTE_SHIELD": 29.0,
+    "EFFECT_NOVA_DAMAGE": 30.0,
+    "EFFECT_RAW_BUFF_MP": 31.0,
+    "EFFECT_RAW_BUFF_TP": 32.0,
+    "EFFECT_POISON_TO_SCIENCE": 33.0,
+    "EFFECT_DAMAGE_TO_ABSOLUTE_SHIELD": 34.0,
+    "EFFECT_DAMAGE_TO_STRENGTH": 35.0,
+    "EFFECT_NOVA_DAMAGE_TO_MAGIC": 36.0,
+    "EFFECT_RAW_ABSOLUTE_SHIELD": 37.0,
+    "EFFECT_RAW_BUFF_STRENGTH": 38.0,
+    "EFFECT_RAW_BUFF_MAGIC": 39.0,
+    "EFFECT_RAW_BUFF_SCIENCE": 40.0,
+    "EFFECT_RAW_BUFF_AGILITY": 41.0,
+    "EFFECT_RAW_BUFF_RESISTANCE": 42.0,
+    "EFFECT_PROPAGATION": 43.0,
+    "EFFECT_RAW_BUFF_WISDOM": 44.0,
+    "EFFECT_NOVA_VITALITY": 45.0,
+    "EFFECT_SLIDE_TO": 46.0,
+    "EFFECT_ATTRACT": 46.0,
+    "EFFECT_SHACKLE_AGILITY": 47.0,
+    "EFFECT_SHACKLE_WISDOM": 48.0,
+    "EFFECT_REMOVE_SHACKLES": 49.0,
+    "EFFECT_MOVED_TO_MP": 50.0,
+    "EFFECT_PUSH": 51.0,
+    "EFFECT_RAW_BUFF_POWER": 52.0,
+    "EFFECT_REPEL": 53.0,
+    "EFFECT_RAW_RELATIVE_SHIELD": 54.0,
+    "EFFECT_ALLY_KILLED_TO_AGILITY": 55.0,
+    "EFFECT_KILL_TO_TP": 56.0,
+    "EFFECT_RAW_HEAL": 57.0,
+    "EFFECT_CRITICAL_TO_HEAL": 58.0,
+    "EFFECT_ADD_STATE": 59.0,
+    "EFFECT_TOTAL_DEBUFF": 60.0,
+    "EFFECT_STEAL_LIFE": 61.0,
+    "EFFECT_MULTIPLY_STATS": 62.0,
+    "EFFECT_DAMAGE_TO_RESISTANCE": 63.0,
+    "EFFECT_SUPERINFECTION": 64.0,
+    "STATE_UNHEALABLE": 2.0,
+    "STATE_INVINCIBLE": 3.0,
+    "STATE_PACIFIST": 4.0,
+    "STATE_ROOTED": 9.0,
+    "STATE_STATIC": 11.0,
+    "STATE_STERILE": 12.0,
+    "USE_CRITICAL": 2.0,
+    "USE_SUCCESS": 1.0,
+    "USE_FAILED": 0.0,
+    "USE_INVALID_TARGET": -1.0,
+    "USE_NOT_ENOUGH_TP": -2.0,
+    "USE_INVALID_COOLDOWN": -3.0,
+    "USE_INVALID_POSITION": -4.0,
+    "USE_TOO_MUCH_SUMMONS": -5.0,
+    "USE_TOO_MANY_SUMMONS": -5.0,
+    "USE_RESURRECT_INVALID_ENTITY": -6.0,
+    "USE_MAX_USES": -7.0,
+    "WEAPON_PISTOL": 37.0,
+    "WEAPON_MACHINE_GUN": 38.0,
+    "WEAPON_DOUBLE_GUN": 39.0,
+    "WEAPON_SHOTGUN": 41.0,
+    "WEAPON_MAGNUM": 45.0,
+    "WEAPON_LASER": 42.0,
+    "WEAPON_GRENADE_LAUNCHER": 43.0,
+    "WEAPON_FLAME_THROWER": 46.0,
+    "WEAPON_DESTROYER": 40.0,
+    "WEAPON_GAZOR": 48.0,
+    "WEAPON_ELECTRISOR": 44.0,
+    "WEAPON_M_LASER": 47.0,
+    "WEAPON_B_LASER": 60.0,
+    "WEAPON_KATANA": 107.0,
+    "WEAPON_BROADSWORD": 108.0,
+    "WEAPON_AXE": 109.0,
+    "WEAPON_J_LASER": 115.0,
+    "WEAPON_ILLICIT_GRENADE_LAUNCHER": 116.0,
+    "WEAPON_MYSTERIOUS_ELECTRISOR": 117.0,
+    "WEAPON_UNBRIDLED_GAZOR": 118.0,
+    "WEAPON_REVOKED_M_LASER": 119.0,
+    "WEAPON_RIFLE": 151.0,
+    "WEAPON_RHINO": 153.0,
+    "WEAPON_EXPLORER_RIFLE": 175.0,
+    "WEAPON_LIGHTNINGER": 180.0,
+    "WEAPON_NEUTRINO": 182.0,
+    "WEAPON_BAZOOKA": 184.0,
+    "WEAPON_DARK_KATANA": 187.0,
+    "WEAPON_ENHANCED_LIGHTNINGER": 225.0,
+    "WEAPON_UNSTABLE_DESTROYER": 226.0,
+    "WEAPON_SWORD": 277.0,
+    "WEAPON_HEAVY_SWORD": 278.0,
+    "WEAPON_ODACHI": 408.0,
+    "WEAPON_EXCALIBUR": 409.0,
+    "WEAPON_SCYTHE": 410.0,
+    "WEAPON_QUANTUM_RIFLE": 428.0,
+    "WEAPON_DESERT_SABER": 429.0,
+    "WEAPON_SUN_SPEAR": 440.0,
+    "WEAPON_PLUTONIUM_BAZOOKA": 506.0,
+    "MESSAGE_HEAL": 1.0,
+    "MESSAGE_ATTACK": 2.0,
+    "MESSAGE_DEBUFF": 3.0,
+    "MESSAGE_SHIELD": 4.0,
+    "MESSAGE_BUFF_MP": 5.0,
+    "MESSAGE_BUFF_TP": 6.0,
+    "MESSAGE_BUFF_FORCE": 7.0,
+    "MESSAGE_BUFF_STRENGTH": 7.0,
+    "MESSAGE_BUFF_AGILITY": 8.0,
+    "MESSAGE_MOVE_TOWARD": 9.0,
+    "MESSAGE_MOVE_AWAY": 10.0,
+    "MESSAGE_MOVE_TOWARD_CELL": 11.0,
+    "MESSAGE_MOVE_AWAY_CELL": 12.0,
+    "MESSAGE_CUSTOM": 13.0,
+    "AREA_POINT": 1.0,
+    "AREA_LASER_LINE": 2.0,
+    "AREA_CIRCLE_1": 3.0,
+    "AREA_CIRCLE_2": 4.0,
+    "AREA_CIRCLE_3": 5.0,
+    "AREA_PLUS_1": 3.0,
+    "AREA_PLUS_2": 6.0,
+    "AREA_PLUS_3": 7.0,
+    "AREA_X_1": 8.0,
+    "AREA_X_2": 9.0,
+    "AREA_X_3": 10.0,
+    "AREA_SQUARE_1": 11.0,
+    "AREA_SQUARE_2": 12.0,
+    "AREA_FIRST_INLINE": 13.0,
+    "AREA_ENEMIES": 14.0,
+    "AREA_ALLIES": 15.0,
+    "LAUNCH_TYPE_LINE": 1.0,
+    "LAUNCH_TYPE_DIAGONAL": 2.0,
+    "LAUNCH_TYPE_STAR": 3.0,
+    "LAUNCH_TYPE_STAR_INVERTED": 4.0,
+    "LAUNCH_TYPE_DIAGONAL_INVERTED": 5.0,
+    "LAUNCH_TYPE_LINE_INVERTED": 6.0,
+    "LAUNCH_TYPE_CIRCLE": 7.0,
+    "CHIP_BANDAGE": 3.0,
+    "CHIP_CURE": 4.0,
+    "CHIP_DRIP": 10.0,
+    "CHIP_REGENERATION": 35.0,
+    "CHIP_VACCINE": 11.0,
+    "CHIP_SHOCK": 1.0,
+    "CHIP_FLASH": 6.0,
+    "CHIP_LIGHTNING": 33.0,
+    "CHIP_SPARK": 18.0,
+    "CHIP_FLAME": 5.0,
+    "CHIP_METEORITE": 36.0,
+    "CHIP_PEBBLE": 19.0,
+    "CHIP_ROCK": 7.0,
+    "CHIP_ROCKFALL": 32.0,
+    "CHIP_ICE": 2.0,
+    "CHIP_STALACTITE": 30.0,
+    "CHIP_ICEBERG": 31.0,
+    "CHIP_SHIELD": 20.0,
+    "CHIP_HELMET": 21.0,
+    "CHIP_ARMOR": 22.0,
+    "CHIP_WALL": 23.0,
+    "CHIP_RAMPART": 24.0,
+    "CHIP_FORTRESS": 29.0,
+    "CHIP_PROTEIN": 8.0,
+    "CHIP_STEROID": 25.0,
+    "CHIP_DOPING": 26.0,
+    "CHIP_STRETCHING": 9.0,
+    "CHIP_WARM_UP": 28.0,
+    "CHIP_REFLEXES": 27.0,
+    "CHIP_LEATHER_BOOTS": 14.0,
+    "CHIP_WINGED_BOOTS": 13.0,
+    "CHIP_SEVEN_LEAGUE_BOOTS": 12.0,
+    "CHIP_MOTIVATION": 15.0,
+    "CHIP_ADRENALINE": 16.0,
+    "CHIP_RAGE": 17.0,
+    "CHIP_LIBERATION": 34.0,
+    "CHIP_TELEPORTATION": 59.0,
+    "CHIP_ARMORING": 67.0,
+    "CHIP_INVERSION": 68.0,
+    "CHIP_PUNY_BULB": 73.0,
+    "CHIP_FIRE_BULB": 74.0,
+    "CHIP_HEALER_BULB": 75.0,
+    "CHIP_ROCKY_BULB": 76.0,
+    "CHIP_ICED_BULB": 77.0,
+    "CHIP_LIGHTNING_BULB": 78.0,
+    "CHIP_METALLIC_BULB": 79.0,
+    "CHIP_REMISSION": 80.0,
+    "CHIP_CARAPACE": 81.0,
+    "CHIP_RESURRECTION": 84.0,
+    "CHIP_DEVIL_STRIKE": 85.0,
+    "CHIP_WHIP": 88.0,
+    "CHIP_LOAM": 89.0,
+    "CHIP_FERTILIZER": 90.0,
+    "CHIP_ACCELERATION": 91.0,
+    "CHIP_SLOW_DOWN": 92.0,
+    "CHIP_BALL_AND_CHAIN": 93.0,
+    "CHIP_TRANQUILIZER": 94.0,
+    "CHIP_SOPORIFIC": 95.0,
+    "CHIP_SOLIDIFICATION": 96.0,
+    "CHIP_VENOM": 97.0,
+    "CHIP_TOXIN": 98.0,
+    "CHIP_PLAGUE": 99.0,
+    "CHIP_THORN": 100.0,
+    "CHIP_MIRROR": 101.0,
+    "CHIP_FEROCITY": 102.0,
+    "CHIP_COLLAR": 103.0,
+    "CHIP_BARK": 104.0,
+    "CHIP_BURNING": 105.0,
+    "CHIP_FRACTURE": 106.0,
+    "CHIP_ANTIDOTE": 110.0,
+    "CHIP_PUNISHMENT": 114.0,
+    "CHIP_COVETOUSNESS": 120.0,
+    "CHIP_VAMPIRIZATION": 121.0,
+    "CHIP_PRECIPITATION": 122.0,
+    "CHIP_ALTERATION": 141.0,
+    "CHIP_WIZARD_BULB": 142.0,
+    "CHIP_PLASMA": 143.0,
+    "CHIP_JUMP": 144.0,
+    "CHIP_COVID": 152.0,
+    "CHIP_ELEVATION": 154.0,
+    "CHIP_EXASPERATION": 425.0,
+    "CHIP_KNOWLEDGE": 155.0,
+    "CHIP_WIZARDRY": 156.0,
+    "CHIP_REPOTTING": 157.0,
+    "CHIP_THERAPY": 158.0,
+    "CHIP_MUTATION": 159.0,
+    "CHIP_DESINTEGRATION": 160.0,
+    "CHIP_TRANSMUTATION": 161.0,
+    "CHIP_GRAPPLE": 162.0,
+    "CHIP_BOXING_GLOVE": 163.0,
+    "CHIP_CORN": 164.0,
+    "CHIP_CHILLI_PEPPER": 165.0,
+    "CHIP_TACTICIAN_BULB": 166.0,
+    "CHIP_SAVANT_BULB": 167.0,
+    "CHIP_SERUM": 168.0,
+    "CHIP_CRUSHING": 169.0,
+    "CHIP_BRAINWASHING": 170.0,
+    "CHIP_ARSENIC": 171.0,
+    "CHIP_BRAMBLE": 172.0,
+    "CHIP_DOME": 173.0,
+    "CHIP_MANUMISSION": 174.0,
+    "CHIP_HEMORRHAGE": 273.0,
+    "CHIP_PRISM": 276.0,
+    "CHIP_SHURIKEN": 411.0,
+    "CHIP_KEMURIDAMA": 412.0,
+    "CHIP_FIRE_BALL": 413.0,
+    "CHIP_TREBUCHET": 414.0,
+    "CHIP_AWEKENING": 415.0,
+    "CHIP_AWAKENING": 415.0,
+    "CHIP_THUNDER": 416.0,
+    "CHIP_KILL": 417.0,
+    "CHIP_APOCALYPSE": 418.0,
+    "CHIP_DIVINE_PROTECTION": 419.0,
+    "CHIP_PROTOTAXITE": 441.0,
+    "CHIP_MATURATION": 442.0,
+    "CHIP_SUPERINFECTION": 443.0,
+    "CHIP_PIQUANT": 444.0,
+    "CHIP_CAPSAICIN": 445.0,
+    "CHIP_SUGAR": 446.0,
+    "CHIP_POPCORN": 447.0,
+    "MAP_NEXUS": 1.0,
+    "MAP_FACTORY": 2.0,
+    "MAP_DESERT": 3.0,
+    "MAP_FOREST": 4.0,
+    "MAP_GLACIER": 5.0,
+    "MAP_BEACH": 6.0,
+    "MAP_TEMPLE": 7.0,
+    "MAP_TEIEN": 8.0,
+    "MAP_CASTLE": 9.0,
+    "MAP_CEMETERY": 10.0,
+    "FIGHT_TYPE_SOLO": 0.0,
+    "FIGHT_TYPE_FARMER": 1.0,
+    "FIGHT_TYPE_TEAM": 2.0,
+    "FIGHT_TYPE_BATTLE_ROYALE": 3.0,
+    "FIGHT_TYPE_BOSS": 4.0,
+    "FIGHT_TYPE_WAR": 5.0,
+    "FIGHT_TYPE_CHEST_HUNT": 6.0,
+    "FIGHT_TYPE_COLOSSUS": 7.0,
+    "FIGHT_CONTEXT_TEST": 0.0,
+    "FIGHT_CONTEXT_GARDEN": 2.0,
+    "FIGHT_CONTEXT_CHALLENGE": 1.0,
+    "FIGHT_CONTEXT_TOURNAMENT": 3.0,
+    "FIGHT_CONTEXT_BATTLE_ROYALE": 5.0,
+    "BOSS_NASU_SAMOURAI": 1.0,
+    "BOSS_NASU_SAMURAI": 1.0,
+    "BOSS_FENNEL_KING": 2.0,
+    "BOSS_EVIL_PUMPKIN": 3.0,
+    "MOB_NASU_SAMURAI": 1.0,
+    "MOB_NASU_SEITO": 13.0,
+    "MOB_NASU_WARRIOR": 14.0,
+    "MOB_NASU_RONIN": 15.0,
+    "MOB_FENNEL_KING": 2.0,
+    "MOB_FENNEL_KNIGHT": 16.0,
+    "MOB_FENNEL_SQUIRE": 17.0,
+    "MOB_FENNEL_SCRIBE": 18.0,
+    "MOB_EVIL_PUMPKIN": 3.0,
+    "MOB_GRAAL": 4.0,
+    "MOB_RED_CRYSTAL": 5.0,
+    "MOB_GREEN_CRYSTAL": 6.0,
+    "MOB_BLUE_CRYSTAL": 7.0,
+    "MOB_YELLOW_CRYSTAL": 8.0,
+    "MOB_TURBAN": 9.0,
+    "MOB_WARTY": 10.0,
+    "MOB_HUBBARD": 11.0,
+    "MOB_OFFSPRING": 12.0,
+    "CHEST_WOOD": 1.0,
+    "CHEST_IRON": 2.0,
+    "CHEST_DIAMOND": 3.0,
+    "SUMMON_LIMIT": 8.0,
+    "CRITICAL_FACTOR": 1.3,
+    "EROSION_DAMAGE": 0.05,
+    "EROSION_POISON": 0.1,
+    "EROSION_CRITICAL_BONUS": 0.1,
+    "STAT_LIFE": 0.0,
+    "STAT_TP": 1.0,
+    "STAT_MP": 2.0,
+    "STAT_STRENGTH": 3.0,
+    "STAT_AGILITY": 4.0,
+    "STAT_FREQUENCY": 5.0,
+    "STAT_WISDOM": 6.0,
+    "STAT_ABSOLUTE_SHIELD": 9.0,
+    "STAT_RELATIVE_SHIELD": 10.0,
+    "STAT_RESISTANCE": 11.0,
+    "STAT_SCIENCE": 12.0,
+    "STAT_MAGIC": 13.0,
+    "STAT_DAMAGE_RETURN": 14.0,
+    "STAT_POWER": 15.0,
+    "STAT_CORES": 16.0,
+    "STAT_RAM": 17.0,
+    "PI": "3.141592653589793",
+    "E": "2.718281828459045",
+    "Infinity": "Infinity",
+    "NaN": "NaN",
+    "INSTRUCTIONS_LIMIT": "300000.0",
+    "OPERATIONS_LIMIT": "2.0E7",
+    "SORT_ASC": "0.0",
+    "SORT_DESC": "1.0",
+    "COLOR_RED": "1.671168E7",
+    "COLOR_GREEN": "65280.0",
+    "COLOR_BLUE": "255.0",
+    "TYPE_NULL": "0.0",
+    "TYPE_NUMBER": "1.0",
+    "TYPE_BOOLEAN": "2.0",
+    "TYPE_STRING": "3.0",
+    "TYPE_ARRAY": "4.0",
+    "TYPE_FUNCTION": "5.0",
+    "TYPE_CLASS": "6.0",
+    "TYPE_OBJECT": "7.0",
+    "TYPE_MAP": "8.0",
+    "TYPE_SET": "9.0",
+    "TYPE_INTERVAL": "10.0"
+  },
+  "success": true
+}

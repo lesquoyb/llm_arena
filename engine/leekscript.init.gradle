@@ -1,0 +1,10 @@
+// LeekScript-only build: the optional Linux Graal isolate is not needed.
+// Keep upstream sources untouched and exclude just its absent binary dependency.
+allprojects {
+    afterEvaluate {
+        configurations.findByName('implementation')?.dependencies?.removeAll { dep ->
+            dep instanceof org.gradle.api.artifacts.FileCollectionDependency &&
+            dep.files.files.any { it.name == 'js-isolate-resources-linux-amd64.jar' }
+        }
+    }
+}

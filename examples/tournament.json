@@ -1,0 +1,27 @@
+{
+  "name": "leekscript-smoke",
+  "seeds": [101, 202],
+  "include_mirrors": true,
+  "scenario": {
+    "team_size": 2,
+    "max_turns": 32,
+    "entity": {
+      "level": 100,
+      "life": 600,
+      "strength": 100,
+      "agility": 0,
+      "frequency": 100,
+      "tp": 12,
+      "mp": 5,
+      "cores": 10,
+      "ram": 10,
+      "weapons": [37],
+      "chips": []
+    }
+  },
+  "strategies": [
+    {"id": "rush", "path": "strategies/rush", "entrypoint": "main.leek", "model": "baseline", "replicate": 0},
+    {"id": "single-shot", "path": "strategies/single-shot", "entrypoint": "main.leek", "model": "baseline", "replicate": 1},
+    {"id": "passive", "path": "strategies/passive", "entrypoint": "main.leek", "model": "baseline", "replicate": 2}
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "repository": "https://github.com/leek-wars/leek-wars-generator.git",
+  "commit": "b99a174dd938260d9e47b2e65a208cb32230e26e",
+  "leekscript_commit": "8152f399faf7b418bbc5b2216d755c3822cda23b",
+  "java_major": 25,
+  "gradle_version": "9.3.1",
+  "language": "leekscript",
+  "language_version": 4
+}
