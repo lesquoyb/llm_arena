@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
+if [ -x .venv/bin/python ]; then export PATH="$(pwd)/.venv/bin:$PATH"; fi
 python -m arena doctor
 python -m unittest discover -s tests -v
 OUT="${1:-runs/linux-validation-$(date -u +%Y%m%dT%H%M%S)-$$}"

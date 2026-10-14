@@ -1,6 +1,10 @@
 // LeekScript-only build: the optional Linux Graal isolate is not needed.
 // Keep upstream sources untouched and exclude just its absent binary dependency.
 allprojects {
+    tasks.withType(org.gradle.api.tasks.bundling.AbstractArchiveTask).configureEach {
+        preserveFileTimestamps = false
+        reproducibleFileOrder = true
+    }
     afterEvaluate {
         configurations.findByName('implementation')?.dependencies?.removeAll { dep ->
             dep instanceof org.gradle.api.artifacts.FileCollectionDependency &&

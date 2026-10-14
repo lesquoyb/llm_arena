@@ -43,10 +43,9 @@ base de données ou appel fournisseur n'intervient. Ne pas transférer
 ce fichier depuis une autre machine : le régénérer avec le bootstrap.
 Un tournoi d'une autre plateforme ne peut pas être repris implicitement.
 
-Le backend est actuellement un processus Java avec délai global et
-limite de heap, sans isolation OS complète. Aucun backend conteneur,
-transport MCP ou adaptateur API n'est livré ici. Un
-[orchestrateur G0 simulé](offline-experiment.md) est maintenant disponible.
-La séparation des identités scientifiques et de machine, le fingerprint
-des futurs sous-packages et la stabilisation du packaging restent des
-travaux du plan de reprise.
+Le backend processus Java impose délai global, heap et quotas de sortie.
+Le backend Docker optionnel, MCP et les adaptateurs fournisseurs sont
+décrits dans le [guide complet](complete-experiment.md).
+Le fingerprint couvre les sous-packages et prompts ; les archives Gradle
+ont un ordre stable sans timestamps. La reprise reste stricte sur le
+runtime, même avec une identité scientifique séparée.

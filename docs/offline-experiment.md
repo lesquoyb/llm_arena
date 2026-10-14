@@ -38,7 +38,8 @@ Une réponse sauvegardée est réutilisée après interruption ; un résultat
 de combat terminé est réutilisé. Une invocation moteur interrompue peut
 être rejouée dans un nouvel essai conservant le premier dossier.
 Il n'y a aucune promesse de facturation exactement une fois : les API
-réelles ne sont pas implémentées. Un verrou OS refuse un second écrivain.
+réelles utilisent des réservations et bloquent les états distants inconnus.
+Un verrou OS refuse un second écrivain.
 La reprise refuse un changement de configuration, runtime, runner,
 corpus ou soumission figée. La CLI report lit le dernier rapport final ;
 status est utilisable pendant une exécution interrompue.
@@ -62,8 +63,9 @@ de préparation.
 
 Les tokens restent null : aucun tokenizer fournisseur n'est exécuté.
 Le coût fournisseur nul est explicitement une simulation.
-Les manifests autorisant des appels payants ou un fournisseur réel
-sont refusés.
+Les manifests mock doivent interdire les dépenses. Les fournisseurs
+réels exigent une activation et des plafonds explicites ; cette démo
+ne les utilise pas.
 
 Sous Linux, le worker Java reçoit un environnement minimal sans clés
 fournisseurs, limite chaque fichier de sortie à 8 Mo et termine le groupe
@@ -73,10 +75,10 @@ comme service public pour des soumissions hostiles.
 
 ## Limites de cette livraison
 
-G0 uniquement : pas encore de branches G1 contrôle/feedback, catalogue
-final réservé, tarification réelle, retries fournisseurs ou export
-d'expérience autonome. Le service d'outils est direct, sans transport MCP.
+Ce manifeste reste une démo G0. Le [cycle complet](complete-experiment.md)
+ajoute G1 contrôle/feedback, seeds finales séparées, MCP, export autonome
+et adaptateurs API avec tarification et réservations.
 Les profils invalid, empty et malformed servent aux tests de politiques
-d'échec. Timeout réseau et limitation de débit restent à simuler.
+d'échec. Les profils timeout, rate-limit et budget couvrent aussi ces arrêts.
 Le corpus actuel est une référence de signatures, encore incomplet sur
 la sémantique. L'orchestrateur utilise le verrou POSIX et cible Linux.

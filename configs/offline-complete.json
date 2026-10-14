@@ -1,0 +1,59 @@
+{
+  "schema_version": 2,
+  "name": "offline-complete",
+  "models": [
+    {
+      "id": "mock-repair",
+      "provider": "mock",
+      "profile": "repair-and-submit"
+    },
+    {
+      "id": "mock-single",
+      "provider": "mock",
+      "profile": "single-shot"
+    }
+  ],
+  "replicates": 1,
+  "budget_per_session": {
+    "max_calls": 10,
+    "max_agent_steps": 20,
+    "max_test_matches": 4,
+    "max_wall_seconds": 300
+  },
+  "spending": {
+    "allow_paid_calls": false,
+    "max_total_usd": 0
+  },
+  "seeds": [
+    101
+  ],
+  "include_mirrors": true,
+  "scenario": {
+    "team_size": 2,
+    "max_turns": 8,
+    "entity": {
+      "level": 100,
+      "life": 600,
+      "strength": 100,
+      "agility": 0,
+      "frequency": 100,
+      "tp": 12,
+      "mp": 5,
+      "cores": 10,
+      "ram": 10,
+      "weapons": [
+        37
+      ],
+      "chips": []
+    }
+  },
+  "generations": 2,
+  "improvement_conditions": [
+    "control",
+    "feedback"
+  ],
+  "prompt_language": "fr",
+  "final_seeds": [
+    301
+  ]
+}

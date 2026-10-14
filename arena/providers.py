@@ -3,16 +3,24 @@ from __future__ import annotations
 
 from .core import ROOT, ArenaError
 
-PROFILES = {"single-shot", "repair-and-submit", "invalid", "empty", "malformed"}
+PROFILES = {"single-shot", "repair-and-submit", "invalid", "empty", "malformed", "timeout", "rate-limit", "budget"}
 
 
 class MockProvider:
     def respond(self, profile: str, history: list[dict]) -> dict:
         if profile not in PROFILES:
             raise ArenaError("Unknown mock profile")
-        step = sum(message["role"] == "assistant" for message in history)
+        from .api_providers import ProviderFailure
+        if profile in {"timeout", "rate-limit"}:
+            raise ProviderFailure("Simulated " + profile, uncertain=profile == "timeout",
+                                  retryable=profile == "rate-limit")
+        marker = max((i for i, message in enumerate(history)
+                      if message["role"] == "user" and message.get("generation", 0) > 0), default=-1)
+        step = sum(message["role"] == "assistant" for message in history[marker + 1:])
+        improving = marker >= 0
+        condition = history[marker].get("condition") if improving else None
         source = (ROOT / "examples/strategies" /
-                  ("rush" if profile == "repair-and-submit" else "single-shot") /
+                  ("rush" if profile == "repair-and-submit" or condition == "feedback" else "single-shot") /
                   "main.leek").read_text()
         scripts = {
             "single-shot": [
@@ -29,7 +37,14 @@ class MockProvider:
             "empty": [[]],
             "malformed": [[("write_file", {"path": "../other/main.leek", "content": source})], []],
         }
-        calls = scripts[profile][step] if step < len(scripts[profile]) else []
+        sequence = scripts.get(profile, [[]])
+        calls = sequence[step] if step < len(sequence) else []
+        if improving:
+            sequence = [[("write_file", {"path": "main.leek", "content": source})],
+                        [("analyze", {})], [("submit", {})]]
+            calls = sequence[step] if step < len(sequence) else []
+        if profile == "budget":
+            calls = [("write_file", {"path": "main.leek", "content": source})]
         return {"role": "assistant", "provider": "mock", "simulated": True,
                 "tool_calls": [{"name": name, "arguments": args} for name, args in calls],
                 "stop_reason": "tool_calls" if calls else "end",

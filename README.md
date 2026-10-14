@@ -10,7 +10,11 @@ Sous Linux x86_64 : `bash scripts/bootstrap-linux.sh`, puis
 `bash scripts/validate-linux.sh`. Voir [le guide Linux](docs/linux.md)
 pour le proxy, les checksums, la CI et les limites.
 
-Prérequis : **Python ≥ 3.11, JDK 25, Git et Gradle 9.3.1**. Aucun paquet Python tiers n'est nécessaire. Exécuter les commandes depuis ce dépôt. Java 25 doit être sur le PATH ; le bootstrap remplace localement une éventuelle configuration Gradle pointant vers un ancien JDK, sans modifier la configuration globale.
+Prérequis : **Python ≥ 3.11, JDK 25, Git et Gradle 9.3.1**.
+Le moteur et les adaptateurs API utilisent la bibliothèque standard ;
+le transport MCP utilise le SDK verrouillé installé par le bootstrap.
+Exécuter les commandes depuis le dépôt et activer .venv pour MCP.
+Java 25 doit être sur le PATH ; le bootstrap configure un cache Gradle local.
 
 ```powershell
 python -m arena setup
@@ -63,7 +67,11 @@ Le vainqueur moteur est **0 pour la première équipe, 1 pour la seconde et −1
 
 Une erreur dans une IA reste un résultat de jeu et apparaît dans ses métriques. Une panne moteur ou le délai du processus complet produit un résultat non classé, sans défaite artificielle. `--timeout 90` contrôle ce délai global ; ce n'est pas le budget de calcul d'un tour.
 
-Les temps `turn_elapsed_ns` mesurent le temps écoulé autour de l'exécution des tours, **pas le temps CPU**. Les opérations sont le compteur natif LeekScript. Le score est `(victoires + 0,5 × nuls) / matchs terminés`, hors miroirs. Les statistiques par modèle, intervalles d'incertitude et coûts LLM viendront avec l'orchestrateur de générations.
+Les temps `turn_elapsed_ns` mesurent le temps écoulé autour des tours, **pas le temps CPU**.
+Les opérations sont le compteur natif LeekScript. Le score est
+`(victoires + 0,5 × nuls) / matchs terminés`, hors miroirs.
+Le cycle complet ajoute agrégations par modèle, comparaisons appariées
+exploratoires et coûts audités.
 
 ```powershell
 python -m arena verify examples/strategies/rush examples/strategies/single-shot
@@ -81,6 +89,15 @@ python -m unittest discover -s tests -v
 
 Pour régénérer une référence dans un nouveau dossier : `python -m arena docs --out docs/new-snapshot`.
 
-La prochaine tranche est l'orchestrateur de conversations : adaptateurs fournisseurs, budgets et usages de tokens, outils MCP de préparation, puis générations avec/sans feedback. Aucun appel payant à un LLM n'est implémenté ou lancé dans cette première tranche. Python/JavaScript restent optionnels ; TypeScript est hors périmètre.
+Le [cycle complet G0/G1](docs/complete-experiment.md) est disponible avec
+fournisseurs simulés, outils MCP, branches contrôle/feedback, panel commun,
+journal SQLite et rapports JSON/CSV/Markdown/HTML.
+Les [adaptateurs OpenAI/compatible et Anthropic](docs/providers.md) sont
+testés hors ligne ; leur activation exige modèles, tarifs et plafond
+financier explicites. Aucun appel payant n'est lancé par les démos ou la CI.
+Python/JavaScript restent optionnels ; TypeScript est hors périmètre.
 
-L'exécution actuelle utilise un processus Java séparé, une limite mémoire, un délai global et un résolveur d'includes par soumission. L'isolation par conteneur pour des soumissions publiques hostiles reste à ajouter avant un service ouvert.
+L'exécution utilise un processus Java séparé avec heap, délai et quotas de
+sortie, ou un backend Docker optionnel sans réseau. Voir les limites et
+les commandes dans le guide du cycle complet. Un service public pour des
+soumissions hostiles reste hors périmètre.

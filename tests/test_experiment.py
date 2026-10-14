@@ -13,6 +13,60 @@ from arena.preparation import Preparation, local_path
 
 
 class ContractTests(unittest.TestCase):
+    def test_legacy_journal_migration_preserves_session(self):
+        import json
+        import sqlite3
+        with scratch_directory() as tmp:
+            connection = sqlite3.connect(tmp / "journal.sqlite")
+            connection.execute("CREATE TABLE sessions (id TEXT PRIMARY KEY, state TEXT NOT NULL)")
+            connection.execute("CREATE TABLE events (id INTEGER PRIMARY KEY, session TEXT, kind TEXT, payload TEXT)")
+            original = {"status": "running", "history": [], "calls": 1}
+            connection.execute("INSERT INTO sessions VALUES (?,?)", ("legacy-r0", json.dumps(original)))
+            connection.execute("PRAGMA user_version=1")
+            connection.commit()
+            connection.close()
+            journal = Journal(tmp)
+            try:
+                self.assertEqual(journal.state("legacy-r0"), original)
+                self.assertEqual(journal.db.execute("PRAGMA user_version").fetchone()[0], 2)
+            finally:
+                journal.db.close()
+
+    def test_paused_workspace_rejects_external_source_changes(self):
+        with scratch_directory() as tmp:
+            config = load_config(ROOT / "configs/offline-demo.json")
+            model = {"id": "budget", "provider": "mock", "profile": "budget"}
+            journal = Journal(tmp)
+            def stop(kind, sid):
+                if kind == "response":
+                    raise KeyboardInterrupt
+            try:
+                with self.assertRaises(KeyboardInterrupt):
+                    run_session("budget-r0", model, config, tmp, journal, None, stop)
+                (tmp / "sessions/budget-r0/workspace/main.leek").write_text("var external = 1")
+                with self.assertRaisesRegex(ArenaError, "Working sources changed"):
+                    run_session("budget-r0", model, config, tmp, journal, None)
+            finally:
+                journal.db.close()
+    def test_mock_failure_profiles_and_budget_are_journaled(self):
+        with scratch_directory() as tmp:
+            config = load_config(ROOT / "configs/offline-demo.json")
+            journal = Journal(tmp)
+            try:
+                for profile, expected in (("timeout", "needs_reconciliation"), ("rate-limit", "provider_unavailable"),
+                                          ("budget", "budget_exhausted"), ("malformed", "no_submission")):
+                    sid = profile + "-r0"
+                    model = {"id": profile, "provider": "mock", "profile": profile}
+                    run_session(sid, model, config, tmp, journal, None)
+                    self.assertEqual(journal.state(sid)["status"], expected)
+                journal.verify()
+                row = journal.db.execute("SELECT artifact FROM objects WHERE kind='Session' LIMIT 1").fetchone()
+                (tmp / row[0]).write_text("{}")
+                with self.assertRaises(ArenaError):
+                    journal.verify()
+            finally:
+                journal.db.close()
+
     def test_config_refuses_paid_calls_unknown_fields_and_training_seeds(self):
         original = read_json(ROOT / "configs/offline-demo.json")
         with scratch_directory() as tmp:

@@ -3,7 +3,7 @@ from __future__ import annotations
 import itertools
 from pathlib import Path
 
-from .core import ArenaError, copy_submission, digest, file_hash, read_json, submission, write_json
+from .core import ArenaError, copy_submission, digest, file_hash, file_lock, make_scenario, read_json, submission, write_json
 from .engine import Engine
 
 
@@ -31,9 +31,26 @@ def verify_record(root: Path, record: dict):
         raise ArenaError(f"Stored outcome was modified: {work}")
     if read_json(work / "result.json") != record["result"]:
         raise ArenaError(f"Stored result was modified: {work}")
+    experiment = read_json(root / "experiment.json")
+    provenance = read_json(work / "provenance.json")
+    strategies = {s["id"]: s for s in experiment["manifest"]["strategies"]}
+    expected = [strategies[s]["submission"] for s in record["match"]["sides"]]
+    scenario = make_scenario(experiment["manifest"]["scenario"],
+                             [s["entrypoint"] for s in expected], record["match"]["seed"])
+    if (provenance["engine"] != experiment["engine"] or provenance["submissions"] != expected or
+            provenance["scenario_sha256"] != digest(scenario) or read_json(work / "scenario.json") != scenario):
+        raise ArenaError("Stored match provenance or scenario was modified")
+    for side, info in enumerate(expected, 1):
+        if submission(work / "strategies" / str(side), info["entrypoint"]) != info:
+            raise ArenaError("Stored match source was modified")
 
 
 def run_tournament(engine: Engine, manifest: dict, out: Path, resume: bool = False) -> dict:
+    with file_lock(out.parent / ("." + out.name + ".lock")):
+        return _run_tournament(engine, manifest, out, resume)
+
+
+def _run_tournament(engine: Engine, manifest: dict, out: Path, resume: bool = False) -> dict:
     matches = schedule(manifest)
     # Absolute source locations are metadata, not part of the experiment identity.
     frozen = {**manifest, "strategies": [{k: v for k, v in s.items() if k != "path"} for s in manifest["strategies"]]}

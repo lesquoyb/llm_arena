@@ -6,7 +6,7 @@ import json
 import re
 from uuid import uuid4
 
-from .core import ArenaError, ROOT, copy_submission, read_json, submission, write_json
+from .core import ArenaError, ROOT, copy_submission, file_hash, read_json, submission, write_json
 
 
 def local_path(root: Path, name: str) -> Path:
@@ -28,6 +28,8 @@ class Preparation:
         self.engine, self.scenario = engine, scenario
 
     def call(self, name: str, arguments: dict, call_id: str) -> dict:
+        if not re.fullmatch(r"call-[0-9]+-tool-[0-9]+", call_id) and call_id not in {"final"} and not call_id.isdigit():
+            raise ArenaError("Invalid internal call ID")
         if not isinstance(arguments, dict):
             raise ArenaError("Tool arguments must be an object")
         entry = arguments.get("entrypoint", "main.leek")
@@ -59,7 +61,7 @@ class Preparation:
             tmp = path.with_suffix(".leek.tmp")
             tmp.write_bytes(encoded)
             tmp.replace(path)
-            return {"sha256": submission(self.workspace, arguments["path"])["files"][arguments["path"]]}
+            return {"sha256": file_hash(path)}
         if name == "read_replay":
             self._fields(arguments, {"test_id", "side", "section", "offset", "limit"})
             test_id = arguments["test_id"]
@@ -79,7 +81,11 @@ class Preparation:
             return {"content": text[offset:offset + limit], "truncated": offset + limit < len(text),
                     "next_offset": offset + limit if offset + limit < len(text) else None}
         if name in {"analyze", "test", "submit"}:
-            self._fields(arguments, {"entrypoint"})
+            self._fields(arguments, {"entrypoint", "scenario_id", "seed_id", "opponent_id"} if name == "test" else {"entrypoint"})
+            if name == "test" and (arguments.get("scenario_id", "training") != "training" or
+                                   arguments.get("seed_id", "train-17") != "train-17" or
+                                   arguments.get("opponent_id", "passive") != "passive"):
+                raise ArenaError("Test is outside the preparation catalog")
             info = submission(self.workspace, entry)
             if name == "submit":
                 target = self.directory / "submission"
@@ -94,6 +100,8 @@ class Preparation:
             if name == "analyze":
                 out = self.directory / "tools" / call_id
                 if (out / "result.json").exists():
+                    if read_json(out / "provenance.json")["submission"] != info:
+                        raise ArenaError("Cached analysis source differs from current source")
                     return read_json(out / "result.json")
                 # An interrupted invocation is retained; retry in a new directory.
                 out = self._attempt(out)

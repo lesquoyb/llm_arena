@@ -38,5 +38,9 @@ if trust.exists():
 Path(os.environ['GRADLE_USER_HOME'], 'gradle.properties').write_text('\n'.join(lines) + '\n')
 PY
 cd "$REPO_ROOT"
+if [ ! -x .venv/bin/python ]; then python -m venv .venv; fi
+.venv/bin/python -m pip install --disable-pip-version-check -r requirements/mcp.lock.txt
+.venv/bin/python -m pip install --disable-pip-version-check --no-deps -e .
+export PATH="$REPO_ROOT/.venv/bin:$PATH"
 python -m arena setup --gradle "$TOOLS/gradle-9.3.1/bin/gradle"
 python -m arena doctor
