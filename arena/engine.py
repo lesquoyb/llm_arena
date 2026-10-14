@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import platform
+import signal
 import shutil
 import subprocess
 import time
@@ -34,6 +35,12 @@ def java_home() -> Path:
     if not (home / "bin" / ("javac.exe" if os.name == "nt" else "javac")).exists():
         raise ArenaError("A full JDK with javac is required")
     return home
+
+
+def worker_limits():
+    # Bound each redirected output file. This is not a complete OS sandbox.
+    import resource
+    resource.setrlimit(resource.RLIMIT_FSIZE, (8_000_000, 8_000_000))
 
 
 def setup(gradle: str | None = None):
@@ -115,7 +122,24 @@ class Engine:
         start = time.monotonic()
         with (work / "stdout.log").open("wb") as stdout, (work / "stderr.log").open("wb") as stderr:
             try:
-                process = subprocess.run(args, cwd=work, stdout=stdout, stderr=stderr, timeout=self.timeout)
+                allowed = {"PATH", "JAVA_HOME", "SystemRoot", "WINDIR", "TEMP", "TMP",
+                           "TMPDIR", "LANG", "LC_ALL", "TZ"}
+                environment = {key: value for key, value in os.environ.items() if key in allowed}
+                options = {"start_new_session": True, "preexec_fn": worker_limits} if os.name == "posix" else {}
+                process = subprocess.Popen(args, cwd=work, stdout=stdout, stderr=stderr,
+                                           env=environment, **options)
+                try:
+                    process.wait(timeout=self.timeout)
+                except BaseException:
+                    if os.name == "posix":
+                        try:
+                            os.killpg(process.pid, signal.SIGKILL)
+                        except ProcessLookupError:
+                            pass
+                    else:
+                        process.kill()
+                    process.wait()
+                    raise
             except subprocess.TimeoutExpired:
                 return {"status": "timeout", "elapsed_seconds": time.monotonic() - start,
                         "error": "Whole-match process deadline exceeded; not attributed to either strategy"}

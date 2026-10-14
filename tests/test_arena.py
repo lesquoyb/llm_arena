@@ -112,6 +112,14 @@ class EngineIntegrationTests(unittest.TestCase):
         self.assertEqual(result["winner_side"], 1)
         self.assertGreater(result["team_metrics"]["0"]["errors"], 0)
 
+    def test_paths_with_spaces_and_multifile_includes(self):
+        source = self.root / "strategy with spaces"
+        (source / "lib").mkdir(parents=True)
+        (source / "main.leek").write_text('include("lib/helper.leek")')
+        (source / "lib/helper.leek").write_text("var enemy = getNearestEnemy()")
+        result = self.engine.analyze(source, "main.leek", self.root / "output with spaces")
+        self.assertEqual(result["status"], "valid")
+
     def test_operation_limit_is_enforced(self):
         source = self.root / "loop"
         source.mkdir()

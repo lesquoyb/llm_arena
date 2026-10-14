@@ -1,0 +1,27 @@
+name: Linux engine
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Build pinned engine and validate
+        run: |
+          set -euo pipefail
+          mkdir -p runs/ci-logs
+          bash scripts/bootstrap-linux.sh 2>&1 | tee runs/ci-logs/build.log
+          bash scripts/validate-linux.sh runs/ci 2>&1 | tee runs/ci-logs/validation.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: linux-engine-evidence
+          path: |
+            runs/
+            vendor/leek-wars-generator/build/reports/
+          if-no-files-found: warn

@@ -6,6 +6,10 @@ Le socle exécute réellement les combats : analyse de scripts, équipes symétr
 
 ## Démarrage
 
+Sous Linux x86_64 : `bash scripts/bootstrap-linux.sh`, puis
+`bash scripts/validate-linux.sh`. Voir [le guide Linux](docs/linux.md)
+pour le proxy, les checksums, la CI et les limites.
+
 Prérequis : **Python ≥ 3.11, JDK 25, Git et Gradle 9.3.1**. Aucun paquet Python tiers n'est nécessaire. Exécuter les commandes depuis ce dépôt. Java 25 doit être sur le PATH ; le bootstrap remplace localement une éventuelle configuration Gradle pointant vers un ancien JDK, sans modifier la configuration globale.
 
 ```powershell
@@ -29,6 +33,11 @@ python -m arena report runs/my-first-tournament
 Les résultats terminés sont vérifiés et réutilisés ; les combats interrompus ou en panne sont rejoués dans un nouveau dossier d'essai. Ne lancer qu'un processus sur un même dossier de tournoi. Pour une nouvelle expérience ou un moteur modifié, utiliser un nouveau dossier.
 
 ## Ajouter une stratégie
+
+Une [expérience G0 hors ligne](docs/offline-experiment.md) est disponible :
+`python -m arena experiment run configs/offline-demo.json --out runs/offline-demo`.
+Elle orchestre des fournisseurs simulés, les outils de préparation et un
+tournoi réel, sans clé ni appel API.
 
 Créer un dossier avec `main.leek` et éventuellement des fichiers `.leek` inclus. Les chemins dans le manifeste sont relatifs à ce manifeste. Exemple d'inscription :
 
