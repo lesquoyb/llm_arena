@@ -91,16 +91,42 @@ async function main() {
       assert.equal(payload.provider, "openai");
       await route.fulfill({
         json: {
-          models: [{ id: "fixture-model", name: "Catalog model" }],
+          models: [
+            {
+              id: "fixture-model",
+              name: "Catalog model " + "long model name ".repeat(15),
+            },
+            { id: "other-model", name: "Other model" },
+          ],
+          excluded: [{ id: "image-model", reason: "Image generation only" }],
           truncated: false,
         },
       });
     });
     await page.getByRole("button", { name: "Load models" }).click();
-    await page.getByLabel("Available models").selectOption("fixture-model");
+    await page.getByLabel("Search models").fill("fixture");
+    assert.equal(await page.locator(".model-option").count(), 1);
+    const modelFits = await page
+      .locator(".model-option strong")
+      .evaluate((el) => el.scrollWidth <= el.clientWidth + 1);
+    assert(modelFits, "Long model names must wrap without horizontal clipping");
+    await page.locator(".model-option").click();
+    await page.getByText("Excluded models", { exact: true }).click();
+    await page
+      .locator("#excluded-model-list")
+      .getByText("Image generation only", { exact: false })
+      .waitFor();
     assert.equal(
       await page.getByLabel("Exact model ID").inputValue(),
       "fixture-model",
+    );
+    assert.equal(
+      await page.getByLabel("Maximum input per call").inputValue(),
+      "",
+    );
+    assert.equal(
+      await page.getByLabel("Maximum output per call").inputValue(),
+      "",
     );
     await page.getByLabel("Model seed").fill("42");
     await page.getByLabel("Input price / million").fill("1.25");
@@ -109,6 +135,31 @@ async function main() {
     await page
       .getByLabel("API key (this server session only)")
       .fill("browser-only-secret");
+    await page.route(
+      "**/api/participant",
+      (route) =>
+        route.fulfill({
+          status: 400,
+          json: { error: "Fixture validation error: choose a valid model" },
+        }),
+      { times: 1 },
+    );
+    await page.getByRole("button", { name: "Save participant" }).click();
+    await page.locator("#dialog-error").waitFor({ state: "visible" });
+    assert(
+      await page
+        .locator("#dialog-error")
+        .evaluate((el) => el.closest("dialog").open),
+    );
+    assert(
+      (await page.locator("#dialog-error").textContent()).includes(
+        "Fixture validation error",
+      ),
+    );
+    assert.equal(
+      await page.getByLabel("Participant ID").inputValue(),
+      "browser-api",
+    );
     await page.getByRole("button", { name: "Save participant" }).click();
     await page.getByText("browser-api", { exact: true }).waitFor();
     const boot = await page.request.get(url + "/api/bootstrap");

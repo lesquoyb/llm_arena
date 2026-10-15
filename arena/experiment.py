@@ -66,10 +66,9 @@ def validate_config(value: dict) -> dict:
             if set(model) != {"id", "provider", "profile"} or model["profile"] not in PROFILES:
                 raise ArenaError("Invalid mock profile")
         else:
-            fields = {"id", "provider", "model", "api_key_env", "pricing",
-                      "max_input_tokens_per_call", "max_output_tokens"}
+            fields = {"id", "provider", "model", "api_key_env", "pricing"}
             if (model["provider"] not in {"openai", "openai-compatible", "anthropic", "gemini"} or not fields <= set(model)
-                    or set(model) - fields - {"endpoint", "parameters", "timeout_seconds", "max_retries"}):
+                    or set(model) - fields - {"endpoint", "parameters", "timeout_seconds", "max_retries", "max_input_tokens_per_call", "max_output_tokens"}):
                 raise ArenaError("Invalid API model configuration")
             if not spending["allow_paid_calls"] or amount(spending["max_total_usd"]) == 0:
                 raise ArenaError("Real providers require explicit paid activation and financial ceiling")
@@ -85,7 +84,10 @@ def validate_config(value: dict) -> dict:
             if model["provider"] == "openai-compatible" and "endpoint" not in model:
                 raise ArenaError("Compatible endpoints must be explicit")
             for key in ("max_input_tokens_per_call", "max_output_tokens"):
-                integer(model[key], 1, 10_000_000, key)
+                if key in model:
+                    integer(model[key], 1, 10_000_000, key)
+            if model["provider"] == "anthropic" and "max_output_tokens" not in model:
+                raise ArenaError("Anthropic requires an explicit maximum output per call (max_tokens)")
             integer(model.get("timeout_seconds", 60), 1, 300, "timeout_seconds")
             integer(model.get("max_retries", 0), 0, 3, "max_retries")
             params = model.get("parameters", {})
@@ -121,8 +123,8 @@ def validate_config(value: dict) -> dict:
         integer(budget[key], 0 if key == "max_test_matches" else 1, 100_000_000, key)
     if "max_cost_usd" in budget:
         amount(budget["max_cost_usd"])
-    if any(m["provider"] != "mock" for m in models) and not {"max_input_tokens", "max_output_tokens", "max_cost_usd"} <= set(budget):
-        raise ArenaError("API sessions require input, output and financial budgets")
+    if any(m["provider"] != "mock" for m in models) and "max_cost_usd" not in budget:
+        raise ArenaError("API sessions require a financial budget")
     seeds = value["seeds"]
     if not isinstance(seeds, list) or not seeds or len(seeds) > 100 or len(seeds) != len(set(seeds)):
         raise ArenaError("Invalid evaluation seeds")
@@ -259,14 +261,23 @@ def provider_response(sid, state, model, config, journal):
         budget = config["budget_per_session"]
         try:
             bound = reservation(model, state["history"], TOOLS,
-                                budget["max_output_tokens"] - state.get("output_tokens", 0))
+                                (budget["max_output_tokens"] - state.get("output_tokens", 0)) if "max_output_tokens" in budget else None)
         except ArenaError:
             state["status"] = "budget_exhausted"
             return None
         spent = amount(state.get("cost_spent", "0"))
         total = sum(amount(s.get("cost_spent", "0")) + amount(s.get("money_reserved", "0"))
                     for s in journal.states().values())
-        if (state.get("input_tokens", 0) + bound["input_bound"] > budget["max_input_tokens"]
+        if bound["cost_bound"] is None:
+            # With provider-default output there is no finite per-call estimate.
+            # Reserve all remaining funds until the response is reconciled.
+            available = min(amount(budget["max_cost_usd"]) - spent,
+                            amount(config["spending"]["max_total_usd"]) - total)
+            if available <= 0:
+                state["status"] = "budget_exhausted"
+                return None
+            bound["cost_bound"] = str(available)
+        if (("max_input_tokens" in budget and state.get("input_tokens", 0) + bound["input_bound"] > budget["max_input_tokens"])
                 or spent + amount(bound["cost_bound"]) > amount(budget["max_cost_usd"])
                 or total + amount(bound["cost_bound"]) > amount(config["spending"]["max_total_usd"])):
             state["status"] = "budget_exhausted"
@@ -311,8 +322,8 @@ def provider_response(sid, state, model, config, journal):
             state["output_tokens"] = state.get("output_tokens", 0) + usage["output_tokens"]
             state["cost_spent"] = str(amount(state.get("cost_spent", "0")) + amount(response["cost_usd"]))
             state["money_reserved"] = "0"
-            if (state["input_tokens"] > config["budget_per_session"]["max_input_tokens"]
-                    or state["output_tokens"] > config["budget_per_session"]["max_output_tokens"]
+            if (("max_input_tokens" in budget and state["input_tokens"] > budget["max_input_tokens"])
+                    or ("max_output_tokens" in budget and state["output_tokens"] > budget["max_output_tokens"])
                     or amount(state["cost_spent"]) > amount(config["budget_per_session"]["max_cost_usd"])):
                 state["status"] = "budget_exhausted"
         else:

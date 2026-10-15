@@ -152,6 +152,25 @@ class ProviderContractTests(unittest.TestCase):
         list_models("openai-compatible","fixture","https://example.test/v1/chat/completions",transport=compatible)
         self.assertEqual(seen,["https://example.test/v1/models"])
 
+    def test_catalog_excludes_non_agent_models_without_hiding_unknown_chat_models(self):
+        ids = ["gpt-4.1", "gpt-4o", "gpt-image-1", "dall-e-3", "text-embedding-3-small",
+               "whisper-1", "tts-1-hd", "omni-moderation-latest", "gpt-4o-realtime-preview",
+               "gpt-4o-mini-transcribe", "gpt-3.5-turbo-instruct", "o3-pro", "custom-agent"]
+        def transport(*args):
+            return {"data": [{"id": name} for name in ids] +
+                    [{"id": "no-tools", "capabilities": {"tools": False}}]}, None
+        result = list_models("openai", "fixture", transport=transport)
+        self.assertEqual([m["id"] for m in result["models"]], ["custom-agent", "gpt-4.1", "gpt-4o"])
+        self.assertEqual(len(result["excluded"]), len(ids) - 2)
+        self.assertTrue(all(m["reason"] for m in result["excluded"]))
+        self.assertIn("unverified", result["models"][0]["availability"])
+        def gemini(*args):
+            return {"models": [{"name": "models/" + name, "supportedGenerationMethods": ["generateContent"]}
+                                for name in ["gemini-2.5-pro", "gemini-2.5-flash-image", "gemini-2.5-flash-preview-tts"]]}, None
+        result = list_models("gemini", "fixture", transport=gemini)
+        self.assertEqual([m["id"] for m in result["models"]], ["models/gemini-2.5-pro"])
+        self.assertEqual(len(result["excluded"]), 2)
+
     def test_seeds_rejected_for_anthropic_and_invalid_types(self):
         config = read_json(ROOT / "configs/offline-demo.json")
         config["spending"] = {"allow_paid_calls":True,"max_total_usd":"1"}
@@ -215,6 +234,55 @@ class ProviderContractTests(unittest.TestCase):
             with self.assertRaises(ProviderFailure):
                 APIProvider(model(), unknown).respond([], TOOLS, 1)
         self.assertEqual(len(attempts), 1)
+
+    def test_optional_tokens_omit_api_caps_and_preserve_unknown_call_reservation(self):
+        descriptor = model()
+        descriptor.pop("max_input_tokens_per_call")
+        descriptor.pop("max_output_tokens")
+        self.assertNotIn("max_completion_tokens", APIProvider(descriptor).payload([], TOOLS, None))
+        gemini = dict(descriptor, provider="gemini")
+        self.assertNotIn("maxOutputTokens", APIProvider(gemini).payload([], TOOLS, None)["generationConfig"])
+        with self.assertRaisesRegex(ArenaError, "Anthropic requires"):
+            APIProvider(dict(descriptor, provider="anthropic")).payload([], TOOLS, None)
+        config = read_json(ROOT / "configs/offline-demo.json")
+        config["models"] = [descriptor]
+        config["spending"] = {"allow_paid_calls": True, "max_total_usd": "0.2"}
+        config["budget_per_session"]["max_cost_usd"] = "1"
+        validate_config(config)
+        with scratch_directory() as tmp:
+            journal = Journal(tmp)
+            try:
+                state = initial_state("fixture-r0", descriptor, config)
+                with mock.patch("arena.experiment.APIProvider") as provider:
+                    provider.return_value.respond.side_effect = ProviderFailure("timeout", uncertain=True)
+                    self.assertIsNone(provider_response("fixture-r0", state, descriptor, config, journal))
+                    self.assertIsNone(provider.return_value.respond.call_args.args[2])
+                self.assertEqual(state["money_reserved"], "0.2")
+                self.assertEqual(state["status"], "needs_reconciliation")
+            finally:
+                journal.db.close()
+        response = {"role": "assistant", "native": {"role": "assistant", "content": "done"},
+                    "tool_calls": [], "usage": {"input_tokens": 7, "output_tokens": 11},
+                    "cost_usd": "0.3", "request_id": "fixture-unlimited"}
+        with scratch_directory() as tmp:
+            journal = Journal(tmp)
+            try:
+                state = initial_state("fixture-r0", descriptor, config)
+                with mock.patch("arena.experiment.APIProvider") as provider:
+                    provider.return_value.respond.return_value = response
+                    self.assertIsNotNone(provider_response("fixture-r0", state, descriptor, config, journal))
+                self.assertEqual(state["input_tokens"], 7)
+                self.assertEqual(state["output_tokens"], 11)
+                self.assertEqual(state["money_reserved"], "0")
+                with mock.patch("arena.experiment.APIProvider") as provider:
+                    self.assertIsNone(provider_response("fixture-r0", state, descriptor, config, journal))
+                    provider.assert_not_called()
+                self.assertEqual(state["status"], "budget_exhausted")
+            finally:
+                journal.db.close()
+        config["budget_per_session"]["max_input_tokens"] = 0
+        with self.assertRaises(ArenaError):
+            validate_config(config)
 
     def test_global_ceiling_and_unknown_remote_state_preserve_reservation(self):
         config = read_json(ROOT / "configs/offline-demo.json")

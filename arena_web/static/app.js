@@ -130,11 +130,21 @@ async function api(path, args = {}, post = false) {
   );
   const value = await response.json();
   if (!response.ok)
-    throw new Error(value.error || `Erreur HTTP ${response.status}`);
+    throw new Error(value.error || `HTTP error ${response.status}`);
   return value;
 }
 function toast(message, error = false) {
   const node = $("#toast");
+  const dialog = $("#dialog");
+  if (error && dialog.open) {
+    const alert = $("#dialog-error");
+    alert.textContent = message;
+    alert.hidden = false;
+    alert.scrollIntoView({ block: "nearest" });
+    alert.focus({ preventScroll: true });
+    return;
+  }
+  (dialog.open ? dialog : document.body).appendChild(node);
   node.textContent = message;
   node.className = error ? "error" : "";
   node.style.display = "block";
@@ -372,8 +382,22 @@ function competitions() {
 }
 function openDialog(title, subtitle, body) {
   $("#dialog-content").innerHTML =
-    `<div class="dialog-head"><div><h2>${e(title)}</h2><p>${e(subtitle)}</p></div><button class="icon-button" data-action="close-dialog" aria-label="Close">×</button></div>${body}`;
+    `<div class="dialog-head"><div><h2>${e(title)}</h2><p>${e(subtitle)}</p></div><button class="icon-button" data-action="close-dialog" aria-label="Close">×</button></div><div id="dialog-error" class="notice error dialog-error" role="alert" tabindex="-1" hidden></div>${body}`;
   if (!$("#dialog").open) $("#dialog").showModal();
+}
+function renderModelCatalog() {
+  const term = $("#model-search").value.toLowerCase();
+  const models = (S.catalogModels || []).filter((m) =>
+    `${m.id} ${m.name}`.toLowerCase().includes(term),
+  );
+  $("#available-models").innerHTML = models.length
+    ? models
+        .map(
+          (m) =>
+            `<button type="button" class="model-option" data-action="select-model" data-model="${e(m.id)}"><strong>${e(m.name || m.id)}</strong><code>${e(m.id)}</code><small>${e(m.availability || "Listed by API; chat and tool support unverified")}</small></button>`,
+        )
+        .join("")
+    : `<p>No matching models.</p>`;
 }
 function participantDialog(identifier = null, provider = null) {
   const m = identifier
@@ -406,7 +430,7 @@ function participantDialog(identifier = null, provider = null) {
          m.profile || "single-shot",
          "single-shot submits a simple strategy; repair-and-submit fixes a script and submits rush.",
        )
-     : `${field("Exact model ID", "model", m.model || "", "text", "The exact ID accepted by the API.", "required")}<div class="field full"><div class="actions">${btn("Load models", "list-models")}<select id="available-models" aria-label="Available models"><option value="">Catalog not loaded</option></select></div><small id="model-list-status">Load the API catalog using the configured key, or enter an ID manually.</small></div>${field("API key environment variable", "api_key_env", m.api_key_env || (p === "anthropic" ? "ARENA_ANTHROPIC_KEY" : p === "gemini" ? "ARENA_GEMINI_KEY" : "ARENA_OPENAI_KEY"), "text", "A key set in the server environment can also be used.", "required")}<label class="field full">API key (this server session only)<input name="secret" type="password" autocomplete="new-password" placeholder="Leave blank to keep the available key"><small>Not returned to the browser or written to configuration files.</small></label>${p === "openai-compatible" ? field("Full HTTPS endpoint", "endpoint", m.endpoint || "", "url", "Include the API path. Do not put keys or query parameters in the URL.", "required") : m.endpoint ? field("HTTPS endpoint", "endpoint", m.endpoint, "url") : ""}${field("Input price / million tokens ($)", "input_price", pricing.input_per_million ?? "", "number", "", 'required min="0" step="any"')}${field("Output price / million tokens ($)", "output_price", pricing.output_per_million ?? "", "number", "", 'required min="0" step="any"')}${field("Price date", "pricing_date", pricing.date || new Date().toISOString().slice(0, 10), "date", "", "required")}${field("Cache read price / million ($), optional", "cached_price", pricing.cached_input_per_million ?? "", "number", "Blank uses the standard input price.", 'min="0" step="any"')}${field("Cache write price / million ($), optional", "creation_price", pricing.cache_creation_per_million ?? "", "number", "", 'min="0" step="any"')}${field("Maximum input per call (tokens)", "max_input_tokens_per_call", m.max_input_tokens_per_call || 150000, "number", "Conservative admission bound.", 'required min="1"')}${field("Maximum output per call (tokens)", "max_output_tokens", m.max_output_tokens || 12000, "number", "", 'required min="1"')}${field("Call timeout (seconds)", "timeout_seconds", m.timeout_seconds || 60, "number", "", 'required min="1" max="300"')}${field("Retries on HTTP 429", "max_retries", m.max_retries ?? 1, "number", "Calls with unknown outcomes are not retried automatically.", 'required min="0" max="3"')}${p === "anthropic" ? `<p class="muted">Seed: not available in the Anthropic API.</p>` : field("Model seed", "model_seed", m.parameters?.seed ?? (identifier ? "" : 0), "number", p === "openai-compatible" ? "Server support varies. Identical output is not guaranteed." : "Sent with every call when supported by the model. Identical output is not guaranteed.", 'min="0" max="2147483647"')}<label class="field full">Model parameters (JSON)<textarea name="parameters" class="mono">${e(pretty(m.parameters || {}))}</textarea><small>API-specific options such as temperature and top_p. Set the seed above.</small></label>`
+     : `${field("Exact model ID", "model", m.model || "", "text", "The exact ID accepted by the API.", "required")}<div class="field full">${btn("Load models", "list-models")}<label class="field" hidden id="model-search-field">Search models<input type="search" id="model-search" placeholder="Filter by model name or ID"></label><div id="available-models" class="model-catalog" role="group" aria-label="Available models" hidden></div><small id="model-list-status">Load models available to the configured API key. You can also enter an ID manually.</small><details id="excluded-models" hidden><summary>Excluded models</summary><div id="excluded-model-list"></div></details></div>${field("API key environment variable", "api_key_env", m.api_key_env || (p === "anthropic" ? "ARENA_ANTHROPIC_KEY" : p === "gemini" ? "ARENA_GEMINI_KEY" : "ARENA_OPENAI_KEY"), "text", "A key set in the server environment can also be used.", "required")}<label class="field full">API key (this server session only)<input name="secret" type="password" autocomplete="new-password" placeholder="Leave blank to keep the available key"><small>Not returned to the browser or written to configuration files.</small></label>${p === "openai-compatible" ? field("Full HTTPS endpoint", "endpoint", m.endpoint || "", "url", "Include the API path. Do not put keys or query parameters in the URL.", "required") : m.endpoint ? field("HTTPS endpoint", "endpoint", m.endpoint, "url") : ""}${field("Input price / million tokens ($)", "input_price", pricing.input_per_million ?? "", "number", "", 'required min="0" step="any"')}${field("Output price / million tokens ($)", "output_price", pricing.output_per_million ?? "", "number", "", 'required min="0" step="any"')}${field("Price date", "pricing_date", pricing.date || new Date().toISOString().slice(0, 10), "date", "", "required")}${field("Cache read price / million ($), optional", "cached_price", pricing.cached_input_per_million ?? "", "number", "Blank uses the standard input price.", 'min="0" step="any"')}${field("Cache write price / million ($), optional", "creation_price", pricing.cache_creation_per_million ?? "", "number", "", 'min="0" step="any"')}${field("Maximum input per call (tokens)", "max_input_tokens_per_call", m.max_input_tokens_per_call ?? "", "number", "Optional. Blank disables local input admission limits.", 'min="1"')}${field("Maximum output per call (tokens)", "max_output_tokens", m.max_output_tokens ?? "", "number", p === "anthropic" ? "Required by Anthropic (max_tokens)." : "Optional. Blank uses the API default; one call may exceed the remaining financial budget.", p === "anthropic" ? 'required min="1"' : 'min="1"')}${field("Call timeout (seconds)", "timeout_seconds", m.timeout_seconds || 60, "number", "", 'required min="1" max="300"')}${field("Retries on HTTP 429", "max_retries", m.max_retries ?? 1, "number", "Calls with unknown outcomes are not retried automatically.", 'required min="0" max="3"')}${p === "anthropic" ? `<p class="muted">Seed: not available in the Anthropic API.</p>` : field("Model seed", "model_seed", m.parameters?.seed ?? (identifier ? "" : 0), "number", p === "openai-compatible" ? "Server support varies. Identical output is not guaranteed." : "Sent with every call when supported by the model. Identical output is not guaranteed.", 'min="0" max="2147483647"')}<label class="field full">Model parameters (JSON)<textarea name="parameters" class="mono">${e(pretty(m.parameters || {}))}</textarea><small>API-specific options such as temperature and top_p. Set the seed above.</small></label>`
  }</div><div class="form-footer">${btn("Cancel", "close-dialog")}<button type="submit" class="button primary">Save participant</button></div></form>`,
   );
 }
@@ -448,7 +472,7 @@ function competitionEditor() {
       String(c.generations || 1),
     )}</div><h3 class="section-label">Selected participants</h3>${S.choiceModels.map((m) => `<label class="choice"><input type="checkbox" name="participant" value="${e(m.id)}" ${c.models.some((v) => v.id === m.id) ? "checked" : ""}><span><strong>${e(m.id)}</strong><small>${e(m.provider)} · ${e(m.model || m.profile)}</small></span></label>`).join("")}${btn("Manage profiles", "go", 'data-view="participants"')}</section>
  <section class="panel"><h2>Match rules</h2><p class="muted">Both teams use the same stats and equipment. Matches alternate sides.</p><div class="form-grid">${field("Entities per team", "team_size", c.scenario.team_size, "number", "", 'required min="1" max="8"')}${field("Maximum turns", "max_turns", c.scenario.max_turns, "number", "", 'required min="1" max="64"')}${field("Initial / feedback seeds", "seeds", c.seeds.join(", "), "text", "Map generation seeds, for example 101, 202.", "required")}${field("Final evaluation seeds", "final_seeds", (c.final_seeds || []).join(", "), "text", "Separate from initial strategy seeds and training seed 17.")}</div><label class="check" style="margin-top:15px"><input type="checkbox" name="include_mirrors" ${c.include_mirrors ? "checked" : ""}>Include mirror matches (excluded from score)</label><details><summary>Stats, equipment and custom map</summary><div class="form-grid three" style="margin-top:15px">${ENTITY_FIELDS.map(([key, label, def]) => field(label, "entity_" + key, c.scenario.entity[key] ?? def, "number", "", 'required min="0"')).join("")}</div><div class="form-grid" style="margin-top:15px">${field("Weapon IDs", "weapons", c.scenario.entity.weapons.join(", "), "text", "The demo uses weapon 37.")}${field("Chip IDs", "chips", c.scenario.entity.chips.join(", "), "text", "Leave blank for no chips.")}<label class="field full">Custom map (JSON, optional)<textarea name="map" class="mono">${c.scenario.map ? e(pretty(c.scenario.map)) : ""}</textarea><small>Without a custom map, the seed determines the map and starting positions.</small></label></div></details></section>
- <section class="panel"><h2>Budgets per conversation</h2><p class="muted">Both improvement branches receive the same additional budgets.</p><div class="form-grid">${field("Model calls", "max_calls", b.max_calls, "number", "", 'required min="1"')}${field("Tool calls", "max_agent_steps", b.max_agent_steps, "number", "", 'required min="1"')}${field("Preparation matches", "max_test_matches", b.max_test_matches, "number", "One test runs two matches, one per side.", 'required min="0"')}${field("Preparation time (seconds)", "max_wall_seconds", b.max_wall_seconds, "number", "", 'required min="1"')}${field("Total input tokens", "max_input_tokens", b.max_input_tokens || 1000000, "number", "For real APIs.", 'required min="1"')}${field("Total output tokens", "max_output_tokens", b.max_output_tokens || 100000, "number", "", 'required min="1"')}${field("API spending limit per conversation ($)", "max_cost_usd", b.max_cost_usd ?? "1", "number", "", 'required min="0" step="any"')}${field("API spending limit for the experiment ($)", "max_total_usd", c.spending.max_total_usd || "5", "number", "Includes initial strategy and all improvement branches.", 'required min="0" step="any"')}</div><label class="check" style="margin-top:15px"><input type="checkbox" name="allow_paid_calls" ${c.spending.allow_paid_calls ? "checked" : ""}>Allow paid APIs for this configuration</label><small>Mock runs have no API cost. Paid runs require confirmation of the spending limit.</small></section>
+ <section class="panel"><h2>Budgets per conversation</h2><p class="muted">Both improvement branches receive the same additional budgets.</p><div class="form-grid">${field("Model calls", "max_calls", b.max_calls, "number", "", 'required min="1"')}${field("Tool calls", "max_agent_steps", b.max_agent_steps, "number", "", 'required min="1"')}${field("Preparation matches", "max_test_matches", b.max_test_matches, "number", "One test runs two matches, one per side.", 'required min="0"')}${field("Preparation time (seconds)", "max_wall_seconds", b.max_wall_seconds, "number", "", 'required min="1"')}${field("Total input tokens", "max_input_tokens", b.max_input_tokens ?? "", "number", "Optional. Blank means no conversation token limit.", 'min="1"')}${field("Total output tokens", "max_output_tokens", b.max_output_tokens ?? "", "number", "Optional. Blank means no conversation token limit.", 'min="1"')}${field("API spending limit per conversation ($)", "max_cost_usd", b.max_cost_usd ?? "1", "number", "", 'required min="0" step="any"')}${field("API spending limit for the experiment ($)", "max_total_usd", c.spending.max_total_usd || "5", "number", "Includes initial strategy and all improvement branches.", 'required min="0" step="any"')}</div><label class="check" style="margin-top:15px"><input type="checkbox" name="allow_paid_calls" ${c.spending.allow_paid_calls ? "checked" : ""}>Allow paid APIs for this configuration</label><small>Mock runs have no API cost. Paid runs require confirmation of the spending limit. Without an output token cap, one call can exceed the remaining financial budget; subsequent calls stop.</small></section>
  <section class="panel"><details><summary>Import a JSON configuration</summary><textarea id="import-config" class="mono" style="width:100%;margin-top:12px" placeholder="Paste an experiment manifest"></textarea><div style="margin-top:10px">${btn("Apply configuration", "import-config")}</div></details></section></div>
  <aside class="panel sticky"><div class="eyebrow">Before launching</div><h2>Schedule</h2><p class="muted">Review the schedule and spending limit before launching.</p><div id="plan-preview">${notice("Both improvement branches start from the same initial history. One receives match feedback.")}</div>${btn("Calculate schedule", "preview-plan")}<div class="divider"></div><button type="submit" class="button primary" style="width:100%">Save configuration</button><p class="muted" style="font-size:10px;margin-top:12px">Saving does not start a run.</p></aside></div></form>`
   );
@@ -492,10 +516,13 @@ function readCompetition(form) {
   };
   if (real)
     Object.assign(base.budget_per_session, {
-      max_input_tokens: n("max_input_tokens"),
-      max_output_tokens: n("max_output_tokens"),
       max_cost_usd: f.get("max_cost_usd"),
     });
+  if (real)
+    for (const key of ["max_input_tokens", "max_output_tokens"]) {
+      if (String(f.get(key) || "").trim())
+        base.budget_per_session[key] = n(key);
+    }
   base.spending = real
     ? {
         allow_paid_calls: f.has("allow_paid_calls"),
@@ -1269,16 +1296,18 @@ document.addEventListener("click", async (event) => {
           true,
         );
         if (!form.isConnected) return;
-        $("#available-models").innerHTML =
-          `<option value="">Select a model...</option>` +
-          data.models
-            .map(
-              (m) =>
-                `<option value="${e(m.id)}">${e(m.name)} · ${e(m.id)}</option>`,
-            )
-            .join("");
+        S.catalogModels = data.models;
+        $("#available-models").hidden = false;
+        $("#model-search-field").hidden = false;
+        $("#model-search").value = "";
+        renderModelCatalog();
+        const excluded = data.excluded || [];
+        $("#excluded-models").hidden = !excluded.length;
+        $("#excluded-model-list").innerHTML = excluded
+          .map((m) => `<p><code>${e(m.id)}</code><br>${e(m.reason)}</p>`)
+          .join("");
         $("#model-list-status").textContent =
-          `${data.models.length} models${data.truncated ? " · partial list" : ""}. Chat and tool support depend on the model.`;
+          `${data.models.length} candidate models listed by this API key · ${excluded.length} incompatible models excluded${data.truncated ? " · partial catalog" : ""}. Catalog visibility does not guarantee chat/tool access; no generation request was made.`;
       } catch (error) {
         if (form.isConnected)
           $("#model-list-status").textContent =
@@ -1286,6 +1315,10 @@ document.addEventListener("click", async (event) => {
       } finally {
         node.disabled = false;
       }
+    } else if (a === "select-model") {
+      node.closest("form").elements.model.value = node.dataset.model;
+      $("#model-search").value = node.dataset.model;
+      renderModelCatalog();
     } else if (a === "edit-participant") participantDialog(node.dataset.id);
     else if (a === "delete-participant") {
       await api("/api/participant/delete", { id: node.dataset.id }, true);
@@ -1425,8 +1458,6 @@ document.addEventListener("submit", async (event) => {
         Object.assign(spec, {
           model: f.get("model"),
           api_key_env: f.get("api_key_env"),
-          max_input_tokens_per_call: Number(f.get("max_input_tokens_per_call")),
-          max_output_tokens: Number(f.get("max_output_tokens")),
           timeout_seconds: Number(f.get("timeout_seconds")),
           max_retries: Number(f.get("max_retries")),
           parameters: JSON.parse(f.get("parameters") || "{}"),
@@ -1437,6 +1468,9 @@ document.addEventListener("submit", async (event) => {
             output_per_million: f.get("output_price"),
           },
         });
+        for (const key of ["max_input_tokens_per_call", "max_output_tokens"]) {
+          if (String(f.get(key) || "").trim()) spec[key] = Number(f.get(key));
+        }
         if (f.has("model_seed")) {
           if (f.get("model_seed") !== "")
             spec.parameters.seed = Number(f.get("model_seed"));
@@ -1507,8 +1541,6 @@ document.addEventListener("change", async (event) => {
             : provider === "gemini"
               ? "ARENA_GEMINI_KEY"
               : "ARENA_OPENAI_KEY";
-    } else if (n.id === "available-models") {
-      if (n.value) n.form.elements.model.value = n.value;
     } else if (n.id === "metric-set") {
       S.metricSet = n.value;
       if (S.tab === "summary")
@@ -1572,10 +1604,12 @@ document.addEventListener("input", (event) => {
         f.path.toLowerCase().includes(n.value.toLowerCase()),
       ),
     );
+  if (n.id === "model-search") renderModelCatalog();
   if (n.id === "match-search") filterMatches().catch(showError);
   if (n.id === "replay-range") renderReplay(Number(n.value));
 });
 $("#dialog").addEventListener("close", () => {
+  document.body.appendChild($("#toast"));
   S.logJob = null;
 });
 window.addEventListener("hashchange", route);

@@ -89,7 +89,10 @@ A match seed controls reproducible map generation and placement. Preparation
 seed 17, feedback seeds and final evaluation seeds are separate. Mirrors compare
 a strategy with itself and do not affect the ranked score.
 
-Budgets cover model calls, tool calls, preparation matches, time, tokens and cost.
+Budgets cover model calls, tool calls, preparation matches, time and cost.
+Token caps are optional and blank by default in new profiles; Anthropic requires
+an explicit per-call output cap. Existing settings are preserved. Without an
+output cap, one API response can exceed the remaining financial budget.
 Saving settings makes no API calls. Paid launches require confirmation of the
 total limit, including initial strategy and both improved strategy branches. Per-conversation limits also apply.
 Reservations are conservative estimates, not guarantees of provider billing.

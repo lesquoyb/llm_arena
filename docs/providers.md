@@ -73,7 +73,7 @@ idempotency guarantee is assumed.
 
 Native continuation fields are retained: OpenAI tool calls, Anthropic tool-use
 and thinking/signature blocks, and Gemini parts including `thoughtSignature`.
-improved strategy branches replay full copies of their parent history without replacing it
+Improvement branches replay full copies of their parent history without replacing it
 with a summary.
 
 ## Catalogs, seeds and request records
@@ -114,3 +114,27 @@ Official contract sources checked on 15 October 2026:
 
 A live provider smoke test requires explicit keys, exact models, prices and a
 spending limit. It is not part of standard CI.
+
+## Optional token limits
+
+New profiles have no local input or output token cap by default. Blank fields
+are omitted from the configuration. OpenAI, Gemini and compatible APIs then use
+their own output defaults and context limits. Anthropic requires `max_tokens`,
+so its output cap must be entered explicitly. Existing profiles retain their caps.
+
+Per-call input admission compares serialized UTF-8 request bytes to the configured
+bound; it is not an exact tokenizer count. Conversation token caps are optional
+and use returned usage. If a total output cap is set, each request is limited to
+the remaining allowance. No minimum number of tokens is imposed.
+
+Financial budgets remain required for paid calls. With no output cap, the runner
+reserves all remaining funds while the call is in flight. Its cost is not bounded
+in advance: one response may exceed the remaining financial budget. Usage is
+reconciled on receipt and subsequent calls stop when the budget is exhausted.
+Unknown outcomes keep the reservation and require reconciliation.
+
+Model catalogs are fetched with the configured key and filtered for known
+incompatible endpoints and image/audio/video/embedding models. Excluded IDs and
+reasons remain visible. Unknown model IDs are retained; being listed does not
+prove tool support or generation access. Loading the catalog makes no generation
+request. The searchable list wraps long names and exact IDs.
