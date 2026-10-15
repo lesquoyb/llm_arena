@@ -65,7 +65,7 @@ async function main() {
     });
     await page.goto(url);
     await page
-      .getByRole("heading", { name: "Du prompt au terrain." })
+      .getByRole("heading", { name: "Vue d’ensemble", exact: true })
       .waitFor();
     await page.screenshot({
       path: path.join(artifacts, "dashboard.png"),
@@ -81,7 +81,27 @@ async function main() {
       await page.getByLabel("Identifiant du participant").inputValue(),
       "browser-api",
     );
-    await page.getByLabel("Identifiant exact du modèle").fill("fixture-model");
+    const icon = await page.request.get(url + "/favicon.png");
+    assert.equal(icon.status(), 200);
+    assert.equal(icon.headers()["content-type"], "image/png");
+    assert((await icon.body()).length > 1000);
+    await page.route("**/api/models", async (route) => {
+      const payload = route.request().postDataJSON();
+      assert.equal(payload.provider, "openai");
+      await route.fulfill({
+        json: {
+          models: [{ id: "fixture-model", name: "Modèle du catalogue" }],
+          truncated: false,
+        },
+      });
+    });
+    await page.getByRole("button", { name: "Charger les modèles" }).click();
+    await page.getByLabel("Modèles disponibles").selectOption("fixture-model");
+    assert.equal(
+      await page.getByLabel("Identifiant exact du modèle").inputValue(),
+      "fixture-model",
+    );
+    await page.getByLabel("Seed du modèle").fill("42");
     await page.getByLabel("Prix entrée / million").fill("1.25");
     await page.getByLabel("Prix sortie / million").fill("2.5");
     await page.getByLabel("Prix cache lu / million").fill("0.125");
@@ -93,7 +113,26 @@ async function main() {
       .click();
     await page.getByText("browser-api", { exact: true }).waitFor();
     const boot = await page.request.get(url + "/api/bootstrap");
-    assert(!JSON.stringify(await boot.json()).includes("browser-only-secret"));
+    const bootData = await boot.json();
+    assert(!JSON.stringify(bootData).includes("browser-only-secret"));
+    assert.equal(
+      bootData.participants.find((p) => p.spec.id === "browser-api").spec
+        .parameters.seed,
+      42,
+    );
+    await page.getByRole("button", { name: "Ajouter un participant" }).click();
+    await page.getByLabel("Fournisseur").selectOption("gemini");
+    assert.equal(
+      await page.getByLabel("Variable de la clé API").inputValue(),
+      "ARENA_GEMINI_KEY",
+    );
+    assert.equal(await page.getByLabel("Seed du modèle").inputValue(), "0");
+    await page.getByLabel("Fournisseur").selectOption("anthropic");
+    assert.equal(await page.getByLabel("Seed du modèle").count(), 0);
+    await page
+      .getByText("Seed : non disponible dans l’API Anthropic.", { exact: true })
+      .waitFor();
+    await page.getByRole("button", { name: "Annuler", exact: true }).click();
     await page
       .getByRole("link", { name: "Compétitions", exact: false })
       .click();
@@ -183,10 +222,32 @@ async function main() {
     assert.equal(await paid.isChecked(), false);
     assert.equal(await paid.getAttribute("required"), "");
     await page.getByRole("button", { name: "Fermer", exact: true }).click();
+    await page.goto(url + "/#view=run&run=legacy&tab=code");
+    await page.waitForFunction(() =>
+      document
+        .querySelector("#file-content")
+        ?.textContent.includes("stratégie fournie directement"),
+    );
+    assert(!(await page.locator("#toast").innerText()).includes("undefined"));
+    await page
+      .getByRole("button", { name: "Conversations", exact: true })
+      .click();
+    await page
+      .getByText("Pas de conversation enregistrée", { exact: true })
+      .waitFor();
     await page.goto(url + "/#view=run&run=one");
     await page
       .getByRole("heading", { name: "Performance des stratégies" })
       .waitFor();
+    await page.getByRole("heading", { name: "Matrice des combats" }).waitFor();
+    await page.getByLabel("Mesures", { exact: false }).selectOption("damage");
+    await page
+      .locator("#statistics-stage-detail th")
+      .filter({ hasText: "Dégâts donnés" })
+      .waitFor();
+    await page.getByLabel("Mesures", { exact: false }).selectOption("overview");
+    await page.getByText("20 000 000", { exact: false }).first().waitFor();
+    assert((await page.locator(".matrix").innerText()).includes("1 / 0 / 0"));
     await page.screenshot({
       path: path.join(artifacts, "summary.png"),
       fullPage: true,
@@ -227,6 +288,13 @@ async function main() {
     );
     await page.getByRole("button", { name: "Combats", exact: true }).click();
     await page.locator("#replay-board circle").first().waitFor();
+    await page.getByLabel("Mesures", { exact: false }).selectOption("compute");
+    await page
+      .locator(".combat-statistics th")
+      .filter({ hasText: "Opérations" })
+      .first()
+      .waitFor();
+    await page.getByLabel("Mesures", { exact: false }).selectOption("overview");
     await page.locator("#replay-range").evaluate((n) => {
       n.value = n.max;
       n.dispatchEvent(new Event("input", { bubbles: true }));
@@ -254,6 +322,27 @@ async function main() {
       fs.readFileSync(path.join(artifacts, "download-main.leek"), "utf8"),
       "var a = 2\n",
     );
+    await page.locator("#file-search").fill("report.md");
+    await page.locator(".file-button").first().click();
+    await page.getByRole("button", { name: "Interprété", exact: true }).click();
+    await page.locator("#file-content h1").waitFor();
+    assert.equal(await page.locator("#file-content img").count(), 0);
+    assert.equal(await page.locator("#file-content table").count(), 1);
+    await page.getByRole("button", { name: "Brut", exact: true }).click();
+    assert(
+      (await page.locator("#file-content pre").innerText()).includes(
+        "# Rapport navigateur",
+      ),
+    );
+    await page.locator("#file-search").fill("example.json");
+    await page.locator(".file-button").first().click();
+    await page.getByRole("button", { name: "Interprété", exact: true }).click();
+    await page.locator("#file-content .json-children").first().waitFor();
+    assert.equal(await page.locator("#file-content script").count(), 0);
+    assert.equal(
+      await page.evaluate(() => window.__arenaUnexpectedScript),
+      undefined,
+    );
     await page.getByRole("button", { name: "Journal", exact: true }).click();
     await page.getByRole("button", { name: "Voir l’artefact" }).first().click();
     await page
@@ -278,7 +367,7 @@ async function main() {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto(url + "/#view=dashboard");
     await page
-      .getByRole("heading", { name: "Du prompt au terrain." })
+      .getByRole("heading", { name: "Vue d’ensemble", exact: true })
       .waitFor();
     assert(
       await page.evaluate(

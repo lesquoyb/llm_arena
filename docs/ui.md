@@ -56,7 +56,12 @@ apprentissage ni la supériorité d’un modèle.
 
 Chaque profil contient un identifiant stable, un fournisseur et, pour une
 API réelle, l’identifiant exact du modèle, les paramètres et les limites par
-appel. OpenAI, Anthropic et les endpoints compatibles OpenAI sont pris en charge.
+appel. OpenAI, Anthropic, Gemini natif et les endpoints compatibles OpenAI sont pris en charge.
+**Charger les modèles** remplit un sélecteur avec les modèles accessibles à la clé
+configurée ; la saisie manuelle reste possible si ce catalogue n’est pas disponible.
+Le champ **Seed du modèle** est envoyé avec chaque requête pour OpenAI et Gemini
+(selon les capacités du modèle). Anthropic n’expose pas cette option.
+Voir [les limites de reproductibilité](providers.md#catalogue-seeds-et-requêtes).
 
 Les prix sont **en USD par million de tokens**, avec leur date. Par exemple,
 un tarif d’entrée de 2 signifie 2 USD pour un million de tokens d’entrée,
@@ -125,6 +130,16 @@ sont déjà conservés dans le journal et les artefacts. L’explorateur est en
 lecture seule, pour préserver les soumissions et leur reproductibilité.
 **Fichiers** permet aussi de consulter et télécharger les sources figées,
 les diagnostics, les configurations, les logs et les rapports.
+Le bouton **Brut / Interprété** permet de lire les Markdown avec une mise en
+forme simple (HTML échappé), et les JSON sous forme d’arbre repliable.
+Les données statiques du moteur sont masquées par défaut ; cocher
+**Inclure les données statiques du moteur** pour les consulter.
+
+`data/forbidden_words.txt` est un fichier du moteur officiel Leek Wars,
+copié avec ses ressources figées. Il ne s’agit pas d’une règle ajoutée par
+l’arène pour filtrer les conversations LLM. Le bridge local ne charge pas
+cette liste dans `Censorship.setSwearWords`. Le fichier reste conservé pour
+respecter l’inventaire du moteur, sans filtrage de chat ajouté par l’arène.
 
 ## 4. Comprendre les conversations
 
@@ -136,7 +151,12 @@ supprime aucun message. **Suivre en direct** avance vers les nouveaux messages.
 
 L’interface ne donne pas accès à un raisonnement interne que le fournisseur
 n’a pas exposé. Elle montre exactement les données enregistrées, sans inventer
-de texte intermédiaire. Le **Journal** ajoute les horodatages et les étapes
+de texte intermédiaire. Les participants simulés ont les mêmes prompts et
+outils que les participants réels ; leurs nouvelles requêtes sont affichées
+explicitement. Les tournois recevant directement des scripts ne passent par
+aucune génération : on peut consulter leurs sources figées dans **Code & versions**,
+mais ils n’ont pas de prompts de génération.
+Le **Journal** ajoute les horodatages et les étapes
 d’exécution ; ouvrir un événement vérifie l’empreinte de son artefact.
 
 ## 5. Lire les combats
@@ -152,6 +172,22 @@ de vitalité, éliminations et résurrections enregistrés. Elle ne reproduit
 pas toutes les animations ni tous les effets détaillés du client officiel.
 Les actions brutes restent affichées ; une action inconnue n’est pas inventée.
 Les métriques finales du moteur sont la référence pour le résultat.
+**Statistiques du combat** affiche le total du combat, les totaux par équipe
+et par leek, puis le détail par tour et par leek :
+opérations, actions, tirs, puces, changements d’arme, déplacements, cases
+parcourues, PA/PM retirés par les événements du replay, dégâts et soins donnés/reçus, érosion, morts,
+erreurs et limites d’opérations. Une action correspond à un déplacement,
+un changement d’arme, un tir ou une puce ; les effets automatiques ne sont
+pas comptés comme des décisions. La limite du moteur figé est de
+**20 000 000 opérations par tour joué et par leek**.
+
+La télémétrie du bridge attribue les dégâts et soins à leur véritable source,
+y compris les effets différés. Les anciennes archives n’ont pas les opérations
+par tour ni toutes les attributions : ces valeurs restent `—`. Leurs dégâts
+reçus sont ceux annoncés par le replay, qui peuvent inclure un surplus par
+rapport aux PV restants. Les opérations cumulées historiques du moteur peuvent
+être attribuées à l’invocateur pour ses invocations ; les nouveaux détails
+distinguent chaque entité.
 Une panne ou un timeout est visible même lorsqu’aucun replay n’a été produit.
 
 ## 6. Lire les bilans
@@ -169,6 +205,10 @@ figées et les contrôles fixes écrits à la main. Comparer les versions contre
 un même panel permet d’éviter de confondre un changement de stratégie avec
 un changement d’adversaires. Les classements contemporains G0 et G1 restent
 consultables séparément dans les données complètes.
+**Statistiques des combats** ajoute les totaux par stratégie et une matrice
+ligne contre colonne (victoires / nuls / défaites, score et pannes). Le sélecteur
+d’étape sépare préparation, tournois contemporains et panels G0/G1.
+Les miroirs sont exclus de la matrice et inclus dans les totaux de jeu.
 
 Les tableaux incluent scores, combats et pannes, opérations LeekScript,
 erreurs, dépassements de limites, tokens et coûts. Les opérations ne sont
@@ -212,3 +252,13 @@ vérification utilise Playwright 1.62.1 et Node 22 ; ils ne sont nécessaires
 qu’au développement et à cette CI. Le script est `node scripts/test-ui.cjs`.
 Il produit des captures dans `runs/ui-browser` ;
 `ARENA_BROWSER_EXECUTABLE` peut choisir un Chromium déjà installé.
+
+
+## Mettre à jour cette version
+
+Le bridge enregistre désormais la télémétrie par tour et par entité. Après
+mise à jour du dépôt, relancer `py -3 scripts/bootstrap.py` sous Windows
+(ou le bootstrap Linux) pour recompiler ce bridge, puis redémarrer le serveur.
+Les anciennes expériences restent consultables. Leur identité scientifique
+ayant changé, dupliquer leur configuration pour un nouveau run ; une reprise
+ancienne exige toujours le code et le runtime de sa création.

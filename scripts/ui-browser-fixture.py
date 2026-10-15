@@ -33,6 +33,14 @@ def main():
             write_json(work / "outcome.json", {"fight": fight, "winner": 0, "success": True})
             write_json(root / "records/browser-fixture.json", {"match": {"sides": ["mock-repair-r0", "passive"],
                        "seed": 301, "mirror": False}, "directory": work.relative_to(root).as_posix(), "result": result})
+            (root / "report.md").write_text("# Rapport navigateur\n\n**Résultat** : terminé.\n\n<img src=x onerror=window.__arenaUnexpectedScript=1>\n\n| Stat | Valeur |\n| --- | --- |\n| Score | 50 % |\n", encoding="utf-8")
+            write_json(root / "example.json", {"result": {"score": .5}, "literal":"<script>window.__arenaUnexpectedScript=1</script>"})
+        legacy = store.runs / "legacy"
+        write_json(legacy / "experiment.json", {"manifest":{"name":"Tournoi sans génération", "strategies":[]}})
+        write_json(legacy / "report.json", {"completed":0})
+        code = legacy / "sources/passive/main.leek"
+        code.parent.mkdir(parents=True)
+        code.write_text("// stratégie fournie directement\n",encoding="utf-8")
         app = Application(store)
         server = Server(("127.0.0.1", 0), app)
         print(json.dumps({"url": f"http://127.0.0.1:{server.server_port}"}), flush=True)

@@ -68,7 +68,7 @@ def validate_config(value: dict) -> dict:
         else:
             fields = {"id", "provider", "model", "api_key_env", "pricing",
                       "max_input_tokens_per_call", "max_output_tokens"}
-            if (model["provider"] not in {"openai", "openai-compatible", "anthropic"} or not fields <= set(model)
+            if (model["provider"] not in {"openai", "openai-compatible", "anthropic", "gemini"} or not fields <= set(model)
                     or set(model) - fields - {"endpoint", "parameters", "timeout_seconds", "max_retries"}):
                 raise ArenaError("Invalid API model configuration")
             if not spending["allow_paid_calls"] or amount(spending["max_total_usd"]) == 0:
@@ -89,9 +89,15 @@ def validate_config(value: dict) -> dict:
             integer(model.get("timeout_seconds", 60), 1, 300, "timeout_seconds")
             integer(model.get("max_retries", 0), 0, 3, "max_retries")
             params = model.get("parameters", {})
-            allowed = {"temperature", "top_p", "reasoning_effort"} if model["provider"] != "anthropic" else {"temperature", "top_p", "thinking"}
+            allowed = {"temperature", "top_p", "reasoning_effort", "seed"}
+            if model["provider"] == "anthropic":
+                allowed = {"temperature", "top_p", "thinking"}
+            elif model["provider"] == "gemini":
+                allowed = {"temperature", "top_p", "top_k", "seed", "thinking_config"}
             if not isinstance(params, dict) or set(params) - allowed:
-                raise ArenaError("Unsupported provider parameters")
+                raise ArenaError("Unsupported provider parameters (Anthropic does not expose a seed)")
+            if "seed" in params:
+                integer(params["seed"], 0, 2**31 - 1, "model seed")
             pricing = model["pricing"]
             if (not isinstance(pricing, dict) or not {"date", "currency", "input_per_million", "output_per_million"} <= set(pricing)
                     or set(pricing) - {"date", "currency", "input_per_million", "output_per_million",
@@ -270,12 +276,15 @@ def provider_response(sid, state, model, config, journal):
         bound = None
     state["calls"] += 1
     state["in_flight"] = True
-    journal.save(sid, state, "model_intent", {"model": model, "reservation": bound})
-    provider = APIProvider(model) if paid else MockProvider()
+    from .api_providers import request_snapshot
+    output_limit = bound["output_bound"] if paid else model.get("max_output_tokens")
+    request = request_snapshot(model, state["history"], TOOLS, output_limit)
+    journal.save(sid, state, "model_intent", {"model": model, "reservation": bound, "request": request})
+    provider = APIProvider(model) if paid else MockProvider(model["profile"])
     started = time.monotonic()
     try:
         response = (provider.respond(state["history"], TOOLS, bound["output_bound"]) if paid
-                    else provider.respond(model["profile"], state["history"]))
+                    else provider.respond(state["history"], TOOLS, output_limit))
     except ProviderFailure as error:
         state["status"] = "needs_reconciliation" if error.uncertain else "provider_unavailable"
         state["in_flight"] = error.uncertain

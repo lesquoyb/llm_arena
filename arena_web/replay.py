@@ -7,8 +7,8 @@ LABELS = {0: "Début du combat", 4: "Fin du combat", 5: "Élimination", 6: "Nouv
           13: "Changement d'arme", 14: "Effet cumulé", 15: "Coffre ouvert", 16: "Tir",
           17: "Réveil", 18: "Sommeil", 100: "PA dépensés", 101: "Dégâts", 102: "PM dépensés",
           103: "Soin", 104: "Vitalité", 105: "Résurrection", 106: "Perte de force",
-          107: "Dégâts nova", 108: "Renvoi de dégâts", 109: "Dégâts de vie",
-          110: "Poison / contrecoup", 112: "Vitalité nova", 201: "Lama", 203: "Message",
+          107: "Érosion", 108: "Renvoi de dégâts", 109: "Dégâts de vie",
+          110: "Poison", 111: "Contrecoup", 112: "Vitalité nova", 201: "Lama", 203: "Message",
           205: "Case indiquée", 301: "Effet d'arme", 302: "Effet de puce", 303: "Fin d'effet",
           304: "Modification d'effet", 306: "Réduction d'effets", 307: "Poisons retirés",
           308: "Entraves retirées", 309: "Durée d'effet modifiée", 1000: "Erreur moteur",
@@ -42,8 +42,10 @@ def describe(fight):
             label = f"{names.get(actor, actor)} commence son tour"
         elif code == 10 and len(action) > 2:
             label = f"{names.get(action[1], action[1])} se déplace vers la case {action[2]}"
-        elif code in {101, 107, 108, 109, 110} and len(action) > 2:
+        elif code in {101, 108, 109, 110, 111} and len(action) > 2:
             label = f"{names.get(action[1], action[1])} perd {action[2]} PV ({LABELS.get(code)})"
+        elif code == 107 and len(action) > 2:
+            label = f"{names.get(action[1], action[1])} perd {action[2]} PV maximum (érosion)"
         elif code == 103 and len(action) > 2:
             label = f"{names.get(action[1], action[1])} récupère {action[2]} PV"
         elif code == 5 and len(action) > 1:

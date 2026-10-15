@@ -1185,3 +1185,34 @@ dialog::backdrop {
     font-size: 18px;
   }
 }
+
+.brand img {
+  object-fit: contain;
+  flex-shrink: 0;
+}
+.json-children {
+  padding-left: 18px;
+  border-left: 1px solid var(--line, #ddd);
+}
+.json-leaf {
+  padding: 4px 0;
+  overflow-wrap: anywhere;
+}
+.file-preview {
+  overflow-wrap: anywhere;
+}
+.file-preview pre {
+  max-height: 65vh;
+  overflow: auto;
+}
+.file-preview td,
+.file-preview th {
+  white-space: normal;
+}
+.matrix td {
+  min-width: 92px;
+  text-align: center;
+}
+.matrix small {
+  display: block;
+}

@@ -3,17 +3,17 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>LLM Arena — laboratoire</title>
+    <title>LLM Arena</title>
+    <link rel="icon" type="image/png" href="/favicon.png" />
     <link rel="stylesheet" href="/style.css" />
     <script src="/app.js" defer></script>
   </head>
   <body>
     <aside class="sidebar">
       <a class="brand" href="#view=dashboard"
-        ><svg viewBox="0 0 36 36" aria-hidden="true">
-          <path d="M18 2 34 11 18 20 2 11Z" fill="#9db7ff" />
-          <path d="m2 17 16 9 16-9v7l-16 9-16-9Z" fill="#5e82ed" /></svg
-        ><span>LLM ARENA<small>LE LABORATOIRE</small></span></a
+        ><img src="/favicon.png" alt="" width="36" height="36" /><span
+          >LLM ARENA</span
+        ></a
       >
       <p class="nav-label">ESPACE DE TRAVAIL</p>
       <nav aria-label="Navigation principale">
@@ -42,17 +42,12 @@
           Comparer les résultats</a
         >
       </nav>
-      <div class="sidebar-note">
-        <span class="pulse"></span> Votre laboratoire local
-        <p>
-          Du premier prompt au dernier combat, chaque étape reste consultable.
-        </p>
-      </div>
+      <div class="sidebar-note"><span class="pulse"></span> Serveur local</div>
       <a class="help-link" href="#view=help">? &nbsp; Comprendre l’arène</a>
     </aside>
     <div class="workspace">
       <header class="topbar">
-        <span id="breadcrumb">Laboratoire / Vue d’ensemble</span>
+        <span id="breadcrumb">Vue d’ensemble</span>
         <div>
           <span id="engine-status" class="badge">Connexion…</span
           ><button
@@ -66,7 +61,7 @@
         </div>
       </header>
       <main id="main" tabindex="-1">
-        <div class="empty">Chargement du laboratoire…</div>
+        <div class="empty">Chargement…</div>
       </main>
       <footer>
         LLM Arena <span>LeekScript 4 · moteur officiel Leek Wars</span>

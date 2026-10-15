@@ -79,7 +79,7 @@ const raw = (value, title = "Données complètes") =>
 const btn = (label, action, extra = "", primary = false) =>
   `<button class="button ${primary ? "primary" : ""}" data-action="${action}" ${extra}>${label}</button>`;
 const head = (title, description, actions = "") =>
-  `<div class="page-head"><div><div class="eyebrow">Le laboratoire</div><h1>${e(title)}</h1><p>${e(description)}</p></div><div class="actions">${actions}</div></div>`;
+  `<div class="page-head"><div><h1>${e(title)}</h1><p>${e(description)}</p></div><div class="actions">${actions}</div></div>`;
 const metric = (label, value, hint = "", icon = "◈") =>
   `<div class="metric"><span class="metric-icon">${icon}</span><span class="label">${e(label)}</span><strong class="value">${e(value)}</strong><span class="hint">${e(hint)}</span></div>`;
 const notice = (content, kind = "") =>
@@ -150,6 +150,8 @@ function route() {
   S.session = q.get("session");
   S.offset = Number(q.get("offset") || 0);
   S.version = null;
+  S.versions = null;
+  S.previous = null;
   S.file = null;
   S.matchPath = null;
   renderRoute().catch(showError);
@@ -180,7 +182,7 @@ function updateChrome() {
     ),
   );
   $("#breadcrumb").textContent =
-    "Laboratoire / " +
+    "" +
     ({
       dashboard: "Vue d’ensemble",
       participants: "Participants",
@@ -270,8 +272,8 @@ function dashboard() {
     unknown = runs.filter((r) => r.report && r.report.cost_usd === null).length;
   return (
     head(
-      "Du prompt au terrain.",
-      "Configurez vos IA, observez leurs stratégies et comprenez ce qui fait la différence.",
+      "Vue d’ensemble",
+      "Compétitions, participants et résultats.",
       btn("＋ Nouvelle compétition", "new-competition", "", true),
     ) +
     `<div class="metrics">${metric("Compétitions", fmt(runs.length), `${activeJobs().length} en cours`, "⚑")}${metric("Participants configurés", fmt(S.boot.participants.length), "Profils réutilisables", "♧")}${metric("Combats terminés", fmt(runs.reduce((n, r) => n + completed(r.report), 0)), "Toutes les étapes d’évaluation", "⚔")}${metric("Coût API connu", money(known.reduce((n, r) => n + Number(r.report.cost_usd), 0)), unknown ? `${unknown} coût(s) encore inconnu(s)` : "Hors infrastructure ; simulations incluses", "↗")}</div>` +
@@ -281,16 +283,15 @@ function dashboard() {
           "warn",
         )
       : "") +
-    `<div class="hero"><div><div class="eyebrow">Observer · comparer · comprendre</div><h2>Une expérience, toutes ses traces.</h2><p>Prompts complets, versions des fichiers, diagnostics et combats : remontez du résultat jusqu’à la décision qui l’a produit.</p></div><div class="hero-mark" aria-hidden="true">◈</div></div>` +
     `<section class="panel flush"><div class="panel-head"><div><h2>Compétitions récentes</h2><p>Les exécutions originales, sans compter deux fois les exports.</p></div>${btn("Tout voir →", "go", 'data-view="competitions"')}</div>${runTable(runs.slice(0, 8))}</section>` +
-    `<div class="grid two"><section class="panel"><h2>Commencer sans frais d’API</h2><p class="muted">La démo utilise des participants programmés et de vrais combats. Elle vérifie le fonctionnement du laboratoire, pas la performance d’un LLM.</p>${btn("Configurer la démo", "new-demo")}</section><section class="panel"><h2>Lire un score</h2><p class="muted">Une victoire vaut 1 point, un nul 0,5, une défaite 0. Un score de 70 % représente 70 % des points possibles, hors miroirs.</p>${btn("Comprendre les comparaisons", "go", 'data-view="help"')}</section></div>`
+    `<div class="grid two"><section class="panel"><h2>Commencer sans frais d’API</h2><p class="muted">Participants simulés, combats réels, aucun appel API.</p>${btn("Configurer la démo", "new-demo")}</section><section class="panel"><h2>Lire un score</h2><p class="muted">Une victoire vaut 1 point, un nul 0,5, une défaite 0. Un score de 70 % représente 70 % des points possibles, hors miroirs.</p>${btn("Comprendre les comparaisons", "go", 'data-view="help"')}</section></div>`
   );
 }
 function participants() {
   return (
     head(
       "Participants",
-      "Définissez une fois les modèles, leurs paramètres et leurs tarifs. Les compétitions en conserveront une copie figée.",
+      "Modèles, paramètres et tarifs utilisés par les compétitions.",
       btn("＋ Ajouter un participant", "new-participant", "", true),
     ) +
     `<section class="panel flush">${table(
@@ -371,7 +372,7 @@ function participantDialog(identifier = null, provider = null) {
     pricing = m.pricing || {};
   openDialog(
     identifier ? "Modifier le participant" : "Nouveau participant",
-    "Un profil réutilisable dans plusieurs compétitions.",
+    "",
     `<form data-form="participant"><div class="form-grid">${field("Identifiant du participant", "id", m.id || "", "text", "Lettres, chiffres, tirets ; 40 caractères maximum.", `required pattern="[a-zA-Z0-9][a-zA-Z0-9_-]{0,39}" ${identifier ? "readonly" : ""}`)}${selectField(
       "Fournisseur",
       "provider",
@@ -379,6 +380,7 @@ function participantDialog(identifier = null, provider = null) {
         ["mock", "Simulation (aucun appel API)"],
         ["openai", "OpenAI"],
         ["anthropic", "Anthropic"],
+        ["gemini", "Google Gemini"],
         ["openai-compatible", "API compatible OpenAI"],
       ],
       p,
@@ -392,7 +394,7 @@ function participantDialog(identifier = null, provider = null) {
          m.profile || "single-shot",
          "single-shot tire une fois ; repair-and-submit corrige un script puis soumet rush.",
        )
-     : `${field("Identifiant exact du modèle", "model", m.model || "", "text", "Le nom accepté par l’API choisie.", "required")}${field("Variable de la clé API", "api_key_env", m.api_key_env || (p === "anthropic" ? "ARENA_ANTHROPIC_KEY" : "ARENA_OPENAI_KEY"), "text", "Une clé déjà définie dans l’environnement est également utilisable.", "required")}<label class="field full">Clé API — pour cette session uniquement<input name="secret" type="password" autocomplete="new-password" placeholder="Laisser vide pour conserver la clé disponible"><small>Jamais renvoyée au navigateur ni écrite dans les configurations.</small></label>${p === "openai-compatible" ? field("Endpoint HTTPS complet", "endpoint", m.endpoint || "", "url", "Inclure le chemin de l’API, sans clé ni paramètres dans l’URL.", "required") : m.endpoint ? field("Endpoint HTTPS", "endpoint", m.endpoint, "url") : ""}${field("Prix entrée / million de tokens ($)", "input_price", pricing.input_per_million ?? "", "number", "", 'required min="0" step="any"')}${field("Prix sortie / million de tokens ($)", "output_price", pricing.output_per_million ?? "", "number", "", 'required min="0" step="any"')}${field("Date de ces tarifs", "pricing_date", pricing.date || new Date().toISOString().slice(0, 10), "date", "", "required")}${field("Prix cache lu / million ($), facultatif", "cached_price", pricing.cached_input_per_million ?? "", "number", "Vide : utilise le tarif d’entrée.", 'min="0" step="any"')}${field("Prix cache créé / million ($), facultatif", "creation_price", pricing.cache_creation_per_million ?? "", "number", "", 'min="0" step="any"')}${field("Entrée maximale par appel (tokens)", "max_input_tokens_per_call", m.max_input_tokens_per_call || 150000, "number", "Borne d’admission conservatrice.", 'required min="1"')}${field("Sortie maximale par appel (tokens)", "max_output_tokens", m.max_output_tokens || 12000, "number", "", 'required min="1"')}${field("Délai par appel (secondes)", "timeout_seconds", m.timeout_seconds || 60, "number", "", 'required min="1" max="300"')}${field("Nouvelles tentatives sur HTTP 429", "max_retries", m.max_retries ?? 1, "number", "Les réponses incertaines ne sont pas relancées automatiquement.", 'required min="0" max="3"')}<label class="field full">Paramètres du modèle (JSON)<textarea name="parameters" class="mono">${e(pretty(m.parameters || {}))}</textarea><small>Par exemple temperature, top_p ; options autorisées selon le fournisseur. Aucun paramètre n’est imposé par défaut.</small></label>`
+     : `${field("Identifiant exact du modèle", "model", m.model || "", "text", "Le nom accepté par l’API choisie.", "required")}<div class="field full"><div class="actions">${btn("Charger les modèles", "list-models")}<select id="available-models" aria-label="Modèles disponibles"><option value="">Catalogue non chargé</option></select></div><small id="model-list-status">Liste fournie par l’API avec la clé configurée. Saisie manuelle possible.</small></div>${field("Variable de la clé API", "api_key_env", m.api_key_env || (p === "anthropic" ? "ARENA_ANTHROPIC_KEY" : p === "gemini" ? "ARENA_GEMINI_KEY" : "ARENA_OPENAI_KEY"), "text", "Une clé déjà définie dans l’environnement est également utilisable.", "required")}<label class="field full">Clé API — pour cette session uniquement<input name="secret" type="password" autocomplete="new-password" placeholder="Laisser vide pour conserver la clé disponible"><small>Jamais renvoyée au navigateur ni écrite dans les configurations.</small></label>${p === "openai-compatible" ? field("Endpoint HTTPS complet", "endpoint", m.endpoint || "", "url", "Inclure le chemin de l’API, sans clé ni paramètres dans l’URL.", "required") : m.endpoint ? field("Endpoint HTTPS", "endpoint", m.endpoint, "url") : ""}${field("Prix entrée / million de tokens ($)", "input_price", pricing.input_per_million ?? "", "number", "", 'required min="0" step="any"')}${field("Prix sortie / million de tokens ($)", "output_price", pricing.output_per_million ?? "", "number", "", 'required min="0" step="any"')}${field("Date de ces tarifs", "pricing_date", pricing.date || new Date().toISOString().slice(0, 10), "date", "", "required")}${field("Prix cache lu / million ($), facultatif", "cached_price", pricing.cached_input_per_million ?? "", "number", "Vide : utilise le tarif d’entrée.", 'min="0" step="any"')}${field("Prix cache créé / million ($), facultatif", "creation_price", pricing.cache_creation_per_million ?? "", "number", "", 'min="0" step="any"')}${field("Entrée maximale par appel (tokens)", "max_input_tokens_per_call", m.max_input_tokens_per_call || 150000, "number", "Borne d’admission conservatrice.", 'required min="1"')}${field("Sortie maximale par appel (tokens)", "max_output_tokens", m.max_output_tokens || 12000, "number", "", 'required min="1"')}${field("Délai par appel (secondes)", "timeout_seconds", m.timeout_seconds || 60, "number", "", 'required min="1" max="300"')}${field("Nouvelles tentatives sur HTTP 429", "max_retries", m.max_retries ?? 1, "number", "Les réponses incertaines ne sont pas relancées automatiquement.", 'required min="0" max="3"')}${p === "anthropic" ? `<p class="muted">Seed : non disponible dans l’API Anthropic.</p>` : field("Seed du modèle", "model_seed", m.parameters?.seed ?? (identifier ? "" : 0), "number", p === "openai-compatible" ? "Prise en charge selon le serveur ; aucune garantie de réponse identique." : "Valeur envoyée à chaque appel. Reproductibilité au mieux, selon le modèle ; aucune garantie de réponse identique.", 'min="0" max="2147483647"')}<label class="field full">Paramètres du modèle (JSON)<textarea name="parameters" class="mono">${e(pretty(m.parameters || {}))}</textarea><small>Options selon l’API : temperature, top_p, etc. Seed réglée ci-dessus.</small></label>`
  }</div><div class="form-footer">${btn("Annuler", "close-dialog")}<button type="submit" class="button primary">Enregistrer le participant</button></div></form>`,
   );
 }
@@ -507,7 +509,7 @@ async function launchDialog(draftId = null, runId = null) {
   openDialog(
     runId ? "Reprendre la compétition" : "Lancer la compétition",
     config.name,
-    `<form data-form="launch">${planMarkup(p)}${p.simulated ? notice("Participants simulés, combats réels. Aucun appel à un LLM ni frais d’API.") : notice("Les appels utiliseront les clés configurées. Les prix sont ceux de votre configuration ; les montants ne constituent pas une facture fournisseur.", "warn")}<div>${config.models.map((m) => `<div class="info-row"><span>${e(m.id)}${m.provider !== "mock" ? `<small>${e(m.endpoint || (m.provider === "anthropic" ? "https://api.anthropic.com/v1/messages" : "https://api.openai.com/v1/chat/completions"))}<br>Clé : ${e(m.api_key_env)}</small>` : ""}</span><strong>${e(m.model || m.profile)}</strong></div>`).join("")}</div>${!p.simulated ? `<label class="check" style="margin-top:20px"><input type="checkbox" name="confirm_paid" required>J’autorise les appels API jusqu’au plafond global de ${money(config.spending.max_total_usd)}.</label>` : ""}<div class="form-footer">${btn("Annuler", "close-dialog")}<button type="submit" class="button primary">${runId ? "Reprendre" : "Démarrer la compétition"}</button></div></form>`,
+    `<form data-form="launch">${planMarkup(p)}${p.simulated ? notice("Participants simulés, combats réels. Aucun appel à un LLM ni frais d’API.") : notice("Les appels utiliseront les clés configurées. Les prix sont ceux de votre configuration ; les montants ne constituent pas une facture fournisseur.", "warn")}<div>${config.models.map((m) => `<div class="info-row"><span>${e(m.id)}${m.provider !== "mock" ? `<small>${e(m.endpoint || (m.provider === "anthropic" ? "https://api.anthropic.com/v1/messages" : m.provider === "gemini" ? "https://generativelanguage.googleapis.com/v1beta" : "https://api.openai.com/v1/chat/completions"))}<br>Clé : ${e(m.api_key_env)}</small>` : ""}</span><strong>${e(m.model || m.profile)}${m.provider !== "mock" ? `<small>Seed : ${m.parameters?.seed ?? (m.provider === "anthropic" ? "non disponible" : "non fixée")}</small>` : ""}</strong></div>`).join("")}</div>${!p.simulated ? `<label class="check" style="margin-top:20px"><input type="checkbox" name="confirm_paid" required>J’autorise les appels API jusqu’au plafond global de ${money(config.spending.max_total_usd)}.</label>` : ""}<div class="form-footer">${btn("Annuler", "close-dialog")}<button type="submit" class="button primary">${runId ? "Reprendre" : "Démarrer la compétition"}</button></div></form>`,
   );
 }
 const TABS = [
@@ -528,7 +530,7 @@ function runHeader(d) {
   return (
     head(
       config.name,
-      "Explorez les résultats, puis remontez jusqu’aux conversations et aux stratégies qui les ont produits.",
+      "Résultats, conversations et fichiers.",
       `${active ? btn("■ Arrêter", "stop-job", `data-id="${e(job.id)}"`) : experiment && !d.archived ? btn("Reprendre", "resume") : ""}${experiment ? btn("Dupliquer la configuration", "clone-run") : ""}${experiment ? btn("Exporter", "export-run") : ""}`,
     ) +
     `<div class="toolbar">${config.models ? (config.models.every((m) => m.provider === "mock") ? badge("SIMULATION · aucun LLM appelé", "blue") : badge("API RÉELLES", "orange")) : badge("Stratégies fournies")}${d.archived ? badge("Copie exportée", "orange") : ""}${job ? status(job.status) : ""}<span class="mono muted" style="font-size:10px">${e(S.run)}</span><span class="spacer"></span>${job ? btn("Journal d’exécution", "job-log", `data-id="${e(job.id)}"`) : ""}</div><div class="tabs">${TABS.map(([key, label]) => `<button class="tab ${S.tab === key ? "active" : ""}" data-action="tab" data-tab="${key}">${label}</button>`).join("")}</div>`
@@ -544,15 +546,26 @@ function sessionChooser(d) {
 async function renderRun(epoch) {
   const d = S.detail;
   let body = "";
-  if (S.tab === "summary") body = summary(d);
-  else if (S.tab === "config")
+  if (S.tab === "summary") {
+    const statistics = await api("/api/statistics", { run: S.run });
+    S.statistics = statistics;
+    body = summary(d, statistics);
+  } else if (S.tab === "config")
     body = `<section class="panel"><h2>Configuration figée et provenance</h2><p class="muted">Cette configuration décrit l’exécution enregistrée. Pour la modifier, créez une copie et lancez une nouvelle compétition.</p><pre>${e(pretty(d.metadata))}</pre></section>`;
   else if (S.tab === "conversation" || S.tab === "code") {
     const chooser = sessionChooser(d);
-    if (!d.sessions.length)
+    if (!d.sessions.length && S.tab === "code") {
+      S.files = (await api("/api/files", { run: S.run })).files.filter((f) =>
+        f.path.endsWith(".leek"),
+      );
+      body =
+        notice(
+          "Sources figées du tournoi. Aucune génération ni écriture intermédiaire enregistrée.",
+        ) + filesPage();
+    } else if (!d.sessions.length)
       body = empty(
         "Pas de conversation enregistrée",
-        "Ce tournoi utilise des stratégies fournies directement, ou ses sessions ne sont pas encore créées.",
+        "Ce tournoi reçoit directement du code .leek ; aucune requête de génération n’a été effectuée. Les participants simulés de la démo ont, eux, des conversations enregistrées.",
       );
     else if (S.tab === "conversation") {
       const data = await api("/api/conversation", {
@@ -584,9 +597,13 @@ async function renderRun(epoch) {
   }
   if (epoch !== S.epoch) return;
   $("#main").innerHTML = runHeader(d) + body;
-  if (S.tab === "code" && S.versions.versions.length) await loadSource();
+  if (S.tab === "code" && d.sessions.length && S.versions?.versions?.length)
+    await loadSource();
   if (S.tab === "matches" && S.matches.length) await loadMatch();
-  if (S.tab === "files" && S.files.length)
+  if (
+    (S.tab === "files" || (S.tab === "code" && !d.sessions.length)) &&
+    S.files.length
+  )
     await loadFile(
       S.files.find((f) => f.path === "report.md")?.path || S.files[0].path,
     );
@@ -601,7 +618,7 @@ function bars(rows) {
     height = rows.length * 38 + 22;
   return `<svg class="chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="Scores des stratégies">${rows.map((r, i) => `<text x="0" y="${i * 38 + 18}" class="chart-label">${e(r.label.length > 32 ? r.label.slice(0, 31) + "…" : r.label)}</text><rect x="258" y="${i * 38 + 5}" width="310" height="17" rx="4" fill="#f0f3fa"/><rect x="258" y="${i * 38 + 5}" width="${r.score == null ? 0 : 310 * r.score}" height="17" rx="4" fill="${COLORS[i % COLORS.length]}"/><text x="588" y="${i * 38 + 18}">${e(pct(r.score))}</text><title>${e(r.label)} : ${e(pct(r.score))}</title>`).join("")}</svg>`;
 }
-function summary(d) {
+function summary(d, statistics = null) {
   const r = d.report,
     a = d.analysis,
     rows = (a?.rows || []).filter((v) => v.panel === S.panel),
@@ -609,7 +626,7 @@ function summary(d) {
   return (
     (r.simulated
       ? notice(
-          "<strong>Ce résultat est une démonstration technique.</strong> Les stratégies sont prédéfinies par les participants simulés. Une amélioration observée ici ne prouve pas qu’un LLM apprend grâce au feedback.",
+          "<strong>Participants simulés.</strong> Stratégies prédéfinies, combats réels, aucun appel API.",
         )
       : "") +
     (d.sessions.some((s) => s.status === "needs_reconciliation")
@@ -619,6 +636,7 @@ function summary(d) {
         )
       : "") +
     `<div class="metrics">${metric("Sessions terminées", `${done} / ${d.sessions.length}`, `${r.valid_submissions ?? 0} soumissions valides`)}${metric("Combats terminés", fmt(completed(r)), "Évaluation ; préparation consultable à part", "⚔")}${metric("Coût API", r.cost_usd === undefined ? "—" : money(r.cost_usd), r.reserved_usd && Number(r.reserved_usd) > 0 ? `${money(r.reserved_usd)} réservés` : "Simulation ou coût calculé sur usage", "↗")}${metric("Tokens entrée / sortie", r.input_tokens == null ? "Non mesurés" : `${fmt(r.input_tokens)} / ${fmt(r.output_tokens)}`, r.simulated ? "Pas de tokens de LLM dans une simulation" : "Valeurs inconnues conservées comme telles", "≋")}</div>` +
+    (statistics ? competitionStatistics(statistics) : "") +
     (a
       ? `<section class="panel"><div class="panel-title"><div><h2>Performance des stratégies</h2><small>G0 et G1 évaluées contre un même panel, sur les seeds finales.</small></div><select id="panel-choice" aria-label="Panel d’évaluation">${["all", "controls", "g0"].map((p) => `<option value="${p}" ${S.panel === p ? "selected" : ""}>${text(p)}</option>`).join("")}</select></div>${bars(rows.map((v) => ({ label: v.session, score: v.score })))}<p class="muted" style="font-size:11px;margin:13px 0 0">Score = (victoires + 0,5 × nuls) / combats terminés. Les miroirs sont séparés. « Panel complet » inclut les stratégies G0 figées et les contrôles écrits à la main.</p></section>
  <section class="panel flush"><div class="panel-head"><div><h2>Résultats détaillés</h2><p>Les opérations mesurent le calcul LeekScript, pas les tokens ni un coût en dollars.</p></div></div>${table(
@@ -688,8 +706,13 @@ function conversation(data) {
                         .filter((v) => v.type === "text")
                         .map((v) => v.text)
                         .join("\n")
-                    : m.content || "";
-        return `<article class="chat-message ${e(m.role)}" id="message-${S.offset + index}"><div class="message-head"><strong>${m.role === "user" ? "PROMPT / CONSIGNE" : m.role === "assistant" ? "RÉPONSE DE L’IA" : "RÉSULTAT D’OUTIL"} ${m.name ? "· " + e(m.name) : ""}</strong><span>Message ${S.offset + index + 1}${m.generation != null ? " · G" + m.generation : ""}${m.simulated ? " · simulé" : ""}</span></div>${content ? `<div class="message-content">${e(content)}</div>` : ""}${(m.tool_calls || []).map((c) => `<div class="tool-call"><strong>↳ ${e(c.name)}</strong><pre>${e(pretty(c.arguments))}</pre></div>`).join("")}${m.role === "user" && m.budgets ? raw({ budgets: m.budgets, scenario: m.scenario, feedback: m.feedback }, "Budgets, scénario et feedback inclus dans ce message") : ""}${m.usage ? `<div style="margin-top:12px"><small>Entrée ${fmt(m.usage.input_tokens)} · Sortie ${fmt(m.usage.output_tokens)} · Coût ${money(m.cost_usd)} · ${fmt(m.elapsed_seconds, 3)} s</small></div>` : ""}${raw(m, "Objet intégral enregistré — réponse native, requête, outils et métadonnées")}</article>`;
+                    : native?.parts
+                      ? native.parts
+                          .filter((p) => p.text)
+                          .map((p) => p.text)
+                          .join("\n")
+                      : m.content || "";
+        return `<article class="chat-message ${e(m.role)}" id="message-${S.offset + index}"><div class="message-head"><strong>${m.role === "user" ? "PROMPT / CONSIGNE" : m.role === "assistant" ? "RÉPONSE DE L’IA" : "RÉSULTAT D’OUTIL"} ${m.name ? "· " + e(m.name) : ""}</strong><span>Message ${S.offset + index + 1}${m.generation != null ? " · G" + m.generation : ""}${m.simulated ? " · simulé" : ""}</span></div>${content ? `<div class="message-content">${e(content)}</div>` : ""}${(m.tool_calls || []).map((c) => `<div class="tool-call"><strong>↳ ${e(c.name)}</strong><pre>${e(pretty(c.arguments))}</pre></div>`).join("")}${m.role === "user" && m.budgets ? raw({ budgets: m.budgets, scenario: m.scenario, feedback: m.feedback }, "Budgets, scénario et feedback inclus dans ce message") : ""}${m.usage ? `<div style="margin-top:12px"><small>Entrée ${fmt(m.usage.input_tokens)} · Sortie ${fmt(m.usage.output_tokens)} · Coût ${money(m.cost_usd)} · ${fmt(m.elapsed_seconds, 3)} s</small></div>` : ""}${m.sent_parameters ? `<div class="request-meta"><small>Seed envoyée : ${e(m.sent_parameters.seed ?? m.sent_parameters.generationConfig?.seed ?? (m.provider === "anthropic" ? "non disponible" : m.simulated ? "sans objet" : "non fixée"))}${m.model_version ? ` · Modèle retourné : ${e(m.model_version)}` : ""}${m.system_fingerprint ? ` · Backend : ${e(m.system_fingerprint)}` : ""}</small>${m.request_sha256 ? `<small class="mono">SHA-256 requête (JSON canonique) : ${e(m.request_sha256)}</small>` : ""}${raw(m.sent_parameters, "Requête envoyée — prompts, historique, outils et paramètres")}</div>` : ""}${raw(m, "Objet intégral enregistré — réponse native, requête, outils et métadonnées")}</article>`;
       })
       .join("")
   );
@@ -700,7 +723,10 @@ function codePage(data) {
       "Pas encore de fichier écrit",
       "Les versions apparaissent après chaque écriture confirmée par un outil. Les fichiers figés restent également accessibles dans l’onglet Fichiers.",
     );
-  S.version = S.version ?? data.versions.length - 1;
+  S.version = Math.min(
+    S.version ?? data.versions.length - 1,
+    data.versions.length - 1,
+  );
   const current = data.versions[S.version];
   S.file = current.files.includes(S.file) ? S.file : current.files[0];
   return (
@@ -752,9 +778,10 @@ async function loadSource() {
     }</pre></details><small class="mono">SHA-256 : ${e(d.sha256)}</small>`;
 }
 function filesPage() {
-  return `<div class="files-grid"><section class="panel"><h3>Fichiers de l’expérience</h3><input id="file-search" type="search" placeholder="Filtrer les chemins…" aria-label="Filtrer les fichiers" style="width:100%;margin-bottom:12px"><small>${fmt(S.files.length)} fichiers consultables</small><div id="file-list" class="file-list">${fileButtons(S.files)}</div></section><section class="panel"><div id="file-title" class="panel-title"></div><pre id="file-content" class="source">Choisir un fichier.</pre></section></div>`;
+  return `<div class="files-grid"><section class="panel"><h3>Fichiers de l’expérience</h3><input id="file-search" type="search" placeholder="Filtrer les chemins…" aria-label="Filtrer les fichiers" style="width:100%;margin-bottom:12px"><label class="check"><input id="engine-files" type="checkbox">Inclure les données statiques du moteur</label><small>${fmt(S.files.length)} fichiers consultables</small><div id="file-list" class="file-list">${fileButtons(S.files)}</div></section><section class="panel"><div id="file-title" class="panel-title"></div><div id="file-content">Choisir un fichier.</div></section></div>`;
 }
 function fileButtons(files) {
+  if (!$("#engine-files")?.checked) files = files.filter((f) => !f.engine_data);
   return (
     files
       .slice(0, 1500)
@@ -772,13 +799,15 @@ async function loadFile(path) {
   S.file = path;
   const epoch = S.epoch;
   $("#file-title").innerHTML =
-    `<h3 class="mono" style="overflow-wrap:anywhere">${e(path)}</h3><a class="button small" href="/api/file?${query({ run: S.run, path, download: 1 })}" download>Télécharger</a>`;
+    `<h3 class="mono" style="overflow-wrap:anywhere">${e(path)}</h3>${/\.(md|json)$/i.test(path) ? `<div class="actions">${btn("Brut", "file-mode", 'data-mode="raw"')}${btn("Interprété", "file-mode", 'data-mode="rendered"')}</div>` : ""}<a class="button small" href="/api/file?${query({ run: S.run, path, download: 1 })}" download>Télécharger</a>`;
   const response = await fetch("/api/file?" + query({ run: S.run, path }));
   const content = await response.text();
   if (epoch !== S.epoch || S.file !== path) return;
-  $("#file-content").textContent = response.ok
-    ? content
-    : JSON.parse(content).error || content;
+  S.filePreview = {
+    path,
+    content: response.ok ? content : JSON.parse(content).error || content,
+  };
+  renderFileView();
   $$(".file-button").forEach((n) =>
     n.classList.toggle("active", n.dataset.path === path),
   );
@@ -829,7 +858,8 @@ async function loadMatch() {
   const row = S.matches.find((m) => m.path === path),
     result = data.result;
   $("#match-detail").innerHTML =
-    `<div class="panel-title"><div><h2>${result.status === "completed" ? (result.winner_side === -1 ? "Match nul" : "Victoire de " + e(row.sides[result.winner_side])) : e(text(result.status))}</h2><small>Seed ${e(row.seed)} · ${fmt(result.turns)} tours · ${fmt(result.elapsed_seconds, 2)} s</small></div>${status(result.status)}</div>${row.mirror ? notice("Match miroir : utile pour observer les effets de position ; exclu du score de classement.") : ""}${data.replay ? `<svg id="replay-board" class="board" role="img" aria-label="Carte du combat et positions des entités"></svg><div class="replay-controls">${btn("▷", "replay-play", 'id="replay-play" aria-label="Lire ou mettre en pause"')}${btn("←", "replay-prev", 'aria-label="Action précédente"')}<input id="replay-range" type="range" min="0" max="${data.replay.events.length}" value="0" aria-label="Position dans le replay">${btn("→", "replay-next", 'aria-label="Action suivante"')}<select id="replay-speed" aria-label="Vitesse de lecture"><option value="400">× 1</option><option value="150">× 2</option><option value="50">× 4</option></select></div><div class="toolbar"><strong id="replay-label" style="font-size:11px"></strong><span class="spacer"></span><span id="replay-count" class="muted" style="font-size:10px"></span></div><div id="replay-entities" class="entity-list"></div><div id="replay-events" class="event-list"></div><p class="muted" style="font-size:10px;margin-top:13px">${e(data.replay.note)}${data.replay.unknown_codes.length ? " Actions non projetées : " + e(data.replay.unknown_codes.join(", ")) + "." : ""}</p>` : notice(e(result.error || "Ce combat ne contient pas de replay exploitable."), "warn")}${raw(result, "Métriques complètes : calcul, erreurs et résultat")}${data.scenario ? raw(data.scenario, "Scénario exact du combat") : ""}${raw(data.provenance, "Stratégies, empreintes et provenance")}${data.outcome ? raw(data.outcome, "Replay brut complet, actions et logs") : ""}`;
+    `<div class="panel-title"><div><h2>${result.status === "completed" ? (result.winner_side === -1 ? "Match nul" : "Victoire de " + e(row.sides[result.winner_side])) : e(text(result.status))}</h2><small>Seed ${e(row.seed)} · ${fmt(result.turns)} tours · ${fmt(result.elapsed_seconds, 2)} s</small></div>${status(result.status)}</div>${row.mirror ? notice("Match miroir : utile pour observer les effets de position ; exclu du score de classement.") : ""}${data.replay ? `<svg id="replay-board" class="board" role="img" aria-label="Carte du combat et positions des entités"></svg><div class="replay-controls">${btn("▷", "replay-play", 'id="replay-play" aria-label="Lire ou mettre en pause"')}${btn("←", "replay-prev", 'aria-label="Action précédente"')}<input id="replay-range" type="range" min="0" max="${data.replay.events.length}" value="0" aria-label="Position dans le replay">${btn("→", "replay-next", 'aria-label="Action suivante"')}<select id="replay-speed" aria-label="Vitesse de lecture"><option value="400">× 1</option><option value="150">× 2</option><option value="50">× 4</option></select></div><div class="toolbar"><strong id="replay-label" style="font-size:11px"></strong><span class="spacer"></span><span id="replay-count" class="muted" style="font-size:10px"></span></div><div id="replay-entities" class="entity-list"></div><div id="replay-events" class="event-list"></div><p class="muted" style="font-size:10px;margin-top:13px">${e(data.replay.note)}${data.replay.unknown_codes.length ? " Actions non projetées : " + e(data.replay.unknown_codes.join(", ")) + "." : ""}</p>` : notice(e(result.error || "Ce combat ne contient pas de replay exploitable."), "warn")}${data.statistics ? combatStatistics(data.statistics) : ""}${raw(result, "Métriques complètes : calcul, erreurs et résultat")}${data.scenario ? raw(data.scenario, "Scénario exact du combat") : ""}${raw(data.provenance, "Stratégies, empreintes et provenance")}${data.outcome ? raw(data.outcome, "Replay brut complet, actions et logs") : ""}`;
+  S.combatStatistics = data.statistics;
   $$(".match-card").forEach((n) =>
     n.classList.toggle("active", n.dataset.path === path),
   );
@@ -869,10 +899,12 @@ function replayState(index) {
     state.turn = ev.turn;
     if (code === 7) state.actor = a[1];
     if (code === 10 && entity(a[1])) entity(a[1]).cellPos = a[2];
-    if ([101, 107, 108, 109, 110].includes(code) && entity(a[1])) {
+    if ([101, 108, 109, 110, 111].includes(code) && entity(a[1])) {
       entity(a[1]).life = Math.max(0, entity(a[1]).life - a[2]);
       if (a[3]) entity(a[1]).maxLife = Math.max(0, entity(a[1]).maxLife - a[3]);
     }
+    if (code === 107 && entity(a[1]))
+      entity(a[1]).maxLife = Math.max(1, entity(a[1]).maxLife - a[2]);
     if (code === 103 && entity(a[1]))
       entity(a[1]).life = Math.min(
         entity(a[1]).maxLife,
@@ -985,7 +1017,7 @@ function comparePage() {
   return (
     head(
       "Comparer les résultats",
-      "Suivez les mêmes modèles au fil des expériences, sans mélanger des règles de mesure différentes.",
+      "Comparaison par modèle et par protocole de compétition.",
     ) +
     `<section class="panel"><h2>Choisir les compétitions</h2><p class="muted">Les expériences complètes sont comparées sur leurs adversaires fixes, indépendants des stratégies générées.</p><div class="comparison-select">${runs.map((r) => `<label class="choice"><input type="checkbox" name="compare-run" value="${e(r.id)}" ${selected.includes(r.id) ? "checked" : ""}><span><strong>${e(r.name)}</strong><small>${date(r.created_at)} · ${r.simulated ? "simulation" : r.simulated === false ? "API réelles" : "tournoi"}</small></span></label>`).join("")}</div><div class="form-footer">${btn("Comparer la sélection", "compare-selection", "", true)}</div></section><div id="comparison-result">${S.comparison ? comparisonResult(S.comparison) : notice("Les simulations et les appels réels restent dans des groupes séparés. Les exports ne sont jamais comptés une seconde fois.")}</div>`
   );
@@ -1158,7 +1190,40 @@ document.addEventListener("click", async (event) => {
       await renderRoute();
       toast("Données actualisées.");
     } else if (a === "new-participant") participantDialog();
-    else if (a === "edit-participant") participantDialog(node.dataset.id);
+    else if (a === "list-models") {
+      const form = node.closest("form"),
+        f = new FormData(form);
+      node.disabled = true;
+      try {
+        const data = await api(
+          "/api/models",
+          {
+            provider: f.get("provider"),
+            api_key_env: f.get("api_key_env"),
+            secret: f.get("secret") || null,
+            endpoint: f.get("endpoint") || null,
+          },
+          true,
+        );
+        if (!form.isConnected) return;
+        $("#available-models").innerHTML =
+          `<option value="">Choisir un modèle…</option>` +
+          data.models
+            .map(
+              (m) =>
+                `<option value="${e(m.id)}">${e(m.name)} · ${e(m.id)}</option>`,
+            )
+            .join("");
+        $("#model-list-status").textContent =
+          `${data.models.length} modèles${data.truncated ? " · liste partielle" : ""}. La disponibilité pour les conversations et les outils dépend du modèle.`;
+      } catch (error) {
+        if (form.isConnected)
+          $("#model-list-status").textContent =
+            error.message + " — saisie manuelle possible.";
+      } finally {
+        node.disabled = false;
+      }
+    } else if (a === "edit-participant") participantDialog(node.dataset.id);
     else if (a === "delete-participant") {
       await api("/api/participant/delete", { id: node.dataset.id }, true);
       await refreshBoot();
@@ -1237,7 +1302,10 @@ document.addEventListener("click", async (event) => {
         session: S.session,
         offset: Math.floor(Number(node.dataset.message) / 25) * 25,
       });
-    else if (a === "file") await loadFile(node.dataset.path);
+    else if (a === "file-mode") {
+      S.fileMode = node.dataset.mode;
+      renderFileView();
+    } else if (a === "file") await loadFile(node.dataset.path);
     else if (a === "match") {
       S.matchPath = node.dataset.path;
       await loadMatch();
@@ -1309,6 +1377,11 @@ document.addEventListener("submit", async (event) => {
             output_per_million: f.get("output_price"),
           },
         });
+        if (f.has("model_seed")) {
+          if (f.get("model_seed") !== "")
+            spec.parameters.seed = Number(f.get("model_seed"));
+          else delete spec.parameters.seed;
+        }
         if (f.get("endpoint")) spec.endpoint = f.get("endpoint");
         if (f.get("cached_price") !== "")
           spec.pricing.cached_input_per_million = f.get("cached_price");
@@ -1361,14 +1434,37 @@ document.addEventListener("change", async (event) => {
         provider = n.value;
       participantDialog(S.editParticipant, provider);
       for (const [key, value] of old) {
-        if (["provider", "secret", "api_key_env"].includes(key)) continue;
+        if (["provider", "secret", "api_key_env", "model_seed"].includes(key))
+          continue;
         const target = $(`[name="${key}"]`, $("#dialog"));
         if (target && !target.readOnly) target.value = value;
       }
       const env = $("[name=api_key_env]", $("#dialog"));
       if (env)
         env.value =
-          provider === "anthropic" ? "ARENA_ANTHROPIC_KEY" : "ARENA_OPENAI_KEY";
+          provider === "anthropic"
+            ? "ARENA_ANTHROPIC_KEY"
+            : provider === "gemini"
+              ? "ARENA_GEMINI_KEY"
+              : "ARENA_OPENAI_KEY";
+    } else if (n.id === "available-models") {
+      if (n.value) n.form.elements.model.value = n.value;
+    } else if (n.id === "metric-set") {
+      S.metricSet = n.value;
+      if (S.tab === "summary")
+        $("#statistics-stage-detail").innerHTML = statisticsStage(
+          S.statistics.stages[Number($("#statistics-stage").value)],
+        );
+      else if (S.combatStatistics)
+        $(".combat-statistics").outerHTML = combatStatistics(
+          S.combatStatistics,
+        );
+    } else if (n.id === "statistics-stage") {
+      $("#statistics-stage-detail").innerHTML = statisticsStage(
+        S.statistics.stages[Number(n.value)],
+      );
+    } else if (n.id === "engine-files") {
+      $("#file-list").innerHTML = fileButtons(S.files);
     } else if (n.id === "session-choice")
       navigate("run", { run: S.run, tab: S.tab, session: n.value });
     else if (n.id === "panel-choice") {
@@ -1495,3 +1591,241 @@ refreshBoot()
     );
     showError(error);
   });
+
+function markdownInline(source) {
+  // Escape HTML first. Only explicit HTTP(S) and fragment links are clickable.
+  return e(source)
+    .replace(/`([^`]+)`/g, "<code>$1</code>")
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .replace(
+      /\[([^\]]+)\]\((https?:\/\/[^\s)]+|#[^\s)]+)\)/g,
+      '<a href="$2" target="_blank" rel="noreferrer noopener">$1</a>',
+    );
+}
+function markdownView(source) {
+  const allLines = source.slice(0, 300000).replace(/\r\n/g, "\n").split("\n");
+  const lines = allLines.slice(0, 3000),
+    blocks = [];
+  if (source.length > 300000 || allLines.length > 3000)
+    blocks.push(
+      notice(
+        "Vue interprétée tronquée. Le texte intégral reste disponible en vue brute et au téléchargement.",
+      ),
+    );
+  let code = null,
+    list = null;
+  const closeList = () => {
+    if (list) {
+      blocks.push(`</${list}>`);
+      list = null;
+    }
+  };
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (/^\s*```/.test(line)) {
+      closeList();
+      if (code === null) code = [];
+      else {
+        blocks.push(`<pre><code>${e(code.join("\n"))}</code></pre>`);
+        code = null;
+      }
+    } else if (code !== null) code.push(line);
+    else if (
+      /^\s*\|?\s*:?-{3,}/.test(lines[i + 1] || "") &&
+      line.includes("|")
+    ) {
+      closeList();
+      const cells = (l) =>
+        l
+          .trim()
+          .replace(/^\||\|$/g, "")
+          .split("|")
+          .map(markdownInline);
+      const headers = cells(line),
+        rows = [];
+      i += 2;
+      while (i < lines.length && lines[i].includes("|")) {
+        rows.push(
+          `<tr>${cells(lines[i])
+            .map((c) => `<td>${c}</td>`)
+            .join("")}</tr>`,
+        );
+        i++;
+      }
+      i--;
+      blocks.push(table(headers, rows));
+    } else if (/^#{1,6}\s/.test(line)) {
+      closeList();
+      const [, marks, title] = line.match(/^(#{1,6})\s+(.*)$/);
+      blocks.push(
+        `<h${marks.length}>${markdownInline(title)}</h${marks.length}>`,
+      );
+    } else if (/^\s*(?:[-*+] |\d+\. )/.test(line)) {
+      const kind = /^\s*\d/.test(line) ? "ol" : "ul";
+      if (list !== kind) {
+        closeList();
+        list = kind;
+        blocks.push(`<${kind}>`);
+      }
+      blocks.push(
+        `<li>${markdownInline(line.replace(/^\s*(?:[-*+] |\d+\. )/, ""))}</li>`,
+      );
+    } else {
+      closeList();
+      if (line.trim()) blocks.push(`<p>${markdownInline(line)}</p>`);
+    }
+  }
+  closeList();
+  if (code !== null)
+    blocks.push(`<pre><code>${e(code.join("\n"))}</code></pre>`);
+  return blocks.join("");
+}
+function jsonView(value, key = "JSON", depth = 0, budget = { left: 2500 }) {
+  if (--budget.left < 0 || depth > 20)
+    return `<small>Suite disponible en vue brute.</small>`;
+  if (value === null || typeof value !== "object")
+    return `<div class="json-leaf"><strong>${e(key)}</strong> <code>${e(JSON.stringify(value))}</code></div>`;
+  const entries = Object.entries(value);
+  const children = [];
+  for (const [k, v] of entries.slice(0, 500)) {
+    if (budget.left <= 0) break;
+    children.push(jsonView(v, k, depth + 1, budget));
+  }
+  return `<details ${depth < 2 ? "open" : ""}><summary>${e(key)} <small>${Array.isArray(value) ? "[" + entries.length + "]" : "{" + entries.length + "}"}</small></summary><div class="json-children">${children.join("")}${children.length < entries.length ? "<small>Suite disponible en vue brute.</small>" : ""}</div></details>`;
+}
+function renderFileView() {
+  const node = $("#file-content");
+  if (!node || !S.filePreview) return;
+  const { path, content } = S.filePreview;
+  node.className = "file-preview";
+  if (S.fileMode === "rendered" && /\.md$/i.test(path))
+    node.innerHTML = markdownView(content);
+  else if (S.fileMode === "rendered" && /\.json$/i.test(path)) {
+    try {
+      node.innerHTML = jsonView(JSON.parse(content));
+    } catch {
+      node.innerHTML =
+        notice("JSON invalide") + `<pre class="source">${e(content)}</pre>`;
+    }
+  } else node.innerHTML = `<pre class="source">${e(content)}</pre>`;
+  $$("[data-action=file-mode]").forEach((n) =>
+    n.classList.toggle("primary", n.dataset.mode === (S.fileMode || "raw")),
+  );
+}
+
+const COMBAT_COLUMNS = [
+  ["ai_turns", "Tours joués"],
+  ["operations", "Opérations"],
+  ["actions", "Actions"],
+  ["shots", "Tirs"],
+  ["chips", "Puces"],
+  ["weapon_changes", "Armes"],
+  ["moves", "Déplacements"],
+  ["cells_moved", "Cases"],
+  ["tp_lost", "PA retirés"],
+  ["mp_lost", "PM retirés"],
+  ["damage_dealt", "Dégâts donnés"],
+  ["damage_taken", "Dégâts reçus"],
+  ["healing_given", "Soins donnés"],
+  ["healing_received", "Soins reçus"],
+  ["erosion_dealt", "Érosion donnée"],
+  ["erosion_taken", "Érosion reçue"],
+  ["deaths", "Morts"],
+  ["errors", "Erreurs"],
+  ["operation_limit_hits", "Limites ops"],
+  ["stack_overflows", "Pile dépassée"],
+];
+const METRIC_SETS = {
+  overview: ["operations", "actions", "moves", "damage_dealt", "damage_taken"],
+  compute: [
+    "ai_turns",
+    "operations",
+    "errors",
+    "operation_limit_hits",
+    "stack_overflows",
+  ],
+  actions: [
+    "actions",
+    "shots",
+    "chips",
+    "weapon_changes",
+    "moves",
+    "cells_moved",
+    "tp_lost",
+    "mp_lost",
+  ],
+  damage: [
+    "damage_dealt",
+    "damage_taken",
+    "healing_given",
+    "healing_received",
+    "erosion_dealt",
+    "erosion_taken",
+    "deaths",
+  ],
+};
+function metricSetPicker() {
+  return `<label class="field">Mesures<select id="metric-set">${[
+    ["overview", "Vue d’ensemble"],
+    ["compute", "Calcul et erreurs"],
+    ["actions", "Actions et déplacements"],
+    ["damage", "Dégâts et soins"],
+    ["all", "Toutes les mesures"],
+  ]
+    .map(
+      ([value, label]) =>
+        `<option value="${value}" ${value === (S.metricSet || "overview") ? "selected" : ""}>${label}</option>`,
+    )
+    .join("")}</select></label>`;
+}
+function combatTable(rows, perTurn = false) {
+  const selection = S.metricSet || "overview";
+  const columns =
+    selection === "all"
+      ? COMBAT_COLUMNS
+      : COMBAT_COLUMNS.filter(([key]) => METRIC_SETS[selection].includes(key));
+  const mean = columns.some(([key]) => key === "operations");
+  return table(
+    [
+      ...(perTurn ? ["Tour"] : []),
+      "Leek / stratégie",
+      ...columns.map(([, label]) => label),
+      ...(mean ? ["Ops / tour joué"] : []),
+    ],
+    rows.map(
+      (row) =>
+        `<tr>${perTurn ? `<td>${e(row.turn)}</td>` : ""}<td>${e(row.name || row.id)}${row.side != null ? `<small>Côté ${row.side + 1} · #${row.entity}</small>` : ""}</td>${columns.map(([key]) => `<td>${fmt(row[key])}</td>`).join("")}${mean ? `<td>${fmt(row.operations != null && row.ai_turns ? row.operations / row.ai_turns : null, 1)}</td>` : ""}</tr>`,
+    ),
+  );
+}
+function combatStatistics(data) {
+  return `<section class="combat-statistics"><h3>Statistiques du combat</h3>${metricSetPicker()}<p class="muted">Limite : ${fmt(data.operations_limit_per_turn)} opérations par tour joué et par leek (${e(data.limit_source)}). ${e(data.action_definition)}</p>${data.missing.map((m) => notice(e(m))).join("")}<h3>Total du combat et par équipe</h3>${combatTable([data.total, ...data.sides])}<h3>Total par leek</h3>${combatTable(data.entities)}<details><summary>Total par tour</summary>${combatTable(data.rounds, true)}</details><details><summary>Détail par tour et par leek</summary>${combatTable(data.turns, true)}</details></section>`;
+}
+function competitionStatistics(data) {
+  return `<section class="panel"><h2>Statistiques des combats</h2><p class="muted">Limite : ${fmt(data.operations_limit_per_turn)} opérations par tour joué et par leek. Actions = déplacements, changements d’arme, tirs et puces. Les totaux incluent les miroirs ; les matrices les excluent.</p><div class="form-grid">${metricSetPicker()}<label class="field">Étape<select id="statistics-stage">${data.stages.map((g, i) => `<option value="${i}">${e(g.stage === "." ? "Tournoi" : g.stage)}</option>`).join("")}</select></label></div><div id="statistics-stage-detail">${statisticsStage(data.stages[0])}</div></section>`;
+}
+function statisticsStage(group) {
+  if (!group) return empty("Aucun combat enregistré", "");
+  const names = [
+    ...new Set(
+      Object.entries(group.matrix).flatMap(([who, others]) => [
+        who,
+        ...Object.keys(others),
+      ]),
+    ),
+  ].sort();
+  return `<p class="muted">${group.matches} combats · ${group.with_replay} replays disponibles. — = donnée absente de l’archive. Détail par tour et par leek dans l’onglet Combats.</p>${combatTable(Object.values(group.strategies))}<h3>Matrice des combats</h3><p class="muted">Ligne contre colonne : victoires / nuls / défaites. Les pannes sont indiquées séparément.</p><div class="matrix">${table(
+    ["Stratégie", ...names.map(e)],
+    names.map(
+      (who) =>
+        `<tr><th>${e(who)}</th>${names
+          .map((other) => {
+            const r = group.matrix[who]?.[other];
+            if (!r) return "<td>—</td>";
+            const n = r.wins + r.draws + r.losses;
+            return `<td style="background:${n ? `rgba(82,120,229,${((r.wins + 0.5 * r.draws) / n) * 0.18})` : "transparent"}">${r.wins} / ${r.draws} / ${r.losses}<small>${pct(n ? (r.wins + 0.5 * r.draws) / n : null)}${r.failures ? ` · ${r.failures} pannes` : ""}</small></td>`;
+          })
+          .join("")}</tr>`,
+    ),
+  )}</div>`;
+}

@@ -61,6 +61,8 @@ class Application:
                                 int(value("previous")) if value("previous") is not None else None)
         if route == "/api/files":
             return store.files(run)
+        if route == "/api/statistics":
+            return store.statistics(run)
         if route == "/api/matches":
             return store.matches(run)
         if route == "/api/match":
@@ -68,6 +70,8 @@ class Application:
             result = store.match(run, value("path"))
             if result["outcome"] and result["outcome"].get("fight"):
                 result["replay"] = describe(result["outcome"]["fight"])
+                from .metrics import combat_stats
+                result["statistics"] = combat_stats(result["outcome"])
             return result
         if route == "/api/job":
             return self.jobs.log(value("id"))
@@ -76,6 +80,17 @@ class Application:
     def post(self, route, data):
         if not isinstance(data, dict):
             raise ArenaError("Un objet JSON est attendu")
+        if route == "/api/models":
+            from arena.api_providers import list_models
+            import os
+            secret = data.get("secret")
+            if secret is not None and (not isinstance(secret, str) or len(secret) > 8192):
+                raise ArenaError("Clé API invalide")
+            key_name = data.get("api_key_env") or ""
+            if not isinstance(key_name, str):
+                raise ArenaError("Nom de variable invalide")
+            key = secret or self.store.secrets.get(key_name) or os.environ.get(key_name)
+            return list_models(data.get("provider"), key, data.get("endpoint"))
         if route == "/api/participant":
             return self.store.save_participant(data["spec"], data.get("secret"))
         if route == "/api/participant/delete":
@@ -162,14 +177,14 @@ class Handler(BaseHTTPRequestHandler):
             elif parsed.path.startswith("/api/"):
                 self.json_response(200, app.get(parsed.path, query))
             else:
-                names = {"/": "index.html", "/app.js": "app.js", "/style.css": "style.css"}
+                names = {"/": "index.html", "/app.js": "app.js", "/style.css": "style.css", "/favicon.png": "favicon.png"}
                 if parsed.path not in names:
                     self.json_response(404, {"error": "Page introuvable"})
                     return
                 path = STATIC / names[parsed.path]
                 body = path.read_bytes()
-                mime = {".html": "text/html", ".js": "text/javascript", ".css": "text/css"}[path.suffix]
-                self.headers_for(200, mime + "; charset=utf-8", len(body))
+                mime = {".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".png": "image/png"}[path.suffix]
+                self.headers_for(200, mime if path.suffix == ".png" else mime + "; charset=utf-8", len(body))
                 self.wfile.write(body)
         except (ArenaError, ValueError, KeyError, TypeError, OSError, sqlite3.Error) as error:
             self.json_response(400, {"error": str(error)})

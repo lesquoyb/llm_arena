@@ -288,6 +288,7 @@ class Store:
     def files(self, identifier):
         root = self.run_path(identifier)
         result = []
+        engine_folders = {}
         for base, dirs, names in os.walk(root, followlinks=False):
             folder = Path(base)
             dirs[:] = [d for d in dirs if not is_link(folder / d)]
@@ -295,7 +296,17 @@ class Store:
                 path = folder / name
                 if is_link(path) or name in {".lock", "journal.sqlite", "journal.sqlite-wal", "journal.sqlite-shm"}:
                     continue
-                result.append({"path": path.relative_to(root).as_posix(), "size": path.stat().st_size})
+                engine_data = False
+                for parent in [folder, *folder.parents]:
+                    if parent == root:
+                        break
+                    if parent.name == "data":
+                        if parent not in engine_folders:
+                            engine_folders[parent] = (parent.parent / "outcome.json").is_file()
+                        engine_data = engine_folders[parent]
+                        break
+                result.append({"path": path.relative_to(root).as_posix(), "size": path.stat().st_size,
+                               "engine_data": engine_data})
                 if len(result) >= 50_000:
                     return {"files": result, "truncated": True}
         return {"files": sorted(result, key=lambda f: f["path"]), "truncated": False}
@@ -339,6 +350,24 @@ class Store:
         return {"result": result, "scenario": self.json(work / "scenario.json"),
                 "provenance": self.json(work / "provenance.json"),
                 "outcome": self.json(work / "outcome.json")}
+
+    def statistics(self, identifier):
+        from .metrics import competition_stats
+        root = self.run_path(identifier)
+        matches = self.matches(identifier)["matches"]
+        paths = [safe_path(root, row["path"] + "/outcome.json") for row in matches]
+        stamp = digest(matches), tuple((p.stat().st_mtime_ns, p.stat().st_size) if p.is_file() else None for p in paths)
+        with self.lock:
+            cache = getattr(self, "_statistics_cache", {})
+            if identifier in cache and cache[identifier][0] == stamp:
+                return copy.deepcopy(cache[identifier][1])
+        result = competition_stats(matches, lambda name: self.json(safe_path(root, name + "/outcome.json")))
+        with self.lock:
+            if len(cache) >= 16:
+                cache.clear()
+            cache[identifier] = (stamp, result)
+            self._statistics_cache = cache
+        return result
 
     def aggregate(self, identifiers):
         groups, excluded = {}, []

@@ -1,5 +1,7 @@
 # LLM Arena
 
+<p align="center"><img src="docs/assets/arena-logo.png" alt="LLM Arena — robot gladiateur" width="360"></p>
+
 Arène locale pour préparer, exécuter et comparer des stratégies **LeekScript 4**, avec le moteur officiel Leek Wars figé au commit `b99a174dd938260d9e47b2e65a208cb32230e26e`.
 
 Le socle exécute réellement les combats : analyse de scripts, équipes symétriques, round-robin aller-retour, miroirs séparés, compteurs d'opérations, replays, empreintes des sources et reprise après interruption. Les trois stratégies fournies sont des contrôles écrits à la main, pas des résultats de LLM.

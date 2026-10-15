@@ -136,6 +136,44 @@ class WebContractTests(unittest.TestCase):
                     jobs.launch(draft_id=draft["id"], **args)
             launch.assert_not_called()
 
+    def test_engine_data_filter_does_not_hide_generated_code_in_data_directory(self):
+        root = fixture(self.store)
+        code = root/"sessions/mock-repair-r0/submission/data/main.leek"
+        code.parent.mkdir(parents=True)
+        code.write_text("// generated",encoding="utf-8")
+        resource = root/"matches/one/data/forbidden_words.txt"
+        resource.parent.mkdir(parents=True)
+        resource.write_text("upstream fixture",encoding="utf-8")
+        write_json(resource.parent.parent/"outcome.json",{})
+        rows = {r["path"]:r for r in self.store.files("example")["files"]}
+        self.assertFalse(rows[code.relative_to(root).as_posix()]["engine_data"])
+        self.assertTrue(rows[resource.relative_to(root).as_posix()]["engine_data"])
+
+    def test_model_catalog_can_use_session_key_without_writing_or_echoing_it(self):
+        app = Application(self.store)
+        self.addCleanup(app.jobs.close)
+        self.store.secrets["ARENA_GEMINI_KEY"] = "catalog-only-secret"
+        with mock.patch("arena.api_providers.list_models", return_value={"models":[{"id":"models/test"}]}) as listing:
+            result = app.post("/api/models", {"provider":"gemini", "api_key_env":"ARENA_GEMINI_KEY"})
+        listing.assert_called_once_with("gemini","catalog-only-secret",None)
+        self.assertNotIn("catalog-only-secret",str(result))
+        self.assertFalse((self.store.state/"participants.json").exists())
+
+    def test_statistics_cache_updates_when_an_outcome_changes(self):
+        root = fixture(self.store)
+        work = root/"matches/cached"
+        result = {"status":"completed","winner_side":0}
+        write_json(work/"result.json",result)
+        write_json(root/"records/cached.json", {"match":{"sides":["A","B"],"seed":1},"directory":"matches/cached","result":result})
+        data = {"fight":{"leeks":[{"id":0,"team":1,"name":"A"}],"actions":[[7,0],[13,37]]}}
+        write_json(work/"outcome.json",data)
+        first = self.store.statistics("example")
+        self.assertEqual(first["stages"][0]["strategies"]["A"]["actions"],1)
+        data["fight"]["actions"].append([13,37])
+        write_json(work/"outcome.json",data)
+        second = self.store.statistics("example")
+        self.assertEqual(second["stages"][0]["strategies"]["A"]["actions"],2)
+
     def test_paths_cannot_escape_run_directory(self):
         fixture(self.store)
         for name in ("../outside", "C:/Windows", r"..\outside", "main.leek:secret"):
