@@ -101,8 +101,10 @@ financial limit; accounting reservations are not provider billing guarantees.
 
 **Team setup** switches between shared teams/equipment and participant-selected
 teams. In participant mode, **Team size** is the maximum, not the exact size.
-Each model chooses 1 to that many members, equipment and a script per member using
-`configure_team`. All members retain the shared base stats. Weapons/chips must
+Each model chooses 1 to that many members, equipment and a script and stat allocation per member using
+`configure_team`. Each member can have a different stat build. New competitions enable realistic
+capital rules by default, without components or alterations. Free mode accepts
+raw stats. See [realistic stats](realistic-stats.md) for rules and sources. Weapons/chips must
 exist in the pinned catalog, meet the shared member level, respect slot limits
 and appear in any selected allowlists. Empty allowlists mean all eligible items.
 Fixed reference opponents keep the default team and equipment.
@@ -110,7 +112,8 @@ Fixed reference opponents keep the default team and equipment.
 Equipment selectors list the full pinned catalog, support name/ID searches and
 show level, AP cost, range, line of sight, effects and the raw definition. Empty
 default equipment means no items. Catalog IDs are distinct from inventory item
-IDs. Each field's question mark explains its meaning; Help opens the interface,
+IDs. Each field's question mark provides its help once, without repeating it beneath
+the field. Help opens the interface,
 authoring, rules and pinned API documents without leaving the application.
 
 `configure_team` writes `team.json`, which is hashed and frozen with sources.

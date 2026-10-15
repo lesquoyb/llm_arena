@@ -34,9 +34,14 @@ results for the commit being used. A saved cloud configuration must be published
 through environment settings before it is available to a new environment.
 
 Participant team mode supports 1..maximum team size, per-member code and equipment,
-shared stats, level/slot/allowlist validation, journaled `configure_team`, hashed
+per-member stats, level/slot/allowlist validation, journaled `configure_team`, hashed
 `team.json`, per-member analysis and inherited improvement checkpoints. Shared
 team mode remains the default. New UI competitions leave all preparation limits
 blank; calls, tools, tests, tokens, time and cost remain recorded. Equipment
 selectors show the complete pinned catalog and item definitions; field tips and
 in-app document readers explain settings. Existing configurations keep their limits.
+
+New competitions default to realistic-v1 stat builds: official base stats and
+capital tiers pinned to the official client source. No components/alterations are
+modeled in this version. Free mode and legacy scenarios retain raw stat values.
+RAM help distinguishes tracked combat-script memory from LLM context and Java heap.

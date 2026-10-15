@@ -1363,3 +1363,23 @@ dialog::backdrop {
 .equipment-option dd {
   margin: 3px 0 10px;
 }
+
+#stats-editor {
+  margin: 18px 0;
+}
+#stats-editor h3 {
+  margin-bottom: 12px;
+}
+#member-stat-builds > details {
+  margin: 16px 0;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+#member-stat-builds > details > summary {
+  font-weight: 600;
+}
+.member-stat-summary {
+  margin: 12px 0;
+  line-height: 1.7;
+}

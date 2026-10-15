@@ -152,7 +152,7 @@ def integer(value, low: int, high: int, label: str):
 def validate_scenario(config: dict):
     if not isinstance(config, dict):
         raise ArenaError("scenario must be an object")
-    unknown = set(config) - {"team_size", "max_turns", "entity", "map", "team_selection"}
+    unknown = set(config) - {"team_size", "max_turns", "entity", "map", "team_selection", "stats_mode", "member_stats"}
     if unknown:
         raise ArenaError(f"Unsupported scenario fields: {sorted(unknown)}")
     from .teams import validate_rules
@@ -176,6 +176,8 @@ def validate_scenario(config: dict):
             low = 1 if key in {"level", "life", "cores", "ram"} else 0
             high = 50 if key == "ram" else 100 if key == "cores" else 100000
             integer(value, low, high, key)
+    from .stats import validate_stats
+    validate_stats(config)
     if config.get("map") is not None:
         m = config["map"]
         if not isinstance(m, dict) or set(m) - {"obstacles", "team1", "team2"}:
@@ -206,6 +208,7 @@ def make_scenario(config: dict, entries: list[str], seed: int, teams=None) -> di
     }
     if config.get("map") is not None:
         result["map"] = {k: (list(v) if isinstance(v, list) else v) for k, v in config["map"].items()}
+    from .stats import member_stats
     for side in range(2):
         owner = side + 1
         result["farmers"].append({"id": owner, "name": f"Side {owner}", "country": "fr"})
@@ -220,7 +223,7 @@ def make_scenario(config: dict, entries: list[str], seed: int, teams=None) -> di
                    weapons=config["entity"].get("weapons", []), chips=config["entity"].get("chips", []))
                    for _ in range(config["team_size"])]
         result["entities"].append([
-            {**config["entity"], "weapons": member["weapons"], "chips": member["chips"],
+            {**config["entity"], **member_stats(config, i, member), "weapons": member["weapons"], "chips": member["chips"],
              "id": side * config["team_size"] + i + 1,
              "name": f"Side {owner} / {i + 1}", "type": 1, "farmer": owner,
              "team": owner, "ai": member["entrypoint"], "ai_version": 4}

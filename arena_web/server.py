@@ -47,7 +47,7 @@ class Application:
         if route == "/api/reference":
             documents = {"authoring": "authoring.md", "rules": "corpus/rules.md",
                          "api-guide": "corpus/api-guide.md", "api": "leekscript-v1/api.md",
-                         "ui": "ui.md", "providers": "providers.md"}
+                         "ui": "ui.md", "providers": "providers.md", "stats": "realistic-stats.md"}
             name = value("document")
             if name not in documents:
                 raise ArenaError("Unknown reference document")
@@ -59,7 +59,8 @@ class Application:
             for name, value in constants.items():
                 if name.startswith("EFFECT_") and not name.startswith(("EFFECT_TARGET_", "EFFECT_MODIFIER_")):
                     effects.setdefault(str(int(float(value))), name.removeprefix("EFFECT_").replace("_", " ").title())
-            return {"weapons": store.json(data / "weapons.json"), "chips": store.json(data / "chips.json"),
+            from arena.stats import RULES
+            return {"stat_rules": RULES, "weapons": store.json(data / "weapons.json"), "chips": store.json(data / "chips.json"),
                     "effects": effects, "snapshot": store.json(data / "snapshot.json")["engine"]["lock"]["commit"]}
         if route == "/api/runs":
             return {"runs": store.listing(), "jobs": self.jobs.listing()}

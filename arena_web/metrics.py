@@ -67,10 +67,17 @@ def combat_stats(outcome, scenario=None):
     turns = [{"turn": t, "entity": entity, "side": entities.get(entity, {}).get("team", 1)-1,
               "name": entities.get(entity, {}).get("name", str(entity)), **data}
              for (t, entity), data in sorted(rows.items())]
+    scenario_members = {(e.get("team"), e.get("name")): e
+                        for team in (scenario or {}).get("entities", []) for e in team}
+    for row in turns:
+        member = scenario_members.get((row["side"] + 1, row["name"]), {})
+        row["operations_limit_per_turn"] = min(2**31-1, member["cores"] * 1_000_000) if type(member.get("cores")) is int else limit
     totals = []
     for entity, info in entities.items():
         records = [r for r in turns if r["entity"] == entity]
         total = {"entity": entity, "name": info.get("name", str(entity)), "side": info.get("team", 1)-1}
+        member = scenario_members.get((info.get("team"), info.get("name")), {})
+        total["operations_limit_per_turn"] = min(2**31-1, member["cores"] * 1_000_000) if type(member.get("cores")) is int else limit
         for key in COUNTERS:
             total[key] = None if any(r[key] is None for r in records) else sum(r[key] for r in records)
         if not instrumented:
@@ -96,7 +103,7 @@ def combat_stats(outcome, scenario=None):
     rounds = [combine([r for r in turns if r["turn"] == turn], "All entities", turn=turn)
               for turn in sorted({r["turn"] for r in turns})]
     return {"total": total, "sides": sides, "rounds": rounds, "entities": totals, "turns": turns, "instrumented": instrumented,
-            "operations_limit_per_turn": limit,
+            "operations_limit_per_turn": limit, "operation_limits": sorted(limits),
             "limit_source": source,
             "action_definition": "Moves, weapon changes, shots and chips. Effects are not counted as decisions.",
             "missing": [] if instrumented else ["This archive has no per-turn operations, per-leek errors or damage/healing attribution. Received damage comes from replay events and may include overkill."]}
@@ -120,9 +127,9 @@ def competition_stats(matches, load, load_scenario=lambda _: None):
             continue
         group["with_replay"] += 1
         stats = combat_stats(outcome, load_scenario(match["path"]))
-        cap = stats["operations_limit_per_turn"]
-        if cap is not None and cap not in group["operation_limits"]:
-            group["operation_limits"].append(cap)
+        for cap in stats["operation_limits"] or [stats["operations_limit_per_turn"]]:
+            if cap is not None and cap not in group["operation_limits"]:
+                group["operation_limits"].append(cap)
         for side, totals in enumerate(stats["sides"]):
             who = match["sides"][side]
             entities = [e for e in stats["entities"] if e["side"] == side]

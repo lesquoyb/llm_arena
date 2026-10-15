@@ -108,6 +108,7 @@ and resume without recalculation. CI covers Linux and Windows. Provider adapters
 use offline fixtures in CI; real API calls require explicit models, prices,
 keys and paid-call authorization; spending limits are optional. Check the workflow result for the commit being used.
 
+- [Realistic stats](docs/realistic-stats.md): official capital rules and per-leek builds.
 - [Interface](docs/ui.md): matrix links, filters, files, requests, replays and statistics.
 - [Full experiment](docs/complete-experiment.md): initial/improved strategies, MCP, exports and Docker.
 - [Providers](docs/providers.md): OpenAI, Anthropic, Gemini, compatible APIs, seeds and billing.

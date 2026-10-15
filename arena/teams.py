@@ -30,9 +30,16 @@ def validate_team(team, scenario=None, files=None, data=None):
     if not isinstance(members, list) or not 1 <= len(members) <= maximum:
         raise ArenaError(f"Team must contain 1 to {maximum} members")
     rules = (scenario or {}).get("team_selection") or {}
-    for member in members:
-        if not isinstance(member, dict) or set(member) != {"entrypoint", "weapons", "chips"}:
+    for index, member in enumerate(members):
+        if not isinstance(member, dict) or not {"entrypoint", "weapons", "chips"} <= set(member) or set(member) - {"entrypoint", "weapons", "chips", "capital", "stats"}:
             raise ArenaError("Each member needs entrypoint, weapons and chips")
+        from .stats import member_stats, STATS
+        for key in ("capital", "stats"):
+            if key in member and (not isinstance(member[key], dict) or set(member[key]) - set(STATS)
+                                  or any(type(v) is not int or v < 0 or v > 100000 for v in member[key].values())):
+                raise ArenaError("Invalid member characteristics")
+        if scenario:
+            member_stats(scenario, index, member)
         entry = member["entrypoint"]
         if (not isinstance(entry, str) or not entry.endswith(".leek") or "\\" in entry
                 or ":" in entry or PurePosixPath(entry).is_absolute() or ".." in PurePosixPath(entry).parts

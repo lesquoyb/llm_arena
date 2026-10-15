@@ -113,21 +113,21 @@ const FIELD_HELP = {
     "Level shared by all members. Participant-selected equipment cannot require a higher level.",
   entity_life: "Starting health points per member.",
   entity_strength:
-    "Shared strength stat, which affects strength-based effects such as ordinary weapon damage.",
+    "Strength stat, which affects strength-based effects such as ordinary weapon damage.",
   entity_agility:
-    "Shared agility stat used by agility-based effects and combat mechanics.",
+    "Agility stat used by agility-based effects and combat mechanics.",
   entity_frequency: "Initiative stat used to determine play order.",
-  entity_wisdom: "Shared wisdom stat used by healing-related effects.",
-  entity_resistance: "Shared resistance stat used by shield-related effects.",
-  entity_science: "Shared science stat used by science-related effects.",
-  entity_magic: "Shared magic stat used by magic-related effects.",
+  entity_wisdom: "Wisdom stat used by healing-related effects.",
+  entity_resistance: "Resistance stat used by shield-related effects.",
+  entity_science: "Science stat used by science-related effects.",
+  entity_magic: "Magic stat used by magic-related effects.",
   entity_tp:
     "Action points available per member per turn. Weapon and chip costs consume AP.",
   entity_mp: "Movement points available per member per turn.",
   entity_cores:
     "Per-turn operation limit is cores × 1,000,000, capped at 2,147,483,647.",
   entity_ram:
-    "LeekScript memory budget per member: min(RAM, 50) × 8,000,000 slots. Separate from Java heap memory.",
+    "Memory available to each leek script for arrays and objects during a fight, not LLM context. Each RAM stat point permits 8,000,000 tracked 64-bit units (about 64 MB); the generator caps this at 50 points. The Java process has a separate heap limit.",
   team_max_weapons:
     "Maximum weapons each participant-selected member can equip. Zero forbids weapons.",
   team_max_chips:
@@ -231,11 +231,11 @@ const field = (
   attrs = "",
 ) => {
   help ||= FIELD_HELP[name] || "";
-  return `<label class="field">${fieldHeading(label, help)}<input type="${type}" name="${name}" value="${e(value)}" ${attrs}>${help ? `<small>${e(help)}</small>` : ""}</label>`;
+  return `<label class="field">${fieldHeading(label, help)}<input type="${type}" name="${name}" value="${e(value)}" ${attrs}></label>`;
 };
 const selectField = (label, name, values, current, help = "") => {
   help ||= FIELD_HELP[name] || "";
-  return `<label class="field">${fieldHeading(label, help)}<select name="${name}">${values.map(([v, l]) => `<option value="${e(v)}" ${v === current ? "selected" : ""}>${e(l)}</option>`).join("")}</select>${help ? `<small>${e(help)}</small>` : ""}</label>`;
+  return `<label class="field">${fieldHeading(label, help)}<select name="${name}">${values.map(([v, l]) => `<option value="${e(v)}" ${v === current ? "selected" : ""}>${e(l)}</option>`).join("")}</select></label>`;
 };
 const query = (args) =>
   new URLSearchParams(
@@ -323,6 +323,7 @@ function showError(error) {
 }
 async function refreshBoot() {
   S.boot = await api("/api/bootstrap");
+  S.equipment ||= await api("/api/equipment");
   updateChrome();
 }
 function activeJobs() {
@@ -398,6 +399,7 @@ async function renderRoute() {
     editor: competitionEditor,
   };
   $("#main").innerHTML = (renderers[S.view] || dashboard)();
+  if (S.view === "editor") updateStatPreviews();
 }
 function completed(report) {
   if (!report) return 0;
@@ -487,6 +489,18 @@ function freshConfig() {
   const config = structuredClone(S.boot.default_config),
     catalog = S.boot.participants.map((p) => p.spec),
     ids = config.models.map((m) => m.id);
+  config.scenario.stats_mode = "realistic-v1";
+  config.scenario.member_stats = Array.from(
+    { length: config.scenario.team_size },
+    () => ({ capital: defaultCapital(config.scenario.entity.level) }),
+  );
+  Object.assign(
+    config.scenario.entity,
+    statsForCapital(
+      config.scenario.entity.level,
+      config.scenario.member_stats[0].capital,
+    ),
+  );
   config.budget_per_session = {};
   delete config.spending.max_total_usd;
   config.models = structuredClone(catalog.filter((m) => ids.includes(m.id)));
@@ -598,7 +612,7 @@ const ENTITY_FIELDS = [
   ["tp", "AP per turn", 12],
   ["mp", "MP per turn", 5],
   ["cores", "Cores", 10],
-  ["ram", "RAM LeekScript", 10],
+  ["ram", "LeekScript memory (RAM)", 6],
 ];
 function equipmentPicker(label, name, kind, ids, allowlist = false) {
   const catalog = S.equipment?.[kind] || {};
@@ -615,11 +629,149 @@ function equipmentPicker(label, name, kind, ids, allowlist = false) {
     )
     .map(
       ([id, item]) =>
-        `<article class="equipment-option" data-search="${e(`${id} ${item.name}`.toLowerCase())}"><label class="check"><input type="checkbox" class="equipment-check" value="${e(id)}" ${ids.includes(Number(id)) ? "checked" : ""}><strong>${e(item.name)}</strong><span>ID ${e(id)} · level ${e(item.level)}</span></label><small>${e(item.cost)} AP · range ${e(item.min_range)}–${e(item.max_range)} · ${item.los ? "line of sight required" : "no line of sight required"}</small><details><summary>Item details</summary><p>These values come from the pinned engine catalog. Effects depend on the shared stats and target rules.</p><dl><dt>Cooldown</dt><dd>${e(item.cooldown ?? "Not applicable")} turns</dd><dt>Uses per turn</dt><dd>${e(item.max_uses ?? "Not specified")}</dd><dt>Effects</dt><dd>${(item.effects || []).map((effect) => `${e(S.equipment.effects[String(effect.type)] || `Effect ${effect.type}`)}: base ${e(effect.value1)} + random component ${e(effect.value2)}; duration ${e(effect.turns)} turns`).join("<br>") || "None"}</dd></dl>${raw(item, "Full pinned item definition")}</details></article>`,
+        `<article class="equipment-option" data-search="${e(`${id} ${item.name}`.toLowerCase())}"><label class="check"><input type="checkbox" class="equipment-check" value="${e(id)}" ${ids.includes(Number(id)) ? "checked" : ""}><strong>${e(item.name)}</strong><span>ID ${e(id)} · level ${e(item.level)}</span></label><small>${e(item.cost)} AP · range ${e(item.min_range)}–${e(item.max_range)} · ${item.los ? "line of sight required" : "no line of sight required"}</small><details><summary>Item details</summary><p>These values come from the pinned engine catalog. Effects depend on the member stats and target rules.</p><dl><dt>Cooldown</dt><dd>${e(item.cooldown ?? "Not applicable")} turns</dd><dt>Uses per turn</dt><dd>${e(item.max_uses ?? "Not specified")}</dd><dt>Effects</dt><dd>${(item.effects || []).map((effect) => `${e(S.equipment.effects[String(effect.type)] || `Effect ${effect.type}`)}: base ${e(effect.value1)} + random component ${e(effect.value2)}; duration ${e(effect.turns)} turns`).join("<br>") || "None"}</dd></dl>${raw(item, "Full pinned item definition")}</details></article>`,
     )
     .join(
       "",
-    )}</div><small>Complete catalog · pinned engine ${e(S.equipment?.snapshot?.slice(0, 12))}. <a href="#view=help" target="_blank" rel="noopener">Equipment and API guide</a></small></div></details><small>${e(help)}</small></div>`;
+    )}</div><small>Complete catalog · pinned engine ${e(S.equipment?.snapshot?.slice(0, 12))}. <a href="#view=help" target="_blank" rel="noopener">Equipment and API guide</a></small></div></details></div>`;
+}
+function capitalTotal(level) {
+  return (
+    50 +
+    (level - 1) * 5 +
+    Math.floor(level / 100) * 45 +
+    (level === 301 ? 95 : 0)
+  );
+}
+function defaultCapital(level) {
+  let remaining = capitalTotal(level);
+  const capital = {};
+  for (const [key, target] of [
+    ["cores", 140],
+    ["tp", 65],
+    ["mp", 60],
+    ["life", 50],
+    ["strength", 50],
+  ]) {
+    capital[key] = Math.min(remaining, target);
+    remaining -= capital[key];
+  }
+  return capital;
+}
+function statsForCapital(level, capital) {
+  const rules = S.equipment.stat_rules,
+    result = {};
+  for (const [key, steps] of Object.entries(rules.costs)) {
+    let remaining = Math.max(0, Math.min(100000, Number(capital[key]) || 0)),
+      bonus = 0;
+    while (remaining > 0) {
+      const step = [...steps].reverse().find((s) => bonus >= s.step);
+      if (remaining < step.capital) break;
+      remaining -= step.capital;
+      bonus += step.sup;
+    }
+    result[key] =
+      (rules.base[key] || 0) + bonus + (key === "life" ? (level - 1) * 3 : 0);
+  }
+  return result;
+}
+function readStatBuilds(form) {
+  const block = $("#member-stat-builds", form),
+    mode = block.dataset.mode;
+  return $$("[data-member-build]", block).map((section) => ({
+    [mode === "realistic-v1" ? "capital" : "stats"]: Object.fromEntries(
+      $$("input[data-stat]", section).map((input) => [
+        input.dataset.stat,
+        Number(input.value),
+      ]),
+    ),
+  }));
+}
+function memberBuildsMarkup(scenario) {
+  const realistic = scenario.stats_mode === "realistic-v1";
+  return `<div id="member-stat-builds" data-mode="${realistic ? "realistic-v1" : "free"}">${Array.from(
+    { length: scenario.team_size },
+    (_, index) => {
+      const spec = scenario.member_stats?.[index],
+        values = realistic
+          ? spec?.capital || defaultCapital(scenario.entity.level)
+          : spec?.stats || scenario.entity;
+      return `<details data-member-build="${index}" ${index === 0 ? "open" : ""}><summary>Leek ${index + 1}</summary><div class="member-stat-summary" aria-live="polite"></div><div class="form-grid three">${ENTITY_FIELDS.filter(
+        ([key]) => key !== "level",
+      )
+        .map(([key, label]) =>
+          field(
+            realistic ? label + " capital" : label,
+            `member_${index}_${key}`,
+            values[key] ?? 0,
+            "number",
+            realistic
+              ? `Capital assigned to ${label}. The official tier costs determine the resulting stat. ${FIELD_HELP["entity_" + key] || ""}`
+              : FIELD_HELP["entity_" + key],
+            `required min="${!realistic && ["life", "ram", "cores"].includes(key) ? 1 : 0}" max="100000" data-stat="${key}"`,
+          ),
+        )
+        .join("")}</div></details>`;
+    },
+  ).join("")}</div>`;
+}
+function statsEditor(scenario) {
+  return `<section id="stats-editor"><h3>Stats per leek</h3><label class="check"><input type="checkbox" name="realistic_stats" ${scenario.stats_mode === "realistic-v1" ? "checked" : ""}>Realistic stats (official capital rules, no components)</label><p class="muted">Realistic mode derives stats from level and capital. Free mode accepts raw values. ${btn("Official rules and scope", "reference", 'data-document="stats"')}</p>${field("Level (all members)", "entity_level", scenario.entity.level, "number", FIELD_HELP.entity_level, 'required min="1" max="100000"')}${memberBuildsMarkup(scenario)}</section>`;
+}
+function updateStatPreviews() {
+  const form = $("#competition-form");
+  if (!form) return;
+  const level = Number(form.elements.entity_level.value),
+    realistic = $("#member-stat-builds").dataset.mode === "realistic-v1";
+  const builds = readStatBuilds(form);
+  $$("[data-member-build]", form).forEach((section, index) => {
+    const build = builds[index],
+      used = realistic
+        ? Object.values(build.capital).reduce((a, b) => a + b, 0)
+        : null;
+    const values = realistic
+      ? statsForCapital(level, build.capital)
+      : build.stats;
+    const node = $(".member-stat-summary", section);
+    node.className =
+      "member-stat-summary " +
+      (realistic && (used > capitalTotal(level) || level > 301 || level < 1)
+        ? "notice error"
+        : "notice");
+    node.textContent =
+      (realistic
+        ? `Capital ${used} / ${capitalTotal(level)} · `
+        : "Free stats · ") +
+      ENTITY_FIELDS.filter(([key]) => key !== "level")
+        .map(([key, label]) => `${label}: ${values[key]}`)
+        .join(" · ");
+  });
+}
+function rebuildStatFields() {
+  const form = $("#competition-form"),
+    oldMode = $("#member-stat-builds").dataset.mode,
+    newMode = form.elements.realistic_stats.checked ? "realistic-v1" : "free";
+  const level = Number(form.elements.entity_level.value),
+    builds = readStatBuilds(form);
+  const scenario = {
+    team_size: Number(form.elements.team_size.value),
+    stats_mode: newMode,
+    entity: { level },
+  };
+  scenario.member_stats = builds.map((build) =>
+    newMode === oldMode
+      ? build
+      : newMode === "realistic-v1"
+        ? { capital: defaultCapital(level) }
+        : { stats: statsForCapital(level, build.capital) },
+  );
+  if (newMode === "free")
+    scenario.entity = {
+      ...statsForCapital(level, defaultCapital(level)),
+      level,
+    };
+  $("#member-stat-builds").outerHTML = memberBuildsMarkup(scenario);
+  updateStatPreviews();
 }
 function competitionEditor() {
   const c = S.editConfig || structuredClone(S.boot.default_config),
@@ -644,7 +796,7 @@ function competitionEditor() {
       ],
       String(c.generations || 1),
     )}</div><h3 class="section-label">Selected participants</h3>${S.choiceModels.map((m) => `<label class="choice"><input type="checkbox" name="participant" value="${e(m.id)}" ${c.models.some((v) => v.id === m.id) ? "checked" : ""}><span><strong>${e(m.id)}</strong><small>${e(m.provider)} · ${e(m.model || m.profile)}</small></span></label>`).join("")}${btn("Manage profiles", "go", 'data-view="participants"')}</section>
- <section class="panel"><h2>Match rules</h2><p class="muted">Base stats and team-building rules are shared. Matches alternate sides. Fixed mode also shares equipment.</p><div class="form-grid">${selectField(
+ <section class="panel"><h2>Match rules</h2><p class="muted">Default member builds and team-building rules are shared. Matches alternate sides. Fixed mode also shares equipment.</p><div class="form-grid">${selectField(
    "Team setup",
    "team_mode",
    [
@@ -652,7 +804,7 @@ function competitionEditor() {
      ["participant", "Participants choose teams and equipment"],
    ],
    c.scenario.team_selection ? "participant" : "fixed",
- )}${field("Team size", "team_size", c.scenario.team_size, "number", "Exact size in shared mode; maximum size when participants choose.", 'required min="1" max="8"')}${field("Maximum turns", "max_turns", c.scenario.max_turns, "number", "", 'required min="1" max="64"')}${field("Initial / feedback seeds", "seeds", c.seeds.join(", "), "text", "Map generation seeds, for example 101, 202.", "required")}${field("Final evaluation seeds", "final_seeds", (c.final_seeds || []).join(", "), "text", "Separate from initial strategy seeds and training seed 17.")}</div><div id="team-selection-rules" ${c.scenario.team_selection ? "" : "hidden"}><p class="muted">Participants choose 1 to the maximum team size, equipment and a script per member using configure_team. Stats stay fixed. Equipment must be in the pinned catalog and within the member level. Fixed reference opponents keep the default team.</p><div class="form-grid">${field("Weapons per member", "team_max_weapons", c.scenario.team_selection?.max_weapons ?? 3, "number", "", 'required min="0" max="32"')}${field("Chips per member", "team_max_chips", c.scenario.team_selection?.max_chips ?? 12, "number", "", 'required min="0" max="32"')}${equipmentPicker("Allowed weapons", "team_allowed_weapons", "weapons", c.scenario.team_selection?.allowed_weapons || [], true)}${equipmentPicker("Allowed chips", "team_allowed_chips", "chips", c.scenario.team_selection?.allowed_chips || [], true)}</div></div><label class="check" style="margin-top:15px"><input type="checkbox" name="include_mirrors" ${c.include_mirrors ? "checked" : ""}>Include mirror matches (excluded from score)</label><details><summary>Stats, equipment and custom map</summary><div class="form-grid three" style="margin-top:15px">${ENTITY_FIELDS.map(([key, label, def]) => field(label, "entity_" + key, c.scenario.entity[key] ?? def, "number", "", 'required min="0"')).join("")}</div><div class="form-grid" style="margin-top:15px">${equipmentPicker("Default weapons", "weapons", "weapons", c.scenario.entity.weapons)}${equipmentPicker("Default chips", "chips", "chips", c.scenario.entity.chips)}<label class="field full">Custom map (JSON, optional)<textarea name="map" class="mono">${c.scenario.map ? e(pretty(c.scenario.map)) : ""}</textarea><small>Without a custom map, the seed determines the map and starting positions.</small></label></div></details></section>
+ )}${field("Team size", "team_size", c.scenario.team_size, "number", "Exact size in shared mode; maximum size when participants choose.", 'required min="1" max="8"')}${field("Maximum turns", "max_turns", c.scenario.max_turns, "number", "", 'required min="1" max="64"')}${field("Initial / feedback seeds", "seeds", c.seeds.join(", "), "text", "Map generation seeds, for example 101, 202.", "required")}${field("Final evaluation seeds", "final_seeds", (c.final_seeds || []).join(", "), "text", "Separate from initial strategy seeds and training seed 17.")}</div><div id="team-selection-rules" ${c.scenario.team_selection ? "" : "hidden"}><p class="muted">Participants choose 1 to the maximum team size, equipment and a script per member using configure_team. Stats follow the per-leek builds and selected stat mode. Equipment must be in the pinned catalog and within the member level. Fixed reference opponents keep the default team.</p><div class="form-grid">${field("Weapons per member", "team_max_weapons", c.scenario.team_selection?.max_weapons ?? 3, "number", "", 'required min="0" max="32"')}${field("Chips per member", "team_max_chips", c.scenario.team_selection?.max_chips ?? 12, "number", "", 'required min="0" max="32"')}${equipmentPicker("Allowed weapons", "team_allowed_weapons", "weapons", c.scenario.team_selection?.allowed_weapons || [], true)}${equipmentPicker("Allowed chips", "team_allowed_chips", "chips", c.scenario.team_selection?.allowed_chips || [], true)}</div></div><label class="check" style="margin-top:15px"><input type="checkbox" name="include_mirrors" ${c.include_mirrors ? "checked" : ""}>Include mirror matches (excluded from score)</label><div style="margin-top:15px">${statsEditor(c.scenario)}</div><details><summary>Default equipment and custom map</summary><div class="form-grid" style="margin-top:15px">${equipmentPicker("Default weapons", "weapons", "weapons", c.scenario.entity.weapons)}${equipmentPicker("Default chips", "chips", "chips", c.scenario.entity.chips)}<label class="field full">Custom map (JSON, optional)<textarea name="map" class="mono">${c.scenario.map ? e(pretty(c.scenario.map)) : ""}</textarea><small>Without a custom map, the seed determines the map and starting positions.</small></label></div></details></section>
  <section class="panel"><h2>Optional limits</h2><p class="muted">Leave blank to let each model work until submission. Calls, tools, matches, tokens, elapsed time and costs are recorded regardless. Improvement branches use the same optional limits.</p><div class="form-grid">${field("Model calls", "max_calls", b.max_calls ?? "", "number", "Maximum API responses, including responses after tool results. Blank means unlimited.", 'min="1"')}${field("Tool calls", "max_agent_steps", b.max_agent_steps ?? "", "number", "Maximum tool invocations. Blank means unlimited.", 'min="1"')}${field("Preparation matches", "max_test_matches", b.max_test_matches ?? "", "number", "One test runs two matches, one per side. Blank means unlimited.", 'min="0"')}${field("Preparation time (seconds)", "max_wall_seconds", b.max_wall_seconds ?? "", "number", "Blank means no session time limit.", 'min="1"')}${field("Total input tokens", "max_input_tokens", b.max_input_tokens ?? "", "number", "Optional. Blank means no conversation token limit.", 'min="1"')}${field("Total output tokens", "max_output_tokens", b.max_output_tokens ?? "", "number", "Optional. Blank means no conversation token limit.", 'min="1"')}${field("API spending limit per conversation ($)", "max_cost_usd", b.max_cost_usd ?? "", "number", "Blank means no financial limit.", 'min="0" step="any"')}${field("API spending limit for the experiment ($)", "max_total_usd", c.spending.max_total_usd ?? "", "number", "Includes all branches. Blank means no financial limit.", 'min="0" step="any"')}</div><label class="check" style="margin-top:15px"><input type="checkbox" name="allow_paid_calls" ${c.spending.allow_paid_calls ? "checked" : ""}>Allow paid APIs for this configuration</label><small>Mock runs have no API cost. Paid runs require API authorization. Optional financial limits are checked between calls. Without an output cap, a call can exceed a configured financial limit.</small></section>
  <section class="panel"><details><summary>Import a JSON configuration</summary><textarea id="import-config" class="mono" style="width:100%;margin-top:12px" placeholder="Paste an experiment manifest"></textarea><div style="margin-top:10px">${btn("Apply configuration", "import-config")}</div></details></section></div>
  <aside class="panel sticky"><div class="eyebrow">Before launching</div><h2>Schedule</h2><p class="muted">Review the schedule and spending limit before launching.</p><div id="plan-preview">${notice("Both improvement branches start from the same initial history. One receives match feedback.")}</div>${btn("Calculate schedule", "preview-plan")}<div class="divider"></div><button type="submit" class="button primary" style="width:100%">Save configuration</button><p class="muted" style="font-size:10px;margin-top:12px">Saving does not start a run.</p></aside></div></form>`
@@ -695,8 +847,17 @@ function readCompetition(form) {
         );
     }
   } else delete base.scenario.team_selection;
-  ENTITY_FIELDS.forEach(
-    ([key]) => (base.scenario.entity[key] = n("entity_" + key)),
+  base.scenario.stats_mode = f.has("realistic_stats") ? "realistic-v1" : "free";
+  base.scenario.entity.level = n("entity_level");
+  base.scenario.member_stats = readStatBuilds(form);
+  Object.assign(
+    base.scenario.entity,
+    base.scenario.stats_mode === "realistic-v1"
+      ? statsForCapital(
+          n("entity_level"),
+          base.scenario.member_stats[0].capital,
+        )
+      : base.scenario.member_stats[0].stats,
   );
   base.scenario.entity.weapons = array("weapons");
   base.scenario.entity.chips = array("chips");
@@ -1401,7 +1562,7 @@ function comparisonResult(data) {
 function helpPage() {
   return (
     head("Help", "Experiment design, scoring and recorded data.") +
-    `<section class="panel"><h2>Documentation</h2><div class="actions">${btn("Interface guide", "reference", 'data-document="ui"')}${btn("API providers and pricing", "reference", 'data-document="providers"')}${btn("Strategy authoring", "reference", 'data-document="authoring"')}${btn("Game rules", "reference", 'data-document="rules"')}${btn("API usage guide", "reference", 'data-document="api-guide"')}${btn("LeekScript API reference", "reference", 'data-document="api"')}</div></section>` +
+    `<section class="panel"><h2>Documentation</h2><div class="actions">${btn("Interface guide", "reference", 'data-document="ui"')}${btn("API providers and pricing", "reference", 'data-document="providers"')}${btn("Strategy authoring", "reference", 'data-document="authoring"')}${btn("Game rules", "reference", 'data-document="rules"')}${btn("Realistic stats", "reference", 'data-document="stats"')}${btn("API usage guide", "reference", 'data-document="api-guide"')}${btn("LeekScript API reference", "reference", 'data-document="api"')}</div></section>` +
     `<div class="help-grid">${[
       [
         "Participants and conversations",
@@ -1425,7 +1586,7 @@ function helpPage() {
       ],
       [
         "Team building and equipment",
-        "Shared mode fixes the team and equipment for all participants. Participant mode lets each model choose up to the maximum team size, a script per member, weapons and chips. Stats stay common. Allowlists, slots and member level restrict equipment. Successful configure_team calls create team.json versions, inherited by improvement branches. The item selector shows the full pinned catalog; high-level entries may be unusable at the selected level. IDs are catalog keys, not item inventory IDs.",
+        "Shared mode fixes the team and equipment for all participants. Participant mode lets each model choose up to the maximum team size, a script per member, weapons and chips. Members can have different stats; realistic mode validates each capital allocation. Allowlists, slots and member level restrict equipment. Successful configure_team calls create team.json versions, inherited by improvement branches. The item selector shows the full pinned catalog; high-level entries may be unusable at the selected level. IDs are catalog keys, not item inventory IDs.",
       ],
       [
         "Costs and tokens",
@@ -1568,6 +1729,7 @@ document.addEventListener("click", async (event) => {
       await api("/api/plan", { config }, true);
       S.editConfig = config;
       $("#main").innerHTML = competitionEditor();
+      updateStatPreviews();
       toast("Configuration imported. Review before saving.");
     } else if (a === "launch") await launchDialog(node.dataset.id);
     else if (a === "resume") await launchDialog(null, S.run);
@@ -1759,6 +1921,8 @@ document.addEventListener("change", async (event) => {
         ids
           .map((id) => S.equipment[picker.dataset.kind][id]?.name || id)
           .join(", ") || picker.dataset.empty;
+    } else if (n.name === "realistic_stats" || n.name === "team_size") {
+      rebuildStatFields();
     } else if (n.name === "team_mode") {
       $("#team-selection-rules").hidden = n.value !== "participant";
     } else if (n.id === "metric-set") {
@@ -1824,6 +1988,8 @@ document.addEventListener("input", (event) => {
         f.path.toLowerCase().includes(n.value.toLowerCase()),
       ),
     );
+  if (n.matches("input[data-stat]") || n.name === "entity_level")
+    updateStatPreviews();
   if (n.matches(".equipment-search")) {
     for (const item of $$(".equipment-option", n.closest(".equipment-picker")))
       item.hidden = !item.dataset.search.includes(n.value.toLowerCase());
@@ -2101,24 +2267,26 @@ function combatTable(rows, perTurn = false) {
       ? COMBAT_COLUMNS
       : COMBAT_COLUMNS.filter(([key]) => METRIC_SETS[selection].includes(key));
   const mean = columns.some(([key]) => key === "operations");
+  const showLimit = rows.some((row) => row.operations_limit_per_turn != null);
   return table(
     [
       ...(perTurn ? ["Turn"] : []),
       "Leek / strategy",
       ...columns.map(([, label]) => label),
       ...(mean ? ["Ops / played turn"] : []),
+      ...(showLimit ? ["Ops limit / turn"] : []),
     ],
     rows.map(
       (row) =>
-        `<tr>${perTurn ? `<td>${e(row.turn)}</td>` : ""}<td>${e(row.name || row.id)}${row.side != null ? `<small>Side ${row.side + 1} · #${row.entity}</small>` : ""}</td>${columns.map(([key]) => `<td>${fmt(row[key])}</td>`).join("")}${mean ? `<td>${fmt(row.operations != null && row.ai_turns ? row.operations / row.ai_turns : null, 1)}</td>` : ""}</tr>`,
+        `<tr>${perTurn ? `<td>${e(row.turn)}</td>` : ""}<td>${e(row.name || row.id)}${row.side != null ? `<small>Side ${row.side + 1} · #${row.entity}</small>` : ""}</td>${columns.map(([key]) => `<td>${fmt(row[key])}</td>`).join("")}${mean ? `<td>${fmt(row.operations != null && row.ai_turns ? row.operations / row.ai_turns : null, 1)}</td>` : ""}${showLimit ? `<td>${fmt(row.operations_limit_per_turn)}</td>` : ""}</tr>`,
     ),
   );
 }
 function combatStatistics(data) {
-  return `<section class="combat-statistics"><h3>Match statistics</h3>${metricSetPicker()}<p class="muted">Limit: ${fmt(data.operations_limit_per_turn)} operations per played turn and leek (${e(data.limit_source)}). ${e(data.action_definition)}</p>${data.missing.map((m) => notice(e(m))).join("")}<h3>Match and team totals</h3>${combatTable([data.total, ...data.sides])}<h3>Totals by leek</h3>${combatTable(data.entities)}<details><summary>Totals by turn</summary>${combatTable(data.rounds, true)}</details><details><summary>Details by turn and leek</summary>${combatTable(data.turns, true)}</details></section>`;
+  return `<section class="combat-statistics"><h3>Match statistics</h3>${metricSetPicker()}<p class="muted">Limit: ${data.operation_limits?.length > 1 ? "varies by leek; see the per-leek rows" : fmt(data.operations_limit_per_turn) + " operations per played turn and leek"} (${e(data.limit_source)}). ${e(data.action_definition)}</p>${data.missing.map((m) => notice(e(m))).join("")}<h3>Match and team totals</h3>${combatTable([data.total, ...data.sides])}<h3>Totals by leek</h3>${combatTable(data.entities)}<details><summary>Totals by turn</summary>${combatTable(data.rounds, true)}</details><details><summary>Details by turn and leek</summary>${combatTable(data.turns, true)}</details></section>`;
 }
 function competitionStatistics(data) {
-  return `<section class="panel"><h2>Match statistics</h2><p class="muted">Limit: ${fmt(data.operations_limit_per_turn)} operations per played turn and leek. Actions count moves, weapon changes, shots and chips. Totals include mirrors; matrices exclude them.</p><div class="form-grid">${metricSetPicker()}<label class="field">Stage<select id="statistics-stage">${data.stages.map((g, i) => `<option value="${i}">${e(stageText(g.stage))}</option>`).join("")}</select></label></div><div id="statistics-stage-detail">${statisticsStage(data.stages[0])}</div></section>`;
+  return `<section class="panel"><h2>Match statistics</h2><p class="muted">Limit: ${data.operation_limits?.length > 1 ? "varies by leek: " + data.operation_limits.map((v) => fmt(v)).join(", ") : fmt(data.operations_limit_per_turn)} operations per played turn and leek. Actions count moves, weapon changes, shots and chips. Totals include mirrors; matrices exclude them.</p><div class="form-grid">${metricSetPicker()}<label class="field">Stage<select id="statistics-stage">${data.stages.map((g, i) => `<option value="${i}">${e(stageText(g.stage))}</option>`).join("")}</select></label></div><div id="statistics-stage-detail">${statisticsStage(data.stages[0])}</div></section>`;
 }
 function statisticsStage(group) {
   if (!group) return empty("No recorded matches", "");

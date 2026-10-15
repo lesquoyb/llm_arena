@@ -197,6 +197,12 @@ async function main() {
       "",
     );
     await page.getByLabel("Model seed").fill("42");
+    assert.equal(
+      await page
+        .getByLabel("Input price / million")
+        .evaluate((el) => el.closest("label").querySelectorAll("small").length),
+      0,
+    );
     await page.getByLabel("Input price / million").fill("1.25");
     await page.getByLabel("Output price / million").fill("2.5");
     await page.getByLabel("Cache read price / million").fill("0.125");
@@ -258,6 +264,55 @@ async function main() {
     await page.getByLabel("Competition name").fill("Configuration navigateur");
     await page.getByLabel("Repetitions per participant").fill("2");
     await page.getByLabel("Evaluation cycle").selectOption("1");
+    const realisticStats = page.getByLabel(
+      "Realistic stats (official capital rules, no components)",
+    );
+    assert(await realisticStats.isChecked());
+    await realisticStats.uncheck();
+    await page.locator('[name="member_0_strength"]').fill("100000");
+    await realisticStats.check();
+    assert.equal(
+      await page.locator('[name="member_0_strength"]').inputValue(),
+      "50",
+    );
+    await page.locator('[name="member_0_strength"]').fill("100");
+    await page.locator('[data-member-build="1"] > summary').click();
+    await page.locator('[name="member_1_strength"]').fill("0");
+    await page.locator('[name="member_1_wisdom"]').fill("100");
+    assert(
+      (
+        await page
+          .locator('[data-member-build="0"] .member-stat-summary')
+          .innerText()
+      ).includes("Strength: 200"),
+    );
+    assert(
+      (
+        await page
+          .locator('[data-member-build="1"] .member-stat-summary')
+          .innerText()
+      ).includes("Wisdom: 200"),
+    );
+    await page.locator('[name="member_0_strength"]').fill("591");
+    await page
+      .getByRole("button", { name: "Save configuration", exact: true })
+      .click();
+    await page.waitForFunction(() =>
+      document.querySelector("#toast.error")?.textContent.includes("capital"),
+    );
+    await page.locator('[name="member_0_strength"]').fill("100");
+    await page
+      .getByRole("button", { name: "Official rules and scope", exact: true })
+      .click();
+    await page
+      .getByRole("dialog")
+      .getByRole("heading", {
+        name: "Realistic stats and per-leek builds",
+        exact: true,
+      })
+      .waitFor();
+    await page.getByRole("button", { name: "Close", exact: true }).click();
+
     for (const name of [
       "Model calls",
       "Tool calls",
@@ -334,6 +389,9 @@ async function main() {
       await (await page.request.get(url + "/api/bootstrap")).json()
     ).drafts.find((d) => d.config.name === "Configuration navigateur").config;
     assert.deepEqual(configured.budget_per_session, {});
+    assert.equal(configured.scenario.stats_mode, "realistic-v1");
+    assert.equal(configured.scenario.member_stats[0].capital.strength, 100);
+    assert.equal(configured.scenario.member_stats[1].capital.wisdom, 100);
     assert.deepEqual(configured.scenario.team_selection.allowed_weapons, [1]);
     assert.equal(configured.scenario.team_selection.max_chips, 0);
 

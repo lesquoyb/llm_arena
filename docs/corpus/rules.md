@@ -3,8 +3,11 @@
 The manifest declares the team-building mode in the initial prompt. Without
 `scenario.team_selection`, teams have equal size, stats, weapons and chips and
 members share the submission entry point. With participant selection enabled,
-base stats stay fixed but each model chooses 1..scenario.team_size members,
-per-member entry points and equipment using `configure_team`. Write the source
+each model chooses 1..scenario.team_size members,
+per-member entry points, equipment and stat builds using `configure_team`.
+In realistic-v1 mode, allocate per-member capital under corpus/stat-rules.json
+(level base stats plus capital, without components). In free mode, provide raw
+per-member stats. Omitted overrides inherit the default member build. Write the source
 files first. Equipment must satisfy the level, slot limits and any allowlists;
 use keys from leekscript-v1/weapons.json and chips.json. A selection is required
 before test or submit. Successful selections create team.json, frozen with code

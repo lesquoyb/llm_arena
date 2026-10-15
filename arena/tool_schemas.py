@@ -6,6 +6,8 @@ def schema(properties=None, required=None):
 
 TEXT = {"type": "string"}
 ENTRY = {"entrypoint": TEXT}
+from .stats import STATS
+STAT_VALUES = schema({key: {"type": "integer", "minimum": 0, "maximum": 100000} for key in STATS})
 PAGE = {"offset": {"type": "integer", "minimum": 0},
         "limit": {"type": "integer", "minimum": 1, "maximum": 16000}}
 TOOLS = [
@@ -24,9 +26,9 @@ TOOLS = [
     {"name": "read_replay", "description": "Lit une page du replay de TON test.",
      "input_schema": schema({"test_id": TEXT, "side": {"type": "integer", "enum": [0, 1]},
                              "section": {"type": "string", "enum": ["fight", "team_metrics"]}, **PAGE}, ["test_id"])},
-    {"name": "configure_team", "description": "Choose team members, per-member .leek entrypoints, weapons and chips. Available only when scenario.team_selection enables participant teams. Sources must exist first. Read leekscript-v1/weapons.json and chips.json; use their keys as IDs. Stats stay fixed; equipment must meet the level, allowlists and slot limits. The selection is journaled as team.json and frozen with submit.",
+    {"name": "configure_team", "description": "Choose team members, per-member .leek entrypoints, weapons and chips. Available only when scenario.team_selection enables participant teams. Sources must exist first. Read leekscript-v1/weapons.json and chips.json; use their keys as IDs. Optional per-member capital in realistic-v1 mode or raw stats in free mode; omit to inherit the corresponding default member. Read corpus/stat-rules.json. Realistic builds exclude components; equipment must meet the level, allowlists and slot limits. The selection is journaled as team.json and frozen with submit.",
      "input_schema": schema({"members": {"type": "array", "minItems": 1, "maxItems": 8,
          "items": schema({"entrypoint": TEXT, "weapons": {"type": "array", "items": {"type": "integer"}},
-                          "chips": {"type": "array", "items": {"type": "integer"}}}, ["entrypoint", "weapons", "chips"])}}, ["members"])},
+                          "chips": {"type": "array", "items": {"type": "integer"}}, "capital": STAT_VALUES, "stats": STAT_VALUES}, ["entrypoint", "weapons", "chips"])}}, ["members"])},
     {"name": "submit", "description": "Fige ta soumission et clôt la session.", "input_schema": schema(ENTRY)},
 ]
