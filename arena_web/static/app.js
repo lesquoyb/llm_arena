@@ -133,8 +133,95 @@ const FIELD_HELP = {
   team_max_chips:
     "Maximum chips each participant-selected member can equip. Zero forbids chips.",
 };
-const fieldHeading = (label, help) =>
-  `<span class="field-heading">${e(label)}${help ? `<span class="help-tip" tabindex="0" aria-label="${e(help)}">?<span class="help-bubble" role="tooltip">${e(help)}</span></span>` : ""}</span>`;
+let helpSequence = 0,
+  activeHelp = null,
+  helpHideTimer;
+const fieldHeading = (label, help) => {
+  const id = `field-help-${++helpSequence}`;
+  return `<span class="field-heading">${e(label)}${help ? `<span class="help-tip" tabindex="0" role="button" aria-label="Field information" aria-describedby="${id}">?<span id="${id}" class="help-bubble" popover="manual" role="tooltip">${e(help)}</span></span>` : ""}</span>`;
+};
+function hideHelp() {
+  clearTimeout(helpHideTimer);
+  if (activeHelp) activeHelp.bubble.hidePopover();
+  activeHelp = null;
+}
+function positionHelp() {
+  if (!activeHelp) return;
+  const { anchor, bubble } = activeHelp;
+  if (!anchor.isConnected) return hideHelp();
+  const rect = anchor.getBoundingClientRect();
+  const container = anchor.closest("dialog")?.getBoundingClientRect();
+  if (
+    rect.bottom < 0 ||
+    rect.top > innerHeight ||
+    (container && (rect.bottom < container.top || rect.top > container.bottom))
+  )
+    return hideHelp();
+  const gap = 8,
+    margin = 8,
+    size = bubble.getBoundingClientRect();
+  const above = rect.top - gap - size.height;
+  const top =
+    above >= margin
+      ? above
+      : Math.min(rect.bottom + gap, innerHeight - size.height - margin);
+  bubble.style.left = `${Math.max(margin, Math.min(rect.left, innerWidth - size.width - margin))}px`;
+  bubble.style.top = `${Math.max(margin, top)}px`;
+}
+function showHelp(anchor) {
+  clearTimeout(helpHideTimer);
+  if (activeHelp?.anchor === anchor) return positionHelp();
+  hideHelp();
+  const bubble = $(".help-bubble", anchor);
+  activeHelp = { anchor, bubble };
+  bubble.showPopover();
+  positionHelp();
+}
+function scheduleHideHelp() {
+  clearTimeout(helpHideTimer);
+  helpHideTimer = setTimeout(hideHelp, 180);
+}
+document.addEventListener("pointerover", (event) => {
+  const anchor = event.target.closest(".help-tip");
+  if (anchor) showHelp(anchor);
+});
+document.addEventListener("pointerout", (event) => {
+  const anchor = event.target.closest(".help-tip");
+  if (anchor && !anchor.contains(event.relatedTarget)) scheduleHideHelp();
+});
+document.addEventListener("focusin", (event) => {
+  const anchor = event.target.closest(".help-tip");
+  if (anchor) showHelp(anchor);
+});
+document.addEventListener("focusout", (event) => {
+  if (event.target.closest(".help-tip")) scheduleHideHelp();
+});
+document.addEventListener("click", (event) => {
+  const anchor = event.target.closest(".help-tip");
+  if (anchor) {
+    event.preventDefault();
+    showHelp(anchor);
+  }
+});
+document.addEventListener(
+  "keydown",
+  (event) => {
+    if (event.key === "Escape" && activeHelp) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      hideHelp();
+    } else if (
+      (event.key === "Enter" || event.key === " ") &&
+      event.target.matches(".help-tip")
+    ) {
+      event.preventDefault();
+      showHelp(event.target);
+    }
+  },
+  true,
+);
+window.addEventListener("resize", positionHelp);
+document.addEventListener("scroll", positionHelp, true);
 const field = (
   label,
   name,
@@ -272,6 +359,7 @@ function updateChrome() {
     }[S.view] || "Overview");
 }
 async function renderRoute() {
+  hideHelp();
   const epoch = ++S.epoch;
   clearInterval(replayTimer);
   replayTimer = null;
@@ -443,6 +531,7 @@ function competitions() {
   );
 }
 function openDialog(title, subtitle, body) {
+  hideHelp();
   $("#dialog-content").innerHTML =
     `<div class="dialog-head"><div><h2>${e(title)}</h2><p>${e(subtitle)}</p></div><button class="icon-button" data-action="close-dialog" aria-label="Close">×</button></div><div id="dialog-error" class="notice error dialog-error" role="alert" tabindex="-1" hidden></div>${body}`;
   if (!$("#dialog").open) $("#dialog").showModal();
@@ -1744,6 +1833,7 @@ document.addEventListener("input", (event) => {
   if (n.id === "replay-range") renderReplay(Number(n.value));
 });
 $("#dialog").addEventListener("close", () => {
+  hideHelp();
   document.body.appendChild($("#toast"));
   S.logJob = null;
 });

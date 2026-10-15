@@ -1308,13 +1308,17 @@ dialog::backdrop {
   flex-shrink: 0;
 }
 .help-bubble {
-  display: none;
-  position: absolute;
-  bottom: 24px;
-  left: -12px;
-  width: min(270px, 65vw);
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  width: 270px;
+  max-width: calc(100vw - 16px);
+  max-height: calc(100dvh - 16px);
+  box-sizing: border-box;
+  overflow: auto;
+  overflow-wrap: anywhere;
   padding: 10px 12px;
-  z-index: 8;
+  border: 0;
   background: #233454;
   color: white;
   border-radius: 7px;
@@ -1322,10 +1326,6 @@ dialog::backdrop {
   font-size: 12px;
   line-height: 1.5;
   box-shadow: 0 4px 18px #20304a30;
-}
-.help-tip:hover .help-bubble,
-.help-tip:focus .help-bubble {
-  display: block;
 }
 .equipment-picker {
   border: 1px solid #dce1ec;

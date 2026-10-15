@@ -82,6 +82,74 @@ async function main() {
       await page.getByLabel("Participant ID").inputValue(),
       "browser-api",
     );
+    await page.locator("#dialog").evaluate((el) => {
+      el.style.width = "240px";
+      el.style.maxHeight = "260px";
+    });
+    const modalTip = page.locator("#dialog .help-tip").first();
+    await modalTip.focus();
+    await modalTip.locator(".help-bubble").waitFor({ state: "visible" });
+    const tooltipGeometry = await modalTip.evaluate((anchor) => {
+      const bubble = anchor.querySelector(".help-bubble"),
+        rect = bubble.getBoundingClientRect(),
+        modal = anchor.closest("dialog").getBoundingClientRect();
+      const points = [
+        [rect.left + 2, rect.top + 2],
+        [rect.right - 2, rect.top + 2],
+        [rect.left + 2, rect.bottom - 2],
+        [rect.right - 2, rect.bottom - 2],
+      ];
+      const outside = points.find(
+        ([x, y]) =>
+          x < modal.left ||
+          x > modal.right ||
+          y < modal.top ||
+          y > modal.bottom,
+      );
+      return {
+        open: bubble.matches(":popover-open"),
+        withinViewport:
+          rect.left >= 0 &&
+          rect.top >= 0 &&
+          rect.right <= innerWidth &&
+          rect.bottom <= innerHeight,
+        outsideVisible: Boolean(
+          outside &&
+            document.elementFromPoint(...outside)?.closest(".help-bubble") ===
+              bubble,
+        ),
+      };
+    });
+    assert(
+      tooltipGeometry.open &&
+        tooltipGeometry.withinViewport &&
+        tooltipGeometry.outsideVisible,
+      "Tooltip must paint outside the modal without clipping",
+    );
+    await page.keyboard.press("Escape");
+    assert(
+      await page.locator("#dialog").evaluate((el) => el.open),
+      "Escape dismisses the tooltip before the dialog",
+    );
+    await page.locator("#dialog").evaluate((el) => {
+      el.style.width = "";
+      el.style.maxHeight = "";
+    });
+    await page.setViewportSize({ width: 375, height: 700 });
+    await modalTip.click();
+    assert(
+      await modalTip.locator(".help-bubble").evaluate((el) => {
+        const r = el.getBoundingClientRect();
+        return (
+          r.left >= 0 &&
+          r.right <= innerWidth &&
+          r.top >= 0 &&
+          r.bottom <= innerHeight
+        );
+      }),
+    );
+    await page.keyboard.press("Escape");
+    await page.setViewportSize({ width: 1440, height: 1000 });
     const icon = await page.request.get(url + "/favicon.png");
     assert.equal(icon.status(), 200);
     assert.equal(icon.headers()["content-type"], "image/png");
