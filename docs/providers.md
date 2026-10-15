@@ -73,7 +73,7 @@ idempotency guarantee is assumed.
 
 Native continuation fields are retained: OpenAI tool calls, Anthropic tool-use
 and thinking/signature blocks, and Gemini parts including `thoughtSignature`.
-G1 branches replay full copies of their parent history without replacing it
+improved strategy branches replay full copies of their parent history without replacing it
 with a summary.
 
 ## Catalogs, seeds and request records
@@ -96,7 +96,7 @@ A fixed seed is a reproducibility aid, not a guarantee. Compare all messages,
 tools, parameters and backend/model versions. An identical system prompt alone
 cannot establish or rule out context leakage. Adapters construct each request
 from that session history, without shared mutable conversation memory. Paired
-G1 branches intentionally inherit G0 context.
+improved strategy branches intentionally inherit initial strategy context.
 
 Each new call intent records the endpoint, full body and canonical JSON SHA-256
 before execution. Authentication header values are redacted. Responses also

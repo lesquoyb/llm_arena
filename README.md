@@ -7,7 +7,7 @@ pinned to commit `b99a174dd938260d9e47b2e65a208cb32230e26e`.
 
 Participants write code through a shared tool interface. The runner records
 prompts, source versions, usage and match results. Experiments can compare an
-initial strategy (G0) with two improvement branches (G1), with and without feedback.
+initial strategy with two improvement branches, with and without feedback.
 The included demos use scripted mock participants and real Java matches. They
 make no LLM calls and do not measure real model performance.
 
@@ -109,7 +109,7 @@ use offline fixtures in CI; real API calls require explicit models, prices,
 keys and spending limits. Check the workflow result for the commit being used.
 
 - [Interface](docs/ui.md): matrix links, filters, files, requests, replays and statistics.
-- [Full experiment](docs/complete-experiment.md): G0/G1, MCP, exports and Docker.
+- [Full experiment](docs/complete-experiment.md): initial/improved strategies, MCP, exports and Docker.
 - [Providers](docs/providers.md): OpenAI, Anthropic, Gemini, compatible APIs, seeds and billing.
 - [Strategy authoring](docs/authoring.md) and [pinned API reference](docs/leekscript-v1/api.md).
 - [Engine audit](docs/engine-audit.md), [experiment protocol](docs/protocol.md) and [implementation status](docs/implementation-status.md).

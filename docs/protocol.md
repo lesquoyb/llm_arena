@@ -67,7 +67,7 @@ for determinism checks.
 
 ## Improvement and feedback
 
-After G0, clone each conversation and source checkpoint into two paired branches:
+After initial strategy, clone each conversation and source checkpoint into two paired branches:
 
 - Control: an improvement request without match results.
 - Feedback: the same request and budget, plus bounded structured results and logs.
@@ -76,11 +76,11 @@ Both retain equal preparation rights. Opponent source code remains hidden in the
 main condition. A separate disclosure condition could measure that effect later.
 Freeze every submission before running the next tournament.
 
-Evaluate new strategies against contemporaries, frozen G0 strategies and fixed
+Evaluate new strategies against contemporaries, frozen initial strategies and fixed
 handwritten controls. Use common opponents and scenarios to compare control and
 feedback; changing contemporary rankings alone do not measure progress. Hold
-final evaluation seeds out of preparation tools. Report G1 costs and cumulative
-trajectory costs without charging shared G0 calls twice in actual experiment totals.
+final evaluation seeds out of preparation tools. Report improved strategy costs and cumulative
+trajectory costs without charging shared initial strategy calls twice in actual experiment totals.
 
 ## Analysis
 
@@ -105,7 +105,7 @@ cost/performance frontiers over a single quality/price quotient.
 
 A technical pilot can start with three models and three conversations each.
 Nine strategies on ten seeds require 720 ranked matches plus 90 mirrors if
-enabled. G1 branches and reference panels add more matches; use the planner.
+enabled. Improvement branches and reference panels add more matches; use the planner.
 Three conversations per model are insufficient for a definitive ranking.
 Choose available exact model IDs and an explicit spending limit before paid work.
 

@@ -12,7 +12,7 @@ and [interface guide](ui.md).
 | Documentation | Corpus index, rules, syntax and example API behavior; pinned signatures and equipment data. Three versioned French experiment prompts remain under `prompts/fr`. |
 | Sessions | Mock participants, repair after real diagnostics, preparation tests and replays, missing/invalid submissions, failure profiles and resume. |
 | Providers and costs | OpenAI, compatible endpoints, Anthropic and native Gemini; model catalogs, supported seeds, native history, usage/cache accounting, Decimal costs, reservations and uncertain-call handling. |
-| G0/G1 | Paired control/feedback branches from the same G0 checkpoint; separate seeds; contemporary and common-panel evaluation. |
+| initial/improved strategies | Paired control/feedback branches from the same initial strategy checkpoint; separate seeds; contemporary and common-panel evaluation. |
 | Reports | JSON/CSV/Markdown/HTML, matrices, visible missing results, model aggregates, paired effects, exploratory intervals and cost/performance frontier. |
 | Local interface | Participant and competition settings, launch/stop/resume, conversations and requests, source versions/diffs, file viewers, schematic replays, detailed metrics and cross-run comparisons. |
 

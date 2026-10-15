@@ -50,11 +50,13 @@ const LABELS = {
   control: "Without feedback",
   feedback: "With feedback",
   all: "Full panel",
-  g0: "Frozen G0 strategies",
+  g0: "Frozen initial strategies",
   controls: "Fixed strategies",
   timeout: "Timeout",
   engine_error: "Engine error",
 };
+const generationLabel = (value) =>
+  Number(value || 0) === 0 ? "Initial strategy" : "Improved strategy";
 const text = (v) => LABELS[v] || v || "N/A";
 const badge = (label, color = "") =>
   `<span class="badge ${color}">${e(label)}</span>`;
@@ -178,7 +180,11 @@ function updateChrome() {
   $("#engine-status").className = "badge " + (ready ? "green" : "orange");
   $("#engine-status").textContent = ready
     ? "● Engine ready"
-    : "Engine not installed";
+    : "Engine check failed";
+  $("#engine-status").title = ready
+    ? "Engine validated for new matches."
+    : (S.boot.engine.error || "Engine validation failed.") +
+      " Existing match results remain readable. Refresh to recheck.";
   $("#active-count").textContent = activeJobs().length || "";
   $$("[data-nav]").forEach((n) =>
     n.classList.toggle(
@@ -341,7 +347,7 @@ function competitions() {
             ["Configuration", "Participants", "Repetitions", "Stages", ""],
             S.boot.drafts.map(
               (d) =>
-                `<tr><td><strong>${e(d.config.name)}</strong><small>Updated ${date(d.updated_at)}</small></td><td>${d.config.models.map((m) => e(m.id)).join(", ")}</td><td>${d.config.replicates}</td><td>${d.config.generations === 2 ? "G0 to G1, two branches" : "G0"}</td><td><div class="actions">${btn("Configure", "edit-draft", `data-id="${e(d.id)}"`)}${btn("▷ Launch", "launch", `data-id="${e(d.id)}"`, true)}${btn("Remove", "delete-draft", `data-id="${e(d.id)}"`)}</div></td></tr>`,
+                `<tr><td><strong>${e(d.config.name)}</strong><small>Updated ${date(d.updated_at)}</small></td><td>${d.config.models.map((m) => e(m.id)).join(", ")}</td><td>${d.config.replicates}</td><td>${d.config.generations === 2 ? "Initial strategy + two improvement branches" : "Initial strategy"}</td><td><div class="actions">${btn("Configure", "edit-draft", `data-id="${e(d.id)}"`)}${btn("▷ Launch", "launch", `data-id="${e(d.id)}"`, true)}${btn("Remove", "delete-draft", `data-id="${e(d.id)}"`)}</div></td></tr>`,
             ),
           )
         : empty(
@@ -436,15 +442,15 @@ function competitionEditor() {
       "Evaluation cycle",
       "generations",
       [
-        ["1", "G0: initial strategy"],
-        ["2", "G0 to G1: with and without feedback"],
+        ["1", "Initial strategy only"],
+        ["2", "Initial strategy + improvements with and without feedback"],
       ],
       String(c.generations || 1),
     )}</div><h3 class="section-label">Selected participants</h3>${S.choiceModels.map((m) => `<label class="choice"><input type="checkbox" name="participant" value="${e(m.id)}" ${c.models.some((v) => v.id === m.id) ? "checked" : ""}><span><strong>${e(m.id)}</strong><small>${e(m.provider)} · ${e(m.model || m.profile)}</small></span></label>`).join("")}${btn("Manage profiles", "go", 'data-view="participants"')}</section>
- <section class="panel"><h2>Match rules</h2><p class="muted">Both teams use the same stats and equipment. Matches alternate sides.</p><div class="form-grid">${field("Entities per team", "team_size", c.scenario.team_size, "number", "", 'required min="1" max="8"')}${field("Maximum turns", "max_turns", c.scenario.max_turns, "number", "", 'required min="1" max="64"')}${field("Seeds G0 / feedback", "seeds", c.seeds.join(", "), "text", "Map generation seeds, for example 101, 202.", "required")}${field("G1 final seeds", "final_seeds", (c.final_seeds || []).join(", "), "text", "Separate from G0 seeds and training seed 17.")}</div><label class="check" style="margin-top:15px"><input type="checkbox" name="include_mirrors" ${c.include_mirrors ? "checked" : ""}>Include mirror matches (excluded from score)</label><details><summary>Stats, equipment and custom map</summary><div class="form-grid three" style="margin-top:15px">${ENTITY_FIELDS.map(([key, label, def]) => field(label, "entity_" + key, c.scenario.entity[key] ?? def, "number", "", 'required min="0"')).join("")}</div><div class="form-grid" style="margin-top:15px">${field("Weapon IDs", "weapons", c.scenario.entity.weapons.join(", "), "text", "The demo uses weapon 37.")}${field("Chip IDs", "chips", c.scenario.entity.chips.join(", "), "text", "Leave blank for no chips.")}<label class="field full">Custom map (JSON, optional)<textarea name="map" class="mono">${c.scenario.map ? e(pretty(c.scenario.map)) : ""}</textarea><small>Without a custom map, the seed determines the map and starting positions.</small></label></div></details></section>
- <section class="panel"><h2>Budgets per conversation</h2><p class="muted">Both G1 branches receive the same additional budgets.</p><div class="form-grid">${field("Model calls", "max_calls", b.max_calls, "number", "", 'required min="1"')}${field("Tool calls", "max_agent_steps", b.max_agent_steps, "number", "", 'required min="1"')}${field("Preparation matches", "max_test_matches", b.max_test_matches, "number", "One test runs two matches, one per side.", 'required min="0"')}${field("Preparation time (seconds)", "max_wall_seconds", b.max_wall_seconds, "number", "", 'required min="1"')}${field("Total input tokens", "max_input_tokens", b.max_input_tokens || 1000000, "number", "For real APIs.", 'required min="1"')}${field("Total output tokens", "max_output_tokens", b.max_output_tokens || 100000, "number", "", 'required min="1"')}${field("API spending limit per conversation ($)", "max_cost_usd", b.max_cost_usd ?? "1", "number", "", 'required min="0" step="any"')}${field("API spending limit for the experiment ($)", "max_total_usd", c.spending.max_total_usd || "5", "number", "Includes G0 and all G1 branches.", 'required min="0" step="any"')}</div><label class="check" style="margin-top:15px"><input type="checkbox" name="allow_paid_calls" ${c.spending.allow_paid_calls ? "checked" : ""}>Allow paid APIs for this configuration</label><small>Mock runs have no API cost. Paid runs require confirmation of the spending limit.</small></section>
+ <section class="panel"><h2>Match rules</h2><p class="muted">Both teams use the same stats and equipment. Matches alternate sides.</p><div class="form-grid">${field("Entities per team", "team_size", c.scenario.team_size, "number", "", 'required min="1" max="8"')}${field("Maximum turns", "max_turns", c.scenario.max_turns, "number", "", 'required min="1" max="64"')}${field("Initial / feedback seeds", "seeds", c.seeds.join(", "), "text", "Map generation seeds, for example 101, 202.", "required")}${field("Final evaluation seeds", "final_seeds", (c.final_seeds || []).join(", "), "text", "Separate from initial strategy seeds and training seed 17.")}</div><label class="check" style="margin-top:15px"><input type="checkbox" name="include_mirrors" ${c.include_mirrors ? "checked" : ""}>Include mirror matches (excluded from score)</label><details><summary>Stats, equipment and custom map</summary><div class="form-grid three" style="margin-top:15px">${ENTITY_FIELDS.map(([key, label, def]) => field(label, "entity_" + key, c.scenario.entity[key] ?? def, "number", "", 'required min="0"')).join("")}</div><div class="form-grid" style="margin-top:15px">${field("Weapon IDs", "weapons", c.scenario.entity.weapons.join(", "), "text", "The demo uses weapon 37.")}${field("Chip IDs", "chips", c.scenario.entity.chips.join(", "), "text", "Leave blank for no chips.")}<label class="field full">Custom map (JSON, optional)<textarea name="map" class="mono">${c.scenario.map ? e(pretty(c.scenario.map)) : ""}</textarea><small>Without a custom map, the seed determines the map and starting positions.</small></label></div></details></section>
+ <section class="panel"><h2>Budgets per conversation</h2><p class="muted">Both improvement branches receive the same additional budgets.</p><div class="form-grid">${field("Model calls", "max_calls", b.max_calls, "number", "", 'required min="1"')}${field("Tool calls", "max_agent_steps", b.max_agent_steps, "number", "", 'required min="1"')}${field("Preparation matches", "max_test_matches", b.max_test_matches, "number", "One test runs two matches, one per side.", 'required min="0"')}${field("Preparation time (seconds)", "max_wall_seconds", b.max_wall_seconds, "number", "", 'required min="1"')}${field("Total input tokens", "max_input_tokens", b.max_input_tokens || 1000000, "number", "For real APIs.", 'required min="1"')}${field("Total output tokens", "max_output_tokens", b.max_output_tokens || 100000, "number", "", 'required min="1"')}${field("API spending limit per conversation ($)", "max_cost_usd", b.max_cost_usd ?? "1", "number", "", 'required min="0" step="any"')}${field("API spending limit for the experiment ($)", "max_total_usd", c.spending.max_total_usd || "5", "number", "Includes initial strategy and all improvement branches.", 'required min="0" step="any"')}</div><label class="check" style="margin-top:15px"><input type="checkbox" name="allow_paid_calls" ${c.spending.allow_paid_calls ? "checked" : ""}>Allow paid APIs for this configuration</label><small>Mock runs have no API cost. Paid runs require confirmation of the spending limit.</small></section>
  <section class="panel"><details><summary>Import a JSON configuration</summary><textarea id="import-config" class="mono" style="width:100%;margin-top:12px" placeholder="Paste an experiment manifest"></textarea><div style="margin-top:10px">${btn("Apply configuration", "import-config")}</div></details></section></div>
- <aside class="panel sticky"><div class="eyebrow">Before launching</div><h2>Schedule</h2><p class="muted">Review the schedule and spending limit before launching.</p><div id="plan-preview">${notice("Both improvement branches start from the same G0 history. One receives match feedback.")}</div>${btn("Calculate schedule", "preview-plan")}<div class="divider"></div><button type="submit" class="button primary" style="width:100%">Save configuration</button><p class="muted" style="font-size:10px;margin-top:12px">Saving does not start a run.</p></aside></div></form>`
+ <aside class="panel sticky"><div class="eyebrow">Before launching</div><h2>Schedule</h2><p class="muted">Review the schedule and spending limit before launching.</p><div id="plan-preview">${notice("Both improvement branches start from the same initial history. One receives match feedback.")}</div>${btn("Calculate schedule", "preview-plan")}<div class="divider"></div><button type="submit" class="button primary" style="width:100%">Save configuration</button><p class="muted" style="font-size:10px;margin-top:12px">Saving does not start a run.</p></aside></div></form>`
   );
 }
 function readCompetition(form) {
@@ -642,7 +648,7 @@ function summary(d, statistics = null) {
     `<div class="metrics">${metric("Finished sessions", `${done} / ${d.sessions.length}`, `${r.valid_submissions ?? 0} valid submissions`)}${metric("Completed matches", fmt(completed(r)), "Evaluation only; preparation listed separately", "⚔")}${metric("API cost", r.cost_usd === undefined ? "N/A" : money(r.cost_usd), r.reserved_usd && Number(r.reserved_usd) > 0 ? `${money(r.reserved_usd)} reserved` : "Mock run or cost calculated from usage", "↗")}${metric("Input / output tokens", r.input_tokens == null ? "Not measured" : `${fmt(r.input_tokens)} / ${fmt(r.output_tokens)}`, r.simulated ? "No LLM tokens in mock runs" : "Unavailable values stay unknown", "≋")}</div>` +
     (statistics ? competitionStatistics(statistics) : "") +
     (a
-      ? `<section class="panel"><div class="panel-title"><div><h2>Strategy performance</h2><small>G0 and G1 evaluated against the same panel on final seeds.</small></div><select id="panel-choice" aria-label="Evaluation panel">${["all", "controls", "g0"].map((p) => `<option value="${p}" ${S.panel === p ? "selected" : ""}>${text(p)}</option>`).join("")}</select></div>${bars(rows.map((v) => ({ label: v.session, score: v.score })))}<p class="muted" style="font-size:11px;margin:13px 0 0">Score = (wins + 0.5 × draws) / completed matches. Mirrors are excluded. The full panel includes frozen G0 strategies and handwritten controls.</p></section>
+      ? `<section class="panel"><div class="panel-title"><div><h2>Strategy performance</h2><small>Initial and improved strategies evaluated against the same panel on final seeds.</small></div><select id="panel-choice" aria-label="Evaluation panel">${["all", "controls", "g0"].map((p) => `<option value="${p}" ${S.panel === p ? "selected" : ""}>${text(p)}</option>`).join("")}</select></div>${bars(rows.map((v) => ({ label: v.session, score: v.score })))}<p class="muted" style="font-size:11px;margin:13px 0 0">Score = (wins + 0.5 × draws) / completed matches. Mirrors are excluded. The full panel includes frozen initial strategies and handwritten controls.</p></section>
  <section class="panel flush"><div class="panel-head"><div><h2>Detailed results</h2><p>Operations measure LeekScript computation. They are separate from tokens and API cost.</p></div></div>${table(
    [
      "Strategy",
@@ -656,10 +662,10 @@ function summary(d, statistics = null) {
    ],
    rows.map(
      (v) =>
-       `<tr><td><button class="table-button" data-action="session-conversation" data-session="${e(v.session)}">${e(v.session)}</button><small>${e(v.model)} · repetition ${v.replicate + 1}</small></td><td>G${v.generation}<small>${text(v.condition)}</small></td><td class="score numeric">${pct(v.score)}</td><td class="numeric">${fmt(v.completed)} / ${fmt(v.failed)}</td><td class="numeric">${fmt(v.operations)}</td><td class="numeric">${fmt(v.errors)} / ${fmt(v.operation_limit_hits)}</td><td class="numeric">${fmt(v.input_tokens)} / ${fmt(v.output_tokens)}</td><td class="numeric">${money(v.cost_usd)}<small>including G0: ${money(v.trajectory_cost_usd)}</small></td></tr>`,
+       `<tr><td><button class="table-button" data-action="session-conversation" data-session="${e(v.session)}">${e(v.session)}</button><small>${e(v.model)} · repetition ${v.replicate + 1}</small></td><td>${generationLabel(v.generation)}<small>${text(v.condition)}</small></td><td class="score numeric">${pct(v.score)}</td><td class="numeric">${fmt(v.completed)} / ${fmt(v.failed)}</td><td class="numeric">${fmt(v.operations)}</td><td class="numeric">${fmt(v.errors)} / ${fmt(v.operation_limit_hits)}</td><td class="numeric">${fmt(v.input_tokens)} / ${fmt(v.output_tokens)}</td><td class="numeric">${money(v.cost_usd)}<small>including initial strategy: ${money(v.trajectory_cost_usd)}</small></td></tr>`,
    ),
  )}</section>
- <div class="grid two"><section class="panel"><h2>Feedback effect</h2><p class="muted">G1 feedback minus G1 control, starting from the same G0 conversation.</p>${(a.paired || []).map((p) => `<div class="info-row"><span>${e(p.parent)}</span><strong>${p.feedback_minus_control == null ? "Unavailable" : (p.feedback_minus_control >= 0 ? "+" : "") + fmt(p.feedback_minus_control * 100, 1) + " points"}</strong></div>`).join("")}<p class="muted" style="font-size:10px;margin-top:12px">${a.interval_95_exploratory ? `Exploratory interval: ${e(pretty(a.interval_95_exploratory))}` : "Not enough complete conversations to estimate an interval."} Mock demos do not measure real model performance.</p></section><section class="panel"><h2>Versions and conditions</h2><div class="info-row"><span>G0</span><strong>Initial strategy</strong></div><div class="info-row"><span>G1 without feedback</span><strong>Improvement without match results</strong></div><div class="info-row"><span>G1 with feedback</span><strong>Improvement with match results</strong></div><p class="muted" style="font-size:11px;margin-top:13px">Both branches inherit the same code and history and are evaluated against the same opponents.</p></section></div>`
+ <div class="grid two"><section class="panel"><h2>Feedback effect</h2><p class="muted">Improved with feedback minus improved without feedback, starting from the same initial strategy conversation.</p>${(a.paired || []).map((p) => `<div class="info-row"><span>${e(p.parent)}</span><strong>${p.feedback_minus_control == null ? "Unavailable" : (p.feedback_minus_control >= 0 ? "+" : "") + fmt(p.feedback_minus_control * 100, 1) + " points"}</strong></div>`).join("")}<p class="muted" style="font-size:10px;margin-top:12px">${a.interval_95_exploratory ? `Exploratory interval: ${e(pretty(a.interval_95_exploratory))}` : "Not enough complete conversations to estimate an interval."} Mock demos do not measure real model performance.</p></section><section class="panel"><h2>Versions and conditions</h2><div class="info-row"><span>Initial strategy</span><strong>Before improvement</strong></div><div class="info-row"><span>Improved without feedback</span><strong>Improvement without match results</strong></div><div class="info-row"><span>Improved with feedback</span><strong>Improvement with match results</strong></div><p class="muted" style="font-size:11px;margin-top:13px">Both branches inherit the same code and history and are evaluated against the same opponents.</p></section></div>`
       : "") +
     (d.standings
       ? `<section class="panel"><h2>Tournament standings</h2>${bars(d.standings.map((v) => ({ label: v.strategy || v.id, score: v.score })))}${raw(d.standings, "Full standings statistics")}</section>`
@@ -678,7 +684,7 @@ function summary(d, statistics = null) {
             ],
             d.sessions.map(
               (s) =>
-                `<tr><td><strong>${e(s.id)}</strong><small>${s.messages} messages</small></td><td>G${s.generation || 0} · ${text(s.condition)}</td><td>${status(s.status)} ${s.validity ? status(s.validity) : ""}</td><td>${s.calls} / ${s.steps}</td><td>${s.test_matches} combats</td><td>${fmt(s.wall_seconds, 1)} s</td><td>${btn("Explore", "session-conversation", `data-session="${e(s.id)}"`)}</td></tr>`,
+                `<tr><td><strong>${e(s.id)}</strong><small>${s.messages} messages</small></td><td>${generationLabel(s.generation || 0)} · ${text(s.condition)}</td><td>${status(s.status)} ${s.validity ? status(s.validity) : ""}</td><td>${s.calls} / ${s.steps}</td><td>${s.test_matches} matches</td><td>${fmt(s.wall_seconds, 1)} s</td><td>${btn("Explore", "session-conversation", `data-session="${e(s.id)}"`)}</td></tr>`,
             ),
           )
         : empty(
@@ -686,7 +692,7 @@ function summary(d, statistics = null) {
             "Session states appear during execution.",
           )
     }</section>` +
-    `<section class="panel">${raw(r, "Full summary and raw metrics")}${d.g0 ? raw(d.g0, "G0 tournament: standings and mirrors") : ""}${d.g1 ? raw(d.g1, "G1 tournament: standings and mirrors") : ""}${a ? raw(a, "Full analysis, missing results, aggregates and cost/performance frontier") : ""}</section>`
+    `<section class="panel">${raw(r, "Full summary and raw metrics")}${d.g0 ? raw(d.g0, "Initial strategy tournament: standings and mirrors") : ""}${d.g1 ? raw(d.g1, "Improved strategy tournament: standings and mirrors") : ""}${a ? raw(a, "Full analysis, missing results, aggregates and cost/performance frontier") : ""}</section>`
   );
 }
 function conversation(data) {
@@ -716,7 +722,7 @@ function conversation(data) {
                           .map((p) => p.text)
                           .join("\n")
                       : m.content || "";
-        return `<article class="chat-message ${e(m.role)}" id="message-${S.offset + index}"><div class="message-head"><strong>${m.role === "user" ? "PROMPT" : m.role === "assistant" ? "MODEL RESPONSE" : "TOOL RESULT"} ${m.name ? "· " + e(m.name) : ""}</strong><span>Message ${S.offset + index + 1}${m.generation != null ? " · G" + m.generation : ""}${m.simulated ? " · mock" : ""}</span></div>${content ? `<div class="message-content">${e(content)}</div>` : ""}${(m.tool_calls || []).map((c) => `<div class="tool-call"><strong>↳ ${e(c.name)}</strong><pre>${e(pretty(c.arguments))}</pre></div>`).join("")}${m.role === "user" && m.budgets ? raw({ budgets: m.budgets, scenario: m.scenario, feedback: m.feedback }, "Budgets, scenario and feedback in this message") : ""}${m.usage ? `<div style="margin-top:12px"><small>Input ${fmt(m.usage.input_tokens)} · Output ${fmt(m.usage.output_tokens)} · Cost ${money(m.cost_usd)} · ${fmt(m.elapsed_seconds, 3)} s</small></div>` : ""}${m.sent_parameters ? `<div class="request-meta"><small>Sent seed: ${e(m.sent_parameters.seed ?? m.sent_parameters.generationConfig?.seed ?? (m.provider === "anthropic" ? "not available" : m.simulated ? "not applicable" : "not set"))}${m.model_version ? ` · Returned model: ${e(m.model_version)}` : ""}${m.system_fingerprint ? ` · Backend: ${e(m.system_fingerprint)}` : ""}</small>${m.request_sha256 ? `<small class="mono">Request SHA-256 (canonical JSON): ${e(m.request_sha256)}</small>` : ""}${raw(m.sent_parameters, "Sent request: prompts, history, tools and parameters")}</div>` : ""}${raw(m, "Full record: native response, request, tools and metadata")}</article>`;
+        return `<article class="chat-message ${e(m.role)}" id="message-${S.offset + index}"><div class="message-head"><strong>${m.role === "user" ? "PROMPT" : m.role === "assistant" ? "MODEL RESPONSE" : "TOOL RESULT"} ${m.name ? "· " + e(m.name) : ""}</strong><span>Message ${S.offset + index + 1}${m.generation != null ? " · " + generationLabel(m.generation) : ""}${m.simulated ? " · mock" : ""}</span></div>${content ? `<div class="message-content">${e(content)}</div>` : ""}${(m.tool_calls || []).map((c) => `<div class="tool-call"><strong>↳ ${e(c.name)}</strong><pre>${e(pretty(c.arguments))}</pre></div>`).join("")}${m.role === "user" && m.budgets ? raw({ budgets: m.budgets, scenario: m.scenario, feedback: m.feedback }, "Budgets, scenario and feedback in this message") : ""}${m.usage ? `<div style="margin-top:12px"><small>Input ${fmt(m.usage.input_tokens)} · Output ${fmt(m.usage.output_tokens)} · Cost ${money(m.cost_usd)} · ${fmt(m.elapsed_seconds, 3)} s</small></div>` : ""}${m.sent_parameters ? `<div class="request-meta"><small>Sent seed: ${e(m.sent_parameters.seed ?? m.sent_parameters.generationConfig?.seed ?? (m.provider === "anthropic" ? "not available" : m.simulated ? "not applicable" : "not set"))}${m.model_version ? ` · Returned model: ${e(m.model_version)}` : ""}${m.system_fingerprint ? ` · Backend: ${e(m.system_fingerprint)}` : ""}</small>${m.request_sha256 ? `<small class="mono">Request SHA-256 (canonical JSON): ${e(m.request_sha256)}</small>` : ""}${raw(m.sent_parameters, "Sent request: prompts, history, tools and parameters")}</div>` : ""}${raw(m, "Full record: native response, request, tools and metadata")}</article>`;
       })
       .join("")
   );
@@ -735,13 +741,13 @@ function codePage(data) {
   S.file = current.files.includes(S.file) ? S.file : current.files[0];
   return (
     notice(
-      "Each successful file write creates a version in the journal. G1 versions include inherited G0 history. Git is not required in participant folders.",
+      "Each successful file write creates a version in the journal. Improved versions include inherited initial history. Git is not required in participant folders.",
     ) +
-    `<div class="code-grid"><section class="panel"><h3>File write history</h3><div class="version-list">${data.versions.map((v) => `<button class="version-button ${v.index === S.version ? "active" : ""}" data-action="version" data-version="${v.index}"><strong>Version ${v.index + 1} <span class="timeline-tag">G${v.generation}</span></strong>${e(v.path)}<small>After message ${v.message + 1} · ${v.files.length} files</small></button>`).join("")}</div></section><section class="panel"><div class="toolbar"><select id="source-file" aria-label="File">${current.files.map((f) => `<option ${f === S.file ? "selected" : ""}>${e(f)}</option>`).join("")}</select><span class="spacer"></span>${btn("Open conversation", "version-message", `data-message="${current.message}"`)}</div><div class="toolbar"><label for="source-previous">Compare with</label><select id="source-previous"><option value="-1">Empty state</option>${data.versions
+    `<div class="code-grid"><section class="panel"><h3>File write history</h3><div class="version-list">${data.versions.map((v) => `<button class="version-button ${v.index === S.version ? "active" : ""}" data-action="version" data-version="${v.index}"><strong>Version ${v.index + 1} <span class="timeline-tag">${generationLabel(v.generation)}</span></strong>${e(v.path)}<small>After message ${v.message + 1} · ${v.files.length} files</small></button>`).join("")}</div></section><section class="panel"><div class="toolbar"><select id="source-file" aria-label="File">${current.files.map((f) => `<option ${f === S.file ? "selected" : ""}>${e(f)}</option>`).join("")}</select><span class="spacer"></span>${btn("Open conversation", "version-message", `data-message="${current.message}"`)}</div><div class="toolbar"><label for="source-previous">Compare with</label><select id="source-previous"><option value="-1">Empty state</option>${data.versions
       .slice(0, S.version)
       .map(
         (v) =>
-          `<option value="${v.index}" ${v.index === (S.previous ?? S.version - 1) ? "selected" : ""}>Version ${v.index + 1} · G${v.generation}</option>`,
+          `<option value="${v.index}" ${v.index === (S.previous ?? S.version - 1) ? "selected" : ""}>Version ${v.index + 1} · ${generationLabel(v.generation)}</option>`,
       )
       .join(
         "",
@@ -827,10 +833,10 @@ function stageText(stage) {
   return (
     {
       ".": "Tournament",
-      tournament: "G0 tournament",
-      "g1-tournament": "G1 tournament",
-      "evaluations/g0-panel": "G0 reference panel",
-      "evaluations/g1-panel": "G1 reference panel",
+      tournament: "Initial strategy tournament",
+      "g1-tournament": "Improved strategy tournament",
+      "evaluations/g0-panel": "Initial strategy reference panel",
+      "evaluations/g1-panel": "Improved strategy reference panel",
       préparation: "Preparation",
     }[stage] || stage
   );
@@ -1086,7 +1092,7 @@ function lineChart(group) {
     const key = `${p.model_signature}/g${p.generation}/${p.condition}`;
     labels.set(
       key,
-      `${p.model} · G${p.generation} ${text(p.condition)} · ${p.model_id}`,
+      `${p.model} · ${generationLabel(p.generation)} ${text(p.condition)} · ${p.model_id}`,
     );
     if (!series.has(key)) series.set(key, new Map());
     const data = series.get(key);
@@ -1159,7 +1165,7 @@ function comparisonResult(data) {
             ],
             g.models.map(
               (m) =>
-                `<tr><td><strong>${e(m.model)}</strong><small>${e(m.participant?.provider)} · ${e(m.participant?.model || m.participant?.profile)}</small>${raw(m.participant, "Participant configuration")}<small>G${m.generation} · ${text(m.condition)}</small></td><td class="score">${pct(m.score)}</td><td>${m.conversations}</td><td>${m.excluded}</td><td>${m.runs}</td><td>${money(m.cost_usd)}</td><td>${fmt(m.input_tokens)} / ${fmt(m.output_tokens)}</td><td>${fmt(m.errors)}</td></tr>`,
+                `<tr><td><strong>${e(m.model)}</strong><small>${e(m.participant?.provider)} · ${e(m.participant?.model || m.participant?.profile)}</small>${raw(m.participant, "Participant configuration")}<small>${generationLabel(m.generation)} · ${text(m.condition)}</small></td><td class="score">${pct(m.score)}</td><td>${m.conversations}</td><td>${m.excluded}</td><td>${m.runs}</td><td>${money(m.cost_usd)}</td><td>${fmt(m.input_tokens)} / ${fmt(m.output_tokens)}</td><td>${fmt(m.errors)}</td></tr>`,
             ),
           )}</div>${raw(g, "Individual points and group protocol")}</section>`,
       )
@@ -1170,7 +1176,7 @@ function comparisonResult(data) {
     (!data.groups.length
       ? empty(
           "No comparable group for this selection",
-          "Select a G0/G1 experiment with a completed fixed-opponent evaluation.",
+          "Select an initial and improved strategies experiment with a completed fixed-opponent evaluation.",
         )
       : "")
   );
@@ -1184,12 +1190,12 @@ function helpPage() {
         "A profile selects a provider, exact model, parameters and prices. Each repetition starts an independent conversation and produces LeekScript 4 code.",
       ],
       [
-        "G0 and G1",
-        "G0 is the initial strategy. G1 improves it in two branches that inherit the same G0 history and code. Control receives only the improvement request; feedback also receives selected match results.",
+        "Initial and improved strategies",
+        "The initial strategy is improved in two branches that inherit the same initial history and code. Control receives only the improvement request; feedback also receives selected match results.",
       ],
       [
         "Scores and panels",
-        "A win earns 1 point, a draw 0.5 and a loss 0. Scores average completed non-mirror matches. The full reference panel includes frozen G0 strategies and fixed handwritten controls.",
+        "A win earns 1 point, a draw 0.5 and a loss 0. Scores average completed non-mirror matches. The full reference panel includes frozen initial strategies and fixed handwritten controls.",
       ],
       [
         "Mock participants",

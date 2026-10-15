@@ -1,4 +1,4 @@
-# Complete G0/G1 experiment
+# Complete experiment with strategy improvement
 
 On native Windows, follow the [PowerShell guide](windows.md) and replace `python`
 with `.\.venv\Scripts\python.exe`, omitting the `source` command.
@@ -11,9 +11,9 @@ python -m arena experiment resume runs/complete-demo
 python -m arena experiment export runs/complete-demo --out runs/complete-export
 ```
 
-The demo creates two G0 conversations, then control and feedback branches from
+The demo creates two initial strategy conversations, then control and feedback branches from
 each. Mocks provide predefined strategies; engine diagnostics and matches are
-real. Each pair inherits exactly the same G0 code and conversation before the
+real. Each pair inherits exactly the same initial strategy code and conversation before the
 improvement message.
 
 Preparation uses seed 17 and passive in both positions. Feedback uses seed 101.
@@ -22,10 +22,10 @@ are frozen before each round. Feedback contains pseudonymized results, own
 metrics and bounded numerical replay excerpts, without opponent code, internal
 paths or system logs.
 
-The schedule contains 4 G0 matches, 16 contemporary G1 matches and 60 reference
-matches. G0 and both G1 branches face the same frozen G0 panel and fixed controls
+The schedule contains 4 initial strategy matches, 16 contemporary improved strategy matches and 60 reference
+matches. The initial strategy and both improvement branches face the same frozen initial strategy panel and fixed controls
 in both positions. Contemporary self-matches are separate mirrors. Reference
-panel results retain the G0 anchor of each trajectory.
+panel results retain the initial strategy anchor of each trajectory.
 
 ## Reports and artifacts
 

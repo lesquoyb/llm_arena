@@ -42,7 +42,7 @@ settings; **Clone configuration** starts a new run with current code instead.
 5. Open the run to inspect conversations, source versions, matches and results.
 
 The complete demo plans 80 evaluation matches plus requested preparation matches.
-For a shorter test, select **G0: initial strategy**, one repetition and one seed.
+For a shorter test, select **Initial strategy only**, one repetition and one seed.
 Matches can take several minutes.
 
 Mock participants use predefined scripts, not LLMs. Their diagnostics and Java
@@ -81,7 +81,7 @@ not change previous experiments.
 
 ## Competition settings
 
-Choose participants, repetitions, G0-only or G0/G1 evaluation, seeds, team size,
+Choose participants, repetitions, evaluation of the initial strategy alone or with improvement branches, seeds, team size,
 turn limits, entity stats, equipment and budgets. JSON import supports full
 manifests. A repetition creates an independent conversation.
 
@@ -91,7 +91,7 @@ a strategy with itself and do not affect the ranked score.
 
 Budgets cover model calls, tool calls, preparation matches, time, tokens and cost.
 Saving settings makes no API calls. Paid launches require confirmation of the
-total limit, including G0 and both G1 branches. Per-conversation limits also apply.
+total limit, including initial strategy and both improved strategy branches. Per-conversation limits also apply.
 Reservations are conservative estimates, not guarantees of provider billing.
 
 One managed competition runs at a time. **Stop** keeps checkpoints. **Resume**
@@ -108,7 +108,7 @@ from cross-competition aggregates.
 **Code & versions** reconstructs source files after each successful write tool
 call. Select a conversation, version and file, then compare against an earlier
 version or the empty state. Failed write proposals remain in the conversation
-but do not create versions. G1 includes its inherited G0 writes.
+but do not create versions. Improved versions include inherited writes from the initial strategy.
 
 **Open conversation** jumps to the matching messages. Git is not needed in each
 participant folder: the journal already preserves file contents and hashes.
@@ -186,14 +186,14 @@ new per-entity telemetry separates them.
 
 ## Scores and comparisons
 
-G0 is the initial strategy. G1 control improves without match feedback; G1
-feedback receives results. Both branches inherit the same G0 code and history.
+The initial strategy produces two improvements: **Improved without feedback**
+and **Improved with feedback**. Only the latter receives match results. Both branches inherit the same initial strategy code and history.
 Score is `(wins + 0.5 * draws) / completed matches`, excluding mirrors. A score
 of 70% is not necessarily a 70% win rate. A score difference of 0.4 is 40 percentage points.
 
-Panels distinguish all reference opponents, frozen G0 strategies and fixed
+Panels distinguish all reference opponents, frozen initial strategies and fixed
 handwritten controls. Compare versions against the same panel. Contemporary
-G0 and G1 standings remain separate. Mock cost zero means no API calls; machine
+initial and improved strategy standings remain separate. Mock cost zero means no API calls; machine
 cost is not included. Operations are not tokens. Missing costs stay unknown.
 
 **Compare results** averages fixed-opponent scores with equal weight per complete

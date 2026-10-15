@@ -1,4 +1,4 @@
-# Offline G0 experiment
+# Offline experiment with initial strategies
 
 Use the project Python after installation:
 
@@ -16,7 +16,7 @@ diagnostics, writes the rush control, tests both sides against passive, reads
 replay metrics and submits. The second profile submits single-shot. These are
 predefined scripts, not LLM-generated strategies.
 
-G0 runs 12 ranked matches and 4 mirrors on seed 101. Preparation uses only seed
+initial strategy runs 12 ranked matches and 4 mirrors on seed 101. Preparation uses only seed
 17 against passive. Mirrors do not affect scores. Missing and invalid submissions
 remain visible; scores are conditional on the available valid submissions.
 
@@ -62,8 +62,8 @@ The process backend is not a complete OS sandbox for hostile public submissions.
 
 ## Related workflows
 
-This manifest is G0-only. The [complete experiment](complete-experiment.md)
-adds paired G1 branches, held-out seeds, MCP, exports and API adapters.
+This manifest is initial-strategy-only. The [complete experiment](complete-experiment.md)
+adds paired improved strategy branches, held-out seeds, MCP, exports and API adapters.
 Mock failure profiles cover invalid/empty submissions, malformed tools, timeout,
 rate limiting and exhausted budgets. The corpus covers the example functions;
 it is not a complete description of every game behavior.

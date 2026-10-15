@@ -9,7 +9,7 @@ and the [full guide](complete-experiment.md) for current behavior and commands.
 ## Goal and decisions
 
 Deliver an auditable pipeline from configuration to independent conversations,
-submissions, G0, paired control/feedback branches, G1, common reference evaluation
+submissions, initial strategy, paired control/feedback branches, improved strategy, common reference evaluation
 and reports. Build and validate offline with mocks before enabling paid providers.
 Missing keys must not prevent development. Paid runs require exact models and
 an explicit spending limit.
@@ -24,7 +24,7 @@ an explicit spending limit.
 | Repetitions | Independent conversations with the same prompt and resources. |
 | Evaluation | All pairs, both sides for each seed, including repetitions of one model. |
 | Mirrors | Separate diagnostics, excluded from the ranked score. |
-| Improvement | Paired branches from the same G0 history and code, differing only in feedback. |
+| Improvement | Paired branches from the same initial strategy history and code, differing only in feedback. |
 | Opponent code | Hidden in the main condition; disclosure could be a separate experiment. |
 | Ranking | Matrices and descriptive scores first; Elo optional. |
 | Initial interface | CLI and exported reports; the local web UI was added later. |
@@ -84,7 +84,7 @@ and the `arena_web` interface. Scientific identity and runtime provenance remain
 | D: Corpus/prompts | Versioned index, rules, map/distance/visibility, stats/equipment, syntax/state/includes, example API behavior and source attribution. Verify examples in the pinned engine and mount identical hashed material for every participant. |
 | E: Offline agent loop | Save initial prompts/settings; reserve and record call intents; save responses and usage before tools; validate/execute tool calls in order; freeze the final state. Cover repair, invalid/absent code, malformed tools, empty responses, budget exhaustion, rate limits, timeouts and interruption. Demonstrate the whole pipeline with mocks and real matches. |
 | F: Providers/accounting | Exact model IDs, real supported parameters, tools, native continuation fields, output/time limits, typed failures and bounded retries. Record raw/normalized usage and dated prices. Reserve conservative global/session cost bounds; missing usage stays unknown. Unknown remote state keeps a reservation and blocks blind retries. Offline fixtures must cover calculations and errors; live smoke tests require explicit paid configuration. |
-| G: Paired improvement | Separate preparation/feedback/final seeds; no held-out tool access or opponent source disclosure. Clone G0 code/history into equal-budget control and feedback branches. Preserve native context and lineage. Compare G1 on common frozen G0/fixed opponents, separately from contemporary standings. Verify the whole G0/G1 cycle offline. |
+| G: Paired improvement | Separate preparation/feedback/final seeds; no held-out tool access or opponent source disclosure. Clone initial strategy code/history into equal-budget control and feedback branches. Preserve native context and lineage. Compare improved strategy on common frozen initial strategy/fixed opponents, separately from contemporary standings. Verify the whole initial/improved strategies cycle offline. |
 | H: Analysis | Standalone Markdown/HTML and JSON/CSV; matrices, validity, missingness, errors, resource use, generation/model/scenario scores, paired effects and cost/performance curves. Equal-weight conversations; exploratory intervals respect pairs and fixtures. Unknown costs must not become zero in rankings. Totals must be traceable to artifacts. |
 
 The session identity is `(model, repetition, generation, condition)` plus lineage.
@@ -99,7 +99,7 @@ Infrastructure retries use retained attempt directories. Replaying native histor
 must not silently replace a branch with a new conversation or summary.
 
 Track actual experiment spend separately from hypothetical independent trajectory
-costs so shared G0 calls are not charged twice. Preserve input/cache/output and
+costs so shared initial strategy calls are not charged twice. Preserve input/cache/output and
 reasoning fields according to each provider contract. Limits may be best effort
 when strict billing bounds are unavailable.
 
@@ -109,7 +109,7 @@ when strict billing bounds are unavailable.
 2. Durable sessions, preparation tools, corpus and MCP.
 3. Complete offline multi-session experiment, budgets and resume.
 4. One full provider adapter, then another protocol and a configurable compatible endpoint.
-5. Paired G0/G1 evaluation and auditable cost/performance reports.
+5. Paired initial/improved strategies evaluation and auditable cost/performance reports.
 
 Keep existing commands working, add behavioral checks and document actual commands
 and limitations at each stage. A completed implementation must run the entire
