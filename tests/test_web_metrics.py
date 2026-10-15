@@ -8,6 +8,7 @@ def outcome(instrumented=False):
             "actions":[[0],[7,0],[10,0,3,[1,2,3]],[16,1,1],[101,1,20,2],[8,0,8,2],[6,2],[7,1],[103,1,5],[8,1,9,5]]}}
     if instrumented:
         data["operations_limit_per_turn"] = 20_000_000
+        data["operations_limit_basis"] = "entity.cores"
         data["turn_metrics"] = [dict(turn=1,entity=0,side=0,operations=500,ai_turns=1,damage_dealt=20,damage_taken=0,erosion_dealt=2,erosion_taken=0,healing_given=0,healing_received=0,errors=0,operation_limit_hits=0,stack_overflows=0),
                                 dict(turn=1,entity=1,side=1,operations=0,ai_turns=0,damage_dealt=0,damage_taken=20,erosion_dealt=0,erosion_taken=2,healing_given=0,healing_received=0,errors=0,operation_limit_hits=0,stack_overflows=0),
                                 dict(turn=2,entity=1,side=1,operations=20,ai_turns=1,damage_dealt=0,damage_taken=0,erosion_dealt=0,erosion_taken=0,healing_given=5,healing_received=5,errors=0,operation_limit_hits=0,stack_overflows=0)]
@@ -31,6 +32,13 @@ class CombatMetricsTests(unittest.TestCase):
         self.assertEqual(stats["entities"][1]["damage_dealt"],7)
         self.assertEqual(sum(r["operations"] for r in stats["turns"]),520)
         self.assertEqual(stats["operations_limit_per_turn"],20_000_000)
+
+    def test_limit_comes_from_scenario_even_for_old_incorrect_recorded_default(self):
+        old = outcome()
+        old["operations_limit_per_turn"] = 20_000_000
+        self.assertIsNone(combat_stats(old)["operations_limit_per_turn"])
+        scenario = {"entities":[[{"cores":3}],[{"cores":3}]]}
+        self.assertEqual(combat_stats(old,scenario)["operations_limit_per_turn"],3_000_000)
 
     def test_matrix_orients_results_and_keeps_failures_mirrors_stages_separate(self):
         matches = [dict(stage="G0",path="a",sides=["A","B"],result=dict(status="completed",winner_side=0)),

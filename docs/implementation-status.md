@@ -1,38 +1,34 @@
-# État du plan de reprise
+# Implementation status
 
-Le plan historique est conservé dans cloud-roadmap.md. Le parcours livré
-est décrit dans complete-experiment.md ; les commandes de combat initiales
-restent disponibles.
+The [original roadmap](cloud-roadmap.md) describes the initial delivery plan.
+Current usage is documented in the [README](../README.md), [complete experiment](complete-experiment.md)
+and [interface guide](ui.md).
 
-| Lot | Réalisation |
+| Area | Implemented |
 |---|---|
-| A — Linux | Bootstrap versionné et vérifié, CI, chemins avec espaces, archives Gradle stables, fingerprint récursif, identités/provenance séparées et backend Docker optionnel. |
-| B — Stockage | Schémas validés, migration SQLite 1→2, checkpoints transactionnels, filiation, artefacts par hash, verrou d'écrivain et export autonome. |
-| C — Outils/MCP | Huit outils communs, SDK MCP verrouillé, client stdio de test, quotas, refus des accès croisés et environnement worker sans clés. |
-| D — Corpus | Index, règles, syntaxe, comportements des fonctions des exemples, attribution au moteur figé et trois prompts français versionnés. |
-| E — Sessions | Fournisseur simulé, réparation après diagnostic, tests et replays réels, soumissions invalides/absentes, budgets, pannes simulées et reprise. |
-| F — API/coûts | OpenAI/compatible et Anthropic, fixtures conformes, historique natif, usages/cache, Decimal, réservations globales, retries bornés et états distants inconnus bloqués. |
-| G — Adaptation | G0, checkpoints clonés en contrôle/feedback, code adverse masqué, seeds séparées, G1 contemporain et évaluations sur panel G0/contrôles communs. |
-| H — Rapports | JSON/CSV/Markdown/HTML, matrices, invalidités et absences visibles, agrégation par modèle, comparaison appariée, bootstrap exploratoire stratifié et Pareto sans coût inconnu. |
+| Installation | Linux and native Windows bootstrap, pinned toolchains, checksum verification, CI, paths with spaces, stable build archives and strict runtime identity. |
+| Storage | Validated manifests, SQLite schema migration 1 to 2, transactional checkpoints, lineage, hashed artifacts, single-writer lock and standalone exports. |
+| Tools and MCP | Eight shared tools, pinned MCP SDK, stdio client tests, quotas, path isolation and Java workers without provider keys. |
+| Documentation | Corpus index, rules, syntax and example API behavior; pinned signatures and equipment data. Three versioned French experiment prompts remain under `prompts/fr`. |
+| Sessions | Mock participants, repair after real diagnostics, preparation tests and replays, missing/invalid submissions, failure profiles and resume. |
+| Providers and costs | OpenAI, compatible endpoints, Anthropic and native Gemini; model catalogs, supported seeds, native history, usage/cache accounting, Decimal costs, reservations and uncertain-call handling. |
+| G0/G1 | Paired control/feedback branches from the same G0 checkpoint; separate seeds; contemporary and common-panel evaluation. |
+| Reports | JSON/CSV/Markdown/HTML, matrices, visible missing results, model aggregates, paired effects, exploratory intervals and cost/performance frontier. |
+| Local interface | Participant and competition settings, launch/stop/resume, conversations and requests, source versions/diffs, file viewers, schematic replays, detailed metrics and cross-run comparisons. |
 
-Le corpus décrit les fonctions des exemples et renvoie aux signatures
-pour les autres fonctions ; il ne constitue pas une encyclopédie complète
-de leurs comportements. Les répliques simulées ne sont pas des générations
-effectuées par des LLM.
+The corpus covers the included examples, not every API behavior. Mock strategies
+are predefined scripts. Real-engine integration tests validate local execution;
+provider adapters use offline contracts. Live API verification requires explicit
+keys, exact models, prices and a spending limit and is excluded from standard CI.
 
-Les validations d'intégration utilisent le vrai moteur. Les adaptateurs
-API sont validés hors ligne : un smoke réel exige les clés, modèles
-exacts, tarifs et plafond financier explicitement choisis. Aucun appel
-payant ne fait partie de la CI ou des démonstrations.
+Intervals are exploratory and conditional on the fixed reference panel. They
+require at least two complete conversations per model; the one-repetition demo
+has no interval. Costs use reported usage rather than confirmed invoices.
+Missing usage stays unknown; uncertain calls retain reservations and are not
+retried automatically.
 
-Les intervalles sont conditionnels au panel figé et exploratoires.
-Ils ne sont calculés qu'avec au moins deux conversations complètes par
-modèle ; la démo à une réplication n'en produit pas. Les prix calculés
-ne sont pas des factures confirmées. Une composante d'usage indisponible
-reste inconnue, et une réservation distante incertaine n'est pas relancée.
-
-Hors périmètre du plan : service public multi-utilisateur, nouveaux
-langages, infrastructure distribuée, interface web riche, batch avancé
-et divulgation du code adverse. La CI GitHub doit être observée après
-le push ; la configuration cloud enregistrée doit être publiée par
-l'utilisateur pour un nouvel environnement.
+Remaining scope: optional new strategy languages, public multiuser hosting,
+distributed execution, advanced batch scheduling and opponent-source disclosure
+conditions. The optional polyglot runtime is not validated. Check GitHub workflow
+results for the commit being used. A saved cloud configuration must be published
+through environment settings before it is available to a new environment.

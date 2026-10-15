@@ -25,7 +25,7 @@ TERMINAL = {"submitted", "budget_exhausted", "no_submission", "generation_failed
 def safe_path(root: Path, name: str) -> Path:
     path = local_path(root, name)
     if not path.resolve().is_relative_to(root.resolve()):
-        raise ArenaError("Chemin hors du dossier autorisé")
+        raise ArenaError("Path outside the allowed directory")
     return path
 
 
@@ -68,7 +68,7 @@ class Store:
 
     def json(self, path, default=None):
         if any(is_link(p) for p in [path, *path.parents]):
-            raise ArenaError("Les liens ne sont pas consultables")
+            raise ArenaError("Links cannot be browsed")
         if not path.is_file():
             return default
         stat = path.stat()
@@ -109,9 +109,9 @@ class Store:
     def save_participant(self, model, secret=None):
         self.validate_model(model)
         if secret is not None and (not isinstance(secret, str) or len(secret) > 8192):
-            raise ArenaError("Clé API invalide")
+            raise ArenaError("Invalid API key")
         if secret and not model.get("api_key_env", "").startswith("ARENA_"):
-            raise ArenaError("Utiliser un nom de variable commençant par ARENA_ pour une clé saisie ici")
+            raise ArenaError("Use an ARENA_ variable name for a key entered here")
         with self.lock:
             models = self.catalog()
             models = [m for m in models if m["id"] != model["id"]] + [model]
@@ -151,7 +151,7 @@ class Store:
     def run_path(self, identifier):
         root = safe_path(self.runs, identifier)
         if not (root / "experiment.json").is_file():
-            raise ArenaError("Compétition introuvable")
+            raise ArenaError("Competition not found")
         return root
 
     def run_paths(self):
@@ -175,7 +175,7 @@ class Store:
     def session(self, identifier, sid):
         result = self.states(self.run_path(identifier)).get(sid)
         if result is None:
-            raise ArenaError("Session introuvable")
+            raise ArenaError("Session not found")
         return result
 
     def listing(self):
@@ -245,12 +245,12 @@ class Store:
         with closing(sqlite3.connect((root / "journal.sqlite").as_uri() + "?mode=ro", uri=True)) as connection:
             row = connection.execute("SELECT payload FROM events WHERE id=?", (event_id,)).fetchone()
         if not row:
-            raise ArenaError("Événement introuvable")
+            raise ArenaError("Event not found")
         reference = json.loads(row[0])
         path = safe_path(root, reference["artifact"])
         actual = hashlib.sha256(path.read_bytes()).hexdigest()
         if actual != reference["sha256"]:
-            raise ArenaError("L'empreinte de cet événement ne correspond plus au journal")
+            raise ArenaError("The event artifact hash no longer matches the journal")
         return self.json(path)
 
     def versions(self, identifier, sid):
@@ -260,7 +260,7 @@ class Store:
             files[write["path"]] = write["sha256"]
             versions.append({k: v for k, v in write.items() if k != "content"} |
                             {"index": len(versions), "files": sorted(files), "tree_sha256": digest(files)})
-        return {"versions": versions, "basis": "Écritures confirmées par les outils ; les propositions en erreur sont exclues."}
+        return {"versions": versions, "basis": "Successful file writes only; failed proposals are excluded."}
 
     def source(self, identifier, sid, version, filename, previous=None):
         files, before, after = {}, {}, None
@@ -269,7 +269,7 @@ class Store:
             raise ArenaError("Version introuvable")
         previous = version - 1 if previous is None else previous
         if previous < -1 or previous > version:
-            raise ArenaError("Choisir une version antérieure pour la comparaison")
+            raise ArenaError("Choose an earlier version to compare")
         for index, write in enumerate(writes[:version + 1]):
             files[write["path"]] = write["content"]
             if index == previous:
@@ -277,7 +277,7 @@ class Store:
             if index == version:
                 after = dict(files)
         if filename not in after:
-            raise ArenaError("Fichier absent de cette version")
+            raise ArenaError("File not present in this version")
         old, new = before.get(filename, ""), after[filename]
         lines = difflib.unified_diff(old.splitlines(keepends=True), new.splitlines(keepends=True),
                                      fromfile=f"v{previous + 1}/{filename}", tofile=f"v{version + 1}/{filename}")
@@ -361,7 +361,8 @@ class Store:
             cache = getattr(self, "_statistics_cache", {})
             if identifier in cache and cache[identifier][0] == stamp:
                 return copy.deepcopy(cache[identifier][1])
-        result = competition_stats(matches, lambda name: self.json(safe_path(root, name + "/outcome.json")))
+        result = competition_stats(matches, lambda name: self.json(safe_path(root, name + "/outcome.json")),
+                                   lambda name: self.json(safe_path(root, name + "/scenario.json")))
         with self.lock:
             if len(cache) >= 16:
                 cache.clear()
@@ -374,11 +375,11 @@ class Store:
         for identifier in dict.fromkeys(identifiers):
             detail = self.detail(identifier)
             if detail["archived"]:
-                excluded.append({"run": identifier, "reason": "Copie exportée : exclue pour éviter le double comptage."})
+                excluded.append({"run": identifier, "reason": "Exported copy excluded to avoid double counting."})
                 continue
             analysis = detail["analysis"]
             if not analysis:
-                excluded.append({"run": identifier, "reason": "Pas de mesure sur le panel de stratégies fixes."})
+                excluded.append({"run": identifier, "reason": "No results against the fixed-strategy panel."})
                 continue
             metadata, root = detail["metadata"], self.run_path(identifier)
             config = metadata["config"]
@@ -391,7 +392,7 @@ class Store:
                     sources = provenance.get("submissions", [])
                     opponents[record["opponent"]] = sources[index].get("sha256") if len(sources) == 2 else None
             if not opponents or any(value is None for value in opponents.values()):
-                excluded.append({"run": identifier, "reason": "Provenance des adversaires fixes indisponible."})
+                excluded.append({"run": identifier, "reason": "Fixed-opponent provenance is unavailable."})
                 continue
             protocol = {"scenario": config["scenario"], "seeds": config.get("final_seeds"),
                         "engine": metadata.get("scientific_identity", metadata.get("engine")),
@@ -431,6 +432,6 @@ class Store:
                                   "runs": len({r["run"] for r in complete})})
             group["models"] = summaries
         return {"groups": list(groups.values()), "excluded": excluded,
-                "explanation": "Moyenne à poids égal des conversations complètes, contre les mêmes stratégies fixes. "
-                               "Scénario, seeds, adversaires, préparation, budgets, moteur et mode simulé/réel doivent correspondre. "
-                               "Les protocoles différents restent séparés ; aucun classement global artificiel."}
+                "explanation": "Equal-weight average of complete conversations against the same fixed strategies. "
+                               "Scenario, seeds, opponents, preparation, budgets, engine and mock/real mode must match. "
+                               "Different protocols form separate groups."}

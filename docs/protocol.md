@@ -1,101 +1,119 @@
-# LLM Arena — cadrage initial
+# Experiment protocol
 
-Évaluer la capacité des modèles à écrire, déboguer et améliorer une stratégie de combat Leek Wars avec une documentation et un budget contrôlés. Le résultat mesure une compétence située (programmation et stratégie dans ce jeu), pas une compétence générale en code.
+The experiment measures models writing, debugging and improving Leek Wars combat
+strategies under controlled documentation and budgets. It measures programming
+and strategy in this environment, not general coding ability.
 
-Ce document propose le protocole cible. Le socle local LeekScript est implémenté ; voir le README à la racine pour les fonctionnalités disponibles et les étapes restantes.
+This document records the protocol rationale. See the [implementation status](implementation-status.md)
+and [complete workflow](complete-experiment.md) for delivered behavior.
 
-## Faisabilité à vérifier
+## Runtime and scope
 
-La première version utilise exclusivement LeekScript 4. Python et JavaScript restent des extensions éventuelles ; TypeScript est retiré du périmètre. Les fonctions et constantes du jeu sont injectées par le moteur.
+Use LeekScript 4 with the pinned official generator, not the Leek Wars website
+frontend. Python and JavaScript strategies are possible later extensions;
+TypeScript is outside scope. The game injects its functions and constants.
+Native Windows and Linux use Java 25 and Gradle 9.3.1. The unused Linux polyglot
+binary is excluded from the LeekScript build.
 
-Le socle fonctionne directement sous Windows avec Java 25 et Gradle 9.3.1. Le binaire natif polyglotte Linux est exclu du build LeekScript. Ne pas confondre le frontend du site avec le générateur de combats.
+Polyglot per-turn timeouts and LeekScript operation budgets are different limits.
+The 5-second safeguard and three allowed timeouts concern the optional polyglot
+path. LeekScript uses entity cores for its operation budget. A whole-process
+timeout is an infrastructure safeguard, not a loss assigned to a participant.
+See the [engine audit](engine-audit.md).
 
-L'audit du commit retenu montre un compteur polyglotte déterministe avec repli temporel : le guide décrit surtout ce dernier. Les 5 secondes par tour et les 3 dépassements avant désactivation concernent le chemin polyglotte. LeekScript utilise son budget d'opérations dérivé des cœurs. Voir engine-audit.md. Une limite de temps du processus complet reste un garde-fou d'infrastructure et n'attribue pas de défaite à un participant.
+## Experimental units
 
-Sources consultées le 13 octobre 2026 :
+Identify a strategy by exact model, language, repetition, generation and feedback
+condition. Each repetition starts an independent conversation. Later generations
+continue its history with the same context policy. Pin engine, game data,
+compiler, prompts and documents by version and hash.
 
-- https://github.com/leek-wars/leek-wars-generator
-- https://github.com/leek-wars/leek-wars-generator/blob/master/POLYGLOT_PORTING_GUIDE.md
-- https://github.com/leek-wars/leekscript
+Fix team size, stats and equipment. Start with symmetric 2-vs-2 teams sharing
+an entry point; a script can choose different roles through the API. Additional
+scenarios should be reported separately. Deliverables are source folders with
+a declared entry point, frozen and hashed at the deadline. Do not manually select
+the best repetition or repair invalid final code outside the declared policy.
 
-## Unité expérimentale et règles
+All participants receive the same preparation tools and local documentation.
+They cannot read competitor folders, provider keys or held-out evaluation seeds.
+Submitted code needs resource limits and execution isolation. Infrastructure
+failures follow a recorded retry policy; compilation and strategy runtime errors
+remain observed outcomes.
 
-Une stratégie est identifiée par (modèle exact, langage, réplication, génération, condition de feedback). Une réplication démarre dans une conversation indépendante. Les générations suivantes poursuivent cette conversation, avec une politique identique de conservation du contexte.
+## Budgets and usage
 
-Fixer les caractéristiques, équipements et taille des équipes. Autoriser un fichier commun ou plusieurs rôles selon une règle annoncée. Commencer avec du 2 contre 2 et un équipement identique, puis introduire des scénarios spécialisés. Le moteur, les données de jeu, les compilateurs, prompts et documents sont figés par version et hash.
+Limit model calls, tool calls, preparation tests, elapsed time, cumulative input
+and billable output tokens, and cost. Publish the budget remaining at each call.
+Use exact model IDs, supported parameters, dated prices and raw usage receipts.
+Treat reasoning tokens according to the provider contract to avoid double counting.
 
-Chaque participant dispose du même environnement d'agent : lecture/écriture de son espace, consultation de sa documentation, analyse et tests locaux. Aucun accès aux secrets des fournisseurs, aux espaces concurrents ou aux scénarios d'évaluation cachés. Isoler également l'exécution du code soumis, avec limites de ressources et accès réseau désactivé.
+Token counts from different tokenizers are not a universal work unit. Report
+token-budget and equal-cost comparisons separately. Track local infrastructure
+costs separately from provider API costs. Missing usage or prices stay unknown.
+Reservations are conservative estimates and cannot guarantee billing across
+all providers. Unknown remote outcomes must not be retried blindly.
 
-Le livrable est un répertoire source avec un point d'entrée déclaré. À l'échéance, figer et hacher le livrable. Ne pas sélectionner manuellement la meilleure réplication. Une erreur de compilation ou d'exécution appartient aux résultats ; une panne d'infrastructure déclenche une relance documentée selon une règle préalable.
+## Match schedule
 
-## Documentation et outils
+Separate preparation, feedback and held-out final seeds and scenarios. For every
+pair, play the same seeds in both positions, including strategies from different
+repetitions of the same model. Check what swapping sides changes in placement
+and initiative. Self-matches are separate mirror diagnostics.
 
-Produire un corpus local figé : règles du jeu communes, fonctions et constantes disponibles, signatures, retours, coûts documentés, cycle de vie, modules autorisés et exemples minimaux. Vérifier les exemples sur le moteur retenu. Commencer avec LeekScript ; si Python/JavaScript sont ajoutés, fournir une référence adaptée à leur runtime.
+With N strategies and S seeds, a ranked round robin in two positions contains
+`N * (N - 1) * S` matches. Exact deterministic repeats do not add independent
+information; use distinct seeds/scenarios for evaluation and deliberate repeats
+for determinism checks.
 
-Un index court est fourni dans le prompt ; les références complètes restent lisibles dans des fichiers locaux. Tous ont accès aux mêmes informations de jeu. Enregistrer les fichiers consultés. LeekScript peut tester l'apprentissage d'une API inhabituelle, mais son absence des données d'entraînement ne peut pas être garantie.
+## Improvement and feedback
 
-Le MCP expose une interface stable :
+After G0, clone each conversation and source checkpoint into two paired branches:
 
-- `analyze(entrypoint)` : diagnostics de compilation/chargement.
-- `test(entrypoint, scenario_id, seed)` : combat sur un scénario d'entraînement autorisé.
-- `read_replay(test_id, offset, limit)` : logs paginés et bornés.
+- Control: an improvement request without match results.
+- Feedback: the same request and budget, plus bounded structured results and logs.
 
-Le service choisit les chemins autorisés et n'accepte pas de commandes shell arbitraires. Les adversaires de préparation sont fixes et communs à tous. Les appels d'outils, erreurs et résultats sont archivés.
+Both retain equal preparation rights. Opponent source code remains hidden in the
+main condition. A separate disclosure condition could measure that effect later.
+Freeze every submission before running the next tournament.
 
-## Budgets
+Evaluate new strategies against contemporaries, frozen G0 strategies and fixed
+handwritten controls. Use common opponents and scenarios to compare control and
+feedback; changing contemporary rankings alone do not measure progress. Hold
+final evaluation seeds out of preparation tools. Report G1 costs and cumulative
+trajectory costs without charging shared G0 calls twice in actual experiment totals.
 
-Préannoncer un plafond de génération, un plafond de contexte cumulé facturé, un nombre de tests et un délai de sécurité. Arrêter au premier plafond atteint. Enregistrer tokens d'entrée, entrée en cache, sortie et raisonnement selon les champs réellement fournis ; marquer les champs indisponibles. Conserver les réponses d'usage brutes pour éviter les doubles comptes.
+## Analysis
 
-Les tokens des différents tokenizers ne sont pas une unité universelle de travail. Publier des pistes séparées : budget de tokens annoncé et budget monétaire égal. Enregistrer fournisseur, identifiant/version du modèle, paramètres, effort de raisonnement, tarif daté et coût effectif. Les modèles locaux ont des coûts d'infrastructure distincts.
+Report matrices, wins/draws/losses, validity, missing submissions, failures and
+mean score `(wins + 0.5 * draws) / completed matches`. Weight models, conversations
+and scenarios explicitly. Retain same-model matches in the matrix and identify
+them in aggregates. Elo is optional; matrices remain necessary when strategies
+form cycles.
 
-## Tournoi
+Use independent conversations as the primary resampling unit. Keep paired sides
+and fixtures together. Hundreds of matches from one script do not replace
+independent generations. Small pilots produce exploratory estimates, not a
+stable model ranking. Scores conditional on surviving submissions must be
+separated from generation success rates; predeclare any penalty policy.
 
-Séparer les seeds/scénarios de préparation, ceux utilisés pour le feedback et un jeu final réservé. Pour chaque paire de stratégies, jouer les mêmes seeds dans les deux positions. Vérifier ce que l'inversion change réellement : placement, équipes et initiative. Tester les sources d'aléatoire propres aux langages.
+Report operation counts, game resource use, elapsed time, errors and limits.
+CPU and memory measurements require separate instrumentation and controlled
+hardware; elapsed time is not CPU time. Prefer performance/budget curves and
+cost/performance frontiers over a single quality/price quotient.
 
-Inclure les stratégies de réplications différentes du même modèle. Les combats d'une stratégie contre elle-même sont des diagnostics séparés et n'entrent pas dans le score principal.
+## Pilot and cost control
 
-Pour N stratégies et S seeds, un round-robin avec deux positions demande N(N−1)S combats, hors miroirs. Répéter exactement un combat déterministe n'ajoute aucune information ; privilégier des seeds et configurations variées. Répéter certaines seeds sert à auditer le déterminisme.
+A technical pilot can start with three models and three conversations each.
+Nine strategies on ten seeds require 720 ranked matches plus 90 mirrors if
+enabled. G1 branches and reference panels add more matches; use the planner.
+Three conversations per model are insufficient for a definitive ranking.
+Choose available exact model IDs and an explicit spending limit before paid work.
 
-## Mesures
+Keep stable prompt prefixes, verify actual cache usage, index local documents,
+page logs and bound returned feedback. Cache matches only by source, engine,
+configuration and seed after validating determinism. Batch APIs help independent
+calls when supported; tool loops still require multiple orchestration steps.
 
-Publier d'abord la matrice de victoires/nuls/défaites, le taux de validité et le score moyen (1 victoire, 0,5 nul, 0 défaite). Pondérer également les modèles et scénarios pour qu'un modèle avec davantage de stratégies ne pèse pas plus lourd.
-
-Présenter la dispersion entre conversations indépendantes et des intervalles d'incertitude respectant le regroupement par réplication et les paires de matchs. Multiplier les combats d'un même script ne remplace pas les réplications de génération.
-
-Un classement Elo peut servir à l'affichage, mais la matrice reste centrale : des stratégies peuvent former des cycles. Ajouter ensuite un modèle statistique de classement si les résultats le justifient.
-
-Mesurer séparément ressources de jeu (points d'action/mouvement), compteur d'opérations moteur, temps CPU, temps écoulé, mémoire et dépassements. Comparer le compteur surtout au sein d'un runtime. Mesurer le CPU sur matériel figé, avec chauffe contrôlée et concurrence limitée.
-
-Pour les coûts, préférer les courbes performance/budget et la frontière de Pareto à un unique quotient qualité/prix. Conserver les coûts cumulés de toutes les générations.
-
-## Adaptation et contrôle
-
-Après la génération initiale, cloner chaque conversation et son livrable dans deux branches appariées :
-
-- Contrôle : « améliore ta stratégie », sans résultats du tournoi.
-- Feedback : même budget et même demande, avec résultats structurés et logs bornés du tour précédent.
-
-Les deux branches gardent les mêmes droits aux tests d'entraînement. Le code adverse reste masqué dans l'expérience principale. Une troisième condition avec code adverse pourra mesurer séparément l'effet de sa divulgation.
-
-Figer toutes les soumissions avant le tournoi suivant. Mesurer les nouvelles générations contre leurs contemporaines, les stratégies figées de génération 0 et des adversaires fixes. Réserver le jeu final à une mesure terminale pour limiter le surapprentissage. Les écarts feedback/contrôle sont évalués sur des adversaires communs, sans dépendre uniquement du classement mouvant.
-
-## Architecture proposée
-
-Un orchestrateur Python pilote les adaptateurs fournisseurs, conversations, budgets et reprises. Un worker moteur exécute les scénarios. Le MCP appelle le même service de test. SQLite conserve les métadonnées ; les sources, prompts, documents, réponses brutes et replays sont des artefacts immuables. Les tâches ont des identifiants idempotents pour reprendre après interruption sans refacturer inutilement.
-
-## Pilote proposé
-
-1. Figer un commit moteur et obtenir deux IA minimales qui combattent localement.
-2. Vérifier sorties, vainqueur, nuls, erreurs, seeds, inversion des positions et stabilité des replays.
-3. Construire et valider le corpus LeekScript et les outils de préparation.
-4. Tester 3 modèles × 3 conversations indépendantes, en LeekScript uniquement, à génération 0.
-5. Avec 9 stratégies et 10 seeds en deux positions : 720 combats, plus diagnostics miroir.
-6. Ajouter une génération avec branches contrôle/feedback, puis éventuellement Python et JavaScript après audit de leur runtime.
-
-Trois réplications suffisent à un pilote technique, pas à établir un classement définitif. Choisir les identifiants de modèles disponibles au moment de l'exécution plutôt que les noms provisoires des notes.
-
-## Réduction des coûts
-
-Garder un préfixe de prompt stable et vérifier les usages de cache réellement facturés. Fournir des fichiers indexés plutôt que des URL web variables. Retourner des résumés de combats et lire les logs à la demande, avec des plafonds communs. Mettre en cache les combats par code, moteur, configuration et seed uniquement si le déterminisme est validé.
-
-Les traitements batch peuvent être utiles pour des appels indépendants si le fournisseur les permet ; une boucle interactive avec outils exige une orchestration en plusieurs étapes. Vérifier les capacités et tarifs de chaque fournisseur lors de son intégration. Commencer avec un langage et peu de générations réduit directement le coût expérimental.
+Sources reviewed on 13 October 2026: [generator](https://github.com/leek-wars/leek-wars-generator),
+[polyglot guide](https://github.com/leek-wars/leek-wars-generator/blob/master/POLYGLOT_PORTING_GUIDE.md)
+and [LeekScript](https://github.com/leek-wars/leekscript).

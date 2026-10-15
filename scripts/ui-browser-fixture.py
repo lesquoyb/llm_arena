@@ -29,6 +29,7 @@ def main():
                      "leeks": [{"id": 0, "name": "Équipe bleue", "team": 1, "life": 30, "cellPos": 0, "summon": False},
                                {"id": 1, "name": "Équipe orange", "team": 2, "life": 20, "cellPos": 2, "summon": False}],
                      "actions": [[0], [7, 0], [10, 0, 18, [18]], [16, 2, 1], [101, 1, 20, 0], [5, 1, 0]]}
+            write_json(work / "scenario.json", {"entities":[[{"cores":10}],[{"cores":10}]]})
             write_json(work / "result.json", result)
             write_json(work / "outcome.json", {"fight": fight, "winner": 0, "success": True})
             write_json(root / "records/browser-fixture.json", {"match": {"sides": ["mock-repair-r0", "passive"],
@@ -41,6 +42,24 @@ def main():
         code = legacy / "sources/passive/main.leek"
         code.parent.mkdir(parents=True)
         code.write_text("// stratégie fournie directement\n",encoding="utf-8")
+        matrix = store.runs / "matrix"
+        write_json(matrix / "experiment.json", {"manifest":{"name":"Matrix filter fixture","strategies":[]}})
+        write_json(matrix / "report.json", {"completed":7})
+        cases = [("win-left",["A","B"],0,"."), ("win-right",["B","A"],1,"."),
+                 ("draw",["A","B"],-1,"."), ("loss",["B","A"],0,"."),
+                 ("failure",["A","B"],None,"."), ("other-opponent",["A","C"],0,"."),
+                 ("mirror",["A","A"],0,"."), ("other-stage",["A","B"],0,"tournament")]
+        for label,sides,winner,stage in cases:
+            base = matrix if stage == "." else matrix/stage
+            work = base/"matches"/label/"attempt-1"
+            result = {"status":"timeout", "error":"Fixture timeout"} if winner is None else {
+                "status":"completed","winner_side":winner,"turns":1,"elapsed_seconds":.1}
+            write_json(work/"result.json",result)
+            write_json(work/"scenario.json", {"entities":[[{"cores":10}],[{"cores":10}]]})
+            if winner is not None:
+                write_json(work/"outcome.json", {"fight":fight,"winner":winner,"success":True})
+            write_json(base/"records"/(label+".json"), {"match":{"sides":sides,"seed":301,"mirror":label=="mirror"},
+                       "directory":work.relative_to(base).as_posix(),"result":result})
         app = Application(store)
         server = Server(("127.0.0.1", 0), app)
         print(json.dumps({"url": f"http://127.0.0.1:{server.server_port}"}), flush=True)

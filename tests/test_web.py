@@ -96,7 +96,7 @@ class WebContractTests(unittest.TestCase):
         self.assertEqual(self.store.event("example", events[0]["id"]), {"test": "event"})
         self.assertEqual((root / "journal.sqlite").read_bytes(), before)
         write_json(root / events[0]["artifact"], {"test": "tampered"})
-        with self.assertRaisesRegex(ArenaError, "empreinte"):
+        with self.assertRaisesRegex(ArenaError, "artifact hash no longer matches"):
             self.store.event("example", events[0]["id"])
 
     def test_aggregate_separates_protocols_and_omits_duplicate_exports(self):
@@ -132,7 +132,7 @@ class WebContractTests(unittest.TestCase):
         jobs = Jobs(self.store)
         with mock.patch("arena_web.jobs.subprocess.Popen") as launch:
             for args in ({}, {"confirm_paid": True, "ceiling": "3"}):
-                with self.assertRaisesRegex(ArenaError, "Confirmer"):
+                with self.assertRaisesRegex(ArenaError, "Confirm the spending limit"):
                     jobs.launch(draft_id=draft["id"], **args)
             launch.assert_not_called()
 
@@ -189,7 +189,7 @@ class WebContractTests(unittest.TestCase):
         self.assertEqual(cells[612], {"id": 612, "x": 408, "y": 204})
         replay = describe({"leeks": [{"id": 0, "name": "A"}], "actions": [[0], [7, 0], [10, 0, 35, [18, 35]],
                            [101, 0, 20, 1], [6, 2], [9999]], "map": {"width": 18, "height": 18}})
-        self.assertIn("perd 20 PV", replay["events"][3]["text"])
+        self.assertIn("loses 20 HP", replay["events"][3]["text"])
         self.assertEqual(replay["events"][4]["turn"], 2)
         self.assertEqual(replay["unknown_codes"], [9999])
 

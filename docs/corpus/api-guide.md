@@ -1,22 +1,22 @@
-# Fonctions du contrôle, vérifiées dans le moteur figé
+# Control functions checked in the pinned engine
 
-| Appel | Paramètres / retour | Coût de base déclaré |
+| Call | Arguments and return value | Declared base cost |
 |---|---|---:|
-| getNearestEnemy() | ID de l'ennemi vivant le plus proche géométriquement ; −1 si absent. Ne pas supposer null. | 25 |
-| getWeapons() | Tableau des IDs d'armes équipées de l'entité active. | 50 |
-| setWeapon(weapon_id) | Sélectionne une arme équipée ; booléen, false pour arme absente/invalide. | 15 |
-| moveToward(entity_id[, mp_to_use]) | Se rapproche ; retourne déplacement effectué. null ne déplace pas et produit un warning. | 500 |
-| getTP() | TP restants de l'entité active. | 15 |
-| getWeaponCost([weapon_id]) | Coût en TP ; sans argument, arme active ; −1 si inconnue ou absente. | 15 |
-| isAlive(entity_id) | true si entité connue et vivante, false sinon. | 15 |
-| useWeapon(entity_id) | Tente un tir ; code entier, comparer à USE_SUCCESS. −1 notamment si cible absente/invalide. | 3000 |
+| `getNearestEnemy()` | ID of the geometrically nearest living enemy; -1 if absent. Do not assume null. | 25 |
+| `getWeapons()` | Array of weapon IDs equipped by the active entity. | 50 |
+| `setWeapon(weapon_id)` | Select an equipped weapon; false for an absent or invalid weapon. | 15 |
+| `moveToward(entity_id[, mp_to_use])` | Move toward an entity; return movement performed. Null does not move and produces a warning. | 500 |
+| `getTP()` | Remaining TP of the active entity. | 15 |
+| `getWeaponCost([weapon_id])` | TP cost, using the active weapon when omitted; -1 if unknown or absent. | 15 |
+| `isAlive(entity_id)` | True for a known living entity, false otherwise. | 15 |
+| `useWeapon(entity_id)` | Attempt a shot; compare its integer result to `USE_SUCCESS`. An absent/invalid target can return -1. | 3000 |
 
-Les coûts déclarés ne sont pas nécessairement le coût total : moveToward
-facture aussi des opérations dans son implémentation. Les effets et
-portées dépendent de weapons.json. Ne pas boucler sur un tir échoué.
-Un test d'analyse ne garantit pas l'efficacité ni l'absence d'erreur runtime.
+Declared costs are not necessarily total costs. `moveToward` also charges
+operations in its implementation. Weapon effects and ranges depend on
+`weapons.json`. Do not loop on failed shots. Successful analysis does not prove
+effective play or absence of runtime errors.
 
-Exemple sûr pour l'équipement avec au moins une arme :
+Example for an entity equipped with at least one weapon:
 
 ```javascript
 var enemy = getNearestEnemy()
@@ -29,9 +29,8 @@ if (enemy >= 0 && isAlive(enemy)) {
 }
 ```
 
-Sources exactes : FightFunctions.java pour signatures/coûts,
-classes/FightClass.java pour recherche/déplacement,
-classes/EntityClass.java pour armes/TP/vie et
-classes/WeaponClass.java pour coûts et tirs, au commit indiqué dans index.md.
-Les autres fonctions restent décrites par la référence de signatures ;
-leur comportement n'est pas déduit de leur nom.
+Sources: `FightFunctions.java` for signatures/costs, `classes/FightClass.java`
+for targeting/movement, `classes/EntityClass.java` for equipment/TP/life and
+`classes/WeaponClass.java` for costs and shooting, at the commit in `index.md`.
+Other functions remain covered by the signature reference; their behavior is
+not inferred from their names.

@@ -71,24 +71,24 @@ class Application:
             if result["outcome"] and result["outcome"].get("fight"):
                 result["replay"] = describe(result["outcome"]["fight"])
                 from .metrics import combat_stats
-                result["statistics"] = combat_stats(result["outcome"])
+                result["statistics"] = combat_stats(result["outcome"], result["scenario"])
             return result
         if route == "/api/job":
             return self.jobs.log(value("id"))
-        raise ArenaError("Route introuvable")
+        raise ArenaError("Route not found")
 
     def post(self, route, data):
         if not isinstance(data, dict):
-            raise ArenaError("Un objet JSON est attendu")
+            raise ArenaError("Expected a JSON object")
         if route == "/api/models":
             from arena.api_providers import list_models
             import os
             secret = data.get("secret")
             if secret is not None and (not isinstance(secret, str) or len(secret) > 8192):
-                raise ArenaError("Clé API invalide")
+                raise ArenaError("Invalid API key")
             key_name = data.get("api_key_env") or ""
             if not isinstance(key_name, str):
-                raise ArenaError("Nom de variable invalide")
+                raise ArenaError("Invalid environment variable name")
             key = secret or self.store.secrets.get(key_name) or os.environ.get(key_name)
             return list_models(data.get("provider"), key, data.get("endpoint"))
         if route == "/api/participant":
@@ -109,7 +109,7 @@ class Application:
         if route == "/api/aggregate":
             identifiers = data.get("runs", [])
             if not isinstance(identifiers, list) or len(identifiers) > 200:
-                raise ArenaError("Choisir au maximum 200 compétitions")
+                raise ArenaError("Select at most 200 competitions")
             return self.store.aggregate(identifiers)
         if route == "/api/export":
             from arena.exporting import export_experiment
@@ -118,7 +118,7 @@ class Application:
             target = self.store.runs / (source.name + "-export-" + uuid.uuid4().hex[:8])
             result = export_experiment(source, target)
             return {**result, "run": target.relative_to(self.store.runs).as_posix()}
-        raise ArenaError("Route introuvable")
+        raise ArenaError("Route not found")
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -149,12 +149,12 @@ class Handler(BaseHTTPRequestHandler):
         expected = {f"127.0.0.1:{self.server.server_port}", f"localhost:{self.server.server_port}"}
         host = self.headers.get("Host", "")
         if host not in expected:
-            raise ArenaError("Hôte non autorisé")
+            raise ArenaError("Host not allowed")
         origin = self.headers.get("Origin")
         if origin and origin not in {"http://" + host}:
-            raise ArenaError("Origine non autorisée")
+            raise ArenaError("Origin not allowed")
         if self.headers.get("Sec-Fetch-Site") == "cross-site":
-            raise ArenaError("Origine non autorisée")
+            raise ArenaError("Origin not allowed")
 
     def do_GET(self):
         try:
@@ -166,11 +166,11 @@ class Handler(BaseHTTPRequestHandler):
                 root = app.store.run_path(query["run"][0])
                 path = safe_path(root, query["path"][0])
                 if not path.is_file() or path.name.startswith("journal.sqlite") or path.name == ".lock":
-                    raise ArenaError("Fichier non consultable")
+                    raise ArenaError("File cannot be viewed")
                 size = path.stat().st_size
                 download = query.get("download") == ["1"]
                 if size > 8_000_000 and not download:
-                    raise ArenaError("Fichier de plus de 8 Mo : utiliser Télécharger")
+                    raise ArenaError("File exceeds 8 MB; use Download")
                 self.headers_for(200, "application/octet-stream" if download else "text/plain; charset=utf-8", size, path.name if download else None)
                 with path.open("rb") as stream:
                     shutil.copyfileobj(stream, self.wfile)
@@ -179,7 +179,7 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 names = {"/": "index.html", "/app.js": "app.js", "/style.css": "style.css", "/favicon.png": "favicon.png"}
                 if parsed.path not in names:
-                    self.json_response(404, {"error": "Page introuvable"})
+                    self.json_response(404, {"error": "Page not found"})
                     return
                 path = STATIC / names[parsed.path]
                 body = path.read_bytes()
@@ -195,13 +195,13 @@ class Handler(BaseHTTPRequestHandler):
         try:
             self.check_origin()
             if not secrets.compare_digest(self.headers.get("X-Arena-Token", ""), self.server.app.token):
-                self.json_response(403, {"error": "Recharger la page avant de continuer"})
+                self.json_response(403, {"error": "Reload the page before continuing"})
                 return
             if self.headers.get("Content-Type", "").split(";")[0] != "application/json":
                 raise ArenaError("Content-Type application/json requis")
             length = int(self.headers.get("Content-Length", "0"))
             if not 0 < length <= 2_000_000:
-                raise ArenaError("Requête trop volumineuse ou vide")
+                raise ArenaError("Request is empty or too large")
             data = json.loads(self.rfile.read(length))
             self.json_response(200, self.server.app.post(urlsplit(self.path).path, data))
         except (ArenaError, ValueError, KeyError, TypeError, OSError, sqlite3.Error) as error:
@@ -221,7 +221,7 @@ def serve(port=8765, runs=None, open_browser=False):
     with file_lock(app.store.state / "server.lock"):
         server = Server(("127.0.0.1", port), app)
         url = f"http://127.0.0.1:{server.server_port}"
-        print(f"LLM Arena : {url}\nCtrl+C pour fermer l'interface.", flush=True)
+        print(f"LLM Arena: {url}\nCtrl+C to stop the server.", flush=True)
         if open_browser:
             threading.Timer(0.5, lambda: webbrowser.open(url)).start()
         try:

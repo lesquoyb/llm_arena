@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="fr">
+<html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -15,16 +15,16 @@
           >LLM ARENA</span
         ></a
       >
-      <p class="nav-label">ESPACE DE TRAVAIL</p>
-      <nav aria-label="Navigation principale">
+      <p class="nav-label">WORKSPACE</p>
+      <nav aria-label="Main navigation">
         <a href="#view=dashboard" data-nav="dashboard"
-          ><span>◈</span> Vue d’ensemble</a
+          ><span>◈</span> Overview</a
         >
         <a href="#view=participants" data-nav="participants"
           ><span>♧</span> Participants</a
         >
         <a href="#view=competitions" data-nav="competitions"
-          ><span>⚑</span> Compétitions <i id="active-count"></i
+          ><span>⚑</span> Competitions <i id="active-count"></i
         ></a>
         <a href="#view=compare" data-nav="compare"
           ><span
@@ -39,32 +39,32 @@
             >
               <path d="M3 18 10 11 14 15 21 6M15 6h6v6" /></svg
           ></span>
-          Comparer les résultats</a
+          Compare results</a
         >
       </nav>
-      <div class="sidebar-note"><span class="pulse"></span> Serveur local</div>
-      <a class="help-link" href="#view=help">? &nbsp; Comprendre l’arène</a>
+      <div class="sidebar-note"><span class="pulse"></span> Local server</div>
+      <a class="help-link" href="#view=help">? &nbsp; Help</a>
     </aside>
     <div class="workspace">
       <header class="topbar">
-        <span id="breadcrumb">Vue d’ensemble</span>
+        <span id="breadcrumb">Overview</span>
         <div>
-          <span id="engine-status" class="badge">Connexion…</span
+          <span id="engine-status" class="badge">Connecting...</span
           ><button
             class="icon-button"
             data-action="refresh"
-            title="Actualiser"
-            aria-label="Actualiser"
+            title="Refresh"
+            aria-label="Refresh"
           >
             ↻
           </button>
         </div>
       </header>
       <main id="main" tabindex="-1">
-        <div class="empty">Chargement…</div>
+        <div class="empty">Loading...</div>
       </main>
       <footer>
-        LLM Arena <span>LeekScript 4 · moteur officiel Leek Wars</span>
+        LLM Arena <span>LeekScript 4 · official Leek Wars engine</span>
       </footer>
     </div>
     <dialog id="dialog"><div id="dialog-content"></div></dialog>

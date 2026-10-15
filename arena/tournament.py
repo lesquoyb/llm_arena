@@ -151,14 +151,14 @@ def report(out: Path) -> dict:
              "| Strategy | Played | W | D | L | Score | Operations | Errors | Ops limit hits | Failures |",
              "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|"]
     for r in standings:
-        score = f"{r['score']:.1%}" if r["score"] is not None else "—"
+        score = f"{r['score']:.1%}" if r["score"] is not None else "N/A"
         lines.append(f"| {r['id']} | {r['played']} | {r['wins']} | {r['draws']} | {r['losses']} | {score} | {r['operations']} | {r['errors']} | {r['operation_limit_hits']} | {r['failures']} |")
     lines += ["", "## Head-to-head score", "", "| Strategy | " + " | ".join(ids) + " |", "|---|" + "---:|" * len(ids)]
     for a in ids:
         cells = []
         for b in ids:
             cell = matrix[a].get(b)
-            cells.append(f"{cell['points'] / cell['played']:.1%} ({cell['played']})" if cell and cell["played"] else "—")
+            cells.append(f"{cell['points'] / cell['played']:.1%} ({cell['played']})" if cell and cell["played"] else "N/A")
         lines.append("| " + a + " | " + " | ".join(cells) + " |")
     lines += ["", f"Mirror diagnostics: {len(mirrors)} (details in report.json).", "",
               "These are strategy-level descriptive scores; model-level inference requires independent generation replicates."]

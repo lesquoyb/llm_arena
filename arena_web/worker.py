@@ -15,7 +15,7 @@ def run():
     try:
         return main()
     except KeyboardInterrupt:
-        print("Exécution arrêtée. Les checkpoints conservés seront vérifiés à la reprise.", flush=True)
+        print("Run stopped. Saved checkpoints will be checked on resume.", flush=True)
         return 130
 
 

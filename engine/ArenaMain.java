@@ -180,7 +180,8 @@ public final class ArenaMain {
                 result = outcome.toJson();
                 result.set("team_metrics", metrics.teams);
                 result.set("turn_metrics", metrics.exportTurns());
-                result.put("operations_limit_per_turn", leekscript.runner.AI.MAX_OPERATIONS);
+                result.put("operations_limit_per_turn", Math.min(Integer.MAX_VALUE, (long) scenario.entities.get(0).get(0).cores * 1_000_000));
+                result.put("operations_limit_basis", "entity.cores");
                 result.put("success", true);
             } else throw new IllegalArgumentException("Unknown command");
         } catch (Exception e) {

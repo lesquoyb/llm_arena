@@ -27,7 +27,7 @@ class Jobs:
         for row in self.rows:
             if row["status"] in {"running", "stopping"}:
                 row["status"] = "interrupted"
-                row["note"] = "Le serveur a été interrompu. Consulter le journal avant toute reprise."
+                row["note"] = "The server was interrupted. Check the log before resuming."
 
     def listing(self):
         with self.lock:
@@ -39,14 +39,14 @@ class Jobs:
     def launch(self, *, draft_id=None, run_id=None, confirm_paid=False, ceiling=None):
         with self.lock:
             if (draft_id is None) == (run_id is None):
-                raise ArenaError("Choisir une configuration ou une compétition à reprendre")
+                raise ArenaError("Choose a configuration or a competition to resume")
             if self.process and self.process.poll() is None:
-                raise ArenaError("Une compétition est déjà en cours. Attendre sa fin ou l'arrêter.")
+                raise ArenaError("A competition is already running. Wait for it or stop it.")
             if run_id is not None:
                 out = self.store.run_path(run_id)
                 metadata = read_json(out / "experiment.json")
                 if "config" not in metadata or (out / "export.json").exists():
-                    raise ArenaError("Seules les expériences originales peuvent être reprises ici")
+                    raise ArenaError("Only original experiments can be resumed here")
                 config = metadata["config"]
             else:
                 config = self.store.draft(draft_id)["config"]
@@ -56,7 +56,7 @@ class Jobs:
             paid = any(m["provider"] != "mock" for m in config["models"])
             if paid and (confirm_paid is not True or ceiling is None or
                          amount(ceiling) != amount(config["spending"]["max_total_usd"])):
-                raise ArenaError("Confirmer le plafond financier de cette exécution avant les appels API")
+                raise ArenaError("Confirm the spending limit before making API calls")
             env = dict(os.environ)
             for model in config["models"]:
                 if model["provider"] == "mock":
@@ -64,12 +64,12 @@ class Jobs:
                 name = model["api_key_env"]
                 secret = self.store.secrets.get(name) or os.environ.get(name)
                 if not secret:
-                    raise ArenaError(f"Clé API manquante : {name}")
+                    raise ArenaError(f"API key manquante : {name}")
                 env[name] = secret
             from arena.engine import Engine
             engine = Engine()
             if draft_id is None and metadata["engine"] != engine.identity:
-                raise ArenaError("Cette archive nécessite son code et son runtime d'origine. Dupliquer sa configuration pour une nouvelle exécution.")
+                raise ArenaError("This archive requires its original code and runtime. Clone its configuration for a new run.")
             identifier = uuid4().hex[:12]
             logs = self.store.state / "jobs"
             logs.mkdir(exist_ok=True)
@@ -108,7 +108,7 @@ class Jobs:
     def stop(self, identifier):
         with self.lock:
             if not self.current or self.current["id"] != identifier or self.process.poll() is not None:
-                raise ArenaError("Cette exécution n'est plus active")
+                raise ArenaError("This run is no longer active")
             self.current["status"] = "stopping"
             self._save()
             if os.name == "nt":
@@ -124,7 +124,7 @@ class Jobs:
     def log(self, identifier):
         row = next((r for r in self.rows if r["id"] == identifier), None)
         if not row:
-            raise ArenaError("Exécution introuvable")
+            raise ArenaError("Run not found")
         path = self.store.state / "jobs" / row["log"]
         with path.open("rb") as stream:
             stream.seek(max(0, path.stat().st_size - 128_000))
@@ -132,12 +132,12 @@ class Jobs:
         # A key accidentally echoed by a third party must not be returned by this endpoint.
         for secret in self.store.secrets.values():
             if secret:
-                content = content.replace(secret, "[clé masquée]")
+                content = content.replace(secret, "[REDACTED]")
         for model in self.store.catalog():
             name = model.get("api_key_env", "")
             secret = self.store.secrets.get(name) or os.environ.get(name)
             if secret:
-                content = content.replace(secret, "[clé masquée]")
+                content = content.replace(secret, "[REDACTED]")
         return {"job": row, "content": content}
 
     def close(self):

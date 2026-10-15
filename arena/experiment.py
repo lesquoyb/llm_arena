@@ -51,7 +51,7 @@ def validate_config(value: dict) -> dict:
     integer(value["replicates"], 1, 20, "replicates")
     models = value["models"]
     if not isinstance(models, list) or not models or len(models) > 20:
-        raise ArenaError("Expected 1–20 models")
+        raise ArenaError("Expected 1-20 models")
     if all(isinstance(m, dict) and m.get("provider") == "mock" for m in models) and spending != {"allow_paid_calls": False, "max_total_usd": 0}:
         raise ArenaError("Mock experiments must disable paid calls")
     ids = set()
@@ -615,19 +615,19 @@ def run(config: dict, out: Path, resume=False, interrupt=None, prepare_only=Fals
                     summary[key] = None if simulated or any(s["calls"] and not s.get("token_usage_known")
                                                            for s in final_states.values()) else sum(s.get(key, 0) for s in final_states.values())
             write_json(out / "report.json", summary)
-            rows = ["| Session | État | Validité | Appels | Outils |",
+            rows = ["| Session | Status | Validity | Calls | Tools |",
                     "|---|---|---|---:|---:|"]
             rows.extend(f"| {sid} | {s['status']} | {assessments[sid]['status']} | {s['calls']} | {s['steps']} |"
                         for sid, s in states.items())
             (out / "report.md").write_text(
-                "# " + config["name"] + ("\n\nFournisseurs simulés, combats réels. Aucun appel API.\n\n" if simulated
-                                        else "\n\nFournisseurs API, combats réels. Voir journal et usages.\n\n")
-                + f"Sessions G0 : {len(states)} ; soumissions G0 : {len(entrants)}.\n\n"
-                + ("Tokens inconnus ; coût fournisseur : 0 (simulation).\n\n" if simulated
-                   else f"Coût calculé : {summary['cost_usd']} USD ; voir usages et réservations.\n\n")
+                "# " + config["name"] + ("\n\nMock providers, real matches. No API calls.\n\n" if simulated
+                                        else "\n\nAPI providers, real matches. See the journal and usage records.\n\n")
+                + f"G0 sessions: {len(states)} ; G0 submissions: {len(entrants)}.\n\n"
+                + ("Unknown tokens; provider cost: 0 (mock run).\n\n" if simulated
+                   else f"Calculated cost: {summary['cost_usd']} USD; see usage and reservations.\n\n")
                 + "\n".join(rows) + "\n\n"
-                + "Les scores du tournoi concernent les soumissions présentes ; les absences restent comptées ci-dessus.\n\n"
-                + ("[Rapport des combats](tournament/report.md)\n" if tournament else "Tournoi non exécuté : moins de deux soumissions.\n"),
+                + "Tournament scores cover available submissions; missing ones are counted above.\n\n"
+                + ("[Match report](tournament/report.md)\n" if tournament else "Tournament not run: fewer than two submissions.\n"),
                 encoding="utf-8")
             if "evolution" in summary:
                 with (out / "report.md").open("a", encoding="utf-8") as stream:

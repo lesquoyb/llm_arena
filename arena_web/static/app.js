@@ -12,17 +12,17 @@ const e = (value) =>
 const pretty = (value) => JSON.stringify(value, null, 2);
 const fmt = (v, digits = 0) =>
   v == null
-    ? "—"
-    : Number(v).toLocaleString("fr-FR", { maximumFractionDigits: digits });
-const pct = (v) => (v == null ? "—" : fmt(v * 100, 1) + " %");
-const money = (v) => (v == null ? "Inconnu" : fmt(v, 6) + " $");
+    ? "N/A"
+    : Number(v).toLocaleString("en-US", { maximumFractionDigits: digits });
+const pct = (v) => (v == null ? "N/A" : fmt(v * 100, 1) + "%");
+const money = (v) => (v == null ? "Unknown" : "$" + fmt(v, 6));
 const date = (v) =>
   v
-    ? new Date(v * 1000).toLocaleString("fr-FR", {
+    ? new Date(v * 1000).toLocaleString("en-US", {
         dateStyle: "short",
         timeStyle: "short",
       })
-    : "—";
+    : "N/A";
 const COLORS = [
   "#5278e5",
   "#c18a4f",
@@ -32,30 +32,30 @@ const COLORS = [
   "#7e91ad",
 ];
 const LABELS = {
-  submitted: "Soumise",
-  running: "En cours",
-  stopping: "Arrêt en cours",
-  stopped: "Arrêtée",
-  completed: "Terminée",
-  failed: "Échec",
-  interrupted: "Interrompue",
-  needs_reconciliation: "Facturation à vérifier",
-  budget_exhausted: "Budget atteint",
-  no_submission: "Sans soumission",
-  generation_failed: "Génération échouée",
-  provider_unavailable: "API indisponible",
-  valid: "Valide",
-  invalid: "Invalide",
-  initial: "Première version",
-  control: "Sans feedback",
-  feedback: "Avec feedback",
-  all: "Panel complet",
-  g0: "Stratégies G0 figées",
-  controls: "Stratégies fixes",
-  timeout: "Délai dépassé",
-  engine_error: "Erreur moteur",
+  submitted: "Submitted",
+  running: "Running",
+  stopping: "Stopping",
+  stopped: "Stopped",
+  completed: "Completed",
+  failed: "Failed",
+  interrupted: "Interrupted",
+  needs_reconciliation: "Billing reconciliation needed",
+  budget_exhausted: "Budget exhausted",
+  no_submission: "No submission",
+  generation_failed: "Generation failed",
+  provider_unavailable: "API unavailable",
+  valid: "Valid",
+  invalid: "Invalid",
+  initial: "Initial version",
+  control: "Without feedback",
+  feedback: "With feedback",
+  all: "Full panel",
+  g0: "Frozen G0 strategies",
+  controls: "Fixed strategies",
+  timeout: "Timeout",
+  engine_error: "Engine error",
 };
-const text = (v) => LABELS[v] || v || "—";
+const text = (v) => LABELS[v] || v || "N/A";
 const badge = (label, color = "") =>
   `<span class="badge ${color}">${e(label)}</span>`;
 const status = (v) =>
@@ -74,7 +74,7 @@ const status = (v) =>
           ? "red"
           : "orange",
   );
-const raw = (value, title = "Données complètes") =>
+const raw = (value, title = "Full data") =>
   `<details><summary>${e(title)}</summary><pre>${e(pretty(value))}</pre></details>`;
 const btn = (label, action, extra = "", primary = false) =>
   `<button class="button ${primary ? "primary" : ""}" data-action="${action}" ${extra}>${label}</button>`;
@@ -149,6 +149,12 @@ function route() {
   S.tab = q.get("tab") || "summary";
   S.session = q.get("session");
   S.offset = Number(q.get("offset") || 0);
+  S.matchFilters = Object.fromEntries(
+    ["stage", "entrant", "opponent", "outcome", "search"].map((k) => [
+      k,
+      q.get(k) || "",
+    ]),
+  );
   S.version = null;
   S.versions = null;
   S.previous = null;
@@ -171,8 +177,8 @@ function updateChrome() {
   const ready = S.boot.engine.ready;
   $("#engine-status").className = "badge " + (ready ? "green" : "orange");
   $("#engine-status").textContent = ready
-    ? "● Moteur prêt"
-    : "Moteur à installer";
+    ? "● Engine ready"
+    : "Engine not installed";
   $("#active-count").textContent = activeJobs().length || "";
   $$("[data-nav]").forEach((n) =>
     n.classList.toggle(
@@ -184,14 +190,14 @@ function updateChrome() {
   $("#breadcrumb").textContent =
     "" +
     ({
-      dashboard: "Vue d’ensemble",
+      dashboard: "Overview",
       participants: "Participants",
-      competitions: "Compétitions",
+      competitions: "Competitions",
       run: "Exploration",
       editor: "Configuration",
-      compare: "Comparaison",
+      compare: "Comparison",
       help: "Guide",
-    }[S.view] || "Vue d’ensemble");
+    }[S.view] || "Overview");
 }
 async function renderRoute() {
   const epoch = ++S.epoch;
@@ -210,8 +216,8 @@ async function renderRoute() {
     if (epoch !== S.epoch) return;
     if (!d) {
       $("#main").innerHTML = empty(
-        "Préparation de la compétition",
-        "Le moteur initialise les premiers checkpoints…",
+        "Preparing competition",
+        "Creating initial checkpoints...",
       );
       return;
     }
@@ -243,27 +249,27 @@ function completed(report) {
 function runRows(runs) {
   return runs.map((r) => {
     const job = S.boot.jobs.find((j) => j.run === r.id);
-    return `<tr><td><button class="table-button" data-action="open-run" data-run="${e(r.id)}">${e(r.name)}</button><small>${e(r.id)}</small></td><td>${job && ["running", "stopping"].includes(job.status) ? status(job.status) : r.error ? status("failed") : r.complete ? status("completed") : badge("À examiner", "orange")}</td><td>${r.simulated === true ? badge("Simulation", "blue") : r.simulated === false ? badge("API réelles", "orange") : badge("Stratégies")}</td><td class="numeric">${fmt(r.report?.sessions ?? r.models)}</td><td class="numeric">${fmt(completed(r.report))}</td><td class="numeric">${r.report?.cost_usd === undefined ? "—" : money(r.report.cost_usd)}</td><td>${date(r.created_at)}</td></tr>`;
+    return `<tr><td><button class="table-button" data-action="open-run" data-run="${e(r.id)}">${e(r.name)}</button><small>${e(r.id)}</small></td><td>${job && ["running", "stopping"].includes(job.status) ? status(job.status) : r.error ? status("failed") : r.complete ? status("completed") : badge("Review needed", "orange")}</td><td>${r.simulated === true ? badge("Simulation", "blue") : r.simulated === false ? badge("Real API calls", "orange") : badge("Strategies")}</td><td class="numeric">${fmt(r.report?.sessions ?? r.models)}</td><td class="numeric">${fmt(completed(r.report))}</td><td class="numeric">${r.report?.cost_usd === undefined ? "N/A" : money(r.report.cost_usd)}</td><td>${date(r.created_at)}</td></tr>`;
   });
 }
 function runTable(runs) {
   return runs.length
     ? table(
         [
-          "Compétition",
-          "État",
+          "Competition",
+          "Status",
           "Mode",
           "Sessions",
-          "Combats terminés",
-          "Coût API",
-          "Création",
+          "Completed matches",
+          "API cost",
+          "Created",
         ],
         runRows(runs),
       )
     : empty(
-        "Votre première compétition commence ici",
-        "Configurez les participants et lancez la démo pour explorer toute la chaîne.",
-        btn("＋ Créer une compétition", "new-competition", "", true),
+        "No competitions yet",
+        "Configure participants or run the offline demo.",
+        btn("＋ Create competition", "new-competition", "", true),
       );
 }
 function dashboard() {
@@ -272,45 +278,45 @@ function dashboard() {
     unknown = runs.filter((r) => r.report && r.report.cost_usd === null).length;
   return (
     head(
-      "Vue d’ensemble",
-      "Compétitions, participants et résultats.",
-      btn("＋ Nouvelle compétition", "new-competition", "", true),
+      "Overview",
+      "Competitions, participants and results.",
+      btn("＋ New competition", "new-competition", "", true),
     ) +
-    `<div class="metrics">${metric("Compétitions", fmt(runs.length), `${activeJobs().length} en cours`, "⚑")}${metric("Participants configurés", fmt(S.boot.participants.length), "Profils réutilisables", "♧")}${metric("Combats terminés", fmt(runs.reduce((n, r) => n + completed(r.report), 0)), "Toutes les étapes d’évaluation", "⚔")}${metric("Coût API connu", money(known.reduce((n, r) => n + Number(r.report.cost_usd), 0)), unknown ? `${unknown} coût(s) encore inconnu(s)` : "Hors infrastructure ; simulations incluses", "↗")}</div>` +
+    `<div class="metrics">${metric("Competitions", fmt(runs.length), `${activeJobs().length} running`, "⚑")}${metric("Configured participants", fmt(S.boot.participants.length), "Reusable profiles", "♧")}${metric("Completed matches", fmt(runs.reduce((n, r) => n + completed(r.report), 0)), "All evaluation stages", "⚔")}${metric("Known API cost", money(known.reduce((n, r) => n + Number(r.report.cost_usd), 0)), unknown ? `${unknown} costs still unknown` : "Excludes infrastructure; includes mock runs", "↗")}</div>` +
     (!S.boot.engine.ready
       ? notice(
-          `Le moteur n’est pas prêt. L’interface reste consultable. Installer avec <code>python scripts/bootstrap.py</code> après avoir installé un JDK 25. ${e(S.boot.engine.error)}`,
+          `The engine is not ready. Existing results are still readable. Run <code>python scripts/bootstrap.py</code> after installing JDK 25. ${e(S.boot.engine.error)}`,
           "warn",
         )
       : "") +
-    `<section class="panel flush"><div class="panel-head"><div><h2>Compétitions récentes</h2><p>Les exécutions originales, sans compter deux fois les exports.</p></div>${btn("Tout voir →", "go", 'data-view="competitions"')}</div>${runTable(runs.slice(0, 8))}</section>` +
-    `<div class="grid two"><section class="panel"><h2>Commencer sans frais d’API</h2><p class="muted">Participants simulés, combats réels, aucun appel API.</p>${btn("Configurer la démo", "new-demo")}</section><section class="panel"><h2>Lire un score</h2><p class="muted">Une victoire vaut 1 point, un nul 0,5, une défaite 0. Un score de 70 % représente 70 % des points possibles, hors miroirs.</p>${btn("Comprendre les comparaisons", "go", 'data-view="help"')}</section></div>`
+    `<section class="panel flush"><div class="panel-head"><div><h2>Recent competitions</h2><p>Original runs. Exported copies are excluded.</p></div>${btn("View all", "go", 'data-view="competitions"')}</div>${runTable(runs.slice(0, 8))}</section>` +
+    `<div class="grid two"><section class="panel"><h2>Try the offline demo</h2><p class="muted">Mock participants, real matches, no API calls.</p>${btn("Configure demo", "new-demo")}</section><section class="panel"><h2>Reading scores</h2><p class="muted">A win earns 1 point, a draw 0.5, a loss 0. A score of 70% means 70% of available points, excluding mirrors.</p>${btn("Scoring guide", "go", 'data-view="help"')}</section></div>`
   );
 }
 function participants() {
   return (
     head(
       "Participants",
-      "Modèles, paramètres et tarifs utilisés par les compétitions.",
-      btn("＋ Ajouter un participant", "new-participant", "", true),
+      "Models, parameters and prices used by competitions.",
+      btn("＋ Add participant", "new-participant", "", true),
     ) +
     `<section class="panel flush">${table(
       [
         "Participant",
-        "Fournisseur / modèle",
-        "Tarif entrée / sortie",
-        "Clé API",
+        "Provider / model",
+        "Input / output price",
+        "API key",
         "",
       ],
       S.boot.participants.map(
         ({ spec: m, key_configured }) =>
-          `<tr><td><strong>${e(m.id)}</strong><small>${m.provider === "mock" ? "Participant simulé" : "Modèle configuré"}</small></td><td>${e(m.provider)}<small>${e(m.model || m.profile)}</small></td><td>${m.pricing ? `${e(m.pricing.input_per_million)} / ${e(m.pricing.output_per_million)} $<small>Par million de tokens · ${e(m.pricing.date)}</small>` : "Sans appel API"}</td><td>${m.provider === "mock" ? "—" : badge(key_configured ? "Configurée" : "À renseigner", key_configured ? "green" : "orange")}</td><td><div class="actions">${btn("Modifier", "edit-participant", `data-id="${e(m.id)}"`)}<button class="icon-button" data-action="delete-participant" data-id="${e(m.id)}" title="Retirer ce profil" aria-label="Retirer ${e(m.id)}">×</button></div></td></tr>`,
+          `<tr><td><strong>${e(m.id)}</strong><small>${m.provider === "mock" ? "Mock participant" : "Configured model"}</small></td><td>${e(m.provider)}<small>${e(m.model || m.profile)}</small></td><td>${m.pricing ? `${e(m.pricing.input_per_million)} / ${e(m.pricing.output_per_million)} $<small>Per million tokens · ${e(m.pricing.date)}</small>` : "No API calls"}</td><td>${m.provider === "mock" ? "N/A" : badge(key_configured ? "Configured" : "Missing", key_configured ? "green" : "orange")}</td><td><div class="actions">${btn("Edit", "edit-participant", `data-id="${e(m.id)}"`)}<button class="icon-button" data-action="delete-participant" data-id="${e(m.id)}" title="Remove this profile" aria-label="Remove ${e(m.id)}">×</button></div></td></tr>`,
       ),
     )}</section>` +
     notice(
-      "Les tarifs sont saisis par vous, en USD par million de tokens, à une date précise. Les clés entrées dans cette interface restent en mémoire jusqu’à sa fermeture ; elles ne sont pas enregistrées dans les fichiers.",
+      "Enter dated prices in USD per million tokens. Keys entered here stay in server memory and are not saved to files.",
     ) +
-    `<section class="panel"><h2>Un profil n’est pas une soumission</h2><p class="muted">Un participant décrit comment contacter une IA. Chaque répétition ouvre une conversation indépendante et produit sa propre stratégie. Les profils « mock » fournissent des scripts prédéfinis ; ils ne représentent aucun modèle réel.</p></section>`
+    `<section class="panel"><h2>Profiles and submissions</h2><p class="muted">A profile selects a model and its settings. Each repetition starts an independent conversation and produces a strategy. Mock profiles use predefined scripts.</p></section>`
   );
 }
 function freshConfig() {
@@ -325,29 +331,29 @@ function freshConfig() {
 function competitions() {
   return (
     head(
-      "Compétitions",
-      "Préparez une configuration, lancez une exécution et retrouvez chaque expérience.",
-      btn("＋ Nouvelle compétition", "new-competition", "", true),
+      "Competitions",
+      "Saved settings and run history.",
+      btn("＋ New competition", "new-competition", "", true),
     ) +
-    `<section class="panel flush"><div class="panel-head"><div><h2>Configurations enregistrées</h2><p>Modifiables jusqu’au lancement. Chaque exécution conserve ensuite sa propre copie.</p></div></div>${
+    `<section class="panel flush"><div class="panel-head"><div><h2>Saved configurations</h2><p>Editable until launch. Each run keeps its own copy.</p></div></div>${
       S.boot.drafts.length
         ? table(
-            ["Configuration", "Participants", "Répétitions", "Étapes", ""],
+            ["Configuration", "Participants", "Repetitions", "Stages", ""],
             S.boot.drafts.map(
               (d) =>
-                `<tr><td><strong>${e(d.config.name)}</strong><small>Modifiée le ${date(d.updated_at)}</small></td><td>${d.config.models.map((m) => e(m.id)).join(", ")}</td><td>${d.config.replicates}</td><td>${d.config.generations === 2 ? "G0 → G1, deux branches" : "G0"}</td><td><div class="actions">${btn("Configurer", "edit-draft", `data-id="${e(d.id)}"`)}${btn("▷ Lancer", "launch", `data-id="${e(d.id)}"`, true)}${btn("Retirer", "delete-draft", `data-id="${e(d.id)}"`)}</div></td></tr>`,
+                `<tr><td><strong>${e(d.config.name)}</strong><small>Updated ${date(d.updated_at)}</small></td><td>${d.config.models.map((m) => e(m.id)).join(", ")}</td><td>${d.config.replicates}</td><td>${d.config.generations === 2 ? "G0 to G1, two branches" : "G0"}</td><td><div class="actions">${btn("Configure", "edit-draft", `data-id="${e(d.id)}"`)}${btn("▷ Launch", "launch", `data-id="${e(d.id)}"`, true)}${btn("Remove", "delete-draft", `data-id="${e(d.id)}"`)}</div></td></tr>`,
             ),
           )
         : empty(
-            "Aucune configuration enregistrée",
-            "La démo préremplit les paramètres pour commencer.",
-            btn("Créer une configuration", "new-competition"),
+            "No saved configurations",
+            "Use the demo settings or create a configuration.",
+            btn("Create configuration", "new-competition"),
           )
     }</section>` +
-    `<section class="panel flush"><div class="panel-head"><div><h2>Historique des exécutions</h2><p>Les exports sont identifiés comme copies et exclus des agrégations.</p></div><input type="search" id="run-search" placeholder="Rechercher une compétition…" aria-label="Rechercher une compétition"></div><div id="run-table">${runTable(S.boot.runs)}</div></section>` +
+    `<section class="panel flush"><div class="panel-head"><div><h2>Run history</h2><p>Exported copies are excluded from aggregates.</p></div><input type="search" id="run-search" placeholder="Search competitions..." aria-label="Search competitions"></div><div id="run-table">${runTable(S.boot.runs)}</div></section>` +
     (S.boot.jobs.length
-      ? `<section class="panel flush"><div class="panel-head"><h2>Exécutions lancées depuis l’interface</h2></div>${table(
-          ["Nom", "État", "Démarrage", ""],
+      ? `<section class="panel flush"><div class="panel-head"><h2>Runs started from this interface</h2></div>${table(
+          ["Name", "Status", "Started", ""],
           S.boot.jobs
             .slice(0, 12)
             .map(
@@ -360,7 +366,7 @@ function competitions() {
 }
 function openDialog(title, subtitle, body) {
   $("#dialog-content").innerHTML =
-    `<div class="dialog-head"><div><h2>${e(title)}</h2><p>${e(subtitle)}</p></div><button class="icon-button" data-action="close-dialog" aria-label="Fermer">×</button></div>${body}`;
+    `<div class="dialog-head"><div><h2>${e(title)}</h2><p>${e(subtitle)}</p></div><button class="icon-button" data-action="close-dialog" aria-label="Close">×</button></div>${body}`;
   if (!$("#dialog").open) $("#dialog").showModal();
 }
 function participantDialog(identifier = null, provider = null) {
@@ -371,46 +377,46 @@ function participantDialog(identifier = null, provider = null) {
   const p = provider || m.provider || "mock",
     pricing = m.pricing || {};
   openDialog(
-    identifier ? "Modifier le participant" : "Nouveau participant",
+    identifier ? "Edit participant" : "New participant",
     "",
-    `<form data-form="participant"><div class="form-grid">${field("Identifiant du participant", "id", m.id || "", "text", "Lettres, chiffres, tirets ; 40 caractères maximum.", `required pattern="[a-zA-Z0-9][a-zA-Z0-9_-]{0,39}" ${identifier ? "readonly" : ""}`)}${selectField(
-      "Fournisseur",
+    `<form data-form="participant"><div class="form-grid">${field("Participant ID", "id", m.id || "", "text", "Letters, digits and hyphens; up to 40 characters.", `required pattern="[a-zA-Z0-9][a-zA-Z0-9_-]{0,39}" ${identifier ? "readonly" : ""}`)}${selectField(
+      "Provider",
       "provider",
       [
-        ["mock", "Simulation (aucun appel API)"],
+        ["mock", "Mock (no API calls)"],
         ["openai", "OpenAI"],
         ["anthropic", "Anthropic"],
         ["gemini", "Google Gemini"],
-        ["openai-compatible", "API compatible OpenAI"],
+        ["openai-compatible", "OpenAI-compatible API"],
       ],
       p,
     )}
  ${
    p === "mock"
      ? selectField(
-         "Comportement simulé",
+         "Mock behavior",
          "profile",
          S.boot.profiles.map((v) => [v, v]),
          m.profile || "single-shot",
-         "single-shot tire une fois ; repair-and-submit corrige un script puis soumet rush.",
+         "single-shot submits a simple strategy; repair-and-submit fixes a script and submits rush.",
        )
-     : `${field("Identifiant exact du modèle", "model", m.model || "", "text", "Le nom accepté par l’API choisie.", "required")}<div class="field full"><div class="actions">${btn("Charger les modèles", "list-models")}<select id="available-models" aria-label="Modèles disponibles"><option value="">Catalogue non chargé</option></select></div><small id="model-list-status">Liste fournie par l’API avec la clé configurée. Saisie manuelle possible.</small></div>${field("Variable de la clé API", "api_key_env", m.api_key_env || (p === "anthropic" ? "ARENA_ANTHROPIC_KEY" : p === "gemini" ? "ARENA_GEMINI_KEY" : "ARENA_OPENAI_KEY"), "text", "Une clé déjà définie dans l’environnement est également utilisable.", "required")}<label class="field full">Clé API — pour cette session uniquement<input name="secret" type="password" autocomplete="new-password" placeholder="Laisser vide pour conserver la clé disponible"><small>Jamais renvoyée au navigateur ni écrite dans les configurations.</small></label>${p === "openai-compatible" ? field("Endpoint HTTPS complet", "endpoint", m.endpoint || "", "url", "Inclure le chemin de l’API, sans clé ni paramètres dans l’URL.", "required") : m.endpoint ? field("Endpoint HTTPS", "endpoint", m.endpoint, "url") : ""}${field("Prix entrée / million de tokens ($)", "input_price", pricing.input_per_million ?? "", "number", "", 'required min="0" step="any"')}${field("Prix sortie / million de tokens ($)", "output_price", pricing.output_per_million ?? "", "number", "", 'required min="0" step="any"')}${field("Date de ces tarifs", "pricing_date", pricing.date || new Date().toISOString().slice(0, 10), "date", "", "required")}${field("Prix cache lu / million ($), facultatif", "cached_price", pricing.cached_input_per_million ?? "", "number", "Vide : utilise le tarif d’entrée.", 'min="0" step="any"')}${field("Prix cache créé / million ($), facultatif", "creation_price", pricing.cache_creation_per_million ?? "", "number", "", 'min="0" step="any"')}${field("Entrée maximale par appel (tokens)", "max_input_tokens_per_call", m.max_input_tokens_per_call || 150000, "number", "Borne d’admission conservatrice.", 'required min="1"')}${field("Sortie maximale par appel (tokens)", "max_output_tokens", m.max_output_tokens || 12000, "number", "", 'required min="1"')}${field("Délai par appel (secondes)", "timeout_seconds", m.timeout_seconds || 60, "number", "", 'required min="1" max="300"')}${field("Nouvelles tentatives sur HTTP 429", "max_retries", m.max_retries ?? 1, "number", "Les réponses incertaines ne sont pas relancées automatiquement.", 'required min="0" max="3"')}${p === "anthropic" ? `<p class="muted">Seed : non disponible dans l’API Anthropic.</p>` : field("Seed du modèle", "model_seed", m.parameters?.seed ?? (identifier ? "" : 0), "number", p === "openai-compatible" ? "Prise en charge selon le serveur ; aucune garantie de réponse identique." : "Valeur envoyée à chaque appel. Reproductibilité au mieux, selon le modèle ; aucune garantie de réponse identique.", 'min="0" max="2147483647"')}<label class="field full">Paramètres du modèle (JSON)<textarea name="parameters" class="mono">${e(pretty(m.parameters || {}))}</textarea><small>Options selon l’API : temperature, top_p, etc. Seed réglée ci-dessus.</small></label>`
- }</div><div class="form-footer">${btn("Annuler", "close-dialog")}<button type="submit" class="button primary">Enregistrer le participant</button></div></form>`,
+     : `${field("Exact model ID", "model", m.model || "", "text", "The exact ID accepted by the API.", "required")}<div class="field full"><div class="actions">${btn("Load models", "list-models")}<select id="available-models" aria-label="Available models"><option value="">Catalog not loaded</option></select></div><small id="model-list-status">Load the API catalog using the configured key, or enter an ID manually.</small></div>${field("API key environment variable", "api_key_env", m.api_key_env || (p === "anthropic" ? "ARENA_ANTHROPIC_KEY" : p === "gemini" ? "ARENA_GEMINI_KEY" : "ARENA_OPENAI_KEY"), "text", "A key set in the server environment can also be used.", "required")}<label class="field full">API key (this server session only)<input name="secret" type="password" autocomplete="new-password" placeholder="Leave blank to keep the available key"><small>Not returned to the browser or written to configuration files.</small></label>${p === "openai-compatible" ? field("Full HTTPS endpoint", "endpoint", m.endpoint || "", "url", "Include the API path. Do not put keys or query parameters in the URL.", "required") : m.endpoint ? field("HTTPS endpoint", "endpoint", m.endpoint, "url") : ""}${field("Input price / million tokens ($)", "input_price", pricing.input_per_million ?? "", "number", "", 'required min="0" step="any"')}${field("Output price / million tokens ($)", "output_price", pricing.output_per_million ?? "", "number", "", 'required min="0" step="any"')}${field("Price date", "pricing_date", pricing.date || new Date().toISOString().slice(0, 10), "date", "", "required")}${field("Cache read price / million ($), optional", "cached_price", pricing.cached_input_per_million ?? "", "number", "Blank uses the standard input price.", 'min="0" step="any"')}${field("Cache write price / million ($), optional", "creation_price", pricing.cache_creation_per_million ?? "", "number", "", 'min="0" step="any"')}${field("Maximum input per call (tokens)", "max_input_tokens_per_call", m.max_input_tokens_per_call || 150000, "number", "Conservative admission bound.", 'required min="1"')}${field("Maximum output per call (tokens)", "max_output_tokens", m.max_output_tokens || 12000, "number", "", 'required min="1"')}${field("Call timeout (seconds)", "timeout_seconds", m.timeout_seconds || 60, "number", "", 'required min="1" max="300"')}${field("Retries on HTTP 429", "max_retries", m.max_retries ?? 1, "number", "Calls with unknown outcomes are not retried automatically.", 'required min="0" max="3"')}${p === "anthropic" ? `<p class="muted">Seed: not available in the Anthropic API.</p>` : field("Model seed", "model_seed", m.parameters?.seed ?? (identifier ? "" : 0), "number", p === "openai-compatible" ? "Server support varies. Identical output is not guaranteed." : "Sent with every call when supported by the model. Identical output is not guaranteed.", 'min="0" max="2147483647"')}<label class="field full">Model parameters (JSON)<textarea name="parameters" class="mono">${e(pretty(m.parameters || {}))}</textarea><small>API-specific options such as temperature and top_p. Set the seed above.</small></label>`
+ }</div><div class="form-footer">${btn("Cancel", "close-dialog")}<button type="submit" class="button primary">Save participant</button></div></form>`,
   );
 }
 const ENTITY_FIELDS = [
-  ["level", "Niveau", 100],
-  ["life", "PV", 600],
-  ["strength", "Force", 100],
-  ["agility", "Agilité", 0],
-  ["frequency", "Fréquence", 100],
-  ["wisdom", "Sagesse", 0],
-  ["resistance", "Résistance", 0],
+  ["level", "Level", 100],
+  ["life", "HP", 600],
+  ["strength", "Strength", 100],
+  ["agility", "Agility", 0],
+  ["frequency", "Frequency", 100],
+  ["wisdom", "Wisdom", 0],
+  ["resistance", "Resistance", 0],
   ["science", "Science", 0],
-  ["magic", "Magie", 0],
-  ["tp", "PA par tour", 12],
-  ["mp", "PM par tour", 5],
-  ["cores", "Cœurs", 10],
+  ["magic", "Magic", 0],
+  ["tp", "AP per turn", 12],
+  ["mp", "MP per turn", 5],
+  ["cores", "Cores", 10],
   ["ram", "RAM LeekScript", 10],
 ];
 function competitionEditor() {
@@ -423,22 +429,22 @@ function competitionEditor() {
   S.choiceModels = [...choices.values()];
   return (
     head(
-      S.editDraft ? "Modifier la compétition" : "Nouvelle compétition",
-      "Les règles et budgets sont communs à tous les participants. Aucune API n’est appelée pendant la configuration.",
+      S.editDraft ? "Edit competition" : "New competition",
+      "All participants share the same rules and budgets. Saving settings does not call an API.",
     ) +
-    `<form data-form="competition" id="competition-form"><div class="grid asymmetric"><div><section class="panel"><h2>Identité et participants</h2><p class="muted">Chaque répétition crée une nouvelle conversation, indépendante des autres.</p><div class="form-grid">${field("Nom de la compétition", "name", c.name, "text", "", "required")}${field("Répétitions par participant", "replicates", c.replicates, "number", "", 'required min="1" max="20"')}${selectField(
-      "Cycle d’évaluation",
+    `<form data-form="competition" id="competition-form"><div class="grid asymmetric"><div><section class="panel"><h2>Name and participants</h2><p class="muted">Each repetition starts an independent conversation.</p><div class="form-grid">${field("Competition name", "name", c.name, "text", "", "required")}${field("Repetitions per participant", "replicates", c.replicates, "number", "", 'required min="1" max="20"')}${selectField(
+      "Evaluation cycle",
       "generations",
       [
-        ["1", "G0 : première stratégie"],
-        ["2", "G0 → G1 : avec et sans feedback"],
+        ["1", "G0: initial strategy"],
+        ["2", "G0 to G1: with and without feedback"],
       ],
       String(c.generations || 1),
-    )}</div><h3 class="section-label">Participants inscrits</h3>${S.choiceModels.map((m) => `<label class="choice"><input type="checkbox" name="participant" value="${e(m.id)}" ${c.models.some((v) => v.id === m.id) ? "checked" : ""}><span><strong>${e(m.id)}</strong><small>${e(m.provider)} · ${e(m.model || m.profile)}</small></span></label>`).join("")}${btn("Gérer les profils", "go", 'data-view="participants"')}</section>
- <section class="panel"><h2>Règles du terrain</h2><p class="muted">Deux équipes identiques en statistiques et équipement, avec positions alternées.</p><div class="form-grid">${field("Entités par équipe", "team_size", c.scenario.team_size, "number", "", 'required min="1" max="8"')}${field("Tours maximum", "max_turns", c.scenario.max_turns, "number", "", 'required min="1" max="64"')}${field("Seeds G0 / feedback", "seeds", c.seeds.join(", "), "text", "Identifiants des tirages de carte. Exemple : 101, 202.", "required")}${field("Seeds finales G1", "final_seeds", (c.final_seeds || []).join(", "), "text", "Distinctes des seeds G0 et de la seed d’entraînement 17.")}</div><label class="check" style="margin-top:15px"><input type="checkbox" name="include_mirrors" ${c.include_mirrors ? "checked" : ""}>Ajouter les matchs miroirs (exclus du score)</label><details><summary>Statistiques, équipement et carte personnalisée</summary><div class="form-grid three" style="margin-top:15px">${ENTITY_FIELDS.map(([key, label, def]) => field(label, "entity_" + key, c.scenario.entity[key] ?? def, "number", "", 'required min="0"')).join("")}</div><div class="form-grid" style="margin-top:15px">${field("Identifiants des armes", "weapons", c.scenario.entity.weapons.join(", "), "text", "Exemple : 37 pour l’équipement de la démo.")}${field("Identifiants des puces", "chips", c.scenario.entity.chips.join(", "), "text", "Laisser vide pour aucune puce.")}<label class="field full">Carte personnalisée (JSON, facultatif)<textarea name="map" class="mono">${c.scenario.map ? e(pretty(c.scenario.map)) : ""}</textarea><small>Sans carte personnalisée, la carte et les positions dépendent de la seed.</small></label></div></details></section>
- <section class="panel"><h2>Budgets par conversation</h2><p class="muted">Les deux branches G1 disposent des mêmes limites supplémentaires.</p><div class="form-grid">${field("Appels au modèle", "max_calls", b.max_calls, "number", "", 'required min="1"')}${field("Appels aux outils", "max_agent_steps", b.max_agent_steps, "number", "", 'required min="1"')}${field("Combats de préparation", "max_test_matches", b.max_test_matches, "number", "Un essai aller-retour consomme deux combats.", 'required min="0"')}${field("Temps de préparation (secondes)", "max_wall_seconds", b.max_wall_seconds, "number", "", 'required min="1"')}${field("Tokens d’entrée cumulés", "max_input_tokens", b.max_input_tokens || 1000000, "number", "Pour les API réelles.", 'required min="1"')}${field("Tokens de sortie cumulés", "max_output_tokens", b.max_output_tokens || 100000, "number", "", 'required min="1"')}${field("Plafond API par conversation ($)", "max_cost_usd", b.max_cost_usd ?? "1", "number", "", 'required min="0" step="any"')}${field("Plafond API de toute l’expérience ($)", "max_total_usd", c.spending.max_total_usd || "5", "number", "G0 et toutes les branches G1 inclus.", 'required min="0" step="any"')}</div><label class="check" style="margin-top:15px"><input type="checkbox" name="allow_paid_calls" ${c.spending.allow_paid_calls ? "checked" : ""}>Autoriser les API payantes pour cette configuration</label><small>La démo simulée conserve automatiquement un budget API nul. Un lancement réel demandera de confirmer son plafond.</small></section>
- <section class="panel"><details><summary>Importer une configuration JSON complète</summary><textarea id="import-config" class="mono" style="width:100%;margin-top:12px" placeholder="Coller un manifeste d’expérience existant"></textarea><div style="margin-top:10px">${btn("Appliquer cette configuration", "import-config")}</div></details></section></div>
- <aside class="panel sticky"><div class="eyebrow">Avant le premier appel</div><h2>Préparer le calendrier</h2><p class="muted">Vérifiez le nombre de conversations, de combats et le plafond financier avant de lancer.</p><div id="plan-preview">${notice("Le cycle complet compare une amélioration avec feedback à une amélioration sans feedback, à partir du même historique G0.")}</div>${btn("Calculer le calendrier", "preview-plan")}<div class="divider"></div><button type="submit" class="button primary" style="width:100%">Enregistrer la configuration</button><p class="muted" style="font-size:10px;margin-top:12px">L’enregistrement ne lance aucune compétition.</p></aside></div></form>`
+    )}</div><h3 class="section-label">Selected participants</h3>${S.choiceModels.map((m) => `<label class="choice"><input type="checkbox" name="participant" value="${e(m.id)}" ${c.models.some((v) => v.id === m.id) ? "checked" : ""}><span><strong>${e(m.id)}</strong><small>${e(m.provider)} · ${e(m.model || m.profile)}</small></span></label>`).join("")}${btn("Manage profiles", "go", 'data-view="participants"')}</section>
+ <section class="panel"><h2>Match rules</h2><p class="muted">Both teams use the same stats and equipment. Matches alternate sides.</p><div class="form-grid">${field("Entities per team", "team_size", c.scenario.team_size, "number", "", 'required min="1" max="8"')}${field("Maximum turns", "max_turns", c.scenario.max_turns, "number", "", 'required min="1" max="64"')}${field("Seeds G0 / feedback", "seeds", c.seeds.join(", "), "text", "Map generation seeds, for example 101, 202.", "required")}${field("G1 final seeds", "final_seeds", (c.final_seeds || []).join(", "), "text", "Separate from G0 seeds and training seed 17.")}</div><label class="check" style="margin-top:15px"><input type="checkbox" name="include_mirrors" ${c.include_mirrors ? "checked" : ""}>Include mirror matches (excluded from score)</label><details><summary>Stats, equipment and custom map</summary><div class="form-grid three" style="margin-top:15px">${ENTITY_FIELDS.map(([key, label, def]) => field(label, "entity_" + key, c.scenario.entity[key] ?? def, "number", "", 'required min="0"')).join("")}</div><div class="form-grid" style="margin-top:15px">${field("Weapon IDs", "weapons", c.scenario.entity.weapons.join(", "), "text", "The demo uses weapon 37.")}${field("Chip IDs", "chips", c.scenario.entity.chips.join(", "), "text", "Leave blank for no chips.")}<label class="field full">Custom map (JSON, optional)<textarea name="map" class="mono">${c.scenario.map ? e(pretty(c.scenario.map)) : ""}</textarea><small>Without a custom map, the seed determines the map and starting positions.</small></label></div></details></section>
+ <section class="panel"><h2>Budgets per conversation</h2><p class="muted">Both G1 branches receive the same additional budgets.</p><div class="form-grid">${field("Model calls", "max_calls", b.max_calls, "number", "", 'required min="1"')}${field("Tool calls", "max_agent_steps", b.max_agent_steps, "number", "", 'required min="1"')}${field("Preparation matches", "max_test_matches", b.max_test_matches, "number", "One test runs two matches, one per side.", 'required min="0"')}${field("Preparation time (seconds)", "max_wall_seconds", b.max_wall_seconds, "number", "", 'required min="1"')}${field("Total input tokens", "max_input_tokens", b.max_input_tokens || 1000000, "number", "For real APIs.", 'required min="1"')}${field("Total output tokens", "max_output_tokens", b.max_output_tokens || 100000, "number", "", 'required min="1"')}${field("API spending limit per conversation ($)", "max_cost_usd", b.max_cost_usd ?? "1", "number", "", 'required min="0" step="any"')}${field("API spending limit for the experiment ($)", "max_total_usd", c.spending.max_total_usd || "5", "number", "Includes G0 and all G1 branches.", 'required min="0" step="any"')}</div><label class="check" style="margin-top:15px"><input type="checkbox" name="allow_paid_calls" ${c.spending.allow_paid_calls ? "checked" : ""}>Allow paid APIs for this configuration</label><small>Mock runs have no API cost. Paid runs require confirmation of the spending limit.</small></section>
+ <section class="panel"><details><summary>Import a JSON configuration</summary><textarea id="import-config" class="mono" style="width:100%;margin-top:12px" placeholder="Paste an experiment manifest"></textarea><div style="margin-top:10px">${btn("Apply configuration", "import-config")}</div></details></section></div>
+ <aside class="panel sticky"><div class="eyebrow">Before launching</div><h2>Schedule</h2><p class="muted">Review the schedule and spending limit before launching.</p><div id="plan-preview">${notice("Both improvement branches start from the same G0 history. One receives match feedback.")}</div>${btn("Calculate schedule", "preview-plan")}<div class="divider"></div><button type="submit" class="button primary" style="width:100%">Save configuration</button><p class="muted" style="font-size:10px;margin-top:12px">Saving does not start a run.</p></aside></div></form>`
   );
 }
 function readCompetition(form) {
@@ -498,7 +504,7 @@ function planMarkup(p) {
     p.mirrors_if_all_submit +
     p.g1_contemporary_matches +
     p.common_reference_matches;
-  return `<div class="info-row"><span>Conversations</span><strong>${fmt(p.sessions)}</strong></div><div class="info-row"><span>Combats d’évaluation</span><strong>${fmt(total)}</strong></div><div class="info-row"><span>Essais de préparation, au plus</span><strong>${fmt(p.max_preparation_matches)}</strong></div><div class="info-row"><span>Plafond API global</span><strong>${money(p.max_cost_usd)}</strong></div><p class="muted" style="font-size:10px;margin-top:12px">Calendrier si toutes les IA soumettent une stratégie. ${p.simulated ? "Simulation sans appel API." : "Les réservations financières restent une estimation prudente, pas une facture garantie."}</p>`;
+  return `<div class="info-row"><span>Conversations</span><strong>${fmt(p.sessions)}</strong></div><div class="info-row"><span>Evaluation matches</span><strong>${fmt(total)}</strong></div><div class="info-row"><span>Maximum preparation matches</span><strong>${fmt(p.max_preparation_matches)}</strong></div><div class="info-row"><span>Total API spending limit</span><strong>${money(p.max_cost_usd)}</strong></div><p class="muted" style="font-size:10px;margin-top:12px">Schedule assuming every participant submits a strategy. ${p.simulated ? "Mock run with no API calls." : "Reservations estimate cost; they do not confirm provider billing."}</p>`;
 }
 async function launchDialog(draftId = null, runId = null) {
   const config = draftId
@@ -507,17 +513,17 @@ async function launchDialog(draftId = null, runId = null) {
     p = await api("/api/plan", { config }, true);
   S.launch = { draftId, runId, config };
   openDialog(
-    runId ? "Reprendre la compétition" : "Lancer la compétition",
+    runId ? "Resume competition" : "Launch competition",
     config.name,
-    `<form data-form="launch">${planMarkup(p)}${p.simulated ? notice("Participants simulés, combats réels. Aucun appel à un LLM ni frais d’API.") : notice("Les appels utiliseront les clés configurées. Les prix sont ceux de votre configuration ; les montants ne constituent pas une facture fournisseur.", "warn")}<div>${config.models.map((m) => `<div class="info-row"><span>${e(m.id)}${m.provider !== "mock" ? `<small>${e(m.endpoint || (m.provider === "anthropic" ? "https://api.anthropic.com/v1/messages" : m.provider === "gemini" ? "https://generativelanguage.googleapis.com/v1beta" : "https://api.openai.com/v1/chat/completions"))}<br>Clé : ${e(m.api_key_env)}</small>` : ""}</span><strong>${e(m.model || m.profile)}${m.provider !== "mock" ? `<small>Seed : ${m.parameters?.seed ?? (m.provider === "anthropic" ? "non disponible" : "non fixée")}</small>` : ""}</strong></div>`).join("")}</div>${!p.simulated ? `<label class="check" style="margin-top:20px"><input type="checkbox" name="confirm_paid" required>J’autorise les appels API jusqu’au plafond global de ${money(config.spending.max_total_usd)}.</label>` : ""}<div class="form-footer">${btn("Annuler", "close-dialog")}<button type="submit" class="button primary">${runId ? "Reprendre" : "Démarrer la compétition"}</button></div></form>`,
+    `<form data-form="launch">${planMarkup(p)}${p.simulated ? notice("Mock participants, real matches. No LLM calls or API charges.") : notice("Calls use the configured keys and prices. Calculated costs are not confirmed provider bills.", "warn")}<div>${config.models.map((m) => `<div class="info-row"><span>${e(m.id)}${m.provider !== "mock" ? `<small>${e(m.endpoint || (m.provider === "anthropic" ? "https://api.anthropic.com/v1/messages" : m.provider === "gemini" ? "https://generativelanguage.googleapis.com/v1beta" : "https://api.openai.com/v1/chat/completions"))}<br>Key: ${e(m.api_key_env)}</small>` : ""}</span><strong>${e(m.model || m.profile)}${m.provider !== "mock" ? `<small>Seed: ${m.parameters?.seed ?? (m.provider === "anthropic" ? "not available" : "not set")}</small>` : ""}</strong></div>`).join("")}</div>${!p.simulated ? `<label class="check" style="margin-top:20px"><input type="checkbox" name="confirm_paid" required>I authorize API calls up to the total spending limit of ${money(config.spending.max_total_usd)}.</label>` : ""}<div class="form-footer">${btn("Cancel", "close-dialog")}<button type="submit" class="button primary">${runId ? "Resume" : "Start competition"}</button></div></form>`,
   );
 }
 const TABS = [
-  ["summary", "Synthèse"],
+  ["summary", "Summary"],
   ["conversation", "Conversations"],
   ["code", "Code & versions"],
-  ["matches", "Combats"],
-  ["files", "Fichiers"],
+  ["matches", "Matches"],
+  ["files", "Files"],
   ["events", "Journal"],
   ["config", "Configuration"],
 ];
@@ -530,10 +536,10 @@ function runHeader(d) {
   return (
     head(
       config.name,
-      "Résultats, conversations et fichiers.",
-      `${active ? btn("■ Arrêter", "stop-job", `data-id="${e(job.id)}"`) : experiment && !d.archived ? btn("Reprendre", "resume") : ""}${experiment ? btn("Dupliquer la configuration", "clone-run") : ""}${experiment ? btn("Exporter", "export-run") : ""}`,
+      "Results, conversations and files.",
+      `${active ? btn("■ Stop", "stop-job", `data-id="${e(job.id)}"`) : experiment && !d.archived ? btn("Resume", "resume") : ""}${experiment ? btn("Clone configuration", "clone-run") : ""}${experiment ? btn("Export", "export-run") : ""}`,
     ) +
-    `<div class="toolbar">${config.models ? (config.models.every((m) => m.provider === "mock") ? badge("SIMULATION · aucun LLM appelé", "blue") : badge("API RÉELLES", "orange")) : badge("Stratégies fournies")}${d.archived ? badge("Copie exportée", "orange") : ""}${job ? status(job.status) : ""}<span class="mono muted" style="font-size:10px">${e(S.run)}</span><span class="spacer"></span>${job ? btn("Journal d’exécution", "job-log", `data-id="${e(job.id)}"`) : ""}</div><div class="tabs">${TABS.map(([key, label]) => `<button class="tab ${S.tab === key ? "active" : ""}" data-action="tab" data-tab="${key}">${label}</button>`).join("")}</div>`
+    `<div class="toolbar">${config.models ? (config.models.every((m) => m.provider === "mock") ? badge("MOCK RUN (no LLM calls)", "blue") : badge("REAL API CALLS", "orange")) : badge("Provided strategies")}${d.archived ? badge("Exported copy", "orange") : ""}${job ? status(job.status) : ""}<span class="mono muted" style="font-size:10px">${e(S.run)}</span><span class="spacer"></span>${job ? btn("Run log", "job-log", `data-id="${e(job.id)}"`) : ""}</div><div class="tabs">${TABS.map(([key, label]) => `<button class="tab ${S.tab === key ? "active" : ""}" data-action="tab" data-tab="${key}">${label}</button>`).join("")}</div>`
   );
 }
 function sessionChooser(d) {
@@ -541,17 +547,18 @@ function sessionChooser(d) {
   S.session = d.sessions.some((s) => s.id === S.session)
     ? S.session
     : d.sessions[0].id;
-  return `<div class="toolbar"><label for="session-choice">Conversation</label><select id="session-choice">${d.sessions.map((s) => `<option value="${e(s.id)}" ${s.id === S.session ? "selected" : ""}>${e(s.id)} · ${text(s.condition)} · ${text(s.status)}</option>`).join("")}</select><span class="spacer"></span><label class="check"><input id="follow-live" type="checkbox" ${S.follow ? "checked" : ""}>Suivre en direct</label></div>`;
+  return `<div class="toolbar"><label for="session-choice">Conversation</label><select id="session-choice">${d.sessions.map((s) => `<option value="${e(s.id)}" ${s.id === S.session ? "selected" : ""}>${e(s.id)} · ${text(s.condition)} · ${text(s.status)}</option>`).join("")}</select><span class="spacer"></span><label class="check"><input id="follow-live" type="checkbox" ${S.follow ? "checked" : ""}>Follow live</label></div>`;
 }
 async function renderRun(epoch) {
   const d = S.detail;
   let body = "";
   if (S.tab === "summary") {
     const statistics = await api("/api/statistics", { run: S.run });
+    if (epoch !== S.epoch) return;
     S.statistics = statistics;
     body = summary(d, statistics);
   } else if (S.tab === "config")
-    body = `<section class="panel"><h2>Configuration figée et provenance</h2><p class="muted">Cette configuration décrit l’exécution enregistrée. Pour la modifier, créez une copie et lancez une nouvelle compétition.</p><pre>${e(pretty(d.metadata))}</pre></section>`;
+    body = `<section class="panel"><h2>Frozen configuration and provenance</h2><p class="muted">These settings are frozen. Clone the configuration to run a different experiment.</p><pre>${e(pretty(d.metadata))}</pre></section>`;
   else if (S.tab === "conversation" || S.tab === "code") {
     const chooser = sessionChooser(d);
     if (!d.sessions.length && S.tab === "code") {
@@ -560,12 +567,12 @@ async function renderRun(epoch) {
       );
       body =
         notice(
-          "Sources figées du tournoi. Aucune génération ni écriture intermédiaire enregistrée.",
+          "Frozen tournament sources. No generation or intermediate edits were recorded.",
         ) + filesPage();
     } else if (!d.sessions.length)
       body = empty(
-        "Pas de conversation enregistrée",
-        "Ce tournoi reçoit directement du code .leek ; aucune requête de génération n’a été effectuée. Les participants simulés de la démo ont, eux, des conversations enregistrées.",
+        "No recorded conversation",
+        "This tournament received .leek files directly and made no generation requests. Mock participants in the demo do have recorded conversations.",
       );
     else if (S.tab === "conversation") {
       const data = await api("/api/conversation", {
@@ -599,7 +606,7 @@ async function renderRun(epoch) {
   $("#main").innerHTML = runHeader(d) + body;
   if (S.tab === "code" && d.sessions.length && S.versions?.versions?.length)
     await loadSource();
-  if (S.tab === "matches" && S.matches.length) await loadMatch();
+  if (S.tab === "matches" && S.matchPath) await loadMatch();
   if (
     (S.tab === "files" || (S.tab === "code" && !d.sessions.length)) &&
     S.files.length
@@ -610,13 +617,10 @@ async function renderRun(epoch) {
 }
 function bars(rows) {
   if (!rows.length)
-    return empty(
-      "Pas encore de scores",
-      "Les résultats apparaîtront après les combats.",
-    );
+    return empty("No scores yet", "Results appear after matches finish.");
   const width = 650,
     height = rows.length * 38 + 22;
-  return `<svg class="chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="Scores des stratégies">${rows.map((r, i) => `<text x="0" y="${i * 38 + 18}" class="chart-label">${e(r.label.length > 32 ? r.label.slice(0, 31) + "…" : r.label)}</text><rect x="258" y="${i * 38 + 5}" width="310" height="17" rx="4" fill="#f0f3fa"/><rect x="258" y="${i * 38 + 5}" width="${r.score == null ? 0 : 310 * r.score}" height="17" rx="4" fill="${COLORS[i % COLORS.length]}"/><text x="588" y="${i * 38 + 18}">${e(pct(r.score))}</text><title>${e(r.label)} : ${e(pct(r.score))}</title>`).join("")}</svg>`;
+  return `<svg class="chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="Strategy scores">${rows.map((r, i) => `<text x="0" y="${i * 38 + 18}" class="chart-label">${e(r.label.length > 32 ? r.label.slice(0, 31) + "..." : r.label)}</text><rect x="258" y="${i * 38 + 5}" width="310" height="17" rx="4" fill="#f0f3fa"/><rect x="258" y="${i * 38 + 5}" width="${r.score == null ? 0 : 310 * r.score}" height="17" rx="4" fill="${COLORS[i % COLORS.length]}"/><text x="588" y="${i * 38 + 18}">${e(pct(r.score))}</text><title>${e(r.label)} : ${e(pct(r.score))}</title>`).join("")}</svg>`;
 }
 function summary(d, statistics = null) {
   const r = d.report,
@@ -626,71 +630,71 @@ function summary(d, statistics = null) {
   return (
     (r.simulated
       ? notice(
-          "<strong>Participants simulés.</strong> Stratégies prédéfinies, combats réels, aucun appel API.",
+          "<strong>Mock participants.</strong> Predefined strategies, real matches, no API calls.",
         )
       : "") +
     (d.sessions.some((s) => s.status === "needs_reconciliation")
       ? notice(
-          "Une réponse API est incertaine. Vérifiez les identifiants de requête, les usages et la facturation avant toute décision de reprise. Aucun paiement incertain n’est relancé automatiquement.",
+          "An API call has an unknown outcome. Check its request ID and provider billing before resuming. It will not be retried automatically.",
           "warn",
         )
       : "") +
-    `<div class="metrics">${metric("Sessions terminées", `${done} / ${d.sessions.length}`, `${r.valid_submissions ?? 0} soumissions valides`)}${metric("Combats terminés", fmt(completed(r)), "Évaluation ; préparation consultable à part", "⚔")}${metric("Coût API", r.cost_usd === undefined ? "—" : money(r.cost_usd), r.reserved_usd && Number(r.reserved_usd) > 0 ? `${money(r.reserved_usd)} réservés` : "Simulation ou coût calculé sur usage", "↗")}${metric("Tokens entrée / sortie", r.input_tokens == null ? "Non mesurés" : `${fmt(r.input_tokens)} / ${fmt(r.output_tokens)}`, r.simulated ? "Pas de tokens de LLM dans une simulation" : "Valeurs inconnues conservées comme telles", "≋")}</div>` +
+    `<div class="metrics">${metric("Finished sessions", `${done} / ${d.sessions.length}`, `${r.valid_submissions ?? 0} valid submissions`)}${metric("Completed matches", fmt(completed(r)), "Evaluation only; preparation listed separately", "⚔")}${metric("API cost", r.cost_usd === undefined ? "N/A" : money(r.cost_usd), r.reserved_usd && Number(r.reserved_usd) > 0 ? `${money(r.reserved_usd)} reserved` : "Mock run or cost calculated from usage", "↗")}${metric("Input / output tokens", r.input_tokens == null ? "Not measured" : `${fmt(r.input_tokens)} / ${fmt(r.output_tokens)}`, r.simulated ? "No LLM tokens in mock runs" : "Unavailable values stay unknown", "≋")}</div>` +
     (statistics ? competitionStatistics(statistics) : "") +
     (a
-      ? `<section class="panel"><div class="panel-title"><div><h2>Performance des stratégies</h2><small>G0 et G1 évaluées contre un même panel, sur les seeds finales.</small></div><select id="panel-choice" aria-label="Panel d’évaluation">${["all", "controls", "g0"].map((p) => `<option value="${p}" ${S.panel === p ? "selected" : ""}>${text(p)}</option>`).join("")}</select></div>${bars(rows.map((v) => ({ label: v.session, score: v.score })))}<p class="muted" style="font-size:11px;margin:13px 0 0">Score = (victoires + 0,5 × nuls) / combats terminés. Les miroirs sont séparés. « Panel complet » inclut les stratégies G0 figées et les contrôles écrits à la main.</p></section>
- <section class="panel flush"><div class="panel-head"><div><h2>Résultats détaillés</h2><p>Les opérations mesurent le calcul LeekScript, pas les tokens ni un coût en dollars.</p></div></div>${table(
+      ? `<section class="panel"><div class="panel-title"><div><h2>Strategy performance</h2><small>G0 and G1 evaluated against the same panel on final seeds.</small></div><select id="panel-choice" aria-label="Evaluation panel">${["all", "controls", "g0"].map((p) => `<option value="${p}" ${S.panel === p ? "selected" : ""}>${text(p)}</option>`).join("")}</select></div>${bars(rows.map((v) => ({ label: v.session, score: v.score })))}<p class="muted" style="font-size:11px;margin:13px 0 0">Score = (wins + 0.5 × draws) / completed matches. Mirrors are excluded. The full panel includes frozen G0 strategies and handwritten controls.</p></section>
+ <section class="panel flush"><div class="panel-head"><div><h2>Detailed results</h2><p>Operations measure LeekScript computation. They are separate from tokens and API cost.</p></div></div>${table(
    [
-     "Stratégie",
+     "Strategy",
      "Version",
      "Score",
-     "Combats / pannes",
-     "Opérations",
-     "Erreurs / limite",
-     "Entrée / sortie",
-     "Coût API / trajectoire",
+     "Matches / failures",
+     "Operations",
+     "Errors / limit",
+     "Input / output",
+     "API cost / trajectoire",
    ],
    rows.map(
      (v) =>
-       `<tr><td><button class="table-button" data-action="session-conversation" data-session="${e(v.session)}">${e(v.session)}</button><small>${e(v.model)} · répétition ${v.replicate + 1}</small></td><td>G${v.generation}<small>${text(v.condition)}</small></td><td class="score numeric">${pct(v.score)}</td><td class="numeric">${fmt(v.completed)} / ${fmt(v.failed)}</td><td class="numeric">${fmt(v.operations)}</td><td class="numeric">${fmt(v.errors)} / ${fmt(v.operation_limit_hits)}</td><td class="numeric">${fmt(v.input_tokens)} / ${fmt(v.output_tokens)}</td><td class="numeric">${money(v.cost_usd)}<small>avec G0 : ${money(v.trajectory_cost_usd)}</small></td></tr>`,
+       `<tr><td><button class="table-button" data-action="session-conversation" data-session="${e(v.session)}">${e(v.session)}</button><small>${e(v.model)} · repetition ${v.replicate + 1}</small></td><td>G${v.generation}<small>${text(v.condition)}</small></td><td class="score numeric">${pct(v.score)}</td><td class="numeric">${fmt(v.completed)} / ${fmt(v.failed)}</td><td class="numeric">${fmt(v.operations)}</td><td class="numeric">${fmt(v.errors)} / ${fmt(v.operation_limit_hits)}</td><td class="numeric">${fmt(v.input_tokens)} / ${fmt(v.output_tokens)}</td><td class="numeric">${money(v.cost_usd)}<small>including G0: ${money(v.trajectory_cost_usd)}</small></td></tr>`,
    ),
  )}</section>
- <div class="grid two"><section class="panel"><h2>Le feedback a-t-il changé le résultat ?</h2><p class="muted">Différence G1 avec feedback − G1 sans feedback, à partir de la même conversation G0.</p>${(a.paired || []).map((p) => `<div class="info-row"><span>${e(p.parent)}</span><strong>${p.feedback_minus_control == null ? "Indisponible" : (p.feedback_minus_control >= 0 ? "+" : "") + fmt(p.feedback_minus_control * 100, 1) + " points"}</strong></div>`).join("")}<p class="muted" style="font-size:10px;margin-top:12px">${a.interval_95_exploratory ? `Intervalle exploratoire : ${e(pretty(a.interval_95_exploratory))}` : "Pas d’intervalle estimé : trop peu de conversations complètes."} Les démos simulées ne permettent aucune conclusion sur de vrais modèles.</p></section><section class="panel"><h2>Versions et conditions</h2><div class="info-row"><span>G0</span><strong>Première stratégie</strong></div><div class="info-row"><span>G1 sans feedback</span><strong>Amélioration sans résultats de combat</strong></div><div class="info-row"><span>G1 avec feedback</span><strong>Amélioration avec résultats</strong></div><p class="muted" style="font-size:11px;margin-top:13px">Les deux branches repartent du même code et du même historique. Leurs adversaires de mesure restent les mêmes.</p></section></div>`
+ <div class="grid two"><section class="panel"><h2>Feedback effect</h2><p class="muted">G1 feedback minus G1 control, starting from the same G0 conversation.</p>${(a.paired || []).map((p) => `<div class="info-row"><span>${e(p.parent)}</span><strong>${p.feedback_minus_control == null ? "Unavailable" : (p.feedback_minus_control >= 0 ? "+" : "") + fmt(p.feedback_minus_control * 100, 1) + " points"}</strong></div>`).join("")}<p class="muted" style="font-size:10px;margin-top:12px">${a.interval_95_exploratory ? `Exploratory interval: ${e(pretty(a.interval_95_exploratory))}` : "Not enough complete conversations to estimate an interval."} Mock demos do not measure real model performance.</p></section><section class="panel"><h2>Versions and conditions</h2><div class="info-row"><span>G0</span><strong>Initial strategy</strong></div><div class="info-row"><span>G1 without feedback</span><strong>Improvement without match results</strong></div><div class="info-row"><span>G1 with feedback</span><strong>Improvement with match results</strong></div><p class="muted" style="font-size:11px;margin-top:13px">Both branches inherit the same code and history and are evaluated against the same opponents.</p></section></div>`
       : "") +
     (d.standings
-      ? `<section class="panel"><h2>Classement du tournoi</h2>${bars(d.standings.map((v) => ({ label: v.strategy || v.id, score: v.score })))}${raw(d.standings, "Toutes les statistiques du classement")}</section>`
+      ? `<section class="panel"><h2>Tournament standings</h2>${bars(d.standings.map((v) => ({ label: v.strategy || v.id, score: v.score })))}${raw(d.standings, "Full standings statistics")}</section>`
       : "") +
-    `<section class="panel flush"><div class="panel-head"><h2>État des conversations</h2></div>${
+    `<section class="panel flush"><div class="panel-head"><h2>Conversation status</h2></div>${
       d.sessions.length
         ? table(
             [
               "Session",
               "Condition",
-              "État",
-              "Appels / outils",
-              "Préparation",
-              "Temps",
+              "Status",
+              "Calls / tools",
+              "Preparation",
+              "Time",
               "",
             ],
             d.sessions.map(
               (s) =>
-                `<tr><td><strong>${e(s.id)}</strong><small>${s.messages} messages</small></td><td>G${s.generation || 0} · ${text(s.condition)}</td><td>${status(s.status)} ${s.validity ? status(s.validity) : ""}</td><td>${s.calls} / ${s.steps}</td><td>${s.test_matches} combats</td><td>${fmt(s.wall_seconds, 1)} s</td><td>${btn("Explorer", "session-conversation", `data-session="${e(s.id)}"`)}</td></tr>`,
+                `<tr><td><strong>${e(s.id)}</strong><small>${s.messages} messages</small></td><td>G${s.generation || 0} · ${text(s.condition)}</td><td>${status(s.status)} ${s.validity ? status(s.validity) : ""}</td><td>${s.calls} / ${s.steps}</td><td>${s.test_matches} combats</td><td>${fmt(s.wall_seconds, 1)} s</td><td>${btn("Explore", "session-conversation", `data-session="${e(s.id)}"`)}</td></tr>`,
             ),
           )
         : empty(
-            "Sessions en préparation",
-            "Les états apparaîtront ici au fil de l’exécution.",
+            "Sessions not started",
+            "Session states appear during execution.",
           )
     }</section>` +
-    `<section class="panel">${raw(r, "Synthèse complète, métriques et résultats bruts")}${d.g0 ? raw(d.g0, "Tournoi contemporain G0 — classement et miroirs") : ""}${d.g1 ? raw(d.g1, "Tournoi contemporain G1 — classement et miroirs") : ""}${a ? raw(a, "Analyse complète, absences, agrégations et frontière coût / performance") : ""}</section>`
+    `<section class="panel">${raw(r, "Full summary and raw metrics")}${d.g0 ? raw(d.g0, "G0 tournament: standings and mirrors") : ""}${d.g1 ? raw(d.g1, "G1 tournament: standings and mirrors") : ""}${a ? raw(a, "Full analysis, missing results, aggregates and cost/performance frontier") : ""}</section>`
   );
 }
 function conversation(data) {
   return (
     notice(
-      "Tous les messages enregistrés sont affichables : prompts, réponses exposées par l’API, appels d’outils et retours. Le raisonnement interne non fourni par une API n’est pas accessible.",
+      "Recorded prompts, responses, tool calls and results. Internal reasoning is shown only when returned by the provider.",
     ) +
-    `<div class="pager"><span>${fmt(data.total)} messages · ${status(data.status)}</span><div class="actions">${btn("← Précédents", "conversation-page", `data-offset="${Math.max(0, S.offset - 25)}" ${S.offset === 0 ? "disabled" : ""}`)}<span>${S.offset + 1}–${Math.min(data.total, S.offset + 25)}</span>${btn("Suivants →", "conversation-page", `data-offset="${S.offset + 25}" ${S.offset + 25 >= data.total ? "disabled" : ""}`)}</div></div>` +
+    `<div class="pager"><span>${fmt(data.total)} messages · ${status(data.status)}</span><div class="actions">${btn("← Previous", "conversation-page", `data-offset="${Math.max(0, S.offset - 25)}" ${S.offset === 0 ? "disabled" : ""}`)}<span>${S.offset + 1}-${Math.min(data.total, S.offset + 25)}</span>${btn("Next →", "conversation-page", `data-offset="${S.offset + 25}" ${S.offset + 25 >= data.total ? "disabled" : ""}`)}</div></div>` +
     data.messages
       .map((m, index) => {
         const native = m.native,
@@ -712,7 +716,7 @@ function conversation(data) {
                           .map((p) => p.text)
                           .join("\n")
                       : m.content || "";
-        return `<article class="chat-message ${e(m.role)}" id="message-${S.offset + index}"><div class="message-head"><strong>${m.role === "user" ? "PROMPT / CONSIGNE" : m.role === "assistant" ? "RÉPONSE DE L’IA" : "RÉSULTAT D’OUTIL"} ${m.name ? "· " + e(m.name) : ""}</strong><span>Message ${S.offset + index + 1}${m.generation != null ? " · G" + m.generation : ""}${m.simulated ? " · simulé" : ""}</span></div>${content ? `<div class="message-content">${e(content)}</div>` : ""}${(m.tool_calls || []).map((c) => `<div class="tool-call"><strong>↳ ${e(c.name)}</strong><pre>${e(pretty(c.arguments))}</pre></div>`).join("")}${m.role === "user" && m.budgets ? raw({ budgets: m.budgets, scenario: m.scenario, feedback: m.feedback }, "Budgets, scénario et feedback inclus dans ce message") : ""}${m.usage ? `<div style="margin-top:12px"><small>Entrée ${fmt(m.usage.input_tokens)} · Sortie ${fmt(m.usage.output_tokens)} · Coût ${money(m.cost_usd)} · ${fmt(m.elapsed_seconds, 3)} s</small></div>` : ""}${m.sent_parameters ? `<div class="request-meta"><small>Seed envoyée : ${e(m.sent_parameters.seed ?? m.sent_parameters.generationConfig?.seed ?? (m.provider === "anthropic" ? "non disponible" : m.simulated ? "sans objet" : "non fixée"))}${m.model_version ? ` · Modèle retourné : ${e(m.model_version)}` : ""}${m.system_fingerprint ? ` · Backend : ${e(m.system_fingerprint)}` : ""}</small>${m.request_sha256 ? `<small class="mono">SHA-256 requête (JSON canonique) : ${e(m.request_sha256)}</small>` : ""}${raw(m.sent_parameters, "Requête envoyée — prompts, historique, outils et paramètres")}</div>` : ""}${raw(m, "Objet intégral enregistré — réponse native, requête, outils et métadonnées")}</article>`;
+        return `<article class="chat-message ${e(m.role)}" id="message-${S.offset + index}"><div class="message-head"><strong>${m.role === "user" ? "PROMPT" : m.role === "assistant" ? "MODEL RESPONSE" : "TOOL RESULT"} ${m.name ? "· " + e(m.name) : ""}</strong><span>Message ${S.offset + index + 1}${m.generation != null ? " · G" + m.generation : ""}${m.simulated ? " · mock" : ""}</span></div>${content ? `<div class="message-content">${e(content)}</div>` : ""}${(m.tool_calls || []).map((c) => `<div class="tool-call"><strong>↳ ${e(c.name)}</strong><pre>${e(pretty(c.arguments))}</pre></div>`).join("")}${m.role === "user" && m.budgets ? raw({ budgets: m.budgets, scenario: m.scenario, feedback: m.feedback }, "Budgets, scenario and feedback in this message") : ""}${m.usage ? `<div style="margin-top:12px"><small>Input ${fmt(m.usage.input_tokens)} · Output ${fmt(m.usage.output_tokens)} · Cost ${money(m.cost_usd)} · ${fmt(m.elapsed_seconds, 3)} s</small></div>` : ""}${m.sent_parameters ? `<div class="request-meta"><small>Sent seed: ${e(m.sent_parameters.seed ?? m.sent_parameters.generationConfig?.seed ?? (m.provider === "anthropic" ? "not available" : m.simulated ? "not applicable" : "not set"))}${m.model_version ? ` · Returned model: ${e(m.model_version)}` : ""}${m.system_fingerprint ? ` · Backend: ${e(m.system_fingerprint)}` : ""}</small>${m.request_sha256 ? `<small class="mono">Request SHA-256 (canonical JSON): ${e(m.request_sha256)}</small>` : ""}${raw(m.sent_parameters, "Sent request: prompts, history, tools and parameters")}</div>` : ""}${raw(m, "Full record: native response, request, tools and metadata")}</article>`;
       })
       .join("")
   );
@@ -720,8 +724,8 @@ function conversation(data) {
 function codePage(data) {
   if (!data.versions.length)
     return empty(
-      "Pas encore de fichier écrit",
-      "Les versions apparaissent après chaque écriture confirmée par un outil. Les fichiers figés restent également accessibles dans l’onglet Fichiers.",
+      "No files written yet",
+      "Versions appear after successful file writes. Frozen sources are also available under Files.",
     );
   S.version = Math.min(
     S.version ?? data.versions.length - 1,
@@ -731,9 +735,9 @@ function codePage(data) {
   S.file = current.files.includes(S.file) ? S.file : current.files[0];
   return (
     notice(
-      "Pas besoin de Git dans les dossiers des IA : le journal conserve les écritures et leurs empreintes. Ici, une version correspond à une écriture réussie. Les branches G1 incluent l’historique hérité de G0.",
+      "Each successful file write creates a version in the journal. G1 versions include inherited G0 history. Git is not required in participant folders.",
     ) +
-    `<div class="code-grid"><section class="panel"><h3>Historique des écritures</h3><div class="version-list">${data.versions.map((v) => `<button class="version-button ${v.index === S.version ? "active" : ""}" data-action="version" data-version="${v.index}"><strong>Version ${v.index + 1} <span class="timeline-tag">G${v.generation}</span></strong>${e(v.path)}<small>Après le message ${v.message + 1} · ${v.files.length} fichier(s)</small></button>`).join("")}</div></section><section class="panel"><div class="toolbar"><select id="source-file" aria-label="Fichier à consulter">${current.files.map((f) => `<option ${f === S.file ? "selected" : ""}>${e(f)}</option>`).join("")}</select><span class="spacer"></span>${btn("Voir la conversation", "version-message", `data-message="${current.message}"`)}</div><div class="toolbar"><label for="source-previous">Comparer à</label><select id="source-previous"><option value="-1">État vide</option>${data.versions
+    `<div class="code-grid"><section class="panel"><h3>File write history</h3><div class="version-list">${data.versions.map((v) => `<button class="version-button ${v.index === S.version ? "active" : ""}" data-action="version" data-version="${v.index}"><strong>Version ${v.index + 1} <span class="timeline-tag">G${v.generation}</span></strong>${e(v.path)}<small>After message ${v.message + 1} · ${v.files.length} files</small></button>`).join("")}</div></section><section class="panel"><div class="toolbar"><select id="source-file" aria-label="File">${current.files.map((f) => `<option ${f === S.file ? "selected" : ""}>${e(f)}</option>`).join("")}</select><span class="spacer"></span>${btn("Open conversation", "version-message", `data-message="${current.message}"`)}</div><div class="toolbar"><label for="source-previous">Compare with</label><select id="source-previous"><option value="-1">Empty state</option>${data.versions
       .slice(0, S.version)
       .map(
         (v) =>
@@ -741,7 +745,7 @@ function codePage(data) {
       )
       .join(
         "",
-      )}</select></div><div id="source-content">Chargement…</div></section></div>`
+      )}</select></div><div id="source-content">Loading...</div></section></div>`
   );
 }
 async function loadSource() {
@@ -765,7 +769,7 @@ async function loadSource() {
   )
     return;
   $("#source-content").innerHTML =
-    `<h3>Code à la version ${v + 1}</h3><pre class="source">${e(d.after)}</pre><details open><summary>Différences avec l’état sélectionné</summary><pre class="source">${
+    `<h3>Code at version ${v + 1}</h3><pre class="source">${e(d.after)}</pre><details open><summary>Changes from the selected version</summary><pre class="source">${
       d.diff
         ? d.diff
             .split("\n")
@@ -774,11 +778,11 @@ async function loadSource() {
                 `<span class="diff-line ${l.startsWith("+") && !l.startsWith("+++") ? "add" : l.startsWith("-") && !l.startsWith("---") ? "remove" : l.startsWith("@@") ? "meta" : ""}">${e(l)}</span>`,
             )
             .join("")
-        : "Aucun changement dans ce fichier."
+        : "No changes in this file."
     }</pre></details><small class="mono">SHA-256 : ${e(d.sha256)}</small>`;
 }
 function filesPage() {
-  return `<div class="files-grid"><section class="panel"><h3>Fichiers de l’expérience</h3><input id="file-search" type="search" placeholder="Filtrer les chemins…" aria-label="Filtrer les fichiers" style="width:100%;margin-bottom:12px"><label class="check"><input id="engine-files" type="checkbox">Inclure les données statiques du moteur</label><small>${fmt(S.files.length)} fichiers consultables</small><div id="file-list" class="file-list">${fileButtons(S.files)}</div></section><section class="panel"><div id="file-title" class="panel-title"></div><div id="file-content">Choisir un fichier.</div></section></div>`;
+  return `<div class="files-grid"><section class="panel"><h3>Experiment files</h3><input id="file-search" type="search" placeholder="Filter paths..." aria-label="Filter files" style="width:100%;margin-bottom:12px"><label class="check"><input id="engine-files" type="checkbox">Include static engine data</label><small>${fmt(S.files.length)} available files</small><div id="file-list" class="file-list">${fileButtons(S.files)}</div></section><section class="panel"><div id="file-title" class="panel-title"></div><div id="file-content">Select a file.</div></section></div>`;
 }
 function fileButtons(files) {
   if (!$("#engine-files")?.checked) files = files.filter((f) => !f.engine_data);
@@ -790,16 +794,14 @@ function fileButtons(files) {
           `<button class="file-button ${S.file === f.path ? "active" : ""}" data-action="file" data-path="${e(f.path)}">${e(f.path)} <small>· ${fmt(f.size / 1024, 1)} Ko</small></button>`,
       )
       .join("") +
-    (files.length > 1500
-      ? "<small>Filtrer pour retrouver les autres fichiers.</small>"
-      : "")
+    (files.length > 1500 ? "<small>Filter to find more files.</small>" : "")
   );
 }
 async function loadFile(path) {
   S.file = path;
   const epoch = S.epoch;
   $("#file-title").innerHTML =
-    `<h3 class="mono" style="overflow-wrap:anywhere">${e(path)}</h3>${/\.(md|json)$/i.test(path) ? `<div class="actions">${btn("Brut", "file-mode", 'data-mode="raw"')}${btn("Interprété", "file-mode", 'data-mode="rendered"')}</div>` : ""}<a class="button small" href="/api/file?${query({ run: S.run, path, download: 1 })}" download>Télécharger</a>`;
+    `<h3 class="mono" style="overflow-wrap:anywhere">${e(path)}</h3>${/\.(md|json)$/i.test(path) ? `<div class="actions">${btn("Raw", "file-mode", 'data-mode="raw"')}${btn("Rendered", "file-mode", 'data-mode="rendered"')}</div>` : ""}<a class="button small" href="/api/file?${query({ run: S.run, path, download: 1 })}" download>Download</a>`;
   const response = await fetch("/api/file?" + query({ run: S.run, path }));
   const content = await response.text();
   if (epoch !== S.epoch || S.file !== path) return;
@@ -813,26 +815,81 @@ async function loadFile(path) {
   );
 }
 function eventsPage(data) {
-  return `<section class="panel"><h2>Journal chronologique</h2><p class="muted">Intentions, réponses, réservations, outils et évaluations. Les artefacts sont vérifiés par empreinte lors de leur ouverture.</p><div class="toolbar"><select id="event-session" aria-label="Filtrer les événements par session"><option value="">Toutes les sessions</option>${S.detail.sessions.map((s) => `<option value="${e(s.id)}" ${S.session === s.id ? "selected" : ""}>${e(s.id)}</option>`).join("")}</select><span class="muted">${fmt(data.total)} événements</span></div>${table(
-    ["N°", "Horodatage", "Session", "Type", ""],
+  return `<section class="panel"><h2>Event log</h2><p class="muted">Calls, responses, reservations, tools and evaluations. Opening an event checks its artifact hash.</p><div class="toolbar"><select id="event-session" aria-label="Filter events by session"><option value="">All sessions</option>${S.detail.sessions.map((s) => `<option value="${e(s.id)}" ${S.session === s.id ? "selected" : ""}>${e(s.id)}</option>`).join("")}</select><span class="muted">${fmt(data.total)} events</span></div>${table(
+    ["N°", "Timestamp", "Session", "Type", ""],
     data.events.map(
       (v) =>
-        `<tr><td>${v.id}</td><td>${date(v.at)}</td><td>${e(v.session)}</td><td><code>${e(v.kind)}</code></td><td>${btn("Voir l’artefact", "event", `data-id="${v.id}"`)}</td></tr>`,
+        `<tr><td>${v.id}</td><td>${date(v.at)}</td><td>${e(v.session)}</td><td><code>${e(v.kind)}</code></td><td>${btn("View artifact", "event", `data-id="${v.id}"`)}</td></tr>`,
     ),
-  )}<div class="pager"><span>Événements ${S.offset + 1}–${Math.min(data.total, S.offset + 100)}</span><div class="actions">${btn("← Précédents", "event-page", `data-offset="${Math.max(0, S.offset - 100)}" ${S.offset === 0 ? "disabled" : ""}`)}${btn("Suivants →", "event-page", `data-offset="${S.offset + 100}" ${S.offset + 100 >= data.total ? "disabled" : ""}`)}</div></div></section>`;
+  )}<div class="pager"><span>Events ${S.offset + 1}-${Math.min(data.total, S.offset + 100)}</span><div class="actions">${btn("← Previous", "event-page", `data-offset="${Math.max(0, S.offset - 100)}" ${S.offset === 0 ? "disabled" : ""}`)}${btn("Next →", "event-page", `data-offset="${S.offset + 100}" ${S.offset + 100 >= data.total ? "disabled" : ""}`)}</div></div></section>`;
+}
+function stageText(stage) {
+  return (
+    {
+      ".": "Tournament",
+      tournament: "G0 tournament",
+      "g1-tournament": "G1 tournament",
+      "evaluations/g0-panel": "G0 reference panel",
+      "evaluations/g1-panel": "G1 reference panel",
+      préparation: "Preparation",
+    }[stage] || stage
+  );
+}
+function matchSubset() {
+  const f = S.matchFilters || {};
+  return S.matches.filter((m) => {
+    if (f.stage && m.stage !== f.stage) return false;
+    if (f.entrant && !m.sides.includes(f.entrant)) return false;
+    if (
+      f.opponent &&
+      (!m.sides.includes(f.opponent) ||
+        m.mirror ||
+        m.sides[0] === m.sides[1] ||
+        (f.entrant && m.sides[1 - m.sides.indexOf(f.entrant)] !== f.opponent))
+    )
+      return false;
+    if (
+      f.search &&
+      !`${m.sides.join(" ")} ${m.seed}`
+        .toLowerCase()
+        .includes(f.search.toLowerCase())
+    )
+      return false;
+    const completed = m.result.status === "completed",
+      side = f.entrant ? m.sides.indexOf(f.entrant) : 0;
+    if (f.outcome === "failure") return !completed;
+    if (f.outcome === "completed") return completed;
+    if (f.outcome === "draw") return completed && m.result.winner_side === -1;
+    if (f.outcome === "win") return completed && m.result.winner_side === side;
+    if (f.outcome === "loss")
+      return (
+        completed &&
+        m.result.winner_side !== -1 &&
+        m.result.winner_side !== side
+      );
+    return true;
+  });
 }
 function matchesPage() {
-  const stages = [...new Set(S.matches.map((m) => m.stage))];
-  S.matchPath = S.matchPath || S.matches[0]?.path;
-  return (
-    `<div class="toolbar"><input type="search" id="match-search" placeholder="Filtrer les adversaires ou la seed…" aria-label="Filtrer les combats"><select id="match-stage" aria-label="Étape de compétition"><option value="">Toutes les étapes</option>${stages.map((v) => `<option value="${e(v)}">${e(v === "." ? "Tournoi" : v)}</option>`).join("")}</select><span class="muted">${fmt(S.matches.length)} combats enregistrés, préparation incluse</span></div>` +
-    (S.matches.length
-      ? `<div class="match-layout"><div id="match-list" class="match-list">${matchButtons(S.matches)}</div><section class="panel" id="match-detail">Chargement du combat…</section></div>`
-      : empty(
-          "Les combats n’ont pas encore commencé",
-          "Les replays et les échecs d’infrastructure apparaîtront ici au fil de l’exécution.",
-        ))
-  );
+  const f = S.matchFilters || {},
+    stages = [...new Set(S.matches.map((m) => m.stage))],
+    participants = [...new Set(S.matches.flatMap((m) => m.sides))].sort();
+  const rows = matchSubset();
+  S.matchPath =
+    rows.find((m) => m.path === S.matchPath)?.path || rows[0]?.path || null;
+  return `<div class="match-filters">${field("Search", "match-search", f.search || "", "search", "", 'id="match-search"')}${selectField("Stage", "match-stage", [["", "All stages"], ...stages.map((s) => [s, stageText(s)])], f.stage || "")}${selectField("Participant", "match-entrant", [["", "All participants"], ...participants.map((p) => [p, p])], f.entrant || "")}${selectField("Opponent", "match-opponent", [["", "All opponents"], ...participants.map((p) => [p, p])], f.opponent || "")}${selectField(
+    "Outcome for participant (or side 1)",
+    "match-outcome",
+    [
+      ["", "All outcomes"],
+      ["win", "Wins"],
+      ["draw", "Draws"],
+      ["loss", "Losses"],
+      ["failure", "Failures"],
+      ["completed", "Completed"],
+    ],
+    f.outcome || "",
+  )}<div class="actions">${btn("Clear filters", "clear-match-filters")}<span id="match-filter-count" class="muted">${rows.length} / ${S.matches.length} matches</span></div></div>${S.matches.length ? `<div class="match-layout"><div id="match-list" class="match-list">${matchButtons(rows)}</div><section class="panel" id="match-detail">${rows.length ? "Loading match..." : empty("No matches found", "Change or clear the filters.")}</section></div>` : empty("No matches recorded", "Matches appear here during execution.")}`;
 }
 function matchButtons(rows) {
   return (
@@ -840,12 +897,10 @@ function matchButtons(rows) {
       .slice(0, 800)
       .map(
         (m) =>
-          `<button class="match-card ${m.path === S.matchPath ? "active" : ""}" data-action="match" data-path="${e(m.path)}"><span class="badge ${m.stage.includes("panel") ? "blue" : ""}">${e(m.stage === "." ? "Tournoi" : m.stage)}</span><strong>${e(m.sides[0])}<br><span class="muted">contre</span> ${e(m.sides[1])}</strong><small>Seed ${e(m.seed)} · ${m.mirror ? "miroir · " : ""}${m.result.status === "completed" ? (m.result.winner_side === -1 ? "Match nul" : "Victoire : " + e(m.sides[m.result.winner_side])) : e(text(m.result.status))}</small></button>`,
+          `<button class="match-card ${m.path === S.matchPath ? "active" : ""}" data-action="match" data-path="${e(m.path)}"><span class="badge ${m.stage.includes("panel") ? "blue" : ""}">${e(stageText(m.stage))}</span><strong>${e(m.sides[0])}<br><span class="muted">vs</span> ${e(m.sides[1])}</strong><small>Seed ${e(m.seed)} · ${m.mirror ? "mirror · " : ""}${m.result.status === "completed" ? (m.result.winner_side === -1 ? "Draw" : "Winner: " + e(m.sides[m.result.winner_side])) : e(text(m.result.status))}</small></button>`,
       )
       .join("") +
-    (rows.length > 800
-      ? "<small>Filtrer pour retrouver les autres combats.</small>"
-      : "")
+    (rows.length > 800 ? "<small>Filter to find more matches.</small>" : "")
   );
 }
 async function loadMatch() {
@@ -858,7 +913,7 @@ async function loadMatch() {
   const row = S.matches.find((m) => m.path === path),
     result = data.result;
   $("#match-detail").innerHTML =
-    `<div class="panel-title"><div><h2>${result.status === "completed" ? (result.winner_side === -1 ? "Match nul" : "Victoire de " + e(row.sides[result.winner_side])) : e(text(result.status))}</h2><small>Seed ${e(row.seed)} · ${fmt(result.turns)} tours · ${fmt(result.elapsed_seconds, 2)} s</small></div>${status(result.status)}</div>${row.mirror ? notice("Match miroir : utile pour observer les effets de position ; exclu du score de classement.") : ""}${data.replay ? `<svg id="replay-board" class="board" role="img" aria-label="Carte du combat et positions des entités"></svg><div class="replay-controls">${btn("▷", "replay-play", 'id="replay-play" aria-label="Lire ou mettre en pause"')}${btn("←", "replay-prev", 'aria-label="Action précédente"')}<input id="replay-range" type="range" min="0" max="${data.replay.events.length}" value="0" aria-label="Position dans le replay">${btn("→", "replay-next", 'aria-label="Action suivante"')}<select id="replay-speed" aria-label="Vitesse de lecture"><option value="400">× 1</option><option value="150">× 2</option><option value="50">× 4</option></select></div><div class="toolbar"><strong id="replay-label" style="font-size:11px"></strong><span class="spacer"></span><span id="replay-count" class="muted" style="font-size:10px"></span></div><div id="replay-entities" class="entity-list"></div><div id="replay-events" class="event-list"></div><p class="muted" style="font-size:10px;margin-top:13px">${e(data.replay.note)}${data.replay.unknown_codes.length ? " Actions non projetées : " + e(data.replay.unknown_codes.join(", ")) + "." : ""}</p>` : notice(e(result.error || "Ce combat ne contient pas de replay exploitable."), "warn")}${data.statistics ? combatStatistics(data.statistics) : ""}${raw(result, "Métriques complètes : calcul, erreurs et résultat")}${data.scenario ? raw(data.scenario, "Scénario exact du combat") : ""}${raw(data.provenance, "Stratégies, empreintes et provenance")}${data.outcome ? raw(data.outcome, "Replay brut complet, actions et logs") : ""}`;
+    `<div class="panel-title"><div><h2>${result.status === "completed" ? (result.winner_side === -1 ? "Draw" : "Winner: " + e(row.sides[result.winner_side])) : e(text(result.status))}</h2><small>Seed ${e(row.seed)} · ${result.turns == null ? "N/A turns" : countLabel(result.turns, "turn")} · ${fmt(result.elapsed_seconds, 2)} s</small></div>${status(result.status)}</div>${row.mirror ? notice("Mirror match: excluded from the standings.") : ""}${data.replay ? `<svg id="replay-board" class="board" role="img" aria-label="Match map and entity positions"></svg><div class="replay-controls">${btn("▷", "replay-play", 'id="replay-play" aria-label="Play or pause"')}${btn("←", "replay-prev", 'aria-label="Previous action"')}<input id="replay-range" type="range" min="0" max="${data.replay.events.length}" value="0" aria-label="Replay position">${btn("→", "replay-next", 'aria-label="Next action"')}<select id="replay-speed" aria-label="Playback speed"><option value="400">× 1</option><option value="150">× 2</option><option value="50">× 4</option></select></div><div class="toolbar"><strong id="replay-label" style="font-size:11px"></strong><span class="spacer"></span><span id="replay-count" class="muted" style="font-size:10px"></span></div><div id="replay-entities" class="entity-list"></div><div id="replay-events" class="event-list"></div><p class="muted" style="font-size:10px;margin-top:13px">${e(data.replay.note)}${data.replay.unknown_codes.length ? " Actions not visualized: " + e(data.replay.unknown_codes.join(", ")) + "." : ""}</p>` : notice(e(result.error || "No replay is available for this match."), "warn")}${data.statistics ? combatStatistics(data.statistics) : ""}${raw(result, "Full metrics: computation, errors and result")}${data.scenario ? raw(data.scenario, "Exact match scenario") : ""}${raw(data.provenance, "Strategies, hashes and provenance")}${data.outcome ? raw(data.outcome, "Full raw replay, actions and logs") : ""}`;
   S.combatStatistics = data.statistics;
   $$(".match-card").forEach((n) =>
     n.classList.toggle("active", n.dataset.path === path),
@@ -969,18 +1024,18 @@ function renderReplay(index) {
         const c = R.cellsById.get(v.cellPos);
         if (!c) return "";
         const color = v.team === 1 ? "#5278e5" : "#c77749";
-        return `<g class="${v.alive ? "" : "dead"}"><ellipse cx="${c.x}" cy="${c.y + 2}" rx="10" ry="5" fill="${color}" opacity=".18"/>${state.actor === v.id ? `<circle cx="${c.x}" cy="${c.y - 5}" r="10" fill="none" stroke="${color}" stroke-width="1"/>` : ""}<circle cx="${c.x}" cy="${c.y - 5}" r="7" fill="${color}"/><text class="entity-label" x="${c.x}" y="${c.y - 5}">${v.id}</text><rect x="${c.x - 9}" y="${c.y - 16}" width="18" height="2" rx="1" fill="#cdd6e7"/><rect x="${c.x - 9}" y="${c.y - 16}" width="${18 * Math.max(0, Math.min(1, v.life / (v.maxLife || 1)))}" height="2" rx="1" fill="${color}"/><title>${e(v.name)} · ${v.life}/${v.maxLife} PV · case ${v.cellPos}</title></g>`;
+        return `<g class="${v.alive ? "" : "dead"}"><ellipse cx="${c.x}" cy="${c.y + 2}" rx="10" ry="5" fill="${color}" opacity=".18"/>${state.actor === v.id ? `<circle cx="${c.x}" cy="${c.y - 5}" r="10" fill="none" stroke="${color}" stroke-width="1"/>` : ""}<circle cx="${c.x}" cy="${c.y - 5}" r="7" fill="${color}"/><text class="entity-label" x="${c.x}" y="${c.y - 5}">${v.id}</text><rect x="${c.x - 9}" y="${c.y - 16}" width="18" height="2" rx="1" fill="#cdd6e7"/><rect x="${c.x - 9}" y="${c.y - 16}" width="${18 * Math.max(0, Math.min(1, v.life / (v.maxLife || 1)))}" height="2" rx="1" fill="${color}"/><title>${e(v.name)} · ${v.life}/${v.maxLife} HP · cell ${v.cellPos}</title></g>`;
       })
       .join("");
   $("#replay-range").value = index;
   $("#replay-label").textContent = state.last
-    ? `Tour ${state.turn} · ${state.last.text}`
-    : "Positions initiales";
+    ? `Turn ${state.turn} · ${state.last.text}`
+    : "Initial positions";
   $("#replay-count").textContent = `Action ${index} / ${R.events.length}`;
   $("#replay-entities").innerHTML = entities
     .map(
       (v) =>
-        `<div class="entity-card"><strong style="color:${v.team === 1 ? "#5278e5" : "#c77749"}">● ${e(v.name)} (#${v.id})</strong><span style="float:right">${v.life} / ${v.maxLife} PV</span><div class="hp-track"><div class="hp-fill" style="width:${Math.max(0, Math.min(100, (100 * v.life) / (v.maxLife || 1)))}%;background:${v.team === 1 ? "#5278e5" : "#c77749"}"></div></div></div>`,
+        `<div class="entity-card"><strong style="color:${v.team === 1 ? "#5278e5" : "#c77749"}">● ${e(v.name)} (#${v.id})</strong><span style="float:right">${v.life} / ${v.maxLife} HP</span><div class="hp-track"><div class="hp-fill" style="width:${Math.max(0, Math.min(100, (100 * v.life) / (v.maxLife || 1)))}%;background:${v.team === 1 ? "#5278e5" : "#c77749"}"></div></div></div>`,
     )
     .join("");
   $("#replay-events").innerHTML = R.events
@@ -1015,11 +1070,8 @@ function comparePage() {
   const runs = S.boot.runs.filter((r) => !r.archived && !r.error),
     selected = S.compareSelection || [];
   return (
-    head(
-      "Comparer les résultats",
-      "Comparaison par modèle et par protocole de compétition.",
-    ) +
-    `<section class="panel"><h2>Choisir les compétitions</h2><p class="muted">Les expériences complètes sont comparées sur leurs adversaires fixes, indépendants des stratégies générées.</p><div class="comparison-select">${runs.map((r) => `<label class="choice"><input type="checkbox" name="compare-run" value="${e(r.id)}" ${selected.includes(r.id) ? "checked" : ""}><span><strong>${e(r.name)}</strong><small>${date(r.created_at)} · ${r.simulated ? "simulation" : r.simulated === false ? "API réelles" : "tournoi"}</small></span></label>`).join("")}</div><div class="form-footer">${btn("Comparer la sélection", "compare-selection", "", true)}</div></section><div id="comparison-result">${S.comparison ? comparisonResult(S.comparison) : notice("Les simulations et les appels réels restent dans des groupes séparés. Les exports ne sont jamais comptés une seconde fois.")}</div>`
+    head("Compare results", "Comparison by model and competition protocol.") +
+    `<section class="panel"><h2>Select competitions</h2><p class="muted">Complete experiments are compared against fixed opponents.</p><div class="comparison-select">${runs.map((r) => `<label class="choice"><input type="checkbox" name="compare-run" value="${e(r.id)}" ${selected.includes(r.id) ? "checked" : ""}><span><strong>${e(r.name)}</strong><small>${date(r.created_at)} · ${r.simulated ? "simulation" : r.simulated === false ? "Real API calls" : "tournoi"}</small></span></label>`).join("")}</div><div class="form-footer">${btn("Compare selected runs", "compare-selection", "", true)}</div></section><div id="comparison-result">${S.comparison ? comparisonResult(S.comparison) : notice("Mock runs and API runs form separate groups. Exports are not counted twice.")}</div>`
   );
 }
 function lineChart(group) {
@@ -1053,7 +1105,7 @@ function lineChart(group) {
         ? (right - L) / 2
         : (i * (right - L)) / (runs.length - 1)),
     Y = (v) => B - v * (B - T);
-  const chart = `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Évolution des scores entre compétitions">${[0, 0.25, 0.5, 0.75, 1].map((v) => `<line x1="${L}" x2="${right}" y1="${Y(v)}" y2="${Y(v)}" stroke="#e9edf5"/><text x="0" y="${Y(v) + 4}">${v * 100} %</text>`).join("")}${runs.map(([id, t], i) => `<text x="${X(i)}" y="240" text-anchor="middle">${e(new Date(t * 1000).toLocaleDateString("fr-FR"))}<title>${e(id)}</title></text>`).join("")}${[
+  const chart = `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Score history across competitions">${[0, 0.25, 0.5, 0.75, 1].map((v) => `<line x1="${L}" x2="${right}" y1="${Y(v)}" y2="${Y(v)}" stroke="#e9edf5"/><text x="0" y="${Y(v) + 4}">${v * 100} %</text>`).join("")}${runs.map(([id, t], i) => `<text x="${X(i)}" y="240" text-anchor="middle">${e(new Date(t * 1000).toLocaleDateString("en-US"))}<title>${e(id)}</title></text>`).join("")}${[
     ...series,
   ]
     .map(([key, data], j) => {
@@ -1094,81 +1146,86 @@ function comparisonResult(data) {
     data.groups
       .map(
         (g, i) =>
-          `<section class="panel"><div class="panel-title"><div><h2>Groupe comparable ${i + 1}</h2><small>${g.runs.length} compétition(s) · mêmes règles, mêmes seeds, mêmes adversaires fixes</small></div>${badge(g.protocol.simulated ? "Simulation" : "API réelles", g.protocol.simulated ? "blue" : "orange")}</div>${lineChart(g)}<div style="margin-top:22px">${table(
+          `<section class="panel"><div class="panel-title"><div><h2>Comparison group ${i + 1}</h2><small>${g.runs.length} competitions; same rules, seeds and fixed opponents</small></div>${badge(g.protocol.simulated ? "Simulation" : "Real API calls", g.protocol.simulated ? "blue" : "orange")}</div>${lineChart(g)}<div style="margin-top:22px">${table(
             [
-              "Modèle / condition",
+              "Model / condition",
               "Score moyen",
               "Conversations retenues",
-              "Incomplètes",
-              "Compétitions",
-              "Coût API",
-              "Entrée / sortie",
-              "Erreurs",
+              "Incomplete",
+              "Competitions",
+              "API cost",
+              "Input / output",
+              "Errors",
             ],
             g.models.map(
               (m) =>
-                `<tr><td><strong>${e(m.model)}</strong><small>${e(m.participant?.provider)} · ${e(m.participant?.model || m.participant?.profile)}</small>${raw(m.participant, "Configuration du participant")}<small>G${m.generation} · ${text(m.condition)}</small></td><td class="score">${pct(m.score)}</td><td>${m.conversations}</td><td>${m.excluded}</td><td>${m.runs}</td><td>${money(m.cost_usd)}</td><td>${fmt(m.input_tokens)} / ${fmt(m.output_tokens)}</td><td>${fmt(m.errors)}</td></tr>`,
+                `<tr><td><strong>${e(m.model)}</strong><small>${e(m.participant?.provider)} · ${e(m.participant?.model || m.participant?.profile)}</small>${raw(m.participant, "Participant configuration")}<small>G${m.generation} · ${text(m.condition)}</small></td><td class="score">${pct(m.score)}</td><td>${m.conversations}</td><td>${m.excluded}</td><td>${m.runs}</td><td>${money(m.cost_usd)}</td><td>${fmt(m.input_tokens)} / ${fmt(m.output_tokens)}</td><td>${fmt(m.errors)}</td></tr>`,
             ),
-          )}</div>${raw(g, "Points individuels et protocole exact de ce groupe")}</section>`,
+          )}</div>${raw(g, "Individual points and group protocol")}</section>`,
       )
       .join("") +
     (data.excluded.length
-      ? `<section class="panel"><h2>Compétitions non agrégées</h2>${data.excluded.map((r) => `<div class="info-row"><strong>${e(r.run)}</strong><span>${e(r.reason)}</span></div>`).join("")}</section>`
+      ? `<section class="panel"><h2>Excluded competitions</h2>${data.excluded.map((r) => `<div class="info-row"><strong>${e(r.run)}</strong><span>${e(r.reason)}</span></div>`).join("")}</section>`
       : "") +
     (!data.groups.length
       ? empty(
-          "Aucun groupe comparable pour cette sélection",
-          "Sélectionnez au moins une expérience G0/G1 ayant terminé son évaluation contre les stratégies fixes.",
+          "No comparable group for this selection",
+          "Select a G0/G1 experiment with a completed fixed-opponent evaluation.",
         )
       : "")
   );
 }
 function helpPage() {
   return (
-    head(
-      "Comprendre l’arène",
-      "Un guide de lecture pour savoir ce qui est mesuré, ce qui est simulé et où trouver les détails.",
-    ) +
+    head("Help", "Experiment design, scoring and recorded data.") +
     `<div class="help-grid">${[
       [
-        "Un participant, plusieurs conversations",
-        "Un profil choisit le fournisseur, le modèle exact, ses paramètres et les tarifs. Chaque répétition crée une conversation indépendante. Sa stratégie est du code LeekScript 4 exécuté par le moteur officiel Leek Wars.",
+        "Participants and conversations",
+        "A profile selects a provider, exact model, parameters and prices. Each repetition starts an independent conversation and produces LeekScript 4 code.",
       ],
       [
-        "G0 et G1",
-        "G0 est la première stratégie soumise. G1 est une amélioration. Deux copies du même historique G0 reçoivent soit une consigne d’amélioration seule (contrôle), soit cette consigne et les résultats des combats (feedback).",
+        "G0 and G1",
+        "G0 is the initial strategy. G1 improves it in two branches that inherit the same G0 history and code. Control receives only the improvement request; feedback also receives selected match results.",
       ],
       [
-        "Scores et panels",
-        "Victoire = 1, nul = 0,5, défaite = 0. Le score est la moyenne sur les combats terminés. Le panel complet contient les stratégies G0 figées et les contrôles écrits à la main. Les miroirs sont présentés à part.",
+        "Scores and panels",
+        "A win earns 1 point, a draw 0.5 and a loss 0. Scores average completed non-mirror matches. The full reference panel includes frozen G0 strategies and fixed handwritten controls.",
       ],
       [
-        "Une simulation ne compare pas des LLM",
-        "Les participants mock suivent un scénario programmé. Les diagnostics et les combats sont réels, mais le code produit est prédéfini. Le gain de leur branche feedback est construit par la démo : il ne prouve aucun apprentissage.",
+        "Mock participants",
+        "Mocks follow predefined scripts. Compilation, diagnostics and Java matches are real, but the generated strategies do not measure LLM performance.",
       ],
       [
-        "Coûts et tokens",
-        "Les tarifs sont datés et exprimés en USD par million de tokens. Le coût calculé utilise les usages renvoyés par l’API. Une valeur inconnue n’est jamais remplacée par zéro. Les réservations en attente ne sont pas des factures confirmées.",
+        "Costs and tokens",
+        "Prices are dated USD rates per million tokens. Costs use reported usage. Missing usage stays unknown. Reservations are estimates, not confirmed provider bills.",
       ],
       [
-        "Historique des fichiers",
-        "Chaque écriture confirmée permet de reconstruire un état des fichiers et de le comparer au précédent. Les écritures proposées mais refusées sont visibles dans la conversation, sans devenir une version du code. Les sources soumises restent figées.",
+        "File history",
+        "Successful tool writes create versions. Failed proposals remain in the conversation but do not create versions. Submitted sources are frozen.",
       ],
       [
-        "Replays",
-        "Le lecteur montre une projection schématique de la carte et des actions du moteur : déplacements, attaques, PV, soins et éliminations. Les effets détaillés du client officiel ne sont pas tous animés. Les actions brutes et les métriques moteur font référence.",
+        "Match replay",
+        "The schematic replay shows positions, attacks, HP, healing and deaths. Some effects are not animated. Raw engine events remain available.",
       ],
       [
-        "Comparer plusieurs compétitions",
-        "Le tableau multi-compétitions utilise les mêmes contrôles fixes, et sépare les scénarios, seeds, moteurs et modes simulés/réels différents. Les scores sont moyennés par conversation complète. Il ne constitue pas un classement universel des modèles.",
+        "Match matrix",
+        "Click wins, draws, losses or failures to open matching fights. Scores link to completed fights. Filters include stage, participant, opponent and outcome. Wins and losses use the row participant as the reference, regardless of its match side.",
       ],
       [
-        "Arrêt et reprise",
-        "Un arrêt conserve les checkpoints. Une reprise vérifie les sources, le code, le moteur et les paramètres. Si une réponse payante est incertaine, le journal doit être rapproché de la facturation avant toute décision. Dupliquer une configuration lance une nouvelle expérience.",
+        "Comparing competitions",
+        "Scores against fixed opponents are averaged per complete conversation. Different scenarios, seeds, engines, budgets or mock/real modes form separate groups.",
       ],
       [
-        "Vos données",
-        "Les configurations et les journaux de lancement de l’interface se trouvent dans .arena/ui. Les expériences sont dans runs. Les clés saisies ici restent en mémoire. Fermer le serveur les efface ; les clés déjà présentes dans son environnement restent gérées par votre système.",
+        "Stop and resume",
+        "Stopping keeps checkpoints. Resume verifies code, engine, sources and settings. Calls with unknown outcomes require billing reconciliation. Clone a configuration to start a different run.",
+      ],
+      [
+        "Model seeds",
+        "OpenAI and Gemini accept seeds on supported models. Anthropic does not expose a seed. A seed does not guarantee identical output. Compare the full recorded request, not just the system prompt.",
+      ],
+      [
+        "Local files and keys",
+        "UI settings and logs are in .arena/ui; results are in runs. Keys entered in the UI stay in server memory until shutdown. Keys supplied through environment variables remain managed by your system.",
       ],
     ]
       .map(
@@ -1188,7 +1245,7 @@ document.addEventListener("click", async (event) => {
     else if (a === "refresh") {
       await refreshBoot();
       await renderRoute();
-      toast("Données actualisées.");
+      toast("Data refreshed.");
     } else if (a === "new-participant") participantDialog();
     else if (a === "list-models") {
       const form = node.closest("form"),
@@ -1207,7 +1264,7 @@ document.addEventListener("click", async (event) => {
         );
         if (!form.isConnected) return;
         $("#available-models").innerHTML =
-          `<option value="">Choisir un modèle…</option>` +
+          `<option value="">Select a model...</option>` +
           data.models
             .map(
               (m) =>
@@ -1215,11 +1272,11 @@ document.addEventListener("click", async (event) => {
             )
             .join("");
         $("#model-list-status").textContent =
-          `${data.models.length} modèles${data.truncated ? " · liste partielle" : ""}. La disponibilité pour les conversations et les outils dépend du modèle.`;
+          `${data.models.length} models${data.truncated ? " · partial list" : ""}. Chat and tool support depend on the model.`;
       } catch (error) {
         if (form.isConnected)
           $("#model-list-status").textContent =
-            error.message + " — saisie manuelle possible.";
+            error.message + "; manual entry is available.";
       } finally {
         node.disabled = false;
       }
@@ -1228,9 +1285,7 @@ document.addEventListener("click", async (event) => {
       await api("/api/participant/delete", { id: node.dataset.id }, true);
       await refreshBoot();
       await renderRoute();
-      toast(
-        "Profil retiré. Les compétitions existantes conservent leur configuration.",
-      );
+      toast("Profile removed. Existing competitions keep their settings.");
     } else if (a === "close-dialog") {
       $("#dialog").close();
       S.logJob = null;
@@ -1251,11 +1306,11 @@ document.addEventListener("click", async (event) => {
       await api("/api/competition/delete", { id: node.dataset.id }, true);
       await refreshBoot();
       await renderRoute();
-      toast("Configuration retirée. Les exécutions sont conservées.");
+      toast("Configuration removed. Runs were kept.");
     } else if (a === "clone-run") {
       S.editDraft = null;
       S.editConfig = structuredClone(S.detail.metadata.config);
-      S.editConfig.name += " — copie";
+      S.editConfig.name += " (copy)";
       navigate("editor");
     } else if (a === "preview-plan") {
       const config = readCompetition($("#competition-form")),
@@ -1266,9 +1321,7 @@ document.addEventListener("click", async (event) => {
       await api("/api/plan", { config }, true);
       S.editConfig = config;
       $("#main").innerHTML = competitionEditor();
-      toast(
-        "Configuration importée. Vérifiez les champs avant de l’enregistrer.",
-      );
+      toast("Configuration imported. Review before saving.");
     } else if (a === "launch") await launchDialog(node.dataset.id);
     else if (a === "resume") await launchDialog(null, S.run);
     else if (a === "open-run") navigate("run", { run: node.dataset.run });
@@ -1306,6 +1359,7 @@ document.addEventListener("click", async (event) => {
       S.fileMode = node.dataset.mode;
       renderFileView();
     } else if (a === "file") await loadFile(node.dataset.path);
+    else if (a === "clear-match-filters") await filterMatches(true);
     else if (a === "match") {
       S.matchPath = node.dataset.path;
       await loadMatch();
@@ -1321,25 +1375,25 @@ document.addEventListener("click", async (event) => {
     } else if (a === "event") {
       const data = await api("/api/event", { run: S.run, id: node.dataset.id });
       openDialog(
-        "Événement " + node.dataset.id,
-        "Artefact vérifié par son empreinte SHA-256.",
+        "Event " + node.dataset.id,
+        "Artifact SHA-256 verified.",
         `<pre>${e(pretty(data))}</pre>`,
       );
     } else if (a === "export-run") {
       node.disabled = true;
       const result = await api("/api/export", { run: S.run }, true);
       await refreshBoot();
-      toast("Export créé : " + result.run);
+      toast("Export created: " + result.run);
     } else if (a === "stop-job") {
       await api("/api/stop", { id: node.dataset.id }, true);
-      toast("Arrêt demandé. Les checkpoints sont conservés.");
+      toast("Stop requested. Checkpoints are kept.");
     } else if (a === "job-log") {
       S.logJob = node.dataset.id;
       const data = await api("/api/job", { id: S.logJob });
       openDialog(
-        "Journal d’exécution",
+        "Run log",
         `${data.job.name} · ${text(data.job.status)}`,
-        `<pre id="job-log-live" class="run-log">${e(data.content || "Initialisation…")}</pre><small>Derniers 128 Ko du journal.</small>`,
+        `<pre id="job-log-live" class="run-log">${e(data.content || "Initialization...")}</pre><small>Last 128 KB of the log.</small>`,
       );
     }
   } catch (error) {
@@ -1396,13 +1450,13 @@ document.addEventListener("submit", async (event) => {
       $("#dialog").close();
       await refreshBoot();
       await renderRoute();
-      toast("Participant enregistré.");
+      toast("Participant saved.");
     } else if (type === "competition") {
       const config = readCompetition(form);
       await api("/api/competition", { config, id: S.editDraft }, true);
       await refreshBoot();
       navigate("competitions");
-      toast("Configuration enregistrée. Aucun appel API effectué.");
+      toast("Configuration saved. No API calls made.");
     } else if (type === "launch") {
       const launch = S.launch;
       const job = await api(
@@ -1418,7 +1472,7 @@ document.addEventListener("submit", async (event) => {
       $("#dialog").close();
       await refreshBoot();
       navigate("run", { run: job.run });
-      toast("Compétition démarrée.");
+      toast("Competition started.");
     }
   } catch (error) {
     showError(error);
@@ -1480,7 +1534,15 @@ document.addEventListener("change", async (event) => {
       navigate("run", { run: S.run, tab: "events", session: n.value });
     else if (n.id === "follow-live") {
       S.follow = n.checked;
-    } else if (n.id === "match-stage") filterMatches();
+    } else if (
+      [
+        "match-stage",
+        "match-entrant",
+        "match-opponent",
+        "match-outcome",
+      ].includes(n.name)
+    )
+      await filterMatches();
     else if (n.id === "replay-speed" && replayTimer) {
       clearInterval(replayTimer);
       replayTimer = null;
@@ -1490,17 +1552,6 @@ document.addEventListener("change", async (event) => {
     showError(error);
   }
 });
-function filterMatches() {
-  const q = ($("#match-search")?.value || "").toLowerCase(),
-    stage = $("#match-stage")?.value;
-  $("#match-list").innerHTML = matchButtons(
-    S.matches.filter(
-      (m) =>
-        (!stage || m.stage === stage) &&
-        `${m.sides.join(" ")} ${m.seed}`.toLowerCase().includes(q),
-    ),
-  );
-}
 document.addEventListener("input", (event) => {
   const n = event.target;
   if (n.id === "run-search")
@@ -1515,7 +1566,7 @@ document.addEventListener("input", (event) => {
         f.path.toLowerCase().includes(n.value.toLowerCase()),
       ),
     );
-  if (n.id === "match-search") filterMatches();
+  if (n.id === "match-search") filterMatches().catch(showError);
   if (n.id === "replay-range") renderReplay(Number(n.value));
 });
 $("#dialog").addEventListener("close", () => {
@@ -1587,7 +1638,7 @@ refreshBoot()
     $("#main").innerHTML = empty(
       "Connexion impossible",
       error.message,
-      btn("Réessayer", "refresh"),
+      btn("Retry", "refresh"),
     );
     showError(error);
   });
@@ -1609,7 +1660,7 @@ function markdownView(source) {
   if (source.length > 300000 || allLines.length > 3000)
     blocks.push(
       notice(
-        "Vue interprétée tronquée. Le texte intégral reste disponible en vue brute et au téléchargement.",
+        "Rendered preview truncated. The full text is available in Raw view or as a download.",
       ),
     );
   let code = null,
@@ -1682,7 +1733,7 @@ function markdownView(source) {
 }
 function jsonView(value, key = "JSON", depth = 0, budget = { left: 2500 }) {
   if (--budget.left < 0 || depth > 20)
-    return `<small>Suite disponible en vue brute.</small>`;
+    return `<small>More content is available in Raw view.</small>`;
   if (value === null || typeof value !== "object")
     return `<div class="json-leaf"><strong>${e(key)}</strong> <code>${e(JSON.stringify(value))}</code></div>`;
   const entries = Object.entries(value);
@@ -1691,7 +1742,7 @@ function jsonView(value, key = "JSON", depth = 0, budget = { left: 2500 }) {
     if (budget.left <= 0) break;
     children.push(jsonView(v, k, depth + 1, budget));
   }
-  return `<details ${depth < 2 ? "open" : ""}><summary>${e(key)} <small>${Array.isArray(value) ? "[" + entries.length + "]" : "{" + entries.length + "}"}</small></summary><div class="json-children">${children.join("")}${children.length < entries.length ? "<small>Suite disponible en vue brute.</small>" : ""}</div></details>`;
+  return `<details ${depth < 2 ? "open" : ""}><summary>${e(key)} <small>${Array.isArray(value) ? "[" + entries.length + "]" : "{" + entries.length + "}"}</small></summary><div class="json-children">${children.join("")}${children.length < entries.length ? "<small>More content is available in Raw view.</small>" : ""}</div></details>`;
 }
 function renderFileView() {
   const node = $("#file-content");
@@ -1705,7 +1756,7 @@ function renderFileView() {
       node.innerHTML = jsonView(JSON.parse(content));
     } catch {
       node.innerHTML =
-        notice("JSON invalide") + `<pre class="source">${e(content)}</pre>`;
+        notice("Invalid JSON") + `<pre class="source">${e(content)}</pre>`;
     }
   } else node.innerHTML = `<pre class="source">${e(content)}</pre>`;
   $$("[data-action=file-mode]").forEach((n) =>
@@ -1714,26 +1765,26 @@ function renderFileView() {
 }
 
 const COMBAT_COLUMNS = [
-  ["ai_turns", "Tours joués"],
-  ["operations", "Opérations"],
+  ["ai_turns", "Played turns"],
+  ["operations", "Operations"],
   ["actions", "Actions"],
-  ["shots", "Tirs"],
-  ["chips", "Puces"],
-  ["weapon_changes", "Armes"],
-  ["moves", "Déplacements"],
-  ["cells_moved", "Cases"],
-  ["tp_lost", "PA retirés"],
-  ["mp_lost", "PM retirés"],
-  ["damage_dealt", "Dégâts donnés"],
-  ["damage_taken", "Dégâts reçus"],
-  ["healing_given", "Soins donnés"],
-  ["healing_received", "Soins reçus"],
-  ["erosion_dealt", "Érosion donnée"],
-  ["erosion_taken", "Érosion reçue"],
-  ["deaths", "Morts"],
-  ["errors", "Erreurs"],
-  ["operation_limit_hits", "Limites ops"],
-  ["stack_overflows", "Pile dépassée"],
+  ["shots", "Shots"],
+  ["chips", "Chips"],
+  ["weapon_changes", "Weapons"],
+  ["moves", "Moves"],
+  ["cells_moved", "Cells"],
+  ["tp_lost", "AP removed"],
+  ["mp_lost", "MP removed"],
+  ["damage_dealt", "Damage dealt"],
+  ["damage_taken", "Damage taken"],
+  ["healing_given", "Healing given"],
+  ["healing_received", "Healing received"],
+  ["erosion_dealt", "Erosion dealt"],
+  ["erosion_taken", "Erosion taken"],
+  ["deaths", "Deaths"],
+  ["errors", "Errors"],
+  ["operation_limit_hits", "Operation limits hit"],
+  ["stack_overflows", "Stack overflows"],
 ];
 const METRIC_SETS = {
   overview: ["operations", "actions", "moves", "damage_dealt", "damage_taken"],
@@ -1765,12 +1816,12 @@ const METRIC_SETS = {
   ],
 };
 function metricSetPicker() {
-  return `<label class="field">Mesures<select id="metric-set">${[
-    ["overview", "Vue d’ensemble"],
-    ["compute", "Calcul et erreurs"],
-    ["actions", "Actions et déplacements"],
-    ["damage", "Dégâts et soins"],
-    ["all", "Toutes les mesures"],
+  return `<label class="field">Metrics<select id="metric-set">${[
+    ["overview", "Overview"],
+    ["compute", "Computation and errors"],
+    ["actions", "Actions and movement"],
+    ["damage", "Damage and healing"],
+    ["all", "All metrics"],
   ]
     .map(
       ([value, label]) =>
@@ -1787,25 +1838,25 @@ function combatTable(rows, perTurn = false) {
   const mean = columns.some(([key]) => key === "operations");
   return table(
     [
-      ...(perTurn ? ["Tour"] : []),
-      "Leek / stratégie",
+      ...(perTurn ? ["Turn"] : []),
+      "Leek / strategy",
       ...columns.map(([, label]) => label),
-      ...(mean ? ["Ops / tour joué"] : []),
+      ...(mean ? ["Ops / played turn"] : []),
     ],
     rows.map(
       (row) =>
-        `<tr>${perTurn ? `<td>${e(row.turn)}</td>` : ""}<td>${e(row.name || row.id)}${row.side != null ? `<small>Côté ${row.side + 1} · #${row.entity}</small>` : ""}</td>${columns.map(([key]) => `<td>${fmt(row[key])}</td>`).join("")}${mean ? `<td>${fmt(row.operations != null && row.ai_turns ? row.operations / row.ai_turns : null, 1)}</td>` : ""}</tr>`,
+        `<tr>${perTurn ? `<td>${e(row.turn)}</td>` : ""}<td>${e(row.name || row.id)}${row.side != null ? `<small>Side ${row.side + 1} · #${row.entity}</small>` : ""}</td>${columns.map(([key]) => `<td>${fmt(row[key])}</td>`).join("")}${mean ? `<td>${fmt(row.operations != null && row.ai_turns ? row.operations / row.ai_turns : null, 1)}</td>` : ""}</tr>`,
     ),
   );
 }
 function combatStatistics(data) {
-  return `<section class="combat-statistics"><h3>Statistiques du combat</h3>${metricSetPicker()}<p class="muted">Limite : ${fmt(data.operations_limit_per_turn)} opérations par tour joué et par leek (${e(data.limit_source)}). ${e(data.action_definition)}</p>${data.missing.map((m) => notice(e(m))).join("")}<h3>Total du combat et par équipe</h3>${combatTable([data.total, ...data.sides])}<h3>Total par leek</h3>${combatTable(data.entities)}<details><summary>Total par tour</summary>${combatTable(data.rounds, true)}</details><details><summary>Détail par tour et par leek</summary>${combatTable(data.turns, true)}</details></section>`;
+  return `<section class="combat-statistics"><h3>Match statistics</h3>${metricSetPicker()}<p class="muted">Limit: ${fmt(data.operations_limit_per_turn)} operations per played turn and leek (${e(data.limit_source)}). ${e(data.action_definition)}</p>${data.missing.map((m) => notice(e(m))).join("")}<h3>Match and team totals</h3>${combatTable([data.total, ...data.sides])}<h3>Totals by leek</h3>${combatTable(data.entities)}<details><summary>Totals by turn</summary>${combatTable(data.rounds, true)}</details><details><summary>Details by turn and leek</summary>${combatTable(data.turns, true)}</details></section>`;
 }
 function competitionStatistics(data) {
-  return `<section class="panel"><h2>Statistiques des combats</h2><p class="muted">Limite : ${fmt(data.operations_limit_per_turn)} opérations par tour joué et par leek. Actions = déplacements, changements d’arme, tirs et puces. Les totaux incluent les miroirs ; les matrices les excluent.</p><div class="form-grid">${metricSetPicker()}<label class="field">Étape<select id="statistics-stage">${data.stages.map((g, i) => `<option value="${i}">${e(g.stage === "." ? "Tournoi" : g.stage)}</option>`).join("")}</select></label></div><div id="statistics-stage-detail">${statisticsStage(data.stages[0])}</div></section>`;
+  return `<section class="panel"><h2>Match statistics</h2><p class="muted">Limit: ${fmt(data.operations_limit_per_turn)} operations per played turn and leek. Actions count moves, weapon changes, shots and chips. Totals include mirrors; matrices exclude them.</p><div class="form-grid">${metricSetPicker()}<label class="field">Stage<select id="statistics-stage">${data.stages.map((g, i) => `<option value="${i}">${e(stageText(g.stage))}</option>`).join("")}</select></label></div><div id="statistics-stage-detail">${statisticsStage(data.stages[0])}</div></section>`;
 }
 function statisticsStage(group) {
-  if (!group) return empty("Aucun combat enregistré", "");
+  if (!group) return empty("No recorded matches", "");
   const names = [
     ...new Set(
       Object.entries(group.matrix).flatMap(([who, others]) => [
@@ -1814,18 +1865,79 @@ function statisticsStage(group) {
       ]),
     ),
   ].sort();
-  return `<p class="muted">${group.matches} combats · ${group.with_replay} replays disponibles. — = donnée absente de l’archive. Détail par tour et par leek dans l’onglet Combats.</p>${combatTable(Object.values(group.strategies))}<h3>Matrice des combats</h3><p class="muted">Ligne contre colonne : victoires / nuls / défaites. Les pannes sont indiquées séparément.</p><div class="matrix">${table(
-    ["Stratégie", ...names.map(e)],
+  return `<p class="muted">${group.matches} matches · ${group.with_replay} replays available. N/A = data missing from this archive. Per-turn and per-leek details are under Matches.</p>${combatTable(Object.values(group.strategies))}<h3>Match matrix</h3><p class="muted">Row vs column: wins / draws / losses. Failures are listed separately. Click a number to open matching fights.</p><div class="matrix">${table(
+    ["Strategy", ...names.map(e)],
     names.map(
       (who) =>
         `<tr><th>${e(who)}</th>${names
           .map((other) => {
             const r = group.matrix[who]?.[other];
-            if (!r) return "<td>—</td>";
+            if (!r) return '<td><span aria-label="No matches">N/A</span></td>';
             const n = r.wins + r.draws + r.losses;
-            return `<td style="background:${n ? `rgba(82,120,229,${((r.wins + 0.5 * r.draws) / n) * 0.18})` : "transparent"}">${r.wins} / ${r.draws} / ${r.losses}<small>${pct(n ? (r.wins + 0.5 * r.draws) / n : null)}${r.failures ? ` · ${r.failures} pannes` : ""}</small></td>`;
+            return `<td style="background:${n ? `rgba(82,120,229,${((r.wins + 0.5 * r.draws) / n) * 0.18})` : "transparent"}">${matrixLink(group.stage, who, other, "win", r.wins, countLabel(r.wins, "win"))} / ${matrixLink(group.stage, who, other, "draw", r.draws, countLabel(r.draws, "draw"))} / ${matrixLink(group.stage, who, other, "loss", r.losses, countLabel(r.losses, "loss", "losses"))}<small>${n ? matrixLink(group.stage, who, other, "completed", pct((r.wins + 0.5 * r.draws) / n), `${n} completed matches`) : "N/A"}${r.failures ? ` · ${matrixLink(group.stage, who, other, "failure", countLabel(r.failures, "failure"), countLabel(r.failures, "failure"))}` : ""}</small></td>`;
           })
           .join("")}</tr>`,
     ),
   )}</div>`;
+}
+
+async function filterMatches(clear = false) {
+  const form = $(".match-filters");
+  if (!form) return;
+  if (clear) {
+    S.matchFilters = {};
+    for (const n of $$("input, select", form)) n.value = "";
+  } else
+    S.matchFilters = {
+      search: $("#match-search").value,
+      stage: $("[name=match-stage]", form).value,
+      entrant: $("[name=match-entrant]", form).value,
+      opponent: $("[name=match-opponent]", form).value,
+      outcome: $("[name=match-outcome]", form).value,
+    };
+  const filters = Object.fromEntries(
+    Object.entries(S.matchFilters).filter(([, v]) => v),
+  );
+  history.replaceState(
+    null,
+    "",
+    "#" + query({ view: "run", run: S.run, tab: "matches", ...filters }),
+  );
+  const rows = matchSubset();
+  $("#match-filter-count").textContent =
+    `${rows.length} / ${S.matches.length} matches`;
+  if (!$("#match-list")) return;
+  $("#match-list").innerHTML = matchButtons(rows);
+  const path =
+    rows.find((m) => m.path === S.matchPath)?.path || rows[0]?.path || null;
+  if (!path) {
+    clearInterval(replayTimer);
+    replayTimer = null;
+    R = null;
+    S.matchPath = null;
+    $("#match-detail").innerHTML = empty(
+      "No matches found",
+      "Change or clear the filters.",
+    );
+  } else if (path !== S.matchPath) {
+    S.matchPath = path;
+    await loadMatch();
+  }
+}
+function countLabel(count, noun, plural = noun + "s") {
+  return `${count} ${count === 1 ? noun : plural}`;
+}
+function matrixLink(stage, entrant, opponent, outcome, value, description) {
+  const href =
+    "#" +
+    query({
+      view: "run",
+      run: S.run,
+      tab: "matches",
+      stage,
+      entrant,
+      opponent,
+      outcome,
+    });
+  return `<a href="${e(href)}" aria-label="${e(`${entrant} vs ${opponent}: ${description}`)}">${e(value)}</a>`;
 }

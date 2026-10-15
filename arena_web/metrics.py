@@ -10,7 +10,15 @@ COUNTERS = ("actions", "moves", "cells_moved", "shots", "chips", "weapon_changes
             "deaths", "operations", "ai_turns", "errors", "operation_limit_hits", "stack_overflows")
 
 
-def combat_stats(outcome):
+def combat_stats(outcome, scenario=None):
+    limits = {min(2**31-1, e["cores"] * 1_000_000)
+              for team in (scenario or {}).get("entities", []) for e in team if type(e.get("cores")) is int}
+    limit = next(iter(limits)) if len(limits) == 1 else None
+    source = "scenario entity.cores" if limits else "unavailable"
+    if not limits and outcome.get("operations_limit_basis") == "entity.cores":
+        limit = outcome.get("operations_limit_per_turn")
+        source = "recorded entity.cores"
+
     fight = outcome.get("fight") or {}
     entities = {e["id"]: e for e in fight.get("leeks", [])}
     instrumented = "turn_metrics" in outcome
@@ -76,7 +84,7 @@ def combat_stats(outcome):
         for key in COUNTERS:
             result[key] = None if any(r[key] is None for r in records) else sum(r[key] for r in records)
         return result
-    sides = [combine([r for r in totals if r["side"] == side], f"Équipe {side+1}") for side in (0,1)]
+    sides = [combine([r for r in totals if r["side"] == side], f"Team {side+1}") for side in (0,1)]
     # Older outcomes still have authoritative team-level operation/error totals.
     if not instrumented:
         for side, row in enumerate(sides):
@@ -84,21 +92,21 @@ def combat_stats(outcome):
             for key in ("operations", "errors", "operation_limit_hits", "stack_overflows"):
                 if key in measured:
                     row[key] = measured[key]
-    total = combine(sides, "Total du combat")
-    rounds = [combine([r for r in turns if r["turn"] == turn], "Toutes les entités", turn=turn)
+    total = combine(sides, "Match total")
+    rounds = [combine([r for r in turns if r["turn"] == turn], "All entities", turn=turn)
               for turn in sorted({r["turn"] for r in turns})]
     return {"total": total, "sides": sides, "rounds": rounds, "entities": totals, "turns": turns, "instrumented": instrumented,
-            "operations_limit_per_turn": outcome.get("operations_limit_per_turn", 20_000_000),
-            "limit_source": "enregistrée" if "operations_limit_per_turn" in outcome else "moteur figé (LeekScript AI.MAX_OPERATIONS)",
-            "action_definition": "Déplacements, changements d’arme, tirs et puces ; les effets ne sont pas comptés comme décisions.",
-            "missing": [] if instrumented else ["Opérations par tour, erreurs par leek et origine des dégâts/soins absentes de cette archive. Les dégâts reçus sont ceux annoncés dans le replay (avant écrêtage éventuel aux PV restants)."]}
+            "operations_limit_per_turn": limit,
+            "limit_source": source,
+            "action_definition": "Moves, weapon changes, shots and chips. Effects are not counted as decisions.",
+            "missing": [] if instrumented else ["This archive has no per-turn operations, per-leek errors or damage/healing attribution. Received damage comes from replay events and may include overkill."]}
 
 
-def competition_stats(matches, load):
+def competition_stats(matches, load, load_scenario=lambda _: None):
     groups = {}
     for match in matches:
         stage = match["stage"]
-        group = groups.setdefault(stage, {"stage": stage, "matrix": {}, "strategies": {}, "matches": 0, "with_replay": 0})
+        group = groups.setdefault(stage, {"stage": stage, "matrix": {}, "strategies": {}, "matches": 0, "with_replay": 0, "operation_limits": []})
         group["matches"] += 1
         result = match["result"]
         if not match.get("mirror"):
@@ -111,7 +119,10 @@ def competition_stats(matches, load):
         if not outcome or not outcome.get("fight"):
             continue
         group["with_replay"] += 1
-        stats = combat_stats(outcome)
+        stats = combat_stats(outcome, load_scenario(match["path"]))
+        cap = stats["operations_limit_per_turn"]
+        if cap is not None and cap not in group["operation_limits"]:
+            group["operation_limits"].append(cap)
         for side, totals in enumerate(stats["sides"]):
             who = match["sides"][side]
             entities = [e for e in stats["entities"] if e["side"] == side]
@@ -122,4 +133,6 @@ def competition_stats(matches, load):
             for key in COUNTERS:
                 value = totals[key]
                 row[key] = None if value is None or row[key] is None else row[key] + value
-    return {"stages": list(groups.values()), "operations_limit_per_turn": 20_000_000}
+    limits = sorted({cap for g in groups.values() for cap in g["operation_limits"]})
+    return {"stages": list(groups.values()), "operation_limits": limits,
+            "operations_limit_per_turn": limits[0] if len(limits) == 1 else None}

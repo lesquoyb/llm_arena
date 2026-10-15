@@ -1,18 +1,18 @@
 """Labels and coordinates for the pinned engine's public action format."""
 from __future__ import annotations
 
-LABELS = {0: "Début du combat", 4: "Fin du combat", 5: "Élimination", 6: "Nouveau tour",
-          7: "Début du tour d'une entité", 8: "Fin du tour d'une entité", 9: "Invocation",
-          10: "Déplacement", 11: "Élimination directe", 12: "Utilisation d'une puce",
-          13: "Changement d'arme", 14: "Effet cumulé", 15: "Coffre ouvert", 16: "Tir",
-          17: "Réveil", 18: "Sommeil", 100: "PA dépensés", 101: "Dégâts", 102: "PM dépensés",
-          103: "Soin", 104: "Vitalité", 105: "Résurrection", 106: "Perte de force",
-          107: "Érosion", 108: "Renvoi de dégâts", 109: "Dégâts de vie",
-          110: "Poison", 111: "Contrecoup", 112: "Vitalité nova", 201: "Lama", 203: "Message",
-          205: "Case indiquée", 301: "Effet d'arme", 302: "Effet de puce", 303: "Fin d'effet",
-          304: "Modification d'effet", 306: "Réduction d'effets", 307: "Poisons retirés",
-          308: "Entraves retirées", 309: "Durée d'effet modifiée", 1000: "Erreur moteur",
-          1001: "Carte modifiée", 1002: "Erreur de stratégie"}
+LABELS = {0: "Fight started", 4: "Fight ended", 5: "Death", 6: "New turn",
+          7: "Entity turn started", 8: "Entity turn ended", 9: "Summon",
+          10: "Movement", 11: "Direct kill", 12: "Chip use",
+          13: "Weapon change", 14: "Stacked effect", 15: "Chest opened", 16: "Shot",
+          17: "Awakening", 18: "Sleep", 100: "AP removed", 101: "Damage", 102: "MP removed",
+          103: "Healing", 104: "Vitality", 105: "Resurrection", 106: "Strength loss",
+          107: "Erosion", 108: "Reflected damage", 109: "Life damage",
+          110: "Poison", 111: "Aftereffect", 112: "Nova vitality", 201: "Lama", 203: "Message",
+          205: "Cell highlighted", 301: "Weapon effect", 302: "Chip effect", 303: "Effect ended",
+          304: "Effect updated", 306: "Effects reduced", 307: "Poisons removed",
+          308: "Shackles removed", 309: "Effect duration changed", 1000: "Engine error",
+          1001: "Map changed", 1002: "Strategy error"}
 
 
 def cell_position(identifier, width=18):
@@ -36,29 +36,29 @@ def describe(fight):
             unknown.add(code)
         if code == 6 and len(action) > 1:
             turn = action[1]
-            label = f"Tour {turn}"
+            label = f"Turn {turn}"
         elif code == 7 and len(action) > 1:
             actor = action[1]
-            label = f"{names.get(actor, actor)} commence son tour"
+            label = f"{names.get(actor, actor)} starts its turn"
         elif code == 10 and len(action) > 2:
-            label = f"{names.get(action[1], action[1])} se déplace vers la case {action[2]}"
+            label = f"{names.get(action[1], action[1])} moves to cell {action[2]}"
         elif code in {101, 108, 109, 110, 111} and len(action) > 2:
-            label = f"{names.get(action[1], action[1])} perd {action[2]} PV ({LABELS.get(code)})"
+            label = f"{names.get(action[1], action[1])} loses {action[2]} HP ({LABELS.get(code)})"
         elif code == 107 and len(action) > 2:
-            label = f"{names.get(action[1], action[1])} perd {action[2]} PV maximum (érosion)"
+            label = f"{names.get(action[1], action[1])} loses {action[2]} maximum HP (erosion)"
         elif code == 103 and len(action) > 2:
-            label = f"{names.get(action[1], action[1])} récupère {action[2]} PV"
+            label = f"{names.get(action[1], action[1])} recovers {action[2]} HP"
         elif code == 5 and len(action) > 1:
-            label = f"{names.get(action[1], action[1])} est éliminé"
+            label = f"{names.get(action[1], action[1])} dies"
         elif code == 16 and len(action) > 2:
-            label = f"{names.get(actor, actor)} tire sur la case {action[1]} (résultat {action[2]})"
+            label = f"{names.get(actor, actor)} shoots at cell {action[1]} (result {action[2]})"
         elif code == 12 and len(action) > 3:
-            label = f"{names.get(actor, actor)} utilise la puce {action[1]} sur la case {action[2]}"
+            label = f"{names.get(actor, actor)} uses chip {action[1]} on cell {action[2]}"
         elif code == 13 and len(action) > 1:
-            label = f"{names.get(actor, actor)} équipe l'arme {action[1]}"
+            label = f"{names.get(actor, actor)} equips weapon {action[1]}"
         events.append({"index": index, "turn": turn, "actor": actor, "code": code, "text": label, "raw": action})
     return {"cells": [cell_position(i, width) for i in range((2 * width - 1) * height - (width - 1))],
             "events": events, "unknown_codes": sorted(unknown),
-            "note": "Relecture schématique : positions, PV, tirs, soins et éliminations. "
-                    "Les effets détaillés et animations du client officiel ne sont pas reproduits. "
-                    "Le journal brut reste la référence."}
+            "note": "Schematic replay: positions, HP, shots, healing and deaths. "
+                    "Some effects and official client animations are not reproduced. "
+                    "Raw events are the reference."}

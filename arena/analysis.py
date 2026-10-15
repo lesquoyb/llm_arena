@@ -98,19 +98,19 @@ def analyze_evolution(config, out, states, initial, branches, baseline, evolved,
         writer = csv.DictWriter(stream, fieldnames=list(rows[0]) if rows else ["session"])
         writer.writeheader()
         writer.writerows(rows)
-    lines = ["# Comparaison G0 / G1", "", "Fournisseurs simulés" if all(m["provider"] == "mock" for m in config["models"])
-             else "API réelles : coûts calculés sur usage retourné, facturation non confirmée",
-             "", "Scores contre les mêmes adversaires G0 figés et contrôles, sur seeds finales distinctes.",
-             "", "| Session | Panel | Score | Combats | Pannes |", "|---|---|---:|---:|---:|"]
+    lines = ["# G0/G1 comparison", "", "Mock providers" if all(m["provider"] == "mock" for m in config["models"])
+             else "Real APIs: costs calculated from reported usage, billing not confirmed",
+             "", "Scores against the same frozen G0 opponents and fixed controls on separate final seeds.",
+             "", "| Session | Panel | Score | Matches | Failures |", "|---|---|---:|---:|---:|"]
     for row in rows:
         lines.append(f"| {row['session']} | {row['panel']} | {row['score']} | {row['completed']} | {row['failed']} |")
-    lines += ["", "## Effet apparié feedback − contrôle", "", "| Conversation G0 | Différence |", "|---|---:|"]
+    lines += ["", "## Paired feedback minus control effect", "", "| G0 conversation | Difference |", "|---|---:|"]
     lines += [f"| {r['parent']} | {r['feedback_minus_control']} |" for r in paired]
-    lines += ["", f"Coût total : {total_cost} USD ; réservations non résolues : {held} USD.",
-              "", "Les absences sont conservées dans analysis.json. Scores conditionnels aux soumissions présentes.",
-              "Les modèles sont agrégés avec poids égal par réplication ; les matchs entre modèles identiques restent dans les matrices.",
-              "Les intervalles sont exploratoires, particulièrement avec peu de réplications.",
-              "", "[Matrice G0](tournament/report.md) · [Matrice G1](g1-tournament/report.md)"]
+    lines += ["", f"Total cost: {total_cost} USD; unresolved reservations: {held} USD.",
+              "", "Missing results are retained in analysis.json. Scores are conditional on available submissions.",
+              "Models are aggregated with equal weight per conversation. Same-model matches remain in the matrices.",
+              "Intervals are exploratory, particularly with few conversations.",
+              "", "[G0 matrix](tournament/report.md) · [G1 matrix](g1-tournament/report.md)"]
     text = "\n".join(lines) + "\n"
     (out / "analysis.md").write_text(text, encoding="utf-8")
     (out / "analysis.html").write_text("<!doctype html><meta charset='utf-8'><title>LLM Arena</title><pre>" +

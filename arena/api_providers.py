@@ -192,22 +192,22 @@ def request_snapshot(model, history, tools, output_limit):
 
 def list_models(provider, key, endpoint=None, transport=http_json):
     if provider not in {"openai", "openai-compatible", "anthropic", "gemini"}:
-        raise ArenaError("Ce protocole ne fournit pas de catalogue API")
+        raise ArenaError("This protocol has no model catalog")
     if not key:
-        raise ArenaError("Configurer une clé API pour charger les modèles")
+        raise ArenaError("Configure an API key to load models")
     spec = {"provider":provider, "model":"unused"}
     if endpoint:
         spec["endpoint"] = endpoint
     url, headers = connection(spec, key)
     parsed = parse.urlsplit(url)
     if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password or parsed.query or parsed.fragment:
-        raise ArenaError("Endpoint HTTPS sans identifiants ni paramètres requis")
+        raise ArenaError("Use an HTTPS endpoint without credentials or query parameters")
     if provider == "gemini":
         base = url.rsplit("/models/", 1)[0] + "/models"
     else:
         suffix = "/messages" if provider == "anthropic" else "/chat/completions"
         if not url.endswith(suffix):
-            raise ArenaError("Endpoint sans chemin standard : saisir l’identifiant du modèle manuellement")
+            raise ArenaError("Nonstandard endpoint path; enter the model ID manually")
         base = url[:-len(suffix)] + "/models"
     models, cursor = {}, None
     for _ in range(50):
@@ -226,5 +226,5 @@ def list_models(provider, key, endpoint=None, transport=http_json):
         if not cursor:
             return {"models": sorted(models.values(), key=lambda row: row["id"]), "truncated": False}
         if cursor == previous:
-            raise ArenaError("Pagination du catalogue bloquée")
+            raise ArenaError("Model catalog pagination did not advance")
     return {"models": sorted(models.values(), key=lambda row: row["id"]), "truncated": True}

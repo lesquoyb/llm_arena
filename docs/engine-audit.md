@@ -1,33 +1,50 @@
-# Audit du moteur retenu
+# Pinned engine audit
 
-Commit générateur : `b99a174dd938260d9e47b2e65a208cb32230e26e`.
-Sous-module LeekScript : `8152f399faf7b418bbc5b2216d755c3822cda23b`.
-Constats issus des sources locales, le 13 octobre 2026.
+Generator commit: `b99a174dd938260d9e47b2e65a208cb32230e26e`.
+LeekScript submodule: `8152f399faf7b418bbc5b2216d755c3822cda23b`.
+Source audit date: 13 October 2026.
 
-## Limites de temps et opérations
+## Turn limits
 
-Dans `PolyglotEntityAI.java`, `DEFAULT_TURN_WALL_CLOCK_LIMIT_MS = 5_000` est un garde-fou par tour ; `MAX_WALL_CLOCK_TIMEOUTS = 3` est le nombre de dépassements avant désactivation, pas une limite de trois secondes. La méthode publique `setTurnWallClockLimitMs` permet déjà de régler la durée.
+`PolyglotEntityAI.java` defines a 5,000 ms per-turn wall-clock safeguard and
+`MAX_WALL_CLOCK_TIMEOUTS = 3` before disabling an AI. This is not a three-second
+limit. `setTurnWallClockLimitMs` configures the duration. The pinned source prefers
+a deterministic statement counter from the custom isolate with calibration;
+time-based counting remains a fallback. The optional polyglot runtime was not
+validated in this implementation.
 
-Le cas problématique décrit par le guide concerne une stratégie qui borne sa recherche avec `getOperations()`. Si son calcul Python/JavaScript n'incrémente pas le compteur, elle poursuit sa recherche jusqu'au délai de temps sans rendre son action. Allonger le délai retarde l'interruption, mais ne rétablit pas le comptage manquant.
+For LeekScript, `EntityAI.applyEntityBudgets()` sets operations to
+`min(Integer.MAX_VALUE, cores * 1000000)` and RAM to `min(50, ram) * 8000000`
+runtime units. `AI.MAX_OPERATIONS` is a fallback, not the effective entity budget.
+An infinite-loop integration test confirms interruption and operation-limit
+reporting with one core. The arena does not change these upstream rules.
+A whole-worker timeout is an infrastructure failure, not a participant loss.
 
-Le code de ce commit a évolué par rapport au guide : `getOperations()` utilise en priorité un compteur de statements déterministe fourni par l'isolate custom, avec des facteurs de calibration. Le calcul synthétique par temps CPU/temps écoulé reste le chemin de secours si ce compteur est absent ou échoue. Le support polyglotte n'a pas été exécuté dans cette tranche.
+## Adapter behavior
 
-En LeekScript, `EntityAI.applyEntityBudgets()` fixe le budget d'opérations à `cores × 1_000_000` (plafonné à un entier Java), et la mémoire à `min(50, ram) × 8_000_000` unités du runtime. Le test avec une boucle infinie et un cœur vérifie que le moteur interrompt bien le calcul et signale un dépassement d'opérations. Aucune constante du moteur n'est modifiée.
+Upstream `Scenario.fromFile` does not apply the custom map, example
+`max_operations_per_entity` field or `ai_owner` as needed here. The adapter sets
+the map, test context, team mode and side ownership explicitly. Budgets use
+recognized entity attributes.
 
-## Adaptation du lanceur
+The arena replaces database-backed registers with empty, nonpersistent local
+registers. It extends statistics with team totals and per-turn/per-entity
+operation, damage, healing and error telemetry. Upstream sources remain unchanged.
+The Gradle init script removes only the unused native polyglot binary dependency;
+other Java compilation dependencies remain. The upstream Gradle 8.5 wrapper is
+not used; this build requires Gradle 9.3.1 and JDK 25.
 
-Le `Scenario.fromFile` amont ne lit pas la carte ni le champ `max_operations_per_entity` de son scénario d'exemple. Il ne restitue pas non plus le propriétaire de l'IA depuis `ai_owner`. L'adaptateur de l'arène applique explicitement la carte, le contexte de test, le type équipe et le propriétaire de chaque côté ; les budgets passent par les caractéristiques reconnues.
+`data/forbidden_words.txt` is an upstream resource copied with the engine data.
+The adapter does not load it as a filter for LLM conversations.
 
-Le gestionnaire local de registres amont tente une connexion PostgreSQL. L'arène le remplace par des registres initialement vides et non persistés. Le gestionnaire de statistiques local est étendu pour exposer les opérations, temps écoulés, tours, erreurs et dépassements par équipe.
+## Reading results
 
-Les sources amont ne sont pas modifiées. Un script d'initialisation Gradle retire uniquement la dépendance binaire native polyglotte du build. Les autres dépendances nécessaires à la compilation des classes du moteur restent présentes. Le wrapper amont pointe vers Gradle 8.5 ; l'arène exige Gradle 9.3.1 avec Java 25.
+Engine winners use sides 0/1 and -1 for draws; serialized replay teams use 1/2.
+Real matches with swapped sides test the conversion. Turn timings use
+`System.nanoTime()` and measure elapsed time, not CPU time. Reproducibility hashes
+exclude timings but retain actions, map, entities, operations and results.
+Control fixtures verify local repeatability, not every possible strategy or
+random/time API on every machine.
 
-## Interprétation des mesures
-
-`Fight.getWinner()` renvoie un index d'équipe à partir de zéro ; les entités sérialisées dans le replay utilisent `team + 1`. Une égalité renvoie −1. Cette conversion est couverte par des combats réels avec inversion des côtés.
-
-`Fight.startTurn()` mesure ses tours avec `System.nanoTime()`. Ces durées sont du temps écoulé et ne sont pas présentées comme des mesures CPU. La signature de reproductibilité exclut les temps, conserve les actions, la carte, les entités, les opérations et le résultat.
-
-Les tests confirment la reproductibilité sur les stratégies de contrôle et les seeds testées. Ils ne permettent pas de généraliser à toutes les fonctions de temps ou sources d'aléatoire du langage.
-
-Sources amont : [générateur au commit retenu](https://github.com/leek-wars/leek-wars-generator/tree/b99a174dd938260d9e47b2e65a208cb32230e26e), [LeekScript au commit retenu](https://github.com/leek-wars/leekscript/tree/8152f399faf7b418bbc5b2216d755c3822cda23b).
+Sources: [generator](https://github.com/leek-wars/leek-wars-generator/tree/b99a174dd938260d9e47b2e65a208cb32230e26e)
+and [LeekScript](https://github.com/leek-wars/leekscript/tree/8152f399faf7b418bbc5b2216d755c3822cda23b).

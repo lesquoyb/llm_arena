@@ -1,59 +1,49 @@
-# Développement Linux
+# Linux development
 
-Pour Windows natif, voir [le guide Windows](windows.md). Le bootstrap
-portable `python scripts/bootstrap.py` fonctionne aussi sous Linux si
-un JDK 25 est déjà installé ; le script Bash ci-dessous installe aussi le JDK.
-
-Prérequis système : Linux x86_64, Python ≥ 3.11, Git, curl, tar et unzip.
-Depuis le checkout :
+Requirements: Linux x86_64, Python 3.11 or later, Git, curl, tar and unzip.
+From the checkout:
 
 ```bash
 bash scripts/bootstrap-linux.sh
 bash scripts/validate-linux.sh
+.venv/bin/python -m arena ui --open
 ```
 
-Le bootstrap installe Oracle JDK 25.0.4.1 et Gradle 9.3.1 dans
-`.arena/tools`, vérifie leurs SHA-256, puis compile les commits de
-`engine.lock.json`. Consulter les conditions de licence Oracle avant une
-utilisation hors développement. Les sources amont restent inchangées.
-`ARENA_TOOLS_DIR` et `GRADLE_USER_HOME` permettent de choisir des caches
-dédiés. Le script écrit sa configuration dans ce cache Gradle ; ne pas
-lui fournir un cache partagé contenant une configuration personnelle.
+The Bash bootstrap installs Oracle JDK 25.0.4.1 and Gradle 9.3.1 under
+`.arena/tools`, verifies their SHA-256 hashes, installs the Python dependencies
+and compiles the commits in `engine.lock.json`. Check Oracle licensing for use
+outside development. Upstream source files are not modified.
 
-Le proxy HTTPS fourni par la machine est transmis à Gradle sans désactiver
-TLS. Sur les distributions fournissant `/etc/ssl/certs/java/cacerts`, ce
-magasin système permet d'utiliser les autorités de certification de
-l'environnement. Aucun secret n'est nécessaire.
+If JDK 25 is already installed, `python scripts/bootstrap.py` also works on Linux.
+For Windows, see the [PowerShell guide](windows.md).
 
-La validation exige un moteur construit avant de lancer les tests :
-un moteur absent fait échouer `doctor`, même si unittest aurait ignoré
-les tests d'intégration. Elle vérifie les replays, les 18 combats de
-contrôle et la reprise sans nouvelle tentative. Chaque appel utilise
-un nouveau dossier, ou celui fourni en argument.
+`ARENA_TOOLS_DIR` and `GRADLE_USER_HOME` select tool and build caches. Use a
+dedicated Gradle cache; the bootstrap writes its configuration there. The
+machine HTTPS proxy is passed to Gradle with TLS verification enabled.
+Where available, `/etc/ssl/certs/java/cacerts` supplies the Java trust store.
+No provider keys are required for installation or offline validation.
 
-Les tests rapides sans moteur restent disponibles :
+Validation requires a built engine: `doctor` fails if it is missing, even when
+unittest would otherwise skip integration tests. The validator checks replays,
+18 control matches and resume without creating new attempts. Each invocation
+uses a new directory unless an output path is supplied.
+
+Fast checks without an engine:
 
 ```bash
 python -m unittest discover -s tests -p test_arena.py -k ProtocolTests -v
 ```
 
-La CI Linux compile depuis un checkout propre et conserve logs,
-rapports et replays, y compris en cas d'échec. Son exécution sur GitHub
-reste à vérifier après publication du code.
+Linux CI builds from a clean checkout and retains logs, reports and replays
+on failure. Check the workflow result rather than assuming it passed.
 
-Après compilation, les combats utilisent uniquement le Java enregistré
-dans `.arena/engine.json` et les ressources locales ; aucun service,
-base de données ou appel fournisseur n'intervient. Ne pas transférer
-ce fichier depuis une autre machine : le régénérer avec le bootstrap.
-Un tournoi d'une autre plateforme ne peut pas être repris implicitement.
+After installation, matches use the Java path and local resources recorded in
+`.arena/engine.json`; they do not contact a Leek Wars service or database.
+Regenerate that file on each machine rather than copying it. Resume checks
+runtime identity and does not merge runs across platforms or JVM profiles.
+The runner fingerprint includes subpackages and prompts. Gradle archives use
+stable file order and omit timestamps.
 
-Le backend processus Java impose délai global, heap et quotas de sortie.
-Le backend Docker optionnel, MCP et les adaptateurs fournisseurs sont
-décrits dans le [guide complet](complete-experiment.md).
-Le fingerprint couvre les sous-packages et prompts ; les archives Gradle
-ont un ordre stable sans timestamps. La reprise reste stricte sur le
-runtime, même avec une identité scientifique séparée.
-
-L’[interface web locale](ui.md) se lance après installation avec
-`.venv/bin/python -m arena ui --open`. Elle utilise le même moteur et les
-mêmes expériences ; aucun Node.js n’est nécessaire pour l’utiliser.
+Native workers have heap, timeout and output limits. See the [full guide](complete-experiment.md)
+for optional Docker isolation, MCP and API adapters. The [local interface](ui.md)
+uses the same engine and requires no Node.js at runtime.

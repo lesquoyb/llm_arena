@@ -11,7 +11,7 @@ from .tournament import report, run_tournament, schedule
 
 
 def parser():
-    p = argparse.ArgumentParser(description="Local LeekScript arena — no provider/API calls")
+    p = argparse.ArgumentParser(description="Local LeekScript experiments and tournaments")
     commands = p.add_subparsers(dest="command", required=True)
     c = commands.add_parser("setup", help="Fetch the pinned engine, build its jar and the arena adapter")
     c.add_argument("--gradle")

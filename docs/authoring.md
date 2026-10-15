@@ -1,33 +1,50 @@
-# Écrire une stratégie pour l'arène
+# Writing an arena strategy
 
-Le moteur exécute du LeekScript 4. Le fichier `main.leek` constitue la logique d'un tour. Les fonctions globales du jeu sont disponibles sans import. Chaque entité joue sa stratégie à son tour ; les équipes disposent de statistiques et d'équipements identiques fixés par le scénario.
+The engine runs LeekScript 4. `main.leek` contains the logic for one entity turn.
+Game functions are available globally without imports. Team members run the
+same entry point; both teams use the stats and equipment set by the scenario.
 
-Les points d'action (`getTP()`) et de mouvement (`getMP()`) limitent les actions de jeu. Le compteur `getOperations()` limite le calcul exécuté pendant le tour. Ce sont trois ressources différentes. Dans le pilote, chaque entité a 10 cœurs, soit 10 millions d'opérations par tour. Une stratégie de recherche doit rendre son action avant d'épuiser son budget.
+Action points (`getTP()`), movement points (`getMP()`) and operations
+(`getOperations()`) are separate resources. Operation budgets are
+`min(2147483647, cores * 1000000)` per turn. The default 10 cores give 10 million
+operations. Return control before exhausting that budget.
 
-Exemple minimal testé sur l'équipement du pilote :
+Example tested with the demo equipment:
 
 ```javascript
 var enemy = getNearestEnemy()
-if (enemy != null) {
+if (enemy >= 0 && isAlive(enemy)) {
     setWeapon(getWeapons()[0])
     moveToward(enemy)
-    while (getTP() >= getWeaponCost() && isAlive(enemy)) {
+    while (getWeaponCost() >= 0 && getTP() >= getWeaponCost() && isAlive(enemy)) {
         if (useWeapon(enemy) != USE_SUCCESS) break
     }
 }
 ```
 
-`getWeapons()` donne les armes équipées ; `setWeapon` sélectionne l'arme active. `moveToward` dépense du mouvement pour se rapprocher de la cible. `useWeapon` tente un tir et renvoie un code de résultat : vérifier `USE_SUCCESS` pour éviter une boucle sans progrès lorsque la cible est hors de portée ou masquée. Le script ci-dessus suppose au moins une arme, comme le scénario fourni.
+`getNearestEnemy()` returns -1 when there is no enemy; do not assume null.
+`getWeapons()` lists equipped weapons. `setWeapon` selects one; `moveToward`
+spends movement points; `useWeapon` attempts a shot. Check `USE_SUCCESS` to
+avoid looping on an out-of-range or blocked shot. This example assumes at least
+one equipped weapon.
 
-Les fichiers de support doivent être dans le même dossier de soumission. Par exemple, `include("lib/targeting.leek")` charge un fichier interne. Aucun fichier d'un adversaire ni fichier extérieur n'est accessible par le résolveur. Les registres démarrent vides à chaque combat et ne persistent pas entre combats.
+Support files must be part of the same submission. For example,
+`include("lib/targeting.leek")` loads an internal file. The resolver refuses
+external files and opponent files. Registers start empty for each match and
+do not persist across matches. Submissions allow 128 `.leek` files and 2 MB total.
 
-Tester l'analyse, puis le comportement réel : une IA peut être syntaxiquement valide sans agir efficacement.
+After installation, using the project Python:
 
-```powershell
-python -m arena analyze chemin/vers/ma-strategie
-python -m arena fight chemin/vers/ma-strategie examples/strategies/rush
+```bash
+python -m arena analyze path/to/my-strategy
+python -m arena fight path/to/my-strategy examples/strategies/rush
 ```
 
-Lire `outcome.json` pour le replay et les logs de jeu, `result.json` pour le résultat compact et les métriques par équipe. Les commandes impriment le chemin du dossier d'artefacts créé.
+Analysis success does not imply effective gameplay. Inspect `outcome.json`
+for replay events and game logs, and `result.json` for compact results and team
+metrics. Commands print the output path.
 
-La [référence figée](leekscript-v1/api.md) donne les signatures et coûts de base déclarés. `weapons.json`, `chips.json` et `summons.json` dans le même dossier contiennent les caractéristiques du jeu utilisées. Les noms d'arguments et les descriptions détaillées des effets seront enrichis avant les expériences LLM.
+The [pinned reference](leekscript-v1/api.md) provides signatures and declared base
+costs. Equipment data is in `weapons.json`, `chips.json` and `summons.json`.
+The [API guide](corpus/api-guide.md) explains the example functions. Unlisted
+behavior is not implied by a function name.
