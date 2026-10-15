@@ -51,6 +51,19 @@ class ProtocolTests(unittest.TestCase):
 
 @unittest.skipUnless((ROOT / ".arena/engine.json").exists(), "Run python -m arena setup for integration tests")
 class EngineIntegrationTests(unittest.TestCase):
+    def test_documented_corpus_example_runs_in_pinned_engine(self):
+        import re
+        text = (ROOT / "docs/corpus/api-guide.md").read_text()
+        code = re.search(r"```javascript\n(.*?)```", text, re.S).group(1)
+        with scratch_directory() as tmp:
+            source = tmp / "documented"
+            source.mkdir()
+            (source / "main.leek").write_text(code)
+            self.assertEqual(self.engine.analyze(source, "main.leek", tmp / "analysis")["status"], "valid")
+            result = self.fight(source, self.passive, "documented-example")
+            self.assertEqual(result["status"], "completed")
+            self.assertEqual(result["team_metrics"]["0"]["errors"], 0)
+
     @classmethod
     def setUpClass(cls):
         cls.engine = Engine()
@@ -111,6 +124,14 @@ class EngineIntegrationTests(unittest.TestCase):
         self.assertEqual(result["status"], "completed")
         self.assertEqual(result["winner_side"], 1)
         self.assertGreater(result["team_metrics"]["0"]["errors"], 0)
+
+    def test_paths_with_spaces_and_multifile_includes(self):
+        source = self.root / "strategy with spaces"
+        (source / "lib").mkdir(parents=True)
+        (source / "main.leek").write_text('include("lib/helper.leek")')
+        (source / "lib/helper.leek").write_text("var enemy = getNearestEnemy()")
+        result = self.engine.analyze(source, "main.leek", self.root / "output with spaces")
+        self.assertEqual(result["status"], "valid")
 
     def test_operation_limit_is_enforced(self):
         source = self.root / "loop"

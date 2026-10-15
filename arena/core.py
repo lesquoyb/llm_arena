@@ -6,10 +6,12 @@ import json
 import re
 import shutil
 import uuid
+import os
 from contextlib import contextmanager
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
+ROOT = Path(os.environ.get("ARENA_PROJECT_ROOT", Path(__file__).resolve().parent.parent)).resolve()
+STATE_ROOT = Path(os.environ.get("ARENA_STATE_ROOT", ROOT / ".arena")).resolve()
 DEFAULT_SCENARIO = {
     "team_size": 2,
     "max_turns": 32,
@@ -26,9 +28,24 @@ class ArenaError(Exception):
 
 
 @contextmanager
+def file_lock(path: Path):
+    import fcntl
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a") as stream:
+        try:
+            fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as error:
+            raise ArenaError("Another process is writing these artifacts") from error
+        try:
+            yield
+        finally:
+            fcntl.flock(stream, fcntl.LOCK_UN)
+
+
+@contextmanager
 def scratch_directory():
     # Keep temporary artifacts inside the workspace, including under Windows sandboxing.
-    base = (ROOT / ".arena/tmp").resolve()
+    base = (STATE_ROOT / "tmp").resolve()
     path = base / uuid.uuid4().hex
     path.mkdir(parents=True)
     try:

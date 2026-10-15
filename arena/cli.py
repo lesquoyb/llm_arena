@@ -36,6 +36,24 @@ def parser():
     c.add_argument("--resume", action="store_true")
     c = commands.add_parser("report", help="Rebuild tournament reports")
     c.add_argument("directory", type=Path)
+    c = commands.add_parser("experiment", help="Unpaid offline mock sessions and real LeekScript tournaments")
+    actions = c.add_subparsers(dest="action", required=True)
+    for name in ("plan", "run", "init"):
+        action = actions.add_parser(name)
+        action.add_argument("config", type=Path)
+        if name in {"run", "init"}:
+            action.add_argument("--out", type=Path, required=True)
+    for name in ("resume", "status", "report"):
+        action = actions.add_parser(name)
+        action.add_argument("directory", type=Path)
+    action = actions.add_parser("export")
+    action.add_argument("directory", type=Path)
+    action.add_argument("--out", type=Path, required=True)
+    c = commands.add_parser("mcp", help="Preparation tools over MCP stdio")
+    actions_mcp = c.add_subparsers(dest="mcp_action", required=True)
+    action = actions_mcp.add_parser("serve")
+    action.add_argument("--experiment", type=Path, required=True)
+    action.add_argument("--session", required=True)
     for name in ("analyze", "fight", "verify", "tournament"):
         c = commands.choices[name]
         c.add_argument("--out", type=Path)
@@ -46,6 +64,29 @@ def parser():
 def main(argv=None):
     args = parser().parse_args(argv)
     try:
+        if args.command == "mcp":
+            from .mcp_server import serve
+            serve(args.experiment, args.session)
+            return 0
+        if args.command == "experiment":
+            from .experiment import load_config, plan, run, status
+            if args.action in {"plan", "run", "init"}:
+                config = load_config(args.config.absolute())
+                result = plan(config) if args.action == "plan" else run(config, args.out.absolute(), prepare_only=args.action == "init")
+            elif args.action == "resume":
+                directory = args.directory.absolute()
+                result = run(read_json(directory / "experiment.json")["config"], directory, resume=True)
+            elif args.action == "status":
+                result = status(args.directory.absolute())
+            elif args.action == "export":
+                from .exporting import export_experiment
+                result = export_experiment(args.directory.absolute(), args.out.absolute())
+            else:
+                result = read_json(args.directory.absolute() / "report.json")
+            print(json.dumps(result, ensure_ascii=False, indent=2))
+            return int(bool((result.get("tournament") or {}).get("failed")) or bool(result.get("assessment_failures"))
+                       or bool(result.get("unresolved_sessions")) or bool(result.get("incomplete"))
+                       or bool((result.get("evolution") or {}).get("incomplete")))
         if args.command == "setup":
             setup(args.gradle)
             print("Engine built. Run: python -m arena doctor")

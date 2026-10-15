@@ -9,6 +9,9 @@ description = "Reproducible local LeekScript tournaments for LLM-generated strat
 requires-python = ">=3.11"
 dependencies = []
 
+[project.optional-dependencies]
+mcp = ["mcp==1.30.0"]
+
 [project.scripts]
 arena = "arena.cli:main"
 

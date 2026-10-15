@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import os
 import platform
+import signal
 import shutil
 import subprocess
 import time
+import re
+from uuid import uuid4
 from pathlib import Path
 
-from .core import ArenaError, ROOT, copy_submission, digest, file_hash, make_scenario, read_json, scratch_directory, submission, tree_hash, write_json
+from .core import ArenaError, ROOT, STATE_ROOT, copy_submission, digest, file_hash, make_scenario, read_json, scratch_directory, submission, tree_hash, write_json
 
 
 def command(args, cwd=ROOT, **kwargs):
@@ -34,6 +37,12 @@ def java_home() -> Path:
     if not (home / "bin" / ("javac.exe" if os.name == "nt" else "javac")).exists():
         raise ArenaError("A full JDK with javac is required")
     return home
+
+
+def worker_limits():
+    # Bound each redirected output file. This is not a complete OS sandbox.
+    import resource
+    resource.setrlimit(resource.RLIMIT_FSIZE, (8_000_000, 8_000_000))
 
 
 def setup(gradle: str | None = None):
@@ -63,7 +72,7 @@ def setup(gradle: str | None = None):
     if f"Gradle {lock['gradle_version']}" not in version:
         raise ArenaError(f"Gradle {lock['gradle_version']} is required for the pinned build")
     command([gradle, f"-Dorg.gradle.java.home={home}", "--no-daemon", "--init-script", ROOT / "engine/leekscript.init.gradle", "jar"], vendor)
-    state = ROOT / ".arena"
+    state = STATE_ROOT
     classes = state / "bridge"
     classes.mkdir(parents=True, exist_ok=True)
     jar = vendor / "generator.jar"
@@ -85,7 +94,7 @@ class Engine:
         if not 0 < timeout <= 3600:
             raise ArenaError("Timeout must be in (0, 3600] seconds")
         self.timeout = timeout
-        state = ROOT / ".arena/engine.json"
+        state = STATE_ROOT / "engine.json"
         if not state.exists():
             raise ArenaError("Engine is not built. Run: python -m arena setup")
         self.metadata = read_json(state)
@@ -103,22 +112,78 @@ class Engine:
         if actual_java != m["java_version"]:
             raise ArenaError("Java runtime changed; rerun setup")
         self.identity = {k: m[k] for k in ("lock", "java_version", *checks)}
-        self.identity["runner_sha256"] = digest({p.name: file_hash(p) for p in sorted((ROOT / "arena").glob("*.py"))})
+        self.identity["runner_sha256"] = digest({p.relative_to(ROOT).as_posix(): file_hash(p)
+                                               for directory in ("arena", "prompts")
+                                               for p in sorted((ROOT / directory).rglob("*"))
+                                               if p.is_file() and "__pycache__" not in p.parts and p.suffix != ".pyc"})
         self.identity["python_version"] = platform.python_version()
         self.identity["platform"] = platform.platform()
+        profile = os.environ.get("ARENA_JVM_PROFILE", "startup")
+        if profile not in {"startup", "full"}:
+            raise ArenaError("ARENA_JVM_PROFILE must be startup or full")
+        self.worker_options = ["-Xmx512m", "-Dfile.encoding=UTF-8"]
+        if profile == "startup":
+            self.worker_options.append("-XX:TieredStopAtLevel=1")
+        self.identity["worker_jvm_profile"] = profile
+        self.backend = os.environ.get("ARENA_WORKER_BACKEND", "process")
+        self.worker_image = os.environ.get("ARENA_WORKER_IMAGE")
+        if self.backend not in {"process", "docker"}:
+            raise ArenaError("Unknown worker backend")
+        if self.backend == "docker" and (not self.worker_image or
+                not re.fullmatch(r"(?:[^\s]+@)?sha256:[a-f0-9]{64}", self.worker_image)):
+            raise ArenaError("Docker worker requires a pinned ARENA_WORKER_IMAGE digest")
+        self.identity["worker_backend"] = {"name": self.backend, "image": self.worker_image if self.backend == "docker" else None}
+        self.scientific_identity = {k: v for k, v in self.identity.items()
+                                    if k not in {"java_version", "python_version", "platform", "jar_sha256", "bridge_sha256"}}
+        self.artifact_provenance = {k: self.identity[k] for k in ("jar_sha256", "bridge_sha256")}
+        self.runtime_provenance = {k: self.identity[k] for k in ("java_version", "python_version", "platform")}
 
     def invoke(self, work: Path, mode: str, argument: str) -> dict:
         shutil.copytree(self.metadata["data"], work / "data")
         classpath = os.pathsep.join([self.metadata["classes"], self.metadata["jar"]])
-        args = [self.metadata["java"], "-Xmx512m", "-Dfile.encoding=UTF-8", "-cp", classpath,
+        args = [self.metadata["java"], *self.worker_options, "-cp", classpath,
                 "arena.bridge.ArenaMain", mode, argument, "outcome.json"]
+        container = None
+        if self.backend == "docker":
+            container = "arena-worker-" + uuid4().hex
+            args = ["docker", "run", "--rm", "--name", container, "--network", "none", "--read-only",
+                    "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
+                    "--memory", "768m", "--cpus", "1", "--pids-limit", "64",
+                    "--ulimit", "fsize=8000000:8000000", "--user", f"{os.getuid()}:{os.getgid()}",
+                    "--tmpfs", "/tmp:rw,nosuid,nodev,size=64m", "--workdir", "/work",
+                    "--mount", f"type=bind,src={work},dst=/work",
+                    "--mount", f"type=bind,src={self.metadata['jar']},dst=/engine/generator.jar,readonly",
+                    "--mount", f"type=bind,src={self.metadata['classes']},dst=/engine/bridge,readonly",
+                    self.worker_image, *self.worker_options, "-cp",
+                    "/engine/bridge:/engine/generator.jar", "arena.bridge.ArenaMain", mode, argument, "outcome.json"]
         start = time.monotonic()
         with (work / "stdout.log").open("wb") as stdout, (work / "stderr.log").open("wb") as stderr:
             try:
-                process = subprocess.run(args, cwd=work, stdout=stdout, stderr=stderr, timeout=self.timeout)
+                allowed = {"PATH", "JAVA_HOME", "SystemRoot", "WINDIR", "TEMP", "TMP",
+                           "TMPDIR", "LANG", "LC_ALL", "TZ"}
+                environment = {key: value for key, value in os.environ.items() if key in allowed}
+                options = {"start_new_session": True, "preexec_fn": worker_limits} if os.name == "posix" else {}
+                process = subprocess.Popen(args, cwd=work, stdout=stdout, stderr=stderr,
+                                           env=environment, **options)
+                try:
+                    process.wait(timeout=self.timeout)
+                except BaseException:
+                    if os.name == "posix":
+                        try:
+                            os.killpg(process.pid, signal.SIGKILL)
+                        except ProcessLookupError:
+                            pass
+                    else:
+                        process.kill()
+                    process.wait()
+                    raise
             except subprocess.TimeoutExpired:
                 return {"status": "timeout", "elapsed_seconds": time.monotonic() - start,
                         "error": "Whole-match process deadline exceeded; not attributed to either strategy"}
+            finally:
+                if container:
+                    subprocess.run(["docker", "rm", "-f", container], env=environment,
+                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=20)
         elapsed = time.monotonic() - start
         output = work / "outcome.json"
         if process.returncode or not output.exists():
@@ -151,6 +216,7 @@ class Engine:
         copy_submission(source, out / "strategies/1", info)
         write_json(out / "provenance.json", {"engine": self.identity, "submission": info, "timeout_seconds": self.timeout})
         result = self.invoke(out, "analyze", entrypoint)
+        result["source_sha256"] = info["sha256"]
         write_json(out / "result.json", result)
         return result
 
