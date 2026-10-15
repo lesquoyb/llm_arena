@@ -60,6 +60,24 @@ class RealisticStatsTests(unittest.TestCase):
         bad['members'][0]['capital']={'strength':590,'life':1}
         with self.assertRaises(ArenaError): validate_team(bad,config)
 
+    def test_realistic_equipment_level_applies_to_defaults_and_model_choices(self):
+        from arena.core import ROOT
+        for kind, identifier in [('weapons',10),('chips',76)]:
+            config=realistic()
+            config['entity'][kind]=[identifier]
+            with self.subTest(kind=kind), self.assertRaisesRegex(ArenaError,'requires level'):
+                validate_scenario(config)
+            config=realistic()
+            config['team_selection']={'mode':'participant'}
+            member={'entrypoint':'main.leek','weapons':[], 'chips':[],kind:[identifier]}
+            with self.assertRaisesRegex(ArenaError,'higher level'):
+                validate_team({'members':[member]},config,{'main.leek':''},ROOT/'docs/leekscript-v1')
+            config['stats_mode']='free'
+            config.pop('member_stats')
+            config['entity'][kind]=[identifier]
+            validate_scenario(config)
+            validate_team({'members':[member]},config,{'main.leek':''},ROOT/'docs/leekscript-v1')
+
     def test_legacy_free_scenarios_preserve_exact_entity_fields(self):
         actual=make_scenario(DEFAULT_SCENARIO,['main.leek']*2,101)
         self.assertNotIn('magic',actual['entities'][0][0])

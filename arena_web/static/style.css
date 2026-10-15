@@ -1383,3 +1383,15 @@ dialog::backdrop {
   margin: 12px 0;
   line-height: 1.7;
 }
+
+.equipment-locked {
+  color: var(--muted);
+  background: #f6f7fa;
+}
+.equipment-locked label {
+  cursor: not-allowed;
+}
+.equipment-locked .check::after {
+  content: "Locked: requires the displayed level";
+  font-size: 11px;
+}

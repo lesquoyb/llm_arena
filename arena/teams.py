@@ -60,6 +60,6 @@ def validate_team(team, scenario=None, files=None, data=None):
                 if catalog is not None:
                     if str(item) not in catalog:
                         raise ArenaError(f"Unknown {kind} ID: {item}")
-                    if scenario and catalog[str(item)].get("level", 1) > scenario["entity"]["level"]:
+                    if scenario and scenario.get("stats_mode") != "free" and catalog[str(item)].get("level", 1) > scenario["entity"]["level"]:
                         raise ArenaError(f"{kind} ID {item} requires a higher level")
     return team

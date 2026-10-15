@@ -81,3 +81,13 @@ def validate_stats(scenario):
         if mode == 'realistic-v1' and index == 0:
             if any(scenario['entity'].get(key, 0) != value for key, value in values.items()):
                 raise ArenaError('Default entity stats must match the first realistic capital allocation')
+
+    if mode == 'realistic-v1':
+        for kind in ('weapons', 'chips'):
+            catalog = read_json(ROOT / 'docs/leekscript-v1' / (kind + '.json'))
+            for identifier in scenario['entity'].get(kind, []):
+                item = catalog.get(str(identifier))
+                if item is None:
+                    raise ArenaError(f'Unknown {kind} ID: {identifier}')
+                if item.get('level', 1) > scenario['entity']['level']:
+                    raise ArenaError(f'{kind} ID {identifier} requires level {item["level"]}; leek level is {scenario["entity"]["level"]}')

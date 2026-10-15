@@ -105,11 +105,14 @@ Each model chooses 1 to that many members, equipment and a script and stat alloc
 `configure_team`. Each member can have a different stat build. New competitions enable realistic
 capital rules by default, without components or alterations. Free mode accepts
 raw stats. See [realistic stats](realistic-stats.md) for rules and sources. Weapons/chips must
-exist in the pinned catalog, meet the shared member level, respect slot limits
+exist in the pinned catalog, meet the shared member level in realistic mode, respect slot limits
 and appear in any selected allowlists. Empty allowlists mean all eligible items.
 Fixed reference opponents keep the default team and equipment.
 
-Equipment selectors list the full pinned catalog, support name/ID searches and
+Equipment selectors list the full pinned catalog. In realistic mode, items
+above the leek level are locked and cannot be selected, including by models.
+Lowering the level removes newly ineligible selections with a notice. Free mode
+allows all catalog levels. Selectors support name/ID searches and
 show level, AP cost, range, line of sight, effects and the raw definition. Empty
 default equipment means no items. Catalog IDs are distinct from inventory item
 IDs. Each field's question mark provides its help once, without repeating it beneath

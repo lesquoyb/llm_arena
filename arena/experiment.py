@@ -375,7 +375,7 @@ def initial_state(sid, model, config):
                          "scenario": config["scenario"], **({"team_instructions":
                          "Choose 1..scenario.team_size members using configure_team after writing their sources. "
                          "Each member can use a different entrypoint and equipment. Read the pinned equipment catalogs; "
-                         "respect level, slot limits and allowlists. Stats follow scenario.stats_mode: per-member capital in realistic-v1 (no components), or raw stats in free mode. Omit to inherit default member builds. Read corpus/stat-rules.json. Configure the team before test or submit. "
+                         "respect slot limits and allowlists; realistic mode also enforces equipment level. Stats follow scenario.stats_mode: per-member capital in realistic-v1 (no components), or raw stats in free mode. Omit to inherit default member builds. Read corpus/stat-rules.json. Configure the team before test or submit. "
                          "Improvements inherit team.json and may revise it with the same tool."}
                          if config["scenario"].get("team_selection") else {})}],
             "calls": 0, "steps": 0, "test_matches": 0, "wall_seconds": 0,

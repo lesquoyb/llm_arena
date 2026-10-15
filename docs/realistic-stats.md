@@ -9,7 +9,10 @@ This version supports **base stats plus capital, without components or
 alterations**. It is a constructible subset of official builds, not an exhaustive
 simulation of the online account, inventory, components, loadouts or economy.
 Weapons and chips still use the pinned generator catalog and the competition's
-level, slot and allowlist rules. Reference opponents use the default member builds.
+level, slot and allowlist rules. In realistic mode, default equipment and
+participant-selected items above the leek level are rejected by validation and
+the engine. The selectors show them locked; free mode permits higher-level items.
+Lowering the level removes newly ineligible selections and reports their names. Reference opponents use the default member builds.
 
 ## Official rules used
 

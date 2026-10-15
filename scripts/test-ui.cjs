@@ -268,13 +268,36 @@ async function main() {
       "Realistic stats (official capital rules, no components)",
     );
     assert(await realisticStats.isChecked());
+    const highLevelWeapon = page.locator(
+      '.equipment-picker[data-name="weapons"] .equipment-check[value="10"]',
+    );
+    const highLevelChip = page.locator(
+      '.equipment-picker[data-name="chips"] .equipment-check[value="76"]',
+    );
+    assert(await highLevelWeapon.isDisabled());
+    assert(await highLevelChip.isDisabled());
+
     await realisticStats.uncheck();
+    assert(await highLevelWeapon.isEnabled());
+    assert(await highLevelChip.isEnabled());
     await page.locator('[name="member_0_strength"]').fill("100000");
     await realisticStats.check();
+    assert(await highLevelWeapon.isDisabled());
+    assert(await highLevelChip.isDisabled());
     assert.equal(
       await page.locator('[name="member_0_strength"]').inputValue(),
       "50",
     );
+    await page.getByLabel("Level (all members)").fill("49");
+    await page.getByLabel("Level (all members)").press("Tab");
+    assert.equal(await page.locator('[name="weapons"]').inputValue(), "");
+    assert(
+      (await page.locator("#equipment-removals").innerText()).includes(
+        "Removed",
+      ),
+    );
+    await page.getByLabel("Level (all members)").fill("100");
+    await page.getByLabel("Level (all members)").press("Tab");
     await page.locator('[name="member_0_strength"]').fill("100");
     await page.locator('[data-member-build="1"] > summary').click();
     await page.locator('[name="member_1_strength"]').fill("0");

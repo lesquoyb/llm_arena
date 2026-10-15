@@ -298,6 +298,8 @@ class Engine:
                     for item in entity.get(key, []):
                         if str(item) not in known:
                             raise ArenaError(f"Unknown {key} ID in pinned game data: {item}")
+                        if config.get("stats_mode") == "realistic-v1" and known[str(item)].get("level", 1) > entity["level"]:
+                            raise ArenaError(f"{key} ID {item} requires level {known[str(item)]['level']}; leek level is {entity['level']}")
         out.mkdir(parents=True, exist_ok=False)
         for side in range(2):
             copy_submission(sources[side], out / f"strategies/{side + 1}", infos[side])
