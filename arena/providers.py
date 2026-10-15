@@ -21,7 +21,7 @@ class MockProvider:
         condition = history[marker].get("condition") if improving else None
         source = (ROOT / "examples/strategies" /
                   ("rush" if profile == "repair-and-submit" or condition == "feedback" else "single-shot") /
-                  "main.leek").read_text()
+                  "main.leek").read_text(encoding="utf-8")
         scripts = {
             "single-shot": [
                 [("read_docs", {"path": "authoring.md"}), ("write_file", {"path": "main.leek", "content": source})],

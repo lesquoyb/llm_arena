@@ -101,7 +101,7 @@ def run_evolution(config, out, journal, engine, initial, interrupt=None):
                 state.pop("assessment_sha256", None)
                 state.pop("validity", None)
                 prompt_path = ROOT / "prompts" / ("feedback.md" if condition == "feedback" else "control.md")
-                message = {"role": "user", "content": prompt_path.read_text(), "generation": 1,
+                message = {"role": "user", "content": prompt_path.read_text(encoding="utf-8"), "generation": 1,
                            "condition": condition, "budgets": config["budget_per_session"]}
                 if condition == "feedback":
                     message["feedback"] = feedback_for(parent["id"], out / "tournament")

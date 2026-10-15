@@ -27,19 +27,45 @@ class ArenaError(Exception):
     pass
 
 
+def is_link(path: Path) -> bool:
+    """Also reject Windows junctions/reparse points, including on Python 3.11."""
+    try:
+        return path.is_symlink() or bool(getattr(path.lstat(), "st_file_attributes", 0) & 0x400)
+    except FileNotFoundError:
+        return False
+
+
 @contextmanager
 def file_lock(path: Path):
-    import fcntl
+    """Non-blocking OS lock, released even when the owning process crashes."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a") as stream:
+    with path.open("a+b") as stream:
+        if os.name == "nt":
+            import msvcrt
+            # Windows byte-range locks need a stable byte, including in a new file.
+            if stream.seek(0, os.SEEK_END) == 0:
+                stream.write(b"\0")
+                stream.flush()
+            stream.seek(0)
+            acquire = lambda: msvcrt.locking(stream.fileno(), msvcrt.LK_NBLCK, 1)
+            def release():
+                stream.seek(0)
+                msvcrt.locking(stream.fileno(), msvcrt.LK_UNLCK, 1)
+        else:
+            import fcntl
+            acquire = lambda: fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            release = lambda: fcntl.flock(stream, fcntl.LOCK_UN)
         try:
-            fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError as error:
+            acquire()
+        except OSError as error:
+            import errno
+            if error.errno not in {errno.EACCES, errno.EAGAIN, errno.EDEADLK}:
+                raise
             raise ArenaError("Another process is writing these artifacts") from error
         try:
             yield
         finally:
-            fcntl.flock(stream, fcntl.LOCK_UN)
+            release()
 
 
 @contextmanager
@@ -52,7 +78,7 @@ def scratch_directory():
         yield path
     finally:
         resolved = path.resolve()
-        if resolved.parent != base or path.is_symlink():
+        if resolved.parent != base or is_link(path):
             raise ArenaError(f"Refusing to clean up unexpected temporary path: {path}")
         shutil.rmtree(resolved)
 
@@ -81,11 +107,11 @@ def tree_hash(path: Path) -> str:
 
 
 def source_files(source: Path) -> dict[str, bytes]:
-    if not source.is_dir() or source.is_symlink():
+    if not source.is_dir() or is_link(source):
         raise ArenaError(f"Submission must be a directory, not a link: {source}")
     files = {}
     for p in sorted(source.rglob("*")):
-        if p.is_symlink() or (hasattr(p, "is_junction") and p.is_junction()):
+        if is_link(p):
             raise ArenaError(f"Links are not allowed in submissions: {p}")
         if p.is_file() and p.suffix == ".leek":
             files[p.relative_to(source).as_posix()] = p.read_bytes()

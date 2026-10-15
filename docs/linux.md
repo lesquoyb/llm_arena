@@ -1,5 +1,9 @@
 # Développement Linux
 
+Pour Windows natif, voir [le guide Windows](windows.md). Le bootstrap
+portable `python scripts/bootstrap.py` fonctionne aussi sous Linux si
+un JDK 25 est déjà installé ; le script Bash ci-dessous installe aussi le JDK.
+
 Prérequis système : Linux x86_64, Python ≥ 3.11, Git, curl, tar et unzip.
 Depuis le checkout :
 

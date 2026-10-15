@@ -45,6 +45,52 @@ def worker_limits():
     resource.setrlimit(resource.RLIMIT_FSIZE, (8_000_000, 8_000_000))
 
 
+OUTPUT_LIMIT = 8_000_000
+
+
+class WorkerOutputLimit(Exception):
+    pass
+
+
+def stop_worker(process):
+    """Terminate a worker and its descendants before returning to the caller."""
+    if os.name == "posix":
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+    elif process.poll() is None:
+        # taskkill is supplied by Windows; /T also stops any child processes.
+        try:
+            subprocess.run(["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                           timeout=10, check=False)
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+        if process.poll() is None:
+            process.kill()
+    process.wait()
+
+
+def wait_worker(process, work: Path, timeout: float):
+    # Poll redirected files on every platform; POSIX additionally has RLIMIT_FSIZE.
+    # Polling can overshoot the limit briefly, unlike the POSIX kernel limit.
+    deadline = time.monotonic() + timeout
+    while True:
+        if any(p.exists() and p.stat().st_size > OUTPUT_LIMIT
+               for p in (work / "stdout.log", work / "stderr.log", work / "outcome.json")):
+            raise WorkerOutputLimit("Worker output exceeded 8 MB per file")
+        if process.poll() is not None:
+            return
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise subprocess.TimeoutExpired(process.args, timeout)
+        try:
+            process.wait(timeout=min(0.05, remaining))
+        except subprocess.TimeoutExpired:
+            pass
+
+
 def setup(gradle: str | None = None):
     lock = read_json(ROOT / "engine.lock.json")
     vendor = ROOT / "vendor" / "leek-wars-generator"
@@ -68,18 +114,25 @@ def setup(gradle: str | None = None):
             gradle = str(candidates[0])
     if not gradle:
         raise ArenaError(f"Install Gradle {lock['gradle_version']} or pass --gradle PATH (upstream wrapper is too old)")
-    version = capture([gradle, "--version"])
+    gradle_args = [gradle]
+    if os.name == "nt" and Path(gradle).suffix.lower() in {".bat", ".cmd"}:
+        # Launch the standard Gradle distribution directly, without cmd.exe quoting.
+        launcher = Path(gradle).resolve().parent.parent / "lib" / f"gradle-gradle-cli-main-{lock['gradle_version']}.jar"
+        if not launcher.is_file():
+            raise ArenaError("Use the standard Gradle distribution or scripts/bootstrap.py")
+        gradle_args = [home / "bin/java.exe", "-Dorg.gradle.appname=gradle", "-jar", launcher]
+    version = capture([*gradle_args, "--version"])
     if f"Gradle {lock['gradle_version']}" not in version:
         raise ArenaError(f"Gradle {lock['gradle_version']} is required for the pinned build")
-    command([gradle, f"-Dorg.gradle.java.home={home}", "--no-daemon", "--init-script", ROOT / "engine/leekscript.init.gradle", "jar"], vendor)
+    command([*gradle_args, f"-Dorg.gradle.java.home={home}", "--no-daemon", "--init-script", ROOT / "engine/leekscript.init.gradle", "jar"], vendor)
     state = STATE_ROOT
     classes = state / "bridge"
     classes.mkdir(parents=True, exist_ok=True)
     jar = vendor / "generator.jar"
-    command([home / "bin" / "javac", "-encoding", "UTF-8", "-cp", jar, "-d", classes, ROOT / "engine/ArenaMain.java"])
+    command([home / "bin" / ("javac.exe" if os.name == "nt" else "javac"), "-encoding", "UTF-8", "-cp", jar, "-d", classes, ROOT / "engine/ArenaMain.java"])
     metadata = {
         "lock": lock, "java": str(home / "bin" / ("java.exe" if os.name == "nt" else "java")),
-        "java_version": command([home / "bin" / "java", "-version"], capture_output=True, text=True).stderr.strip(),
+        "java_version": command([home / "bin" / ("java.exe" if os.name == "nt" else "java"), "-version"], capture_output=True, text=True).stderr.strip(),
         "jar": str(jar), "classes": str(classes), "data": str(vendor / "data"),
         "jar_sha256": file_hash(jar), "bridge_sha256": tree_hash(classes),
         "data_sha256": tree_hash(vendor / "data"), "adapter_sha256": file_hash(ROOT / "engine/ArenaMain.java"),
@@ -149,7 +202,7 @@ class Engine:
             args = ["docker", "run", "--rm", "--name", container, "--network", "none", "--read-only",
                     "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
                     "--memory", "768m", "--cpus", "1", "--pids-limit", "64",
-                    "--ulimit", "fsize=8000000:8000000", "--user", f"{os.getuid()}:{os.getgid()}",
+                    "--ulimit", "fsize=8000000:8000000", "--user", (f"{os.getuid()}:{os.getgid()}" if os.name == "posix" else "65534:65534"),
                     "--tmpfs", "/tmp:rw,nosuid,nodev,size=64m", "--workdir", "/work",
                     "--mount", f"type=bind,src={work},dst=/work",
                     "--mount", f"type=bind,src={self.metadata['jar']},dst=/engine/generator.jar,readonly",
@@ -161,22 +214,18 @@ class Engine:
             try:
                 allowed = {"PATH", "JAVA_HOME", "SystemRoot", "WINDIR", "TEMP", "TMP",
                            "TMPDIR", "LANG", "LC_ALL", "TZ"}
-                environment = {key: value for key, value in os.environ.items() if key in allowed}
+                environment = {key: value for key, value in os.environ.items() if key.upper() in {name.upper() for name in allowed}}
                 options = {"start_new_session": True, "preexec_fn": worker_limits} if os.name == "posix" else {}
                 process = subprocess.Popen(args, cwd=work, stdout=stdout, stderr=stderr,
                                            env=environment, **options)
                 try:
-                    process.wait(timeout=self.timeout)
+                    wait_worker(process, work, self.timeout)
                 except BaseException:
-                    if os.name == "posix":
-                        try:
-                            os.killpg(process.pid, signal.SIGKILL)
-                        except ProcessLookupError:
-                            pass
-                    else:
-                        process.kill()
-                    process.wait()
+                    stop_worker(process)
                     raise
+            except WorkerOutputLimit as error:
+                return {"status": "engine_error", "elapsed_seconds": time.monotonic() - start,
+                        "error": str(error)}
             except subprocess.TimeoutExpired:
                 return {"status": "timeout", "elapsed_seconds": time.monotonic() - start,
                         "error": "Whole-match process deadline exceeded; not attributed to either strategy"}
