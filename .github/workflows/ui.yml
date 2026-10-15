@@ -1,0 +1,33 @@
+name: Local web interface
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      PYTHONUTF8: '1'
+      NODE_PATH: ${{ github.workspace }}/.arena/browser-tests/node_modules
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check read-only history and HTTP contracts (no engine or API)
+        run: python -m unittest discover -s tests -p test_web.py -v
+      - name: Install browser test tooling
+        run: |
+          npm install --prefix .arena/browser-tests --no-package-lock --no-save playwright@1.62.1
+          node .arena/browser-tests/node_modules/playwright/cli.js install --with-deps chromium
+      - name: Exercise the browser interface with synthetic archives
+        run: node scripts/test-ui.cjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: arena-ui-browser-evidence
+          path: runs/ui-browser/
+          if-no-files-found: warn

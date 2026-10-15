@@ -20,7 +20,7 @@ jobs:
       - name: Build pinned engine (native Python and Java)
         run: python scripts/bootstrap.py
       - name: Validate engine, MCP, G0/G1, export and resume
-        run: .venv\Scripts\python.exe scripts/validate.py runs/ci-windows
+        run: .\.venv\Scripts\python.exe scripts/validate.py runs/ci-windows
       - uses: actions/upload-artifact@v4
         if: always()
         with:

@@ -228,4 +228,4 @@ class OfflineIntegrationTests(unittest.TestCase):
                 worker = [call for call in spawn.call_args_list if call.kwargs.get("env") is not None]
                 self.assertEqual(len(worker), 1)
                 self.assertNotIn("PROVIDER_SECRET", worker[0].kwargs["env"])
-                self.assertTrue(worker[0].kwargs["start_new_session"])
+                self.assertEqual(worker[0].kwargs.get("start_new_session", False), os.name == "posix")

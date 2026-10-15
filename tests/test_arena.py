@@ -89,6 +89,15 @@ class EngineIntegrationTests(unittest.TestCase):
         self.assertEqual(first["replay_sha256"], second["replay_sha256"])
         self.assertGreater(first["team_metrics"]["0"]["operations"], 0)
         self.assertEqual(first["team_metrics"]["0"]["errors"], 0)
+        outcome = read_json(self.root / "first/outcome.json")
+        self.assertEqual(outcome["operations_limit_per_turn"], DEFAULT_SCENARIO["entity"]["cores"] * 1_000_000)
+        self.assertEqual(sum(r["operations"] for r in outcome["turn_metrics"] if r["side"] == 0),
+                         first["team_metrics"]["0"]["operations"])
+        for metric in ("damage_dealt", "damage_taken", "healing_given", "healing_received"):
+            self.assertTrue(all(type(r[metric]) is int for r in outcome["turn_metrics"]))
+        self.assertEqual(sum(r["damage_dealt"] for r in outcome["turn_metrics"]),
+                         sum(r["damage_taken"] for r in outcome["turn_metrics"]))
+        self.assertGreater(sum(r["damage_dealt"] for r in outcome["turn_metrics"] if r["side"] == 0), 0)
 
     def test_draw_and_explicit_map_applied(self):
         config = copy.deepcopy(DEFAULT_SCENARIO)

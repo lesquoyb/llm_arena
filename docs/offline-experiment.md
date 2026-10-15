@@ -1,4 +1,6 @@
-# Expérience hors ligne G0
+# Offline experiment with initial strategies
+
+Use the project Python after installation:
 
 ```bash
 python -m arena experiment plan configs/offline-demo.json
@@ -8,77 +10,60 @@ python -m arena experiment resume runs/offline-demo-new
 python -m arena experiment report runs/offline-demo-new
 ```
 
-La démonstration crée quatre conversations indépendantes : deux profils
-simulés et deux réplications. Le profil réparation écrit un script invalide,
-reçoit les diagnostics du vrai moteur, écrit le contrôle agressif, teste
-les deux positions contre le contrôle passif, consulte les métriques
-du replay puis soumet. Le second profil soumet le contrôle single-shot.
-Les scripts sont des fixtures déterministes écrites à la main :
-aucun LLM n'a généré ces stratégies.
+This demo creates four independent conversations: two mock profiles with two
+repetitions each. The repair profile writes invalid code, reads real engine
+diagnostics, writes the rush control, tests both sides against passive, reads
+replay metrics and submits. The second profile submits single-shot. These are
+predefined scripts, not LLM-generated strategies.
 
-Le tournoi G0 exécute 12 combats classés et 4 miroirs sur la seed 101.
-La préparation utilise uniquement la seed 17 et le contrôle passif.
-Les miroirs restent exclus du score. Les absences et scripts invalides
-figurent dans le rapport, sans être retirés silencieusement des sessions.
-Les scores portent sur les soumissions présentes.
+initial strategy runs 12 ranked matches and 4 mirrors on seed 101. Preparation uses only seed
+17 against passive. Mirrors do not affect scores. Missing and invalid submissions
+remain visible; scores are conditional on the available valid submissions.
 
-## Artefacts et reprise
+## Artifacts and resume
 
-- `experiment.json` fige le manifeste, prompt, corpus, moteur et runner.
-- `corpus/` contient uniquement authoring.md et la référence LeekScript.
-- `journal.sqlite` conserve états, intentions d'appels, réponses,
-  résultats d'outils, budgets et horodatages, avec transactions SQLite.
-- `sessions/*/workspace` contient les fichiers propres à une session.
-- `sessions/*/submission` contient sa soumission figée.
-- `sessions/*/conversation.json` exporte la conversation canonique.
-- `sessions/*/tools` conserve diagnostics, combats de préparation et replays.
-- `report.md`, `report.json` et `tournament/` rendent les résultats.
+- `experiment.json`: frozen manifest, prompt, corpus, engine and runner identity.
+- `corpus/`: the shared authoring guide and pinned reference material.
+- `journal.sqlite`: transactional states, intents, responses, tool results, budgets and timestamps.
+- `sessions/*/workspace`: session-owned working files.
+- `sessions/*/submission`: frozen submitted sources.
+- `sessions/*/conversation.json`: canonical conversation export.
+- `sessions/*/tools`: diagnostics, preparation matches and replays.
+- `report.md`, `report.json` and `tournament/`: execution and match results.
 
-Une réponse sauvegardée est réutilisée après interruption ; un résultat
-de combat terminé est réutilisé. Une invocation moteur interrompue peut
-être rejouée dans un nouvel essai conservant le premier dossier.
-Il n'y a aucune promesse de facturation exactement une fois : les API
-réelles utilisent des réservations et bloquent les états distants inconnus.
-Un verrou OS refuse un second écrivain.
-La reprise refuse un changement de configuration, runtime, runner,
-corpus ou soumission figée. La CLI report lit le dernier rapport final ;
-status est utilisable pendant une exécution interrompue.
+Saved responses and completed matches are reused after interruption. Interrupted
+worker calls can create a new retained attempt. An OS lock excludes a second
+writer. Resume rejects changed configuration, runtime, runner, corpus or frozen
+sources. `report` reads the latest report; `status` can inspect interrupted work.
+Paid APIs do not have an exactly-once billing guarantee: uncertain remote state
+keeps its reservation and blocks automatic repetition.
 
-## Outils et budgets
+## Tools and budgets
 
-Service Python direct : list_files, read_file, write_file, read_docs,
-analyze, test, read_replay et submit. Aucune commande shell.
-Les chemins absolus, liens et traversées sont refusés. Les lectures
-sont paginées, les fichiers limités à 128 sources .leek et 2 Mo.
-Un test consomme deux exécutions moteur. Le fournisseur simulé n'a
-aucun accès aux fichiers en dehors de ces outils.
+The shared tools are `list_files`, `read_file`, `write_file`, `read_docs`,
+`analyze`, `test`, `read_replay` and `submit`. There is no shell tool. Paths must
+stay inside the session, without links or traversal. Reads are paginated.
+Sources are limited to 128 `.leek` files and 2 MB. A preparation test runs two
+matches, one per side. Mocks receive the same prompts and tool schemas as real participants.
 
-Les plafonds couvrent appels modèle, appels d'outils, combats de test
-et temps cumulé. Le temps est vérifié entre les opérations ; une
-opération en cours peut dépasser le budget jusqu'au délai moteur de
-90 secondes. Un arrêt brutal peut perdre le temps écoulé depuis le
-dernier checkpoint. Le dernier état est soumis à l'épuisement du budget.
-Les analyses finales sont une étape d'évaluation indépendante du budget
-de préparation.
+Budgets cover model calls, tool calls, preparation matches and accumulated time.
+Time is checked between operations; a running operation can continue up to the
+worker timeout (90 seconds by default). A hard kill can lose elapsed time since
+the last checkpoint. Budget exhaustion submits the last saved state. Final
+submission analysis is an evaluation step outside the preparation budget.
 
-Les tokens restent null : aucun tokenizer fournisseur n'est exécuté.
-Le coût fournisseur nul est explicitement une simulation.
-Les manifests mock doivent interdire les dépenses. Les fournisseurs
-réels exigent une activation et des plafonds explicites ; cette démo
-ne les utilise pas.
+Mock token usage is `null`, since no provider tokenizer is used. API cost zero
+is explicitly marked as simulation. Mock manifests must disable paid calls.
 
-Sous Linux, le worker Java reçoit un environnement minimal sans clés
-fournisseurs, limite chaque fichier de sortie à 8 Mo et termine le groupe
-de processus au timeout. Il conserve sa limite de heap de 512 Mo.
-Ce backend n'est pas une isolation OS complète ; ne pas l'utiliser
-comme service public pour des soumissions hostiles.
+Native Java workers receive a minimal environment without provider keys, have
+a 512 MB heap limit and are stopped with their children on timeout. Output is
+limited to 8 MB per file, with OS enforcement on Linux and polling on Windows.
+The process backend is not a complete OS sandbox for hostile public submissions.
 
-## Limites de cette livraison
+## Related workflows
 
-Ce manifeste reste une démo G0. Le [cycle complet](complete-experiment.md)
-ajoute G1 contrôle/feedback, seeds finales séparées, MCP, export autonome
-et adaptateurs API avec tarification et réservations.
-Les profils invalid, empty et malformed servent aux tests de politiques
-d'échec. Les profils timeout, rate-limit et budget couvrent aussi ces arrêts.
-Le corpus actuel est une référence de signatures, encore incomplet sur
-la sémantique. L'orchestrateur utilise le verrou POSIX et cible Linux.
+This manifest is initial-strategy-only. The [complete experiment](complete-experiment.md)
+adds paired improved strategy branches, held-out seeds, MCP, exports and API adapters.
+Mock failure profiles cover invalid/empty submissions, malformed tools, timeout,
+rate limiting and exhausted budgets. The corpus covers the example functions;
+it is not a complete description of every game behavior.

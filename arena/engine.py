@@ -295,16 +295,16 @@ class Engine:
             raise ArenaError(f"API export failed: {data}")
         out.mkdir(parents=True)
         write_json(out / "api.json", data)
-        lines = ["# LeekScript 4 — API figée de l'arène", "",
-                 f"Moteur : `{self.identity['lock']['commit']}`.", "",
-                 "Signatures extraites du moteur compilé. Les arguments sont positionnels ; leurs noms et leur sémantique ne sont pas inclus.",
-                 "Les coûts indiquent la base déclarée ; 0 ne signifie pas gratuit (coût calculé ailleurs).", "",
-                 "## Fonctions", ""]
+        lines = ["# LeekScript 4 API reference", "",
+                 f"Engine: `{self.identity['lock']['commit']}`.", "",
+                 "Signatures extracted from the compiled engine. Arguments are positional; names and behavior are not included.",
+                 "Costs are declared base costs. Zero does not mean free; some costs are calculated elsewhere.", "",
+                 "## Functions", ""]
         for name, f in data["functions"].items():
-            lines += [f"### {name}", "", f"Espace : {f['namespace']}. Coût de base déclaré : {f['base_operations']} opérations.", ""]
+            lines += [f"### {name}", "", f"Namespace: {f['namespace']}. Declared base cost: {f['base_operations']} operations.", ""]
             lines += [f"- `{name}{signature}`" for signature in f["signatures"]]
             lines.append("")
-        lines += ["## Constantes", ""]
+        lines += ["## Constants", ""]
         lines += [f"- `{name}` = `{value}`" for name, value in sorted(data["constants"].items())]
         (out / "api.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
         for name in ("weapons.json", "chips.json", "summons.json", "components.json"):

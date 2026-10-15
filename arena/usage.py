@@ -15,6 +15,17 @@ def amount(value):
 
 def normalize(provider, raw):
     raw = raw or {}
+    if provider == "gemini":
+        fields = ("promptTokenCount", "candidatesTokenCount", "thoughtsTokenCount", "cachedContentTokenCount")
+        for key in fields:
+            if raw.get(key) is not None and (type(raw[key]) is not int or raw[key] < 0):
+                raise ArenaError("Invalid Gemini token usage")
+        # Gemini reports thought tokens separately; they are billable output.
+        output = raw.get("candidatesTokenCount")
+        return {"input_tokens": raw.get("promptTokenCount"),
+                "output_tokens": output + raw.get("thoughtsTokenCount", 0) if output is not None else None,
+                "cached_input_tokens": raw.get("cachedContentTokenCount", 0) if raw.get("promptTokenCount") is not None else None,
+                "cache_creation_input_tokens": None, "reasoning_tokens": raw.get("thoughtsTokenCount"), "raw": raw}
     fields = ("input_tokens", "output_tokens", "cache_read_input_tokens", "cache_creation_input_tokens") if provider == "anthropic" else ("prompt_tokens", "completion_tokens")
     for key in fields:
         if raw.get(key) is not None and (type(raw[key]) is not int or raw[key] < 0):

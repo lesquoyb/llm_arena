@@ -16,5 +16,8 @@ mcp = ["mcp==1.30.0"]
 arena = "arena.cli:main"
 
 [tool.setuptools]
-packages = ["arena"]
+packages = ["arena", "arena_web"]
+
+[tool.setuptools.package-data]
+arena_web = ["static/*"]
 

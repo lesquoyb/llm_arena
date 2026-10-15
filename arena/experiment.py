@@ -51,7 +51,7 @@ def validate_config(value: dict) -> dict:
     integer(value["replicates"], 1, 20, "replicates")
     models = value["models"]
     if not isinstance(models, list) or not models or len(models) > 20:
-        raise ArenaError("Expected 1–20 models")
+        raise ArenaError("Expected 1-20 models")
     if all(isinstance(m, dict) and m.get("provider") == "mock" for m in models) and spending != {"allow_paid_calls": False, "max_total_usd": 0}:
         raise ArenaError("Mock experiments must disable paid calls")
     ids = set()
@@ -68,7 +68,7 @@ def validate_config(value: dict) -> dict:
         else:
             fields = {"id", "provider", "model", "api_key_env", "pricing",
                       "max_input_tokens_per_call", "max_output_tokens"}
-            if (model["provider"] not in {"openai", "openai-compatible", "anthropic"} or not fields <= set(model)
+            if (model["provider"] not in {"openai", "openai-compatible", "anthropic", "gemini"} or not fields <= set(model)
                     or set(model) - fields - {"endpoint", "parameters", "timeout_seconds", "max_retries"}):
                 raise ArenaError("Invalid API model configuration")
             if not spending["allow_paid_calls"] or amount(spending["max_total_usd"]) == 0:
@@ -89,9 +89,15 @@ def validate_config(value: dict) -> dict:
             integer(model.get("timeout_seconds", 60), 1, 300, "timeout_seconds")
             integer(model.get("max_retries", 0), 0, 3, "max_retries")
             params = model.get("parameters", {})
-            allowed = {"temperature", "top_p", "reasoning_effort"} if model["provider"] != "anthropic" else {"temperature", "top_p", "thinking"}
+            allowed = {"temperature", "top_p", "reasoning_effort", "seed"}
+            if model["provider"] == "anthropic":
+                allowed = {"temperature", "top_p", "thinking"}
+            elif model["provider"] == "gemini":
+                allowed = {"temperature", "top_p", "top_k", "seed", "thinking_config"}
             if not isinstance(params, dict) or set(params) - allowed:
-                raise ArenaError("Unsupported provider parameters")
+                raise ArenaError("Unsupported provider parameters (Anthropic does not expose a seed)")
+            if "seed" in params:
+                integer(params["seed"], 0, 2**31 - 1, "model seed")
             pricing = model["pricing"]
             if (not isinstance(pricing, dict) or not {"date", "currency", "input_per_million", "output_per_million"} <= set(pricing)
                     or set(pricing) - {"date", "currency", "input_per_million", "output_per_million",
@@ -270,12 +276,15 @@ def provider_response(sid, state, model, config, journal):
         bound = None
     state["calls"] += 1
     state["in_flight"] = True
-    journal.save(sid, state, "model_intent", {"model": model, "reservation": bound})
-    provider = APIProvider(model) if paid else MockProvider()
+    from .api_providers import request_snapshot
+    output_limit = bound["output_bound"] if paid else model.get("max_output_tokens")
+    request = request_snapshot(model, state["history"], TOOLS, output_limit)
+    journal.save(sid, state, "model_intent", {"model": model, "reservation": bound, "request": request})
+    provider = APIProvider(model) if paid else MockProvider(model["profile"])
     started = time.monotonic()
     try:
         response = (provider.respond(state["history"], TOOLS, bound["output_bound"]) if paid
-                    else provider.respond(model["profile"], state["history"]))
+                    else provider.respond(state["history"], TOOLS, output_limit))
     except ProviderFailure as error:
         state["status"] = "needs_reconciliation" if error.uncertain else "provider_unavailable"
         state["in_flight"] = error.uncertain
@@ -606,19 +615,19 @@ def run(config: dict, out: Path, resume=False, interrupt=None, prepare_only=Fals
                     summary[key] = None if simulated or any(s["calls"] and not s.get("token_usage_known")
                                                            for s in final_states.values()) else sum(s.get(key, 0) for s in final_states.values())
             write_json(out / "report.json", summary)
-            rows = ["| Session | État | Validité | Appels | Outils |",
+            rows = ["| Session | Status | Validity | Calls | Tools |",
                     "|---|---|---|---:|---:|"]
             rows.extend(f"| {sid} | {s['status']} | {assessments[sid]['status']} | {s['calls']} | {s['steps']} |"
                         for sid, s in states.items())
             (out / "report.md").write_text(
-                "# " + config["name"] + ("\n\nFournisseurs simulés, combats réels. Aucun appel API.\n\n" if simulated
-                                        else "\n\nFournisseurs API, combats réels. Voir journal et usages.\n\n")
-                + f"Sessions G0 : {len(states)} ; soumissions G0 : {len(entrants)}.\n\n"
-                + ("Tokens inconnus ; coût fournisseur : 0 (simulation).\n\n" if simulated
-                   else f"Coût calculé : {summary['cost_usd']} USD ; voir usages et réservations.\n\n")
+                "# " + config["name"] + ("\n\nMock providers, real matches. No API calls.\n\n" if simulated
+                                        else "\n\nAPI providers, real matches. See the journal and usage records.\n\n")
+                + f"G0 sessions: {len(states)} ; G0 submissions: {len(entrants)}.\n\n"
+                + ("Unknown tokens; provider cost: 0 (mock run).\n\n" if simulated
+                   else f"Calculated cost: {summary['cost_usd']} USD; see usage and reservations.\n\n")
                 + "\n".join(rows) + "\n\n"
-                + "Les scores du tournoi concernent les soumissions présentes ; les absences restent comptées ci-dessus.\n\n"
-                + ("[Rapport des combats](tournament/report.md)\n" if tournament else "Tournoi non exécuté : moins de deux soumissions.\n"),
+                + "Tournament scores cover available submissions; missing ones are counted above.\n\n"
+                + ("[Match report](tournament/report.md)\n" if tournament else "Tournament not run: fewer than two submissions.\n"),
                 encoding="utf-8")
             if "evolution" in summary:
                 with (out / "report.md").open("a", encoding="utf-8") as stream:

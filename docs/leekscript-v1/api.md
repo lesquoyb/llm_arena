@@ -1,15 +1,15 @@
-# LeekScript 4 — API figée de l'arène
+# LeekScript 4 API reference
 
-Moteur : `b99a174dd938260d9e47b2e65a208cb32230e26e`.
+Engine: `b99a174dd938260d9e47b2e65a208cb32230e26e`.
 
-Signatures extraites du moteur compilé. Les arguments sont positionnels ; leurs noms et leur sémantique ne sont pas inclus.
-Les coûts indiquent la base déclarée ; 0 ne signifie pas gratuit (coût calculé ailleurs).
+Signatures extracted from the compiled engine. Arguments are positional; names and behavior are not included.
+Costs are declared base costs. Zero does not mean free; some costs are calculated elsewhere.
 
-## Fonctions
+## Functions
 
 ### abs
 
-Espace : Number. Coût de base déclaré : 1 opérations.
+Namespace: Number. Declared base cost: 1 operations.
 
 - `abs[real] => real`
 - `abs[integer] => integer`
@@ -17,124 +17,124 @@ Espace : Number. Coût de base déclaré : 1 opérations.
 
 ### acos
 
-Espace : Number. Coût de base déclaré : 3 opérations.
+Namespace: Number. Declared base cost: 3 operations.
 
 - `acos[real] => real`
 
 ### arrayChunk
 
-Espace : Array. Coût de base déclaré : 0 opérations.
+Namespace: Array. Declared base cost: 0 operations.
 
 - `arrayChunk[Array, integer] => Array`
 
 ### arrayClear
 
-Espace : Array. Coût de base déclaré : 1 opérations.
+Namespace: Array. Declared base cost: 1 operations.
 
 - `arrayClear[Array] => Array`
 
 ### arrayConcat
 
-Espace : Array. Coût de base déclaré : 0 opérations.
+Namespace: Array. Declared base cost: 0 operations.
 
 - `arrayConcat[Array, Array] => Array`
 
 ### arrayEvery
 
-Espace : Array. Coût de base déclaré : 0 opérations.
+Namespace: Array. Declared base cost: 0 operations.
 
 - `arrayEvery[Array, Function<any, integer, Array => boolean>] => boolean`
 
 ### arrayFilter
 
-Espace : Array. Coût de base déclaré : 0 opérations.
+Namespace: Array. Declared base cost: 0 operations.
 
 - `arrayFilter[Array, Function<any, integer, Array => boolean>] => Array`
 
 ### arrayFind
 
-Espace : Array. Coût de base déclaré : 0 opérations.
+Namespace: Array. Declared base cost: 0 operations.
 
 - `arrayFind[Array, Function<any, integer, Array => boolean>] => any`
 
 ### arrayFlatten
 
-Espace : Array. Coût de base déclaré : 0 opérations.
+Namespace: Array. Declared base cost: 0 operations.
 
 - `arrayFlatten[Array, integer] => Array`
 - `arrayFlatten[Array] => Array`
 
 ### arrayFoldLeft
 
-Espace : Array. Coût de base déclaré : 0 opérations.
+Namespace: Array. Declared base cost: 0 operations.
 
 - `arrayFoldLeft[Array, Function<any, any, integer, Array => any>, any] => any`
 
 ### arrayFoldRight
 
-Espace : Array. Coût de base déclaré : 0 opérations.
+Namespace: Array. Declared base cost: 0 operations.
 
 - `arrayFoldRight[Array, Function<any, any, integer, Array => any>, any] => any`
 
 ### arrayFrequencies
 
-Espace : Array. Coût de base déclaré : 0 opérations.
+Namespace: Array. Declared base cost: 0 operations.
 
 - `arrayFrequencies[Array] => Map`
 
 ### arrayGet
 
-Espace : Array. Coût de base déclaré : 1 opérations.
+Namespace: Array. Declared base cost: 1 operations.
 
 - `arrayGet[Array, integer, any] => any`
 - `arrayGet[Array, integer] => any`
 
 ### arrayIter
 
-Espace : Array. Coût de base déclaré : 0 opérations.
+Namespace: Array. Declared base cost: 0 operations.
 
 - `arrayIter[Array, Function<any, integer, Array => any>] => void`
 
 ### arrayMap
 
-Espace : Array. Coût de base déclaré : 0 opérations.
+Namespace: Array. Declared base cost: 0 operations.
 
 - `arrayMap[Array, Function<any, integer, Array => any>] => Array`
 
 ### arrayMax
 
-Espace : Array. Coût de base déclaré : 0 opérations.
+Namespace: Array. Declared base cost: 0 operations.
 
 - `arrayMax[Array] => any`
 
 ### arrayMin
 
-Espace : Array. Coût de base déclaré : 0 opérations.
+Namespace: Array. Declared base cost: 0 operations.
 
 - `arrayMin[Array] => any`
 
 ### arrayPartition
 
-Espace : Array. Coût de base déclaré : 0 opérations.
+Namespace: Array. Declared base cost: 0 operations.
 
 - `arrayPartition[Array, Function<any, integer, Array => boolean>] => Array`
 
 ### arrayRandom
 
-Espace : Array. Coût de base déclaré : 0 opérations.
+Namespace: Array. Declared base cost: 0 operations.
 
 - `arrayRandom[Array, integer] => Array`
 - `arrayRandom[Array] => Array`
 
 ### arrayRemoveAll
 
-Espace : Array. Coût de base déclaré : 0 opérations.
+Namespace: Array. Declared base cost: 0 operations.
 
 - `arrayRemoveAll[Array, any] => void`
 
 ### arraySlice
 
-Espace : Array. Coût de base déclaré : 0 opérations.
+Namespace: Array. Declared base cost: 0 operations.
 
 - `arraySlice[Array, any, any, integer] => Array`
 - `arraySlice[Array, any, any] => Array`
@@ -142,418 +142,418 @@ Espace : Array. Coût de base déclaré : 0 opérations.
 
 ### arraySome
 
-Espace : Array. Coût de base déclaré : 0 opérations.
+Namespace: Array. Declared base cost: 0 operations.
 
 - `arraySome[Array, Function<any, integer, Array => boolean>] => boolean`
 
 ### arraySort
 
-Espace : Array. Coût de base déclaré : 0 opérations.
+Namespace: Array. Declared base cost: 0 operations.
 
 - `arraySort[Array, Function<any, any => real | integer>] => Array`
 - `arraySort[Array] => Array`
 
 ### arrayToSet
 
-Espace : Array. Coût de base déclaré : 0 opérations.
+Namespace: Array. Declared base cost: 0 operations.
 
 - `arrayToSet[Array] => Set`
 
 ### arrayUnique
 
-Espace : Array. Coût de base déclaré : 0 opérations.
+Namespace: Array. Declared base cost: 0 operations.
 
 - `arrayUnique[Array] => Array`
 
 ### asin
 
-Espace : Number. Coût de base déclaré : 3 opérations.
+Namespace: Number. Declared base cost: 3 operations.
 
 - `asin[real] => real`
 
 ### atan
 
-Espace : Number. Coût de base déclaré : 3 opérations.
+Namespace: Number. Declared base cost: 3 operations.
 
 - `atan[real] => real`
 
 ### atan2
 
-Espace : Number. Coût de base déclaré : 4 opérations.
+Namespace: Number. Declared base cost: 4 operations.
 
 - `atan2[real, real] => real`
 
 ### average
 
-Espace : Array. Coût de base déclaré : 0 opérations.
+Namespace: Array. Declared base cost: 0 operations.
 
 - `average[Array] => real`
 
 ### binString
 
-Espace : Number. Coût de base déclaré : 9 opérations.
+Namespace: Number. Declared base cost: 9 operations.
 
 - `binString[integer] => string`
 - `binString[big_integer] => string`
 
 ### bitCount
 
-Espace : Number. Coût de base déclaré : 1 opérations.
+Namespace: Number. Declared base cost: 1 operations.
 
 - `bitCount[integer] => integer`
 - `bitCount[big_integer] => integer`
 
 ### bitLength
 
-Espace : Number. Coût de base déclaré : 1 opérations.
+Namespace: Number. Declared base cost: 1 operations.
 
 - `bitLength[integer] => integer`
 - `bitLength[big_integer] => integer`
 
 ### bitReverse
 
-Espace : Number. Coût de base déclaré : 1 opérations.
+Namespace: Number. Declared base cost: 1 operations.
 
 - `bitReverse[integer] => integer`
 
 ### bitsToReal
 
-Espace : Number. Coût de base déclaré : 3 opérations.
+Namespace: Number. Declared base cost: 3 operations.
 
 - `bitsToReal[integer] => real`
 
 ### byteReverse
 
-Espace : Number. Coût de base déclaré : 1 opérations.
+Namespace: Number. Declared base cost: 1 operations.
 
 - `byteReverse[integer] => integer`
 
 ### canUseChip
 
-Espace : Chip. Coût de base déclaré : 45 opérations.
+Namespace: Chip. Declared base cost: 45 operations.
 
 - `canUseChip[integer, integer] => boolean`
 
 ### canUseChipOnCell
 
-Espace : Chip. Coût de base déclaré : 45 opérations.
+Namespace: Chip. Declared base cost: 45 operations.
 
 - `canUseChipOnCell[integer, integer] => boolean`
 
 ### canUseWeapon
 
-Espace : Weapon. Coût de base déclaré : 45 opérations.
+Namespace: Weapon. Declared base cost: 45 operations.
 
 - `canUseWeapon[integer?, integer?] => boolean`
 - `canUseWeapon[integer?] => boolean`
 
 ### canUseWeaponOnCell
 
-Espace : Weapon. Coût de base déclaré : 45 opérations.
+Namespace: Weapon. Declared base cost: 45 operations.
 
 - `canUseWeaponOnCell[integer?, integer?] => boolean`
 - `canUseWeaponOnCell[integer?] => boolean`
 
 ### cbrt
 
-Espace : Number. Coût de base déclaré : 5 opérations.
+Namespace: Number. Declared base cost: 5 operations.
 
 - `cbrt[real] => real`
 
 ### ceil
 
-Espace : Number. Coût de base déclaré : 1 opérations.
+Namespace: Number. Declared base cost: 1 operations.
 
 - `ceil[real] => integer`
 - `ceil[integer] => integer`
 
 ### charAt
 
-Espace : String. Coût de base déclaré : 4 opérations.
+Namespace: String. Declared base cost: 4 operations.
 
 - `charAt[string, integer] => string`
 
 ### chipNeedLos
 
-Espace : Chip. Coût de base déclaré : 10 opérations.
+Namespace: Chip. Declared base cost: 10 operations.
 
 - `chipNeedLos[integer] => boolean`
 
 ### clearMarks
 
-Espace : Util. Coût de base déclaré : 15 opérations.
+Namespace: Util. Declared base cost: 15 operations.
 
 - `clearMarks[] => void`
 
 ### clone
 
-Espace : Value. Coût de base déclaré : 0 opérations.
+Namespace: Value. Declared base cost: 0 operations.
 
 - `clone[any, integer] => any`
 - `clone[any] => any`
 
 ### codePointAt
 
-Espace : String. Coût de base déclaré : 1 opérations.
+Namespace: String. Declared base cost: 1 operations.
 
 - `codePointAt[string, integer] => integer`
 - `codePointAt[string] => integer`
 
 ### contains
 
-Espace : String. Coût de base déclaré : 0 opérations.
+Namespace: String. Declared base cost: 0 operations.
 
 - `contains[string, string] => boolean`
 
 ### cos
 
-Espace : Number. Coût de base déclaré : 3 opérations.
+Namespace: Number. Declared base cost: 3 operations.
 
 - `cos[real] => real`
 
 ### count
 
-Espace : Array. Coût de base déclaré : 1 opérations.
+Namespace: Array. Declared base cost: 1 operations.
 
 - `count[Array] => integer`
 
 ### debug
 
-Espace : System. Coût de base déclaré : 100 opérations.
+Namespace: System. Declared base cost: 100 operations.
 
 - `debug[any] => void`
 
 ### debugC
 
-Espace : System. Coût de base déclaré : 100 opérations.
+Namespace: System. Declared base cost: 100 operations.
 
 - `debugC[any, integer] => void`
 
 ### debugE
 
-Espace : System. Coût de base déclaré : 100 opérations.
+Namespace: System. Declared base cost: 100 operations.
 
 - `debugE[any] => void`
 
 ### debugW
 
-Espace : System. Coût de base déclaré : 100 opérations.
+Namespace: System. Declared base cost: 100 operations.
 
 - `debugW[any] => void`
 
 ### deleteRegister
 
-Espace : Util. Coût de base déclaré : 16 opérations.
+Namespace: Util. Declared base cost: 16 operations.
 
 - `deleteRegister[string] => void`
 
 ### endsWith
 
-Espace : String. Coût de base déclaré : 0 opérations.
+Namespace: String. Declared base cost: 0 operations.
 
 - `endsWith[string, string] => boolean`
 
 ### exp
 
-Espace : Number. Coût de base déclaré : 2 opérations.
+Namespace: Number. Declared base cost: 2 operations.
 
 - `exp[real] => real`
 
 ### fill
 
-Espace : Array. Coût de base déclaré : 0 opérations.
+Namespace: Array. Declared base cost: 0 operations.
 
 - `fill[Array, any, integer] => void`
 - `fill[Array, any] => void`
 
 ### floor
 
-Espace : Number. Coût de base déclaré : 1 opérations.
+Namespace: Number. Declared base cost: 1 operations.
 
 - `floor[real] => integer`
 - `floor[integer] => integer`
 
 ### getAIID
 
-Espace : Entity. Coût de base déclaré : 15 opérations.
+Namespace: Entity. Declared base cost: 15 operations.
 
 - `getAIID[integer?] => integer?`
 - `getAIID[] => integer`
 
 ### getAIName
 
-Espace : Entity. Coût de base déclaré : 15 opérations.
+Namespace: Entity. Declared base cost: 15 operations.
 
 - `getAIName[integer?] => string?`
 - `getAIName[] => string`
 
 ### getAbsoluteShield
 
-Espace : Entity. Coût de base déclaré : 15 opérations.
+Namespace: Entity. Declared base cost: 15 operations.
 
 - `getAbsoluteShield[integer?] => integer?`
 - `getAbsoluteShield[] => integer`
 
 ### getAgility
 
-Espace : Entity. Coût de base déclaré : 15 opérations.
+Namespace: Entity. Declared base cost: 15 operations.
 
 - `getAgility[integer?] => integer?`
 - `getAgility[] => integer`
 
 ### getAliveAllies
 
-Espace : Fight. Coût de base déclaré : 100 opérations.
+Namespace: Fight. Declared base cost: 100 operations.
 
 - `getAliveAllies[] => Array<integer>`
 
 ### getAliveAlliesCount
 
-Espace : Fight. Coût de base déclaré : 100 opérations.
+Namespace: Fight. Declared base cost: 100 operations.
 
 - `getAliveAlliesCount[] => integer`
 
 ### getAliveEnemies
 
-Espace : Fight. Coût de base déclaré : 100 opérations.
+Namespace: Fight. Declared base cost: 100 operations.
 
 - `getAliveEnemies[] => Array<integer>`
 
 ### getAliveEnemiesCount
 
-Espace : Fight. Coût de base déclaré : 25 opérations.
+Namespace: Fight. Declared base cost: 25 operations.
 
 - `getAliveEnemiesCount[] => integer`
 
 ### getAllChips
 
-Espace : Chip. Coût de base déclaré : 200 opérations.
+Namespace: Chip. Declared base cost: 200 operations.
 
 - `getAllChips[] => Array<integer>`
 
 ### getAllEffects
 
-Espace : Fight. Coût de base déclaré : 200 opérations.
+Namespace: Fight. Declared base cost: 200 operations.
 
 - `getAllEffects[] => Array<integer>`
 
 ### getAllWeapons
 
-Espace : Weapon. Coût de base déclaré : 200 opérations.
+Namespace: Weapon. Declared base cost: 200 operations.
 
 - `getAllWeapons[] => Array<integer>`
 
 ### getAlliedTurret
 
-Espace : Fight. Coût de base déclaré : 15 opérations.
+Namespace: Fight. Declared base cost: 15 operations.
 
 - `getAlliedTurret[] => integer?`
 
 ### getAllies
 
-Espace : Fight. Coût de base déclaré : 100 opérations.
+Namespace: Fight. Declared base cost: 100 operations.
 
 - `getAllies[] => Array<integer>`
 
 ### getAlliesCount
 
-Espace : Fight. Coût de base déclaré : 25 opérations.
+Namespace: Fight. Declared base cost: 25 operations.
 
 - `getAlliesCount[] => integer`
 
 ### getAlliesLife
 
-Espace : Fight. Coût de base déclaré : 50 opérations.
+Namespace: Fight. Declared base cost: 50 operations.
 
 - `getAlliesLife[] => integer`
 
 ### getAwakeningZone
 
-Espace : Entity. Coût de base déclaré : 15 opérations.
+Namespace: Entity. Declared base cost: 15 operations.
 
 - `getAwakeningZone[integer?] => integer?`
 - `getAwakeningZone[] => integer`
 
 ### getBirthTurn
 
-Espace : Entity. Coût de base déclaré : 15 opérations.
+Namespace: Entity. Declared base cost: 15 operations.
 
 - `getBirthTurn[integer?] => integer?`
 - `getBirthTurn[] => integer`
 
 ### getBlue
 
-Espace : Color. Coût de base déclaré : 1 opérations.
+Namespace: Color. Declared base cost: 1 operations.
 
 - `getBlue[integer] => integer`
 
 ### getBulbCharacteristics
 
-Espace : Fight. Coût de base déclaré : 40 opérations.
+Namespace: Fight. Declared base cost: 40 operations.
 
 - `getBulbCharacteristics[integer] => Map`
 
 ### getBulbChips
 
-Espace : Fight. Coût de base déclaré : 40 opérations.
+Namespace: Fight. Declared base cost: 40 operations.
 
 - `getBulbChips[integer] => Array?`
 
 ### getBulbStats
 
-Espace : Fight. Coût de base déclaré : 40 opérations.
+Namespace: Fight. Declared base cost: 40 operations.
 
 - `getBulbStats[integer] => Map`
 
 ### getBulbType
 
-Espace : Entity. Coût de base déclaré : 15 opérations.
+Namespace: Entity. Declared base cost: 15 operations.
 
 - `getBulbType[integer?] => integer?`
 - `getBulbType[] => integer`
 
 ### getCell
 
-Espace : Entity. Coût de base déclaré : 5 opérations.
+Namespace: Entity. Declared base cost: 5 operations.
 
 - `getCell[integer?] => integer?`
 - `getCell[] => integer?`
 
 ### getCellContent
 
-Espace : Field. Coût de base déclaré : 6 opérations.
+Namespace: Field. Declared base cost: 6 operations.
 
 - `getCellContent[integer] => integer`
 
 ### getCellDistance
 
-Espace : Field. Coût de base déclaré : 15 opérations.
+Namespace: Field. Declared base cost: 15 operations.
 
 - `getCellDistance[integer, integer] => integer`
 
 ### getCellFromXY
 
-Espace : Field. Coût de base déclaré : 5 opérations.
+Namespace: Field. Declared base cost: 5 operations.
 
 - `getCellFromXY[integer, integer] => integer?`
 
 ### getCellToUseChip
 
-Espace : Fight. Coût de base déclaré : 38080 opérations.
+Namespace: Fight. Declared base cost: 38080 operations.
 
 - `getCellToUseChip[integer, integer?, Array<integer>?] => integer`
 - `getCellToUseChip[integer, integer?] => integer`
 
 ### getCellToUseChipOnCell
 
-Espace : Fight. Coût de base déclaré : 38080 opérations.
+Namespace: Fight. Declared base cost: 38080 operations.
 
 - `getCellToUseChipOnCell[integer, integer?, Array<integer>?] => integer`
 - `getCellToUseChipOnCell[integer, integer?] => integer`
 
 ### getCellToUseWeapon
 
-Espace : Fight. Coût de base déclaré : 38080 opérations.
+Namespace: Fight. Declared base cost: 38080 operations.
 
 - `getCellToUseWeapon[integer, integer?, Array<integer>?] => integer`
 - `getCellToUseWeapon[integer, integer?] => integer`
@@ -561,7 +561,7 @@ Espace : Fight. Coût de base déclaré : 38080 opérations.
 
 ### getCellToUseWeaponOnCell
 
-Espace : Fight. Coût de base déclaré : 38080 opérations.
+Namespace: Fight. Declared base cost: 38080 operations.
 
 - `getCellToUseWeaponOnCell[integer, integer?, Array<integer>?] => integer`
 - `getCellToUseWeaponOnCell[integer, integer?] => integer`
@@ -569,33 +569,33 @@ Espace : Fight. Coût de base déclaré : 38080 opérations.
 
 ### getCellX
 
-Espace : Field. Coût de base déclaré : 5 opérations.
+Namespace: Field. Declared base cost: 5 operations.
 
 - `getCellX[integer] => integer?`
 
 ### getCellY
 
-Espace : Field. Coût de base déclaré : 5 opérations.
+Namespace: Field. Declared base cost: 5 operations.
 
 - `getCellY[integer] => integer?`
 
 ### getCellsToUseChip
 
-Espace : Fight. Coût de base déclaré : 25834 opérations.
+Namespace: Fight. Declared base cost: 25834 operations.
 
 - `getCellsToUseChip[integer, integer, Array<integer>?] => Array<integer>?`
 - `getCellsToUseChip[integer, integer] => Array<integer>?`
 
 ### getCellsToUseChipOnCell
 
-Espace : Fight. Coût de base déclaré : 25834 opérations.
+Namespace: Fight. Declared base cost: 25834 operations.
 
 - `getCellsToUseChipOnCell[integer, integer, Array<integer>?] => Array<integer>?`
 - `getCellsToUseChipOnCell[integer, integer] => Array<integer>?`
 
 ### getCellsToUseWeapon
 
-Espace : Fight. Coût de base déclaré : 25834 opérations.
+Namespace: Fight. Declared base cost: 25834 operations.
 
 - `getCellsToUseWeapon[integer, integer?, Array<integer>?] => Array<integer>?`
 - `getCellsToUseWeapon[integer, integer?] => Array<integer>?`
@@ -603,7 +603,7 @@ Espace : Fight. Coût de base déclaré : 25834 opérations.
 
 ### getCellsToUseWeaponOnCell
 
-Espace : Fight. Coût de base déclaré : 25834 opérations.
+Namespace: Fight. Declared base cost: 25834 operations.
 
 - `getCellsToUseWeaponOnCell[integer, integer, Array<integer>?] => Array<integer>?`
 - `getCellsToUseWeaponOnCell[integer, integer] => Array<integer>?`
@@ -611,699 +611,699 @@ Espace : Fight. Coût de base déclaré : 25834 opérations.
 
 ### getChestType
 
-Espace : Entity. Coût de base déclaré : 15 opérations.
+Namespace: Entity. Declared base cost: 15 operations.
 
 - `getChestType[integer?] => integer?`
 - `getChestType[] => integer`
 
 ### getChipArea
 
-Espace : Chip. Coût de base déclaré : 15 opérations.
+Namespace: Chip. Declared base cost: 15 operations.
 
 - `getChipArea[integer] => integer?`
 
 ### getChipCooldown
 
-Espace : Chip. Coût de base déclaré : 15 opérations.
+Namespace: Chip. Declared base cost: 15 operations.
 
 - `getChipCooldown[integer] => integer`
 
 ### getChipCost
 
-Espace : Chip. Coût de base déclaré : 15 opérations.
+Namespace: Chip. Declared base cost: 15 operations.
 
 - `getChipCost[integer] => integer?`
 
 ### getChipEffectiveArea
 
-Espace : Chip. Coût de base déclaré : 78 opérations.
+Namespace: Chip. Declared base cost: 78 operations.
 
 - `getChipEffectiveArea[integer, integer, integer?] => Array<integer>?`
 - `getChipEffectiveArea[integer, integer] => Array<integer>?`
 
 ### getChipEffects
 
-Espace : Chip. Coût de base déclaré : 125 opérations.
+Namespace: Chip. Declared base cost: 125 operations.
 
 - `getChipEffects[integer] => Array<Array<real | integer>>?`
 
 ### getChipFailure
 
-Espace : Chip. Coût de base déclaré : 15 opérations.
+Namespace: Chip. Declared base cost: 15 operations.
 
 - `getChipFailure[integer] => integer`
 
 ### getChipLaunchType
 
-Espace : Chip. Coût de base déclaré : 15 opérations.
+Namespace: Chip. Declared base cost: 15 operations.
 
 - `getChipLaunchType[integer] => integer?`
 
 ### getChipMaxRange
 
-Espace : Chip. Coût de base déclaré : 15 opérations.
+Namespace: Chip. Declared base cost: 15 operations.
 
 - `getChipMaxRange[integer] => integer?`
 
 ### getChipMaxScope
 
-Espace : Chip. Coût de base déclaré : 15 opérations.
+Namespace: Chip. Declared base cost: 15 operations.
 
 - `getChipMaxScope[integer] => integer?`
 
 ### getChipMaxUses
 
-Espace : Chip. Coût de base déclaré : 15 opérations.
+Namespace: Chip. Declared base cost: 15 operations.
 
 - `getChipMaxUses[integer] => integer?`
 
 ### getChipMinRange
 
-Espace : Chip. Coût de base déclaré : 15 opérations.
+Namespace: Chip. Declared base cost: 15 operations.
 
 - `getChipMinRange[integer] => integer?`
 
 ### getChipMinScope
 
-Espace : Chip. Coût de base déclaré : 15 opérations.
+Namespace: Chip. Declared base cost: 15 operations.
 
 - `getChipMinScope[integer] => integer?`
 
 ### getChipName
 
-Espace : Chip. Coût de base déclaré : 15 opérations.
+Namespace: Chip. Declared base cost: 15 operations.
 
 - `getChipName[integer] => string`
 
 ### getChipTargets
 
-Espace : Chip. Coût de base déclaré : 40 opérations.
+Namespace: Chip. Declared base cost: 40 operations.
 
 - `getChipTargets[integer, integer] => Array<integer>?`
 
 ### getChips
 
-Espace : Entity. Coût de base déclaré : 40 opérations.
+Namespace: Entity. Declared base cost: 40 operations.
 
 - `getChips[integer?] => Array<integer>?`
 - `getChips[] => Array<integer>`
 
 ### getColor
 
-Espace : Color. Coût de base déclaré : 7 opérations.
+Namespace: Color. Declared base cost: 7 operations.
 
 - `getColor[integer, integer, integer] => integer`
 
 ### getCompositionName
 
-Espace : Entity. Coût de base déclaré : 15 opérations.
+Namespace: Entity. Declared base cost: 15 operations.
 
 - `getCompositionName[integer?] => string?`
 - `getCompositionName[] => string`
 
 ### getCooldown
 
-Espace : Chip. Coût de base déclaré : 30 opérations.
+Namespace: Chip. Declared base cost: 30 operations.
 
 - `getCooldown[integer, integer?] => integer?`
 - `getCooldown[integer] => integer`
 
 ### getCores
 
-Espace : Entity. Coût de base déclaré : 15 opérations.
+Namespace: Entity. Declared base cost: 15 operations.
 
 - `getCores[integer?] => integer?`
 - `getCores[] => integer`
 
 ### getDamageReturn
 
-Espace : Entity. Coût de base déclaré : 15 opérations.
+Namespace: Entity. Declared base cost: 15 operations.
 
 - `getDamageReturn[integer?] => integer?`
 - `getDamageReturn[] => integer`
 
 ### getDate
 
-Espace : System. Coût de base déclaré : 50 opérations.
+Namespace: System. Declared base cost: 50 operations.
 
 - `getDate[] => string`
 
 ### getDeadAllies
 
-Espace : Fight. Coût de base déclaré : 100 opérations.
+Namespace: Fight. Declared base cost: 100 operations.
 
 - `getDeadAllies[] => Array<integer>`
 
 ### getDeadEnemies
 
-Espace : Fight. Coût de base déclaré : 100 opérations.
+Namespace: Fight. Declared base cost: 100 operations.
 
 - `getDeadEnemies[] => Array<integer>`
 
 ### getDeadEnemiesCount
 
-Espace : Fight. Coût de base déclaré : 25 opérations.
+Namespace: Fight. Declared base cost: 25 operations.
 
 - `getDeadEnemiesCount[] => integer`
 
 ### getDistance
 
-Espace : Field. Coût de base déclaré : 15 opérations.
+Namespace: Field. Declared base cost: 15 operations.
 
 - `getDistance[integer, integer] => real`
 
 ### getEffects
 
-Espace : Entity. Coût de base déclaré : 25 opérations.
+Namespace: Entity. Declared base cost: 25 operations.
 
 - `getEffects[integer?] => Array<Array<boolean | integer>>?`
 - `getEffects[] => Array<Array<boolean | integer>>`
 
 ### getEnemies
 
-Espace : Fight. Coût de base déclaré : 100 opérations.
+Namespace: Fight. Declared base cost: 100 operations.
 
 - `getEnemies[] => Array<integer>`
 
 ### getEnemiesCount
 
-Espace : Fight. Coût de base déclaré : 25 opérations.
+Namespace: Fight. Declared base cost: 25 operations.
 
 - `getEnemiesCount[] => integer`
 
 ### getEnemiesLife
 
-Espace : Fight. Coût de base déclaré : 50 opérations.
+Namespace: Fight. Declared base cost: 50 operations.
 
 - `getEnemiesLife[] => integer`
 
 ### getEnemyTurret
 
-Espace : Fight. Coût de base déclaré : 15 opérations.
+Namespace: Fight. Declared base cost: 15 operations.
 
 - `getEnemyTurret[] => integer?`
 
 ### getEntity
 
-Espace : Entity. Coût de base déclaré : 5 opérations.
+Namespace: Entity. Declared base cost: 5 operations.
 
 - `getEntity[] => integer`
 
 ### getEntityOnCell
 
-Espace : Field. Coût de base déclaré : 15 opérations.
+Namespace: Field. Declared base cost: 15 operations.
 
 - `getEntityOnCell[integer] => integer`
 
 ### getEntityTurnOrder
 
-Espace : Entity. Coût de base déclaré : 30 opérations.
+Namespace: Entity. Declared base cost: 30 operations.
 
 - `getEntityTurnOrder[integer?] => integer?`
 - `getEntityTurnOrder[] => integer`
 
 ### getFarmerCountry
 
-Espace : Entity. Coût de base déclaré : 15 opérations.
+Namespace: Entity. Declared base cost: 15 operations.
 
 - `getFarmerCountry[integer?] => string?`
 - `getFarmerCountry[] => string`
 
 ### getFarmerID
 
-Espace : Entity. Coût de base déclaré : 15 opérations.
+Namespace: Entity. Declared base cost: 15 operations.
 
 - `getFarmerID[integer?] => integer?`
 - `getFarmerID[] => integer`
 
 ### getFarmerName
 
-Espace : Entity. Coût de base déclaré : 15 opérations.
+Namespace: Entity. Declared base cost: 15 operations.
 
 - `getFarmerName[integer?] => string?`
 - `getFarmerName[] => string`
 
 ### getFarthestAlly
 
-Espace : Fight. Coût de base déclaré : 31 opérations.
+Namespace: Fight. Declared base cost: 31 operations.
 
 - `getFarthestAlly[] => integer`
 
 ### getFarthestEnemy
 
-Espace : Fight. Coût de base déclaré : 31 opérations.
+Namespace: Fight. Declared base cost: 31 operations.
 
 - `getFarthestEnemy[] => integer`
 
 ### getFightBoss
 
-Espace : Fight. Coût de base déclaré : 10 opérations.
+Namespace: Fight. Declared base cost: 10 operations.
 
 - `getFightBoss[] => integer`
 
 ### getFightContext
 
-Espace : Fight. Coût de base déclaré : 10 opérations.
+Namespace: Fight. Declared base cost: 10 operations.
 
 - `getFightContext[] => integer`
 
 ### getFightID
 
-Espace : Fight. Coût de base déclaré : 5 opérations.
+Namespace: Fight. Declared base cost: 5 operations.
 
 - `getFightID[] => integer`
 
 ### getFightType
 
-Espace : Fight. Coût de base déclaré : 10 opérations.
+Namespace: Fight. Declared base cost: 10 operations.
 
 - `getFightType[] => integer`
 
 ### getForce
 
-Espace : Entity. Coût de base déclaré : 15 opérations.
+Namespace: Entity. Declared base cost: 15 operations.
 
 - `getForce[integer?] => integer?`
 - `getForce[] => integer`
 
 ### getFrequency
 
-Espace : Entity. Coût de base déclaré : 15 opérations.
+Namespace: Entity. Declared base cost: 15 operations.
 
 - `getFrequency[integer?] => integer?`
 - `getFrequency[] => integer`
 
 ### getGreen
 
-Espace : Color. Coût de base déclaré : 2 opérations.
+Namespace: Color. Declared base cost: 2 operations.
 
 - `getGreen[integer] => integer`
 
 ### getInstructionsCount
 
-Espace : System. Coût de base déclaré : 1 opérations.
+Namespace: System. Declared base cost: 1 operations.
 
 - `getInstructionsCount[] => integer`
 
 ### getItemUses
 
-Espace : Entity. Coût de base déclaré : 15 opérations.
+Namespace: Entity. Declared base cost: 15 operations.
 
 - `getItemUses[integer] => integer`
 
 ### getLaunchedEffects
 
-Espace : Entity. Coût de base déclaré : 25 opérations.
+Namespace: Entity. Declared base cost: 25 operations.
 
 - `getLaunchedEffects[integer?] => Array<Array<boolean | integer>>?`
 - `getLaunchedEffects[] => Array<Array<boolean | integer>>`
 
 ### getLeekID
 
-Espace : Entity. Coût de base déclaré : 15 opérations.
+Namespace: Entity. Declared base cost: 15 operations.
 
 - `getLeekID[integer?] => integer?`
 - `getLeekID[] => integer`
 
 ### getLevel
 
-Espace : Entity. Coût de base déclaré : 15 opérations.
+Namespace: Entity. Declared base cost: 15 operations.
 
 - `getLevel[integer?] => integer?`
 - `getLevel[] => integer`
 
 ### getLife
 
-Espace : Entity. Coût de base déclaré : 15 opérations.
+Namespace: Entity. Declared base cost: 15 operations.
 
 - `getLife[integer?] => integer?`
 - `getLife[] => integer`
 
 ### getMP
 
-Espace : Entity. Coût de base déclaré : 15 opérations.
+Namespace: Entity. Declared base cost: 15 operations.
 
 - `getMP[integer?] => integer?`
 - `getMP[] => integer`
 
 ### getMagic
 
-Espace : Entity. Coût de base déclaré : 15 opérations.
+Namespace: Entity. Declared base cost: 15 operations.
 
 - `getMagic[integer?] => integer?`
 - `getMagic[] => integer`
 
 ### getMapType
 
-Espace : Field. Coût de base déclaré : 5 opérations.
+Namespace: Field. Declared base cost: 5 operations.
 
 - `getMapType[] => integer`
 
 ### getMaxOperations
 
-Espace : System. Coût de base déclaré : 1 opérations.
+Namespace: System. Declared base cost: 1 operations.
 
 - `getMaxOperations[] => integer`
 
 ### getMaxRAM
 
-Espace : System. Coût de base déclaré : 1 opérations.
+Namespace: System. Declared base cost: 1 operations.
 
 - `getMaxRAM[] => integer`
 
 ### getMessageAuthor
 
-Espace : Network. Coût de base déclaré : 5 opérations.
+Namespace: Network. Declared base cost: 5 operations.
 
 - `getMessageAuthor[Array] => integer`
 
 ### getMessageParams
 
-Espace : Network. Coût de base déclaré : 5 opérations.
+Namespace: Network. Declared base cost: 5 operations.
 
 - `getMessageParams[Array] => any`
 
 ### getMessageType
 
-Espace : Network. Coût de base déclaré : 5 opérations.
+Namespace: Network. Declared base cost: 5 operations.
 
 - `getMessageType[Array] => integer`
 
 ### getMessages
 
-Espace : Network. Coût de base déclaré : 0 opérations.
+Namespace: Network. Declared base cost: 0 operations.
 
 - `getMessages[integer] => Array<Array>`
 - `getMessages[] => Array<Array>`
 
 ### getMobType
 
-Espace : Entity. Coût de base déclaré : 15 opérations.
+Namespace: Entity. Declared base cost: 15 operations.
 
 - `getMobType[integer?] => integer?`
 - `getMobType[] => integer`
 
 ### getName
 
-Espace : Entity. Coût de base déclaré : 15 opérations.
+Namespace: Entity. Declared base cost: 15 operations.
 
 - `getName[integer?] => string?`
 - `getName[] => string`
 
 ### getNearestAlly
 
-Espace : Fight. Coût de base déclaré : 25 opérations.
+Namespace: Fight. Declared base cost: 25 operations.
 
 - `getNearestAlly[] => integer`
 
 ### getNearestAllyTo
 
-Espace : Fight. Coût de base déclaré : 35 opérations.
+Namespace: Fight. Declared base cost: 35 operations.
 
 - `getNearestAllyTo[integer] => integer?`
 
 ### getNearestAllyToCell
 
-Espace : Fight. Coût de base déclaré : 35 opérations.
+Namespace: Fight. Declared base cost: 35 operations.
 
 - `getNearestAllyToCell[integer] => integer?`
 
 ### getNearestEnemy
 
-Espace : Fight. Coût de base déclaré : 25 opérations.
+Namespace: Fight. Declared base cost: 25 operations.
 
 - `getNearestEnemy[] => integer`
 
 ### getNearestEnemyTo
 
-Espace : Fight. Coût de base déclaré : 35 opérations.
+Namespace: Fight. Declared base cost: 35 operations.
 
 - `getNearestEnemyTo[integer] => integer?`
 
 ### getNearestEnemyToCell
 
-Espace : Fight. Coût de base déclaré : 35 opérations.
+Namespace: Fight. Declared base cost: 35 operations.
 
 - `getNearestEnemyToCell[integer] => integer?`
 
 ### getNextPlayer
 
-Espace : Fight. Coût de base déclaré : 20 opérations.
+Namespace: Fight. Declared base cost: 20 operations.
 
 - `getNextPlayer[integer?] => integer?`
 - `getNextPlayer[] => integer`
 
 ### getObstacles
 
-Espace : Field. Coût de base déclaré : 85 opérations.
+Namespace: Field. Declared base cost: 85 operations.
 
 - `getObstacles[] => Array<integer>`
 
 ### getOperations
 
-Espace : System. Coût de base déclaré : 1 opérations.
+Namespace: System. Declared base cost: 1 operations.
 
 - `getOperations[] => integer`
 
 ### getPassiveEffects
 
-Espace : Entity. Coût de base déclaré : 125 opérations.
+Namespace: Entity. Declared base cost: 125 operations.
 
 - `getPassiveEffects[integer?] => Array<Array<real | integer>>?`
 - `getPassiveEffects[] => Array<Array<real | integer>>`
 
 ### getPath
 
-Espace : Field. Coût de base déclaré : 0 opérations.
+Namespace: Field. Declared base cost: 0 operations.
 
 - `getPath[integer, integer, Array?] => Array<integer>?`
 - `getPath[integer, integer] => Array<integer>?`
 
 ### getPathLength
 
-Espace : Field. Coût de base déclaré : 0 opérations.
+Namespace: Field. Declared base cost: 0 operations.
 
 - `getPathLength[integer, integer, Array?] => integer?`
 - `getPathLength[integer, integer] => integer?`
 
 ### getPlantTrigger
 
-Espace : Entity. Coût de base déclaré : 15 opérations.
+Namespace: Entity. Declared base cost: 15 operations.
 
 - `getPlantTrigger[] => integer`
 
 ### getPlantType
 
-Espace : Entity. Coût de base déclaré : 15 opérations.
+Namespace: Entity. Declared base cost: 15 operations.
 
 - `getPlantType[integer?] => integer?`
 - `getPlantType[] => integer`
 
 ### getPower
 
-Espace : Entity. Coût de base déclaré : 15 opérations.
+Namespace: Entity. Declared base cost: 15 operations.
 
 - `getPower[integer?] => integer?`
 - `getPower[] => integer`
 
 ### getPreviousPlayer
 
-Espace : Fight. Coût de base déclaré : 20 opérations.
+Namespace: Fight. Declared base cost: 20 operations.
 
 - `getPreviousPlayer[integer?] => integer?`
 - `getPreviousPlayer[] => integer`
 
 ### getRAM
 
-Espace : Entity. Coût de base déclaré : 15 opérations.
+Namespace: Entity. Declared base cost: 15 operations.
 
 - `getRAM[integer?] => integer?`
 - `getRAM[] => integer`
 
 ### getRed
 
-Espace : Color. Coût de base déclaré : 2 opérations.
+Namespace: Color. Declared base cost: 2 operations.
 
 - `getRed[integer] => integer`
 
 ### getRegister
 
-Espace : Util. Coût de base déclaré : 15 opérations.
+Namespace: Util. Declared base cost: 15 operations.
 
 - `getRegister[string] => string?`
 
 ### getRegisters
 
-Espace : Util. Coût de base déclaré : 25 opérations.
+Namespace: Util. Declared base cost: 25 operations.
 
 - `getRegisters[] => Map<string, string>`
 
 ### getRelativeShield
 
-Espace : Entity. Coût de base déclaré : 15 opérations.
+Namespace: Entity. Declared base cost: 15 operations.
 
 - `getRelativeShield[integer?] => integer?`
 - `getRelativeShield[] => integer`
 
 ### getResistance
 
-Espace : Entity. Coût de base déclaré : 15 opérations.
+Namespace: Entity. Declared base cost: 15 operations.
 
 - `getResistance[integer?] => integer?`
 - `getResistance[] => integer`
 
 ### getScience
 
-Espace : Entity. Coût de base déclaré : 15 opérations.
+Namespace: Entity. Declared base cost: 15 operations.
 
 - `getScience[integer?] => integer?`
 - `getScience[] => integer`
 
 ### getSide
 
-Espace : Entity. Coût de base déclaré : 5 opérations.
+Namespace: Entity. Declared base cost: 5 operations.
 
 - `getSide[integer?] => integer?`
 - `getSide[] => integer`
 
 ### getStat
 
-Espace : Entity. Coût de base déclaré : 15 opérations.
+Namespace: Entity. Declared base cost: 15 operations.
 
 - `getStat[integer?, integer] => integer?`
 - `getStat[integer] => integer`
 
 ### getStates
 
-Espace : Entity. Coût de base déclaré : 25 opérations.
+Namespace: Entity. Declared base cost: 25 operations.
 
 - `getStates[integer] => Set<integer>?`
 - `getStates[] => Set<integer>`
 
 ### getStats
 
-Espace : Entity. Coût de base déclaré : 40 opérations.
+Namespace: Entity. Declared base cost: 40 operations.
 
 - `getStats[integer?] => Map<integer, integer>?`
 - `getStats[] => Map<integer, integer>`
 
 ### getStrength
 
-Espace : Entity. Coût de base déclaré : 15 opérations.
+Namespace: Entity. Declared base cost: 15 operations.
 
 - `getStrength[integer?] => integer?`
 - `getStrength[] => integer`
 
 ### getSummoner
 
-Espace : Entity. Coût de base déclaré : 15 opérations.
+Namespace: Entity. Declared base cost: 15 operations.
 
 - `getSummoner[integer?] => integer?`
 - `getSummoner[] => integer`
 
 ### getSummons
 
-Espace : Entity. Coût de base déclaré : 15 opérations.
+Namespace: Entity. Declared base cost: 15 operations.
 
 - `getSummons[integer?] => Array<integer>`
 - `getSummons[] => Array<integer>`
 
 ### getTP
 
-Espace : Entity. Coût de base déclaré : 15 opérations.
+Namespace: Entity. Declared base cost: 15 operations.
 
 - `getTP[integer?] => integer?`
 - `getTP[] => integer`
 
 ### getTeamID
 
-Espace : Entity. Coût de base déclaré : 15 opérations.
+Namespace: Entity. Declared base cost: 15 operations.
 
 - `getTeamID[integer?] => integer?`
 - `getTeamID[] => integer`
 
 ### getTeamName
 
-Espace : Entity. Coût de base déclaré : 15 opérations.
+Namespace: Entity. Declared base cost: 15 operations.
 
 - `getTeamName[integer?] => string?`
 - `getTeamName[] => string`
 
 ### getTime
 
-Espace : System. Coût de base déclaré : 50 opérations.
+Namespace: System. Declared base cost: 50 operations.
 
 - `getTime[] => string`
 
 ### getTimestamp
 
-Espace : System. Coût de base déclaré : 5 opérations.
+Namespace: System. Declared base cost: 5 operations.
 
 - `getTimestamp[] => integer`
 
 ### getTotalLife
 
-Espace : Entity. Coût de base déclaré : 15 opérations.
+Namespace: Entity. Declared base cost: 15 operations.
 
 - `getTotalLife[integer?] => integer?`
 - `getTotalLife[] => integer`
 
 ### getTotalMP
 
-Espace : Entity. Coût de base déclaré : 15 opérations.
+Namespace: Entity. Declared base cost: 15 operations.
 
 - `getTotalMP[integer?] => integer?`
 - `getTotalMP[] => integer`
 
 ### getTotalTP
 
-Espace : Entity. Coût de base déclaré : 15 opérations.
+Namespace: Entity. Declared base cost: 15 operations.
 
 - `getTotalTP[integer?] => integer?`
 - `getTotalTP[] => integer`
 
 ### getTurn
 
-Espace : Fight. Coût de base déclaré : 15 opérations.
+Namespace: Fight. Declared base cost: 15 operations.
 
 - `getTurn[] => integer`
 
 ### getType
 
-Espace : Entity. Coût de base déclaré : 15 opérations.
+Namespace: Entity. Declared base cost: 15 operations.
 
 - `getType[integer?] => integer?`
 - `getType[] => integer`
 
 ### getUsedRAM
 
-Espace : System. Coût de base déclaré : 1 opérations.
+Namespace: System. Declared base cost: 1 operations.
 
 - `getUsedRAM[] => integer`
 
 ### getWeapon
 
-Espace : Entity. Coût de base déclaré : 15 opérations.
+Namespace: Entity. Declared base cost: 15 operations.
 
 - `getWeapon[integer?] => integer?`
 - `getWeapon[] => integer?`
 
 ### getWeaponArea
 
-Espace : Weapon. Coût de base déclaré : 15 opérations.
+Namespace: Weapon. Declared base cost: 15 operations.
 
 - `getWeaponArea[integer] => integer?`
 
 ### getWeaponCost
 
-Espace : Weapon. Coût de base déclaré : 15 opérations.
+Namespace: Weapon. Declared base cost: 15 operations.
 
 - `getWeaponCost[integer] => integer`
 - `getWeaponCost[] => integer`
 
 ### getWeaponEffectiveArea
 
-Espace : Weapon. Coût de base déclaré : 78 opérations.
+Namespace: Weapon. Declared base cost: 78 operations.
 
 - `getWeaponEffectiveArea[integer, integer?, integer?] => Array<integer>?`
 - `getWeaponEffectiveArea[integer, integer?] => Array<integer>?`
@@ -1311,128 +1311,128 @@ Espace : Weapon. Coût de base déclaré : 78 opérations.
 
 ### getWeaponEffects
 
-Espace : Weapon. Coût de base déclaré : 125 opérations.
+Namespace: Weapon. Declared base cost: 125 operations.
 
 - `getWeaponEffects[integer] => Array<Array<real | integer>>?`
 - `getWeaponEffects[] => Array<Array<real | integer>>?`
 
 ### getWeaponFailure
 
-Espace : Weapon. Coût de base déclaré : 15 opérations.
+Namespace: Weapon. Declared base cost: 15 operations.
 
 - `getWeaponFailure[integer] => integer`
 - `getWeaponFailure[] => integer`
 
 ### getWeaponLaunchType
 
-Espace : Weapon. Coût de base déclaré : 15 opérations.
+Namespace: Weapon. Declared base cost: 15 operations.
 
 - `getWeaponLaunchType[integer] => integer?`
 - `getWeaponLaunchType[] => integer?`
 
 ### getWeaponMaxRange
 
-Espace : Weapon. Coût de base déclaré : 15 opérations.
+Namespace: Weapon. Declared base cost: 15 operations.
 
 - `getWeaponMaxRange[integer] => integer`
 - `getWeaponMaxRange[] => integer`
 
 ### getWeaponMaxUses
 
-Espace : Weapon. Coût de base déclaré : 15 opérations.
+Namespace: Weapon. Declared base cost: 15 operations.
 
 - `getWeaponMaxUses[integer] => integer`
 - `getWeaponMaxUses[] => integer`
 
 ### getWeaponMinRange
 
-Espace : Weapon. Coût de base déclaré : 15 opérations.
+Namespace: Weapon. Declared base cost: 15 operations.
 
 - `getWeaponMinRange[integer] => integer`
 - `getWeaponMinRange[] => integer`
 
 ### getWeaponName
 
-Espace : Weapon. Coût de base déclaré : 15 opérations.
+Namespace: Weapon. Declared base cost: 15 operations.
 
 - `getWeaponName[integer] => string`
 - `getWeaponName[] => string`
 
 ### getWeaponPassiveEffects
 
-Espace : Weapon. Coût de base déclaré : 125 opérations.
+Namespace: Weapon. Declared base cost: 125 operations.
 
 - `getWeaponPassiveEffects[integer] => Array<Array<real | integer>>`
 - `getWeaponPassiveEffects[] => Array<Array<real | integer>>`
 
 ### getWeaponTargets
 
-Espace : Weapon. Coût de base déclaré : 40 opérations.
+Namespace: Weapon. Declared base cost: 40 operations.
 
 - `getWeaponTargets[integer, integer?] => Array<integer>?`
 - `getWeaponTargets[integer] => Array<integer>?`
 
 ### getWeapons
 
-Espace : Entity. Coût de base déclaré : 50 opérations.
+Namespace: Entity. Declared base cost: 50 operations.
 
 - `getWeapons[integer?] => Array<integer>?`
 - `getWeapons[] => Array<integer>`
 
 ### getWinner
 
-Espace : Fight. Coût de base déclaré : 5 opérations.
+Namespace: Fight. Declared base cost: 5 operations.
 
 - `getWinner[] => integer`
 
 ### getWisdom
 
-Espace : Entity. Coût de base déclaré : 15 opérations.
+Namespace: Entity. Declared base cost: 15 operations.
 
 - `getWisdom[integer?] => integer?`
 - `getWisdom[] => integer`
 
 ### hexString
 
-Espace : Number. Coût de base déclaré : 6 opérations.
+Namespace: Number. Declared base cost: 6 operations.
 
 - `hexString[integer] => string`
 - `hexString[big_integer] => string`
 
 ### hypot
 
-Espace : Number. Coût de base déclaré : 2 opérations.
+Namespace: Number. Declared base cost: 2 operations.
 
 - `hypot[real, real] => real`
 
 ### inArray
 
-Espace : Array. Coût de base déclaré : 0 opérations.
+Namespace: Array. Declared base cost: 0 operations.
 
 - `inArray[Array, any] => boolean`
 
 ### indexOf
 
-Espace : String. Coût de base déclaré : 0 opérations.
+Namespace: String. Declared base cost: 0 operations.
 
 - `indexOf[string, string, integer] => integer`
 - `indexOf[string, string] => integer`
 
 ### insert
 
-Espace : Array. Coût de base déclaré : 0 opérations.
+Namespace: Array. Declared base cost: 0 operations.
 
 - `insert[Array, any, integer] => void`
 
 ### intervalAverage
 
-Espace : Interval. Coût de base déclaré : 3 opérations.
+Namespace: Interval. Declared base cost: 3 operations.
 
 - `intervalAverage[Interval] => real`
 
 ### intervalCombine
 
-Espace : Interval. Coût de base déclaré : 3 opérations.
+Namespace: Interval. Declared base cost: 3 operations.
 
 - `intervalCombine[Interval<real>, Interval<real>] => Interval<real>`
 - `intervalCombine[Interval<integer>, Interval<real>] => Interval<real>`
@@ -1441,7 +1441,7 @@ Espace : Interval. Coût de base déclaré : 3 opérations.
 
 ### intervalContains
 
-Espace : Interval. Coût de base déclaré : 2 opérations.
+Namespace: Interval. Declared base cost: 2 operations.
 
 - `intervalContains[Interval, integer] => boolean`
 - `intervalContains[Interval, real] => boolean`
@@ -1449,7 +1449,7 @@ Espace : Interval. Coût de base déclaré : 2 opérations.
 
 ### intervalIntersection
 
-Espace : Interval. Coût de base déclaré : 3 opérations.
+Namespace: Interval. Declared base cost: 3 operations.
 
 - `intervalIntersection[Interval<real>, Interval<real>] => Interval<real>`
 - `intervalIntersection[Interval<integer>, Interval<real>] => Interval<real>`
@@ -1458,70 +1458,70 @@ Espace : Interval. Coût de base déclaré : 3 opérations.
 
 ### intervalIsBounded
 
-Espace : Interval. Coût de base déclaré : 1 opérations.
+Namespace: Interval. Declared base cost: 1 operations.
 
 - `intervalIsBounded[Interval] => boolean`
 
 ### intervalIsClosed
 
-Espace : Interval. Coût de base déclaré : 1 opérations.
+Namespace: Interval. Declared base cost: 1 operations.
 
 - `intervalIsClosed[Interval] => boolean`
 
 ### intervalIsEmpty
 
-Espace : Interval. Coût de base déclaré : 1 opérations.
+Namespace: Interval. Declared base cost: 1 operations.
 
 - `intervalIsEmpty[Interval] => boolean`
 
 ### intervalIsLeftBounded
 
-Espace : Interval. Coût de base déclaré : 1 opérations.
+Namespace: Interval. Declared base cost: 1 operations.
 
 - `intervalIsLeftBounded[Interval] => boolean`
 
 ### intervalIsLeftClosed
 
-Espace : Interval. Coût de base déclaré : 1 opérations.
+Namespace: Interval. Declared base cost: 1 operations.
 
 - `intervalIsLeftClosed[Interval] => boolean`
 
 ### intervalIsRightBounded
 
-Espace : Interval. Coût de base déclaré : 1 opérations.
+Namespace: Interval. Declared base cost: 1 operations.
 
 - `intervalIsRightBounded[Interval] => boolean`
 
 ### intervalIsRightClosed
 
-Espace : Interval. Coût de base déclaré : 1 opérations.
+Namespace: Interval. Declared base cost: 1 operations.
 
 - `intervalIsRightClosed[Interval] => boolean`
 
 ### intervalMax
 
-Espace : Interval. Coût de base déclaré : 1 opérations.
+Namespace: Interval. Declared base cost: 1 operations.
 
 - `intervalMax[Interval<real>] => real`
 - `intervalMax[Interval<integer>] => integer`
 
 ### intervalMin
 
-Espace : Interval. Coût de base déclaré : 1 opérations.
+Namespace: Interval. Declared base cost: 1 operations.
 
 - `intervalMin[Interval<real>] => real`
 - `intervalMin[Interval<integer>] => integer`
 
 ### intervalSize
 
-Espace : Interval. Coût de base déclaré : 1 opérations.
+Namespace: Interval. Declared base cost: 1 operations.
 
 - `intervalSize[Interval<real>] => real`
 - `intervalSize[Interval<integer>] => integer`
 
 ### intervalToArray
 
-Espace : Interval. Coût de base déclaré : 0 opérations.
+Namespace: Interval. Declared base cost: 0 operations.
 
 - `intervalToArray[Interval<real>, real] => Array<real>`
 - `intervalToArray[Interval<real>] => Array<real>`
@@ -1531,7 +1531,7 @@ Espace : Interval. Coût de base déclaré : 0 opérations.
 
 ### intervalToSet
 
-Espace : Interval. Coût de base déclaré : 0 opérations.
+Namespace: Interval. Declared base cost: 0 operations.
 
 - `intervalToSet[Interval<real>, real] => Set<real>`
 - `intervalToSet[Interval<real>] => Set<real>`
@@ -1541,360 +1541,360 @@ Espace : Interval. Coût de base déclaré : 0 opérations.
 
 ### isAlive
 
-Espace : Entity. Coût de base déclaré : 15 opérations.
+Namespace: Entity. Declared base cost: 15 operations.
 
 - `isAlive[integer] => boolean`
 
 ### isAlly
 
-Espace : Entity. Coût de base déclaré : 15 opérations.
+Namespace: Entity. Declared base cost: 15 operations.
 
 - `isAlly[integer] => boolean`
 
 ### isBatchFight
 
-Espace : Fight. Coût de base déclaré : 10 opérations.
+Namespace: Fight. Declared base cost: 10 operations.
 
 - `isBatchFight[] => boolean`
 
 ### isChip
 
-Espace : Chip. Coût de base déclaré : 10 opérations.
+Namespace: Chip. Declared base cost: 10 operations.
 
 - `isChip[integer] => boolean`
 
 ### isDead
 
-Espace : Entity. Coût de base déclaré : 15 opérations.
+Namespace: Entity. Declared base cost: 15 operations.
 
 - `isDead[integer] => boolean`
 
 ### isEmpty
 
-Espace : Array. Coût de base déclaré : 2 opérations.
+Namespace: Array. Declared base cost: 2 operations.
 
 - `isEmpty[Array] => boolean`
 
 ### isEmptyCell
 
-Espace : Field. Coût de base déclaré : 10 opérations.
+Namespace: Field. Declared base cost: 10 operations.
 
 - `isEmptyCell[integer] => boolean`
 
 ### isEnemy
 
-Espace : Entity. Coût de base déclaré : 15 opérations.
+Namespace: Entity. Declared base cost: 15 operations.
 
 - `isEnemy[integer] => boolean`
 
 ### isEntity
 
-Espace : Field. Coût de base déclaré : 10 opérations.
+Namespace: Field. Declared base cost: 10 operations.
 
 - `isEntity[integer] => boolean`
 
 ### isFinite
 
-Espace : Number. Coût de base déclaré : 1 opérations.
+Namespace: Number. Declared base cost: 1 operations.
 
 - `isFinite[real] => boolean`
 
 ### isInfinite
 
-Espace : Number. Coût de base déclaré : 1 opérations.
+Namespace: Number. Declared base cost: 1 operations.
 
 - `isInfinite[real] => boolean`
 
 ### isInlineChip
 
-Espace : Chip. Coût de base déclaré : 10 opérations.
+Namespace: Chip. Declared base cost: 10 operations.
 
 - `isInlineChip[integer] => boolean`
 
 ### isInlineWeapon
 
-Espace : Weapon. Coût de base déclaré : 10 opérations.
+Namespace: Weapon. Declared base cost: 10 operations.
 
 - `isInlineWeapon[integer] => boolean`
 - `isInlineWeapon[] => boolean`
 
 ### isNaN
 
-Espace : Number. Coût de base déclaré : 1 opérations.
+Namespace: Number. Declared base cost: 1 operations.
 
 - `isNaN[real] => boolean`
 
 ### isObstacle
 
-Espace : Field. Coût de base déclaré : 10 opérations.
+Namespace: Field. Declared base cost: 10 operations.
 
 - `isObstacle[integer] => boolean`
 
 ### isOnSameLine
 
-Espace : Field. Coût de base déclaré : 15 opérations.
+Namespace: Field. Declared base cost: 15 operations.
 
 - `isOnSameLine[integer, integer] => boolean`
 
 ### isPermutation
 
-Espace : Number. Coût de base déclaré : 10 opérations.
+Namespace: Number. Declared base cost: 10 operations.
 
 - `isPermutation[integer, integer] => boolean`
 
 ### isStatic
 
-Espace : Entity. Coût de base déclaré : 15 opérations.
+Namespace: Entity. Declared base cost: 15 operations.
 
 - `isStatic[integer?] => boolean`
 - `isStatic[] => boolean`
 
 ### isSummon
 
-Espace : Entity. Coût de base déclaré : 10 opérations.
+Namespace: Entity. Declared base cost: 10 operations.
 
 - `isSummon[integer?] => boolean?`
 - `isSummon[] => boolean`
 
 ### isWeapon
 
-Espace : Weapon. Coût de base déclaré : 15 opérations.
+Namespace: Weapon. Declared base cost: 15 operations.
 
 - `isWeapon[integer] => boolean`
 
 ### join
 
-Espace : Array. Coût de base déclaré : 0 opérations.
+Namespace: Array. Declared base cost: 0 operations.
 
 - `join[Array, string] => string`
 
 ### jsonDecode
 
-Espace : JSON. Coût de base déclaré : 0 opérations.
+Namespace: JSON. Declared base cost: 0 operations.
 
 - `jsonDecode[string] => any`
 
 ### jsonEncode
 
-Espace : JSON. Coût de base déclaré : 0 opérations.
+Namespace: JSON. Declared base cost: 0 operations.
 
 - `jsonEncode[any] => string`
 
 ### lama
 
-Espace : Entity. Coût de base déclaré : 30 opérations.
+Namespace: Entity. Declared base cost: 30 operations.
 
 - `lama[] => void`
 
 ### leadingZeros
 
-Espace : Number. Coût de base déclaré : 1 opérations.
+Namespace: Number. Declared base cost: 1 operations.
 
 - `leadingZeros[integer] => integer`
 
 ### length
 
-Espace : String. Coût de base déclaré : 1 opérations.
+Namespace: String. Declared base cost: 1 operations.
 
 - `length[string] => integer`
 
 ### lineOfSight
 
-Espace : Field. Coût de base déclaré : 31 opérations.
+Namespace: Field. Declared base cost: 31 operations.
 
 - `lineOfSight[integer, integer, null | Array<integer> | integer] => boolean?`
 - `lineOfSight[integer, integer] => boolean?`
 
 ### listen
 
-Espace : Entity. Coût de base déclaré : 78 opérations.
+Namespace: Entity. Declared base cost: 78 operations.
 
 - `listen[] => Array<Array>`
 
 ### log
 
-Espace : Number. Coût de base déclaré : 4 opérations.
+Namespace: Number. Declared base cost: 4 operations.
 
 - `log[real] => real`
 
 ### log10
 
-Espace : Number. Coût de base déclaré : 5 opérations.
+Namespace: Number. Declared base cost: 5 operations.
 
 - `log10[real] => real`
 
 ### log2
 
-Espace : Number. Coût de base déclaré : 5 opérations.
+Namespace: Number. Declared base cost: 5 operations.
 
 - `log2[real] => real`
 
 ### mapAverage
 
-Espace : Map. Coût de base déclaré : 0 opérations.
+Namespace: Map. Declared base cost: 0 operations.
 
 - `mapAverage[Map] => real`
 
 ### mapClear
 
-Espace : Map. Coût de base déclaré : 1 opérations.
+Namespace: Map. Declared base cost: 1 operations.
 
 - `mapClear[Map] => Map`
 
 ### mapContains
 
-Espace : Map. Coût de base déclaré : 0 opérations.
+Namespace: Map. Declared base cost: 0 operations.
 
 - `mapContains[Map, any] => boolean`
 
 ### mapContainsKey
 
-Espace : Map. Coût de base déclaré : 1 opérations.
+Namespace: Map. Declared base cost: 1 operations.
 
 - `mapContainsKey[Map, any] => boolean`
 
 ### mapEvery
 
-Espace : Map. Coût de base déclaré : 0 opérations.
+Namespace: Map. Declared base cost: 0 operations.
 
 - `mapEvery[Map, Function<any, any, Map => any>] => boolean`
 
 ### mapFill
 
-Espace : Map. Coût de base déclaré : 0 opérations.
+Namespace: Map. Declared base cost: 0 operations.
 
 - `mapFill[Map, any] => void`
 
 ### mapFilter
 
-Espace : Map. Coût de base déclaré : 0 opérations.
+Namespace: Map. Declared base cost: 0 operations.
 
 - `mapFilter[Map, Function<any, any, Map => boolean>] => Map`
 
 ### mapFold
 
-Espace : Map. Coût de base déclaré : 0 opérations.
+Namespace: Map. Declared base cost: 0 operations.
 
 - `mapFold[Map, Function<any, any, any, Map => any>, any] => any`
 
 ### mapGet
 
-Espace : Map. Coût de base déclaré : 2 opérations.
+Namespace: Map. Declared base cost: 2 operations.
 
 - `mapGet[Map, any, any] => any`
 - `mapGet[Map, any] => any`
 
 ### mapIsEmpty
 
-Espace : Map. Coût de base déclaré : 2 opérations.
+Namespace: Map. Declared base cost: 2 operations.
 
 - `mapIsEmpty[Map] => boolean`
 
 ### mapIter
 
-Espace : Map. Coût de base déclaré : 0 opérations.
+Namespace: Map. Declared base cost: 0 operations.
 
 - `mapIter[Map, Function<any, any, Map => any>] => void`
 
 ### mapKeys
 
-Espace : Map. Coût de base déclaré : 0 opérations.
+Namespace: Map. Declared base cost: 0 operations.
 
 - `mapKeys[Map] => Array`
 
 ### mapMap
 
-Espace : Map. Coût de base déclaré : 0 opérations.
+Namespace: Map. Declared base cost: 0 operations.
 
 - `mapMap[Map, Function<any, any, Map => any>] => Map`
 
 ### mapMax
 
-Espace : Map. Coût de base déclaré : 0 opérations.
+Namespace: Map. Declared base cost: 0 operations.
 
 - `mapMax[Map] => any`
 
 ### mapMerge
 
-Espace : Map. Coût de base déclaré : 0 opérations.
+Namespace: Map. Declared base cost: 0 operations.
 
 - `mapMerge[Map, Map] => any`
 
 ### mapMin
 
-Espace : Map. Coût de base déclaré : 0 opérations.
+Namespace: Map. Declared base cost: 0 operations.
 
 - `mapMin[Map] => any`
 
 ### mapPut
 
-Espace : Map. Coût de base déclaré : 3 opérations.
+Namespace: Map. Declared base cost: 3 operations.
 
 - `mapPut[Map, any, any] => any`
 
 ### mapPutAll
 
-Espace : Map. Coût de base déclaré : 0 opérations.
+Namespace: Map. Declared base cost: 0 operations.
 
 - `mapPutAll[Map, Map] => void`
 
 ### mapRemove
 
-Espace : Map. Coût de base déclaré : 2 opérations.
+Namespace: Map. Declared base cost: 2 operations.
 
 - `mapRemove[Map, any] => any`
 
 ### mapRemoveAll
 
-Espace : Map. Coût de base déclaré : 0 opérations.
+Namespace: Map. Declared base cost: 0 operations.
 
 - `mapRemoveAll[Map, any] => void`
 
 ### mapReplace
 
-Espace : Map. Coût de base déclaré : 3 opérations.
+Namespace: Map. Declared base cost: 3 operations.
 
 - `mapReplace[Map, any, any] => any`
 
 ### mapReplaceAll
 
-Espace : Map. Coût de base déclaré : 0 opérations.
+Namespace: Map. Declared base cost: 0 operations.
 
 - `mapReplaceAll[Map, Map] => void`
 
 ### mapSearch
 
-Espace : Map. Coût de base déclaré : 0 opérations.
+Namespace: Map. Declared base cost: 0 operations.
 
 - `mapSearch[Map, any] => any`
 
 ### mapSize
 
-Espace : Map. Coût de base déclaré : 1 opérations.
+Namespace: Map. Declared base cost: 1 operations.
 
 - `mapSize[Map] => integer`
 
 ### mapSome
 
-Espace : Map. Coût de base déclaré : 0 opérations.
+Namespace: Map. Declared base cost: 0 operations.
 
 - `mapSome[Map, Function<any, any, Map => any>] => boolean`
 
 ### mapSum
 
-Espace : Map. Coût de base déclaré : 0 opérations.
+Namespace: Map. Declared base cost: 0 operations.
 
 - `mapSum[Map] => real`
 
 ### mapValues
 
-Espace : Map. Coût de base déclaré : 0 opérations.
+Namespace: Map. Declared base cost: 0 operations.
 
 - `mapValues[Map] => Array`
 
 ### mark
 
-Espace : Util. Coût de base déclaré : 164 opérations.
+Namespace: Util. Declared base cost: 164 operations.
 
 - `mark[Array<integer> | integer, integer, integer] => boolean`
 - `mark[Array<integer> | integer, integer] => boolean`
@@ -1902,7 +1902,7 @@ Espace : Util. Coût de base déclaré : 164 opérations.
 
 ### markText
 
-Espace : Util. Coût de base déclaré : 164 opérations.
+Namespace: Util. Declared base cost: 164 operations.
 
 - `markText[Array<integer> | integer, any, integer, integer] => boolean`
 - `markText[Array<integer> | integer, any, integer] => boolean`
@@ -1911,7 +1911,7 @@ Espace : Util. Coût de base déclaré : 164 opérations.
 
 ### max
 
-Espace : Number. Coût de base déclaré : 1 opérations.
+Namespace: Number. Declared base cost: 1 operations.
 
 - `max[real, real] => real`
 - `max[integer, integer] => integer`
@@ -1919,7 +1919,7 @@ Espace : Number. Coût de base déclaré : 1 opérations.
 
 ### min
 
-Espace : Number. Coût de base déclaré : 1 opérations.
+Namespace: Number. Declared base cost: 1 operations.
 
 - `min[real, real] => real`
 - `min[integer, integer] => integer`
@@ -1927,226 +1927,226 @@ Espace : Number. Coût de base déclaré : 1 opérations.
 
 ### moveAwayFrom
 
-Espace : Fight. Coût de base déclaré : 500 opérations.
+Namespace: Fight. Declared base cost: 500 operations.
 
 - `moveAwayFrom[integer, integer] => integer`
 - `moveAwayFrom[integer] => integer`
 
 ### moveAwayFromCell
 
-Espace : Fight. Coût de base déclaré : 500 opérations.
+Namespace: Fight. Declared base cost: 500 operations.
 
 - `moveAwayFromCell[integer, integer] => integer`
 - `moveAwayFromCell[integer] => integer`
 
 ### moveAwayFromCells
 
-Espace : Fight. Coût de base déclaré : 500 opérations.
+Namespace: Fight. Declared base cost: 500 operations.
 
 - `moveAwayFromCells[Array<integer>, integer] => integer`
 - `moveAwayFromCells[Array<integer>] => integer`
 
 ### moveAwayFromEntities
 
-Espace : Fight. Coût de base déclaré : 500 opérations.
+Namespace: Fight. Declared base cost: 500 operations.
 
 - `moveAwayFromEntities[Array<integer>, integer] => integer`
 - `moveAwayFromEntities[Array<integer>] => integer`
 
 ### moveAwayFromLeeks
 
-Espace : Fight. Coût de base déclaré : 500 opérations.
+Namespace: Fight. Declared base cost: 500 operations.
 
 - `moveAwayFromLeeks[Array<integer>, integer] => integer`
 - `moveAwayFromLeeks[Array<integer>] => integer`
 
 ### moveAwayFromLine
 
-Espace : Fight. Coût de base déclaré : 500 opérations.
+Namespace: Fight. Declared base cost: 500 operations.
 
 - `moveAwayFromLine[integer, integer, integer] => integer`
 - `moveAwayFromLine[integer, integer] => integer`
 
 ### moveToward
 
-Espace : Fight. Coût de base déclaré : 500 opérations.
+Namespace: Fight. Declared base cost: 500 operations.
 
 - `moveToward[integer, integer] => integer`
 - `moveToward[integer] => integer`
 
 ### moveTowardCell
 
-Espace : Fight. Coût de base déclaré : 500 opérations.
+Namespace: Fight. Declared base cost: 500 operations.
 
 - `moveTowardCell[integer, integer] => integer`
 - `moveTowardCell[integer] => integer`
 
 ### moveTowardCells
 
-Espace : Fight. Coût de base déclaré : 500 opérations.
+Namespace: Fight. Declared base cost: 500 operations.
 
 - `moveTowardCells[Array<integer>, integer] => integer`
 - `moveTowardCells[Array<integer>] => integer`
 
 ### moveTowardEntities
 
-Espace : Fight. Coût de base déclaré : 500 opérations.
+Namespace: Fight. Declared base cost: 500 operations.
 
 - `moveTowardEntities[Array<integer>, integer] => integer`
 - `moveTowardEntities[Array<integer>] => integer`
 
 ### moveTowardLeeks
 
-Espace : Fight. Coût de base déclaré : 500 opérations.
+Namespace: Fight. Declared base cost: 500 operations.
 
 - `moveTowardLeeks[Array<integer>, integer] => integer`
 - `moveTowardLeeks[Array<integer>] => integer`
 
 ### moveTowardLine
 
-Espace : Fight. Coût de base déclaré : 500 opérations.
+Namespace: Fight. Declared base cost: 500 operations.
 
 - `moveTowardLine[integer, integer, integer] => integer`
 - `moveTowardLine[integer, integer] => integer`
 
 ### number
 
-Espace : Value. Coût de base déclaré : 3 opérations.
+Namespace: Value. Declared base cost: 3 operations.
 
 - `number[any] => real | integer`
 
 ### pause
 
-Espace : Util. Coût de base déclaré : 30 opérations.
+Namespace: Util. Declared base cost: 30 operations.
 
 - `pause[] => void`
 
 ### pop
 
-Espace : Array. Coût de base déclaré : 2 opérations.
+Namespace: Array. Declared base cost: 2 operations.
 
 - `pop[Array] => any`
 
 ### pow
 
-Espace : Number. Coût de base déclaré : 7 opérations.
+Namespace: Number. Declared base cost: 7 operations.
 
 - `pow[real, real] => real`
 - `pow[big_integer, big_integer] => big_integer`
 
 ### push
 
-Espace : Array. Coût de base déclaré : 2 opérations.
+Namespace: Array. Declared base cost: 2 operations.
 
 - `push[Array, any] => void`
 
 ### pushAll
 
-Espace : Array. Coût de base déclaré : 0 opérations.
+Namespace: Array. Declared base cost: 0 operations.
 
 - `pushAll[Array, Array] => void`
 
 ### rand
 
-Espace : Number. Coût de base déclaré : 3 opérations.
+Namespace: Number. Declared base cost: 3 operations.
 
 - `rand[] => real`
 
 ### randInt
 
-Espace : Number. Coût de base déclaré : 2 opérations.
+Namespace: Number. Declared base cost: 2 operations.
 
 - `randInt[integer, integer] => integer`
 
 ### randReal
 
-Espace : Number. Coût de base déclaré : 3 opérations.
+Namespace: Number. Declared base cost: 3 operations.
 
 - `randReal[real, real] => real`
 
 ### realBits
 
-Espace : Number. Coût de base déclaré : 1 opérations.
+Namespace: Number. Declared base cost: 1 operations.
 
 - `realBits[real] => integer`
 
 ### remove
 
-Espace : Array. Coût de base déclaré : 0 opérations.
+Namespace: Array. Declared base cost: 0 operations.
 
 - `remove[Array, integer] => any`
 
 ### removeElement
 
-Espace : Array. Coût de base déclaré : 0 opérations.
+Namespace: Array. Declared base cost: 0 operations.
 
 - `removeElement[Array, any] => void`
 
 ### replace
 
-Espace : String. Coût de base déclaré : 0 opérations.
+Namespace: String. Declared base cost: 0 operations.
 
 - `replace[string, string, string] => string`
 
 ### resurrect
 
-Espace : Chip. Coût de base déclaré : 500 opérations.
+Namespace: Chip. Declared base cost: 500 operations.
 
 - `resurrect[integer, integer] => integer`
 
 ### reverse
 
-Espace : Array. Coût de base déclaré : 0 opérations.
+Namespace: Array. Declared base cost: 0 operations.
 
 - `reverse[Array] => void`
 
 ### rotateLeft
 
-Espace : Number. Coût de base déclaré : 1 opérations.
+Namespace: Number. Declared base cost: 1 operations.
 
 - `rotateLeft[integer, integer] => integer`
 
 ### rotateRight
 
-Espace : Number. Coût de base déclaré : 1 opérations.
+Namespace: Number. Declared base cost: 1 operations.
 
 - `rotateRight[integer, integer] => integer`
 
 ### round
 
-Espace : Number. Coût de base déclaré : 1 opérations.
+Namespace: Number. Declared base cost: 1 operations.
 
 - `round[real] => integer`
 - `round[integer] => integer`
 
 ### say
 
-Espace : Entity. Coût de base déclaré : 30 opérations.
+Namespace: Entity. Declared base cost: 30 operations.
 
 - `say[any] => boolean`
 
 ### search
 
-Espace : Array. Coût de base déclaré : 0 opérations.
+Namespace: Array. Declared base cost: 0 operations.
 
 - `search[Array, any, integer] => any`
 - `search[Array, any] => any`
 
 ### sendAll
 
-Espace : Network. Coût de base déclaré : 40 opérations.
+Namespace: Network. Declared base cost: 40 operations.
 
 - `sendAll[integer, any] => void`
 
 ### sendTo
 
-Espace : Network. Coût de base déclaré : 15 opérations.
+Namespace: Network. Declared base cost: 15 operations.
 
 - `sendTo[integer, integer, any] => boolean`
 
 ### setBit
 
-Espace : Number. Coût de base déclaré : 1 opérations.
+Namespace: Number. Declared base cost: 1 operations.
 
 - `setBit[integer, integer] => integer`
 - `setBit[integer, integer, integer] => integer`
@@ -2157,123 +2157,123 @@ Espace : Number. Coût de base déclaré : 1 opérations.
 
 ### setClear
 
-Espace : Set. Coût de base déclaré : 1 opérations.
+Namespace: Set. Declared base cost: 1 operations.
 
 - `setClear[Set] => Set`
 
 ### setContains
 
-Espace : Set. Coût de base déclaré : 1 opérations.
+Namespace: Set. Declared base cost: 1 operations.
 
 - `setContains[Set, any] => boolean`
 
 ### setDifference
 
-Espace : Set. Coût de base déclaré : 0 opérations.
+Namespace: Set. Declared base cost: 0 operations.
 
 - `setDifference[Set, Set] => Set`
 
 ### setDisjunction
 
-Espace : Set. Coût de base déclaré : 0 opérations.
+Namespace: Set. Declared base cost: 0 operations.
 
 - `setDisjunction[Set, Set] => Set`
 
 ### setFilter
 
-Espace : Set. Coût de base déclaré : 0 opérations.
+Namespace: Set. Declared base cost: 0 operations.
 
 - `setFilter[Set, Function<any, Set => boolean>] => Set`
 
 ### setIntersection
 
-Espace : Set. Coût de base déclaré : 0 opérations.
+Namespace: Set. Declared base cost: 0 operations.
 
 - `setIntersection[Set, Set] => Set`
 
 ### setIsEmpty
 
-Espace : Set. Coût de base déclaré : 1 opérations.
+Namespace: Set. Declared base cost: 1 operations.
 
 - `setIsEmpty[Set] => boolean`
 
 ### setIsSubsetOf
 
-Espace : Set. Coût de base déclaré : 0 opérations.
+Namespace: Set. Declared base cost: 0 operations.
 
 - `setIsSubsetOf[Set, Set] => boolean`
 
 ### setLoadout
 
-Espace : Fight. Coût de base déclaré : 100 opérations.
+Namespace: Fight. Declared base cost: 100 operations.
 
 - `setLoadout[string] => boolean`
 - `setLoadout[string, boolean] => boolean`
 
 ### setPut
 
-Espace : Set. Coût de base déclaré : 3 opérations.
+Namespace: Set. Declared base cost: 3 operations.
 
 - `setPut[Set, any] => boolean`
 
 ### setRegister
 
-Espace : Util. Coût de base déclaré : 50 opérations.
+Namespace: Util. Declared base cost: 50 operations.
 
 - `setRegister[string, any] => boolean`
 
 ### setRemove
 
-Espace : Set. Coût de base déclaré : 2 opérations.
+Namespace: Set. Declared base cost: 2 operations.
 
 - `setRemove[Set, any] => boolean`
 
 ### setSize
 
-Espace : Set. Coût de base déclaré : 1 opérations.
+Namespace: Set. Declared base cost: 1 operations.
 
 - `setSize[Set] => integer`
 
 ### setToArray
 
-Espace : Set. Coût de base déclaré : 0 opérations.
+Namespace: Set. Declared base cost: 0 operations.
 
 - `setToArray[Set] => Array`
 
 ### setUnion
 
-Espace : Set. Coût de base déclaré : 0 opérations.
+Namespace: Set. Declared base cost: 0 operations.
 
 - `setUnion[Set, Set] => Set`
 
 ### setWeapon
 
-Espace : Entity. Coût de base déclaré : 15 opérations.
+Namespace: Entity. Declared base cost: 15 operations.
 
 - `setWeapon[integer] => boolean`
 
 ### shift
 
-Espace : Array. Coût de base déclaré : 0 opérations.
+Namespace: Array. Declared base cost: 0 operations.
 
 - `shift[Array] => any`
 
 ### show
 
-Espace : Util. Coût de base déclaré : 0 opérations.
+Namespace: Util. Declared base cost: 0 operations.
 
 - `show[integer, integer] => boolean`
 - `show[integer] => boolean`
 
 ### shuffle
 
-Espace : Array. Coût de base déclaré : 0 opérations.
+Namespace: Array. Declared base cost: 0 operations.
 
 - `shuffle[Array] => void`
 
 ### signum
 
-Espace : Number. Coût de base déclaré : 1 opérations.
+Namespace: Number. Declared base cost: 1 operations.
 
 - `signum[real] => integer`
 - `signum[integer] => integer`
@@ -2281,84 +2281,84 @@ Espace : Number. Coût de base déclaré : 1 opérations.
 
 ### sin
 
-Espace : Number. Coût de base déclaré : 3 opérations.
+Namespace: Number. Declared base cost: 3 operations.
 
 - `sin[real] => real`
 
 ### sort
 
-Espace : Array. Coût de base déclaré : 0 opérations.
+Namespace: Array. Declared base cost: 0 operations.
 
 - `sort[Array, integer] => void`
 - `sort[Array] => void`
 
 ### split
 
-Espace : String. Coût de base déclaré : 0 opérations.
+Namespace: String. Declared base cost: 0 operations.
 
 - `split[string, string, integer] => Array<string>`
 - `split[string, string] => Array<string>`
 
 ### sqrt
 
-Espace : Number. Coût de base déclaré : 3 opérations.
+Namespace: Number. Declared base cost: 3 operations.
 
 - `sqrt[real] => real`
 
 ### startsWith
 
-Espace : String. Coût de base déclaré : 0 opérations.
+Namespace: String. Declared base cost: 0 operations.
 
 - `startsWith[string, string] => boolean`
 
 ### string
 
-Espace : Value. Coût de base déclaré : 6 opérations.
+Namespace: Value. Declared base cost: 6 operations.
 
 - `string[any] => string`
 
 ### substring
 
-Espace : String. Coût de base déclaré : 0 opérations.
+Namespace: String. Declared base cost: 0 operations.
 
 - `substring[string, integer, integer] => string`
 - `substring[string, integer] => string`
 
 ### sum
 
-Espace : Array. Coût de base déclaré : 0 opérations.
+Namespace: Array. Declared base cost: 0 operations.
 
 - `sum[Array] => real`
 
 ### summon
 
-Espace : Chip. Coût de base déclaré : 1750 opérations.
+Namespace: Chip. Declared base cost: 1750 operations.
 
 - `summon[integer, integer, Function< => any>, string] => integer`
 - `summon[integer, integer, Function< => any>] => integer`
 
 ### tan
 
-Espace : Number. Coût de base déclaré : 4 opérations.
+Namespace: Number. Declared base cost: 4 operations.
 
 - `tan[real] => real`
 
 ### testBit
 
-Espace : Number. Coût de base déclaré : 1 opérations.
+Namespace: Number. Declared base cost: 1 operations.
 
 - `testBit[integer, integer] => boolean`
 - `testBit[big_integer, integer] => boolean`
 
 ### toDegrees
 
-Espace : Number. Coût de base déclaré : 3 opérations.
+Namespace: Number. Declared base cost: 3 operations.
 
 - `toDegrees[real] => real`
 
 ### toFixed
 
-Espace : Number. Coût de base déclaré : 40 opérations.
+Namespace: Number. Declared base cost: 40 operations.
 
 - `toFixed[real, integer] => string`
 - `toFixed[integer, integer] => string`
@@ -2366,86 +2366,86 @@ Espace : Number. Coût de base déclaré : 40 opérations.
 
 ### toLower
 
-Espace : String. Coût de base déclaré : 0 opérations.
+Namespace: String. Declared base cost: 0 operations.
 
 - `toLower[string] => string`
 
 ### toRadians
 
-Espace : Number. Coût de base déclaré : 3 opérations.
+Namespace: Number. Declared base cost: 3 operations.
 
 - `toRadians[real] => real`
 
 ### toUpper
 
-Espace : String. Coût de base déclaré : 0 opérations.
+Namespace: String. Declared base cost: 0 operations.
 
 - `toUpper[string] => string`
 
 ### trailingZeros
 
-Espace : Number. Coût de base déclaré : 1 opérations.
+Namespace: Number. Declared base cost: 1 operations.
 
 - `trailingZeros[integer] => integer`
 - `trailingZeros[big_integer] => integer`
 
 ### trim
 
-Espace : String. Coût de base déclaré : 5 opérations.
+Namespace: String. Declared base cost: 5 operations.
 
 - `trim[string] => string`
 
 ### typeOf
 
-Espace : Value. Coût de base déclaré : 1 opérations.
+Namespace: Value. Declared base cost: 1 operations.
 
 - `typeOf[any] => integer`
 
 ### unknown
 
-Espace : Value. Coût de base déclaré : 100 opérations.
+Namespace: Value. Declared base cost: 100 operations.
 
 - `unknown[any] => any`
 
 ### unshift
 
-Espace : Array. Coût de base déclaré : 0 opérations.
+Namespace: Array. Declared base cost: 0 operations.
 
 - `unshift[Array, any] => void`
 
 ### useChip
 
-Espace : Chip. Coût de base déclaré : 3000 opérations.
+Namespace: Chip. Declared base cost: 3000 operations.
 
 - `useChip[integer, integer] => integer`
 - `useChip[integer] => integer`
 
 ### useChipOnCell
 
-Espace : Chip. Coût de base déclaré : 3000 opérations.
+Namespace: Chip. Declared base cost: 3000 operations.
 
 - `useChipOnCell[integer, integer] => integer`
 
 ### useWeapon
 
-Espace : Weapon. Coût de base déclaré : 3000 opérations.
+Namespace: Weapon. Declared base cost: 3000 operations.
 
 - `useWeapon[integer] => integer`
 
 ### useWeaponOnCell
 
-Espace : Weapon. Coût de base déclaré : 3000 opérations.
+Namespace: Weapon. Declared base cost: 3000 operations.
 
 - `useWeaponOnCell[integer] => integer`
 
 ### weaponNeedLos
 
-Espace : Weapon. Coût de base déclaré : 10 opérations.
+Namespace: Weapon. Declared base cost: 10 operations.
 
 - `weaponNeedLos[integer] => boolean`
 - `weaponNeedLos[] => boolean`
 
-## Constantes
+## Constants
 
 - `AREA_ALLIES` = `15.0`
 - `AREA_CIRCLE_1` = `3.0`

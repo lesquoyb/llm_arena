@@ -1,13 +1,24 @@
 """Deterministic fixtures, never API calls or measured model token usage."""
 from __future__ import annotations
 
-from .core import ROOT, ArenaError
+import copy
+from .core import ROOT, ArenaError, digest
 
 PROFILES = {"single-shot", "repair-and-submit", "invalid", "empty", "malformed", "timeout", "rate-limit", "budget"}
 
 
 class MockProvider:
-    def respond(self, profile: str, history: list[dict]) -> dict:
+    def __init__(self, profile="single-shot"):
+        self.profile = profile
+
+    def payload(self, history, tools, output_limit):
+        return {"profile": self.profile,
+                "messages": [{k: copy.deepcopy(v) for k, v in item.items() if k != "sent_parameters"} for item in history],
+                "tools": copy.deepcopy(tools), "max_output_tokens": output_limit}
+
+    def respond(self, history, tools, output_limit):
+        request = self.payload(history, tools, output_limit)
+        history, profile = request["messages"], self.profile
         if profile not in PROFILES:
             raise ArenaError("Unknown mock profile")
         from .api_providers import ProviderFailure
@@ -45,7 +56,7 @@ class MockProvider:
             calls = sequence[step] if step < len(sequence) else []
         if profile == "budget":
             calls = [("write_file", {"path": "main.leek", "content": source})]
-        return {"role": "assistant", "provider": "mock", "simulated": True,
+        return {"role": "assistant", "provider": "mock", "simulated": True, "sent_parameters": request, "request_sha256": digest(request),
                 "tool_calls": [{"name": name, "arguments": args} for name, args in calls],
                 "stop_reason": "tool_calls" if calls else "end",
                 "usage": {"input_tokens": None, "output_tokens": None, "raw": None},

@@ -23,6 +23,10 @@ import leekscript.compiler.resolver.NativeFileSystem;
 import leekscript.runner.LeekFunctions;
 import leekscript.runner.LeekConstants;
 import tools.jackson.databind.node.ObjectNode;
+import tools.jackson.databind.node.ArrayNode;
+import com.leekwars.generator.fight.Fight;
+import com.leekwars.generator.attack.DamageType;
+import com.leekwars.generator.effect.Effect;
 
 /** Small adapter; upstream sources and game rules stay pinned and untouched. */
 public final class ArenaMain {
@@ -60,6 +64,33 @@ public final class ArenaMain {
 
     static final class Metrics extends LocalTrophyManager {
         final ObjectNode teams = Json.createObject();
+        final Map<String, ObjectNode> turns = new TreeMap<>();
+        ObjectNode row(Entity e) {
+            int turn = ((Fight) e.getFight()).getTurn();
+            return turns.computeIfAbsent(turn + ":" + e.getFId(), ignored -> {
+                var row = Json.createObject();
+                row.put("turn", turn); row.put("entity", e.getFId()); row.put("side", e.getTeam());
+                for (String key : new String[]{"operations", "ai_turns", "damage_dealt", "damage_taken", "erosion_dealt", "erosion_taken", "healing_given", "healing_received", "errors", "operation_limit_hits", "stack_overflows"}) row.put(key, 0L);
+                return row;
+            });
+        }
+        void increment(Entity e, String key, long value) {
+            if (e == null) return;
+            var row = row(e); row.put(key, row.get(key).longValue() + value);
+        }
+        @Override public void damage(Entity target, Entity attacker, int damage, DamageType type, Effect effect) {
+            String prefix = type == DamageType.NOVA ? "erosion" : "damage";
+            increment(target, prefix + "_taken", damage);
+            increment(attacker, prefix + "_dealt", damage);
+        }
+        @Override public void heal(Entity healer, Entity target, int life) {
+            increment(healer, "healing_given", life); increment(target, "healing_received", life);
+        }
+        ArrayNode exportTurns() {
+            var result = Json.createArray();
+            for (var row : turns.values()) result.add(row);
+            return result;
+        }
         Metrics() {
             for (int i = 0; i < 2; i++) {
                 var t = Json.createObject();
@@ -73,13 +104,15 @@ public final class ArenaMain {
         }
         @Override public void addTimes(Entity e, long time, long ops) {
             super.addTimes(e, time, ops);
+            increment(e, "operations", ops);
+            increment(e, "ai_turns", 1);
             add(e, "operations", ops);
             add(e, "turn_elapsed_ns", time);
             add(e, "turns", 1);
         }
-        @Override public void error(Entity e) { add(e, "errors", 1); }
-        @Override public void tooMuchOperations(Entity e) { add(e, "operation_limit_hits", 1); }
-        @Override public void stackOverflow(Entity e) { add(e, "stack_overflows", 1); }
+        @Override public void error(Entity e) { add(e, "errors", 1); increment(e, "errors", 1); }
+        @Override public void tooMuchOperations(Entity e) { add(e, "operation_limit_hits", 1); increment(e, "operation_limit_hits", 1); }
+        @Override public void stackOverflow(Entity e) { add(e, "stack_overflows", 1); increment(e, "stack_overflows", 1); }
     }
 
     public static void main(String[] args) throws Exception {
@@ -146,6 +179,9 @@ public final class ArenaMain {
                 if (outcome.fight == null) throw new IllegalStateException("No fight outcome");
                 result = outcome.toJson();
                 result.set("team_metrics", metrics.teams);
+                result.set("turn_metrics", metrics.exportTurns());
+                result.put("operations_limit_per_turn", Math.min(Integer.MAX_VALUE, (long) scenario.entities.get(0).get(0).cores * 1_000_000));
+                result.put("operations_limit_basis", "entity.cores");
                 result.put("success", true);
             } else throw new IllegalArgumentException("Unknown command");
         } catch (Exception e) {

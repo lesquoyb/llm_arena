@@ -2,7 +2,7 @@ import copy
 import os
 import unittest
 from unittest import mock
-from arena.api_providers import APIProvider, ProviderFailure
+from arena.api_providers import APIProvider, ProviderFailure, list_models, request_snapshot
 from arena.core import ROOT, ArenaError, read_json, scratch_directory
 from arena.experiment import Journal, initial_state, provider_response, run_session, validate_config
 from arena.tool_schemas import TOOLS
@@ -90,6 +90,105 @@ class ProviderContractTests(unittest.TestCase):
                                     {"role": "tool", "provider_call_id": "t1", "result": {"files": []}}], TOOLS, 100)
         self.assertEqual(payload["messages"][1]["content"][0]["signature"], "sig")
         self.assertEqual(payload["messages"][2]["content"][0]["tool_use_id"], "t1")
+
+    def test_gemini_native_tools_signatures_usage_and_seed(self):
+        descriptor = model("gemini")
+        descriptor["model"] = "models/gemini-fixture"
+        descriptor["parameters"] = {"seed":42, "temperature":0}
+        response = {"candidates":[{"content":{"role":"model", "parts":[
+                    {"thoughtSignature":"signature-must-survive", "functionCall":{"id":"g1", "name":"list_files", "args":{}}}]},
+                    "finishReason":"STOP"}], "usageMetadata":{"promptTokenCount":100,"candidatesTokenCount":10,
+                    "thoughtsTokenCount":5,"cachedContentTokenCount":40}}
+        sent = []
+        def transport(url, payload, headers, timeout):
+            sent.append((url,copy.deepcopy(payload),headers))
+            return response, "request-fixture"
+        history = [{"role":"user", "content":"unique-conversation"}]
+        frozen = copy.deepcopy(history)
+        with mock.patch.dict(os.environ, {"ARENA_TEST_KEY":"test-only"}):
+            provider = APIProvider(descriptor, transport)
+            answer = provider.respond(history,TOOLS,100)
+        self.assertEqual(history,frozen)
+        self.assertEqual(sent[0][0], "https://generativelanguage.googleapis.com/v1beta/models/gemini-fixture:generateContent")
+        self.assertEqual(sent[0][2]["x-goog-api-key"],"test-only")
+        self.assertEqual(sent[0][1]["generationConfig"]["seed"],42)
+        self.assertEqual(answer["usage"]["output_tokens"],15)
+        self.assertEqual(answer["cost_usd"],"0.00026")
+        payload = provider.payload([*history,answer,{"role":"tool", "name":"list_files", "provider_call_id":"g1", "result":{"files":[]}}],TOOLS,100)
+        self.assertEqual(payload["contents"][1]["parts"][0]["thoughtSignature"],"signature-must-survive")
+        self.assertEqual(payload["contents"][2]["parts"][0]["functionResponse"]["id"],"g1")
+        self.assertEqual(payload["tools"][0]["functionDeclarations"][0]["parametersJsonSchema"],TOOLS[0]["input_schema"])
+        snapshot = request_snapshot(descriptor,history,TOOLS,100)
+        self.assertEqual(snapshot["body"],sent[0][1])
+        self.assertNotIn("test-only",str(snapshot))
+        self.assertEqual(snapshot["body_sha256"], request_snapshot(descriptor,frozen,TOOLS,100)["body_sha256"])
+
+    def test_catalog_pages_filter_gemini_embeddings_and_keep_keys_out_of_urls(self):
+        calls = []
+        def transport(url, payload, headers, timeout):
+            calls.append((url,payload,headers))
+            if len(calls) == 1:
+                return {"models":[{"name":"models/chat-a", "supportedGenerationMethods":["generateContent"]},
+                                   {"name":"models/embed", "supportedGenerationMethods":["embedContent"]}],
+                        "nextPageToken":"page-2"},None
+            return {"models":[{"name":"models/chat-b", "supportedGenerationMethods":["generateContent"]}]},None
+        result = list_models("gemini","secret-fixture",transport=transport)
+        self.assertEqual([m["id"] for m in result["models"]],["models/chat-a","models/chat-b"])
+        self.assertIn("pageToken=page-2",calls[1][0])
+        self.assertTrue(all(payload is None for _,payload,_ in calls))
+        self.assertTrue(all("secret-fixture" not in url for url,_,_ in calls))
+        self.assertNotIn("secret-fixture",str(result))
+        calls.clear()
+        def anthropic(url,payload,headers,timeout):
+            calls.append(url)
+            return ({"data":[{"id":"claude-a"}],"has_more":True,"last_id":"claude-a"} if len(calls)==1
+                    else {"data":[{"id":"claude-b"}],"has_more":False}),None
+        self.assertEqual(len(list_models("anthropic","fixture",transport=anthropic)["models"]),2)
+        self.assertIn("after_id=claude-a",calls[-1])
+        seen = []
+        def compatible(url,*args):
+            seen.append(url)
+            return {"data":[{"id":"custom-model"}]},None
+        list_models("openai-compatible","fixture","https://example.test/v1/chat/completions",transport=compatible)
+        self.assertEqual(seen,["https://example.test/v1/models"])
+
+    def test_seeds_rejected_for_anthropic_and_invalid_types(self):
+        config = read_json(ROOT / "configs/offline-demo.json")
+        config["spending"] = {"allow_paid_calls":True,"max_total_usd":"1"}
+        config["budget_per_session"].update(max_input_tokens=1000000,max_output_tokens=1000,max_cost_usd="1")
+        for provider in ("openai","gemini","openai-compatible","anthropic"):
+            descriptor = model(provider)
+            if provider == "openai-compatible":
+                descriptor["endpoint"] = "https://example.test/v1/chat/completions"
+            config["models"] = [descriptor]
+            descriptor["parameters"] = {"seed":42}
+            if provider == "anthropic":
+                with self.assertRaises(ArenaError): validate_config(config)
+            else:
+                validate_config(config)
+                for invalid in (True,-1,"42",1.5):
+                    descriptor["parameters"]["seed"] = invalid
+                    with self.assertRaises(ArenaError): validate_config(config)
+
+    def test_mock_receives_prompts_and_tools_and_journals_request_before_responding(self):
+        config = read_json(ROOT / "configs/offline-demo.json")
+        descriptor = config["models"][0]
+        with scratch_directory() as tmp:
+            journal = Journal(tmp)
+            try:
+                state = initial_state("mock-r0",descriptor,config)
+                prompt = copy.deepcopy(state["history"][0])
+                response = provider_response("mock-r0",state,descriptor,config,journal)
+                sent = response["sent_parameters"]
+                self.assertEqual(sent["messages"],[prompt])
+                self.assertEqual(sent["tools"],TOOLS)
+                row = journal.db.execute("SELECT payload FROM events WHERE kind='model_intent'").fetchone()
+                import json
+                ref = json.loads(row[0])
+                event = read_json(tmp/ref["artifact"])
+                self.assertEqual(event["request"]["body"],sent)
+            finally:
+                journal.db.close()
 
     def test_unknown_usage_and_prices_remain_unknown(self):
         usage = normalize("openai", {})

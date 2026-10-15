@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>LLM Arena</title>
+    <link rel="icon" type="image/png" href="/favicon.png" />
+    <link rel="stylesheet" href="/style.css" />
+    <script src="/app.js" defer></script>
+  </head>
+  <body>
+    <aside class="sidebar">
+      <a class="brand" href="#view=dashboard"
+        ><img src="/favicon.png" alt="" width="36" height="36" /><span
+          >LLM ARENA</span
+        ></a
+      >
+      <p class="nav-label">WORKSPACE</p>
+      <nav aria-label="Main navigation">
+        <a href="#view=dashboard" data-nav="dashboard"
+          ><span>◈</span> Overview</a
+        >
+        <a href="#view=participants" data-nav="participants"
+          ><span>♧</span> Participants</a
+        >
+        <a href="#view=competitions" data-nav="competitions"
+          ><span>⚑</span> Competitions <i id="active-count"></i
+        ></a>
+        <a href="#view=compare" data-nav="compare"
+          ><span
+            ><svg
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.5"
+              aria-hidden="true"
+            >
+              <path d="M3 18 10 11 14 15 21 6M15 6h6v6" /></svg
+          ></span>
+          Compare results</a
+        >
+      </nav>
+      <div class="sidebar-note"><span class="pulse"></span> Local server</div>
+      <a class="help-link" href="#view=help">? &nbsp; Help</a>
+    </aside>
+    <div class="workspace">
+      <header class="topbar">
+        <span id="breadcrumb">Overview</span>
+        <div>
+          <span id="engine-status" class="badge">Connecting...</span
+          ><button
+            class="icon-button"
+            data-action="refresh"
+            title="Refresh"
+            aria-label="Refresh"
+          >
+            ↻
+          </button>
+        </div>
+      </header>
+      <main id="main" tabindex="-1">
+        <div class="empty">Loading...</div>
+      </main>
+      <footer>
+        LLM Arena <span>LeekScript 4 · official Leek Wars engine</span>
+      </footer>
+    </div>
+    <dialog id="dialog"><div id="dialog-content"></div></dialog>
+    <div id="toast" role="status" aria-live="polite"></div>
+  </body>
+</html>
