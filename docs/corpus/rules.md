@@ -1,8 +1,9 @@
 # Rules and preparation catalog
 
 The manifest declares the team-building mode in the initial prompt. Without
-`scenario.team_selection`, teams have equal size, stats, weapons and chips and
-members share the submission entry point. With participant selection enabled,
+`scenario.team_selection`, both sides receive the same roster and members share
+the submission entry point. Individual members can have different stats, levels
+and equipment under `scenario.member_stats`. With participant selection enabled,
 each model chooses 1..scenario.team_size members,
 per-member entry points, equipment and stat builds using `configure_team`.
 In realistic-v1 mode, allocate per-member capital under corpus/stat-rules.json
@@ -19,7 +20,7 @@ Replay teams are numbered 1 and 2. Mirrors are diagnostics outside the main scor
 
 TP limits actions, MP limits movement, and cores sets the per-turn operation
 budget to `min(2147483647, cores * 1000000)`. RAM limits LeekScript memory;
-the Java heap is a separate safeguard. Engine duration may reach `max_turns + 1`
+the Java heap is a separate safeguard. The arena caps recorded duration at the requested `max_turns`
 at the turn limit. Timings measure elapsed time, not CPU time.
 
 The default map has 613 cell IDs, 0 to 612. Obstacles block placement and affect

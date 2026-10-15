@@ -61,10 +61,10 @@ class MockProvider:
             rules = scenario["team_selection"]
             # Fixtures exercise the same tool as native providers without API calls.
             members = [{"entrypoint": "main.leek",
-                        "weapons": scenario["entity"].get("weapons", [])[:rules.get("max_weapons", 3)],
-                        "chips": scenario["entity"].get("chips", [])[:rules.get("max_chips", 12)]}
-                       for _ in range(scenario["team_size"])]
-            for member in members:
+                        "weapons": (scenario.get("member_stats") or [{}] * scenario["team_size"])[index].get("weapons", scenario["entity"].get("weapons", []))[:rules.get("max_weapons", 3)],
+                        "chips": (scenario.get("member_stats") or [{}] * scenario["team_size"])[index].get("chips", scenario["entity"].get("chips", []))[:rules.get("max_chips", 12)]}
+                       for index in range(scenario["team_size"])]
+            for index, member in enumerate(members):
                 for kind in ("weapons", "chips"):
                     if "allowed_" + kind in rules:
                         member[kind] = [item for item in member[kind] if item in rules["allowed_" + kind]]
@@ -72,7 +72,7 @@ class MockProvider:
                             from .equipment import catalog as equipment_catalog
                             catalog = equipment_catalog(ROOT / "docs/leekscript-v1", kind)
                             eligible = [item for item in rules["allowed_" + kind]
-                                        if str(item) in catalog and catalog[str(item)].get("level", 1) <= scenario["entity"]["level"]]
+                                        if str(item) in catalog and catalog[str(item)].get("level", 1) <= (scenario.get("member_stats") or [{}] * scenario["team_size"])[index].get("level", scenario["entity"]["level"])]
                             member[kind] = eligible[:1]
             calls = [*calls, ("configure_team", {"members": members})]
         return {"role": "assistant", "provider": "mock", "simulated": True, "sent_parameters": request, "request_sha256": digest(request),

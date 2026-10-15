@@ -152,13 +152,19 @@ def integer(value, low: int, high: int, label: str):
 def validate_scenario(config: dict):
     if not isinstance(config, dict):
         raise ArenaError("scenario must be an object")
-    unknown = set(config) - {"team_size", "max_turns", "entity", "map", "team_selection", "stats_mode", "member_stats"}
+    unknown = set(config) - {"team_size", "max_turns", "entity", "map", "team_selection", "stats_mode", "member_stats", "preset", "source"}
     if unknown:
         raise ArenaError(f"Unsupported scenario fields: {sorted(unknown)}")
+    if config.get("preset") is not None and config["preset"] not in ("simple", "dream-team", "custom"):
+        raise ArenaError("Unknown scenario preset")
+    source = config.get("source")
+    if source is not None and (not isinstance(source, dict) or not isinstance(source.get("snapshot"), dict)
+                               or source.get("snapshot_sha256") != digest(source["snapshot"])):
+        raise ArenaError("Invalid public source snapshot or snapshot hash")
     from .teams import validate_rules
     validate_rules(config)
     integer(config.get("team_size"), 1, 8, "team_size")
-    integer(config.get("max_turns"), 1, 64, "max_turns")
+    integer(config.get("max_turns"), 1, 1000, "max_turns")
     entity = config.get("entity", {})
     allowed = {"level", "life", "strength", "agility", "frequency", "tp", "mp", "cores", "ram", "weapons", "chips", "wisdom", "resistance", "science", "magic"}
     if not isinstance(entity, dict) or set(entity) - allowed:
@@ -211,6 +217,7 @@ def make_scenario(config: dict, entries: list[str], seed: int, teams=None) -> di
     if config.get("map") is not None:
         result["map"] = {k: (list(v) if isinstance(v, list) else v) for k, v in config["map"].items()}
     from .stats import member_stats
+    defaults = config.get("member_stats") or [{}] * config["team_size"]
     for side in range(2):
         owner = side + 1
         result["farmers"].append({"id": owner, "name": f"Side {owner}", "country": "fr"})
@@ -222,12 +229,14 @@ def make_scenario(config: dict, entries: list[str], seed: int, teams=None) -> di
                 raise ArenaError("Participant teams are disabled for this competition")
             validate_team(team, config)
         members = team["members"] if team else [dict(entrypoint=entries[side],
-                   weapons=config["entity"].get("weapons", []), chips=config["entity"].get("chips", []))
-                   for _ in range(config["team_size"])]
+                   weapons=defaults[i].get("weapons", config["entity"].get("weapons", [])),
+                   chips=defaults[i].get("chips", config["entity"].get("chips", [])))
+                   for i in range(config["team_size"])]
         result["entities"].append([
-            {**config["entity"], **member_stats(config, i, member), "weapons": member["weapons"], "chips": member["chips"],
+            {**config["entity"], **member_stats(config, i, member),
+             "level": defaults[i].get("level", config["entity"]["level"]), "weapons": member["weapons"], "chips": member["chips"],
              "id": side * config["team_size"] + i + 1,
-             "name": f"Side {owner} / {i + 1}", "type": 1, "farmer": owner,
+             "name": f"Side {owner} / {defaults[i].get('name', i + 1)}", "type": 1, "farmer": owner,
              "team": owner, "ai": member["entrypoint"], "ai_version": 4}
             for i, member in enumerate(members)
         ])

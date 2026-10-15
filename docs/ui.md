@@ -105,17 +105,17 @@ Each model chooses 1 to that many members, equipment and a script and stat alloc
 `configure_team`. Each member can have a different stat build. New competitions enable realistic
 capital rules by default, without components or alterations. Free mode accepts
 raw stats. See [realistic stats](realistic-stats.md) for rules and sources. Weapons/chips must
-exist in the pinned catalog, meet the shared member level in realistic mode, respect slot limits
+exist in the pinned catalog, meet the corresponding member level in realistic mode, respect slot limits
 and appear in any selected allowlists. Empty allowlists mean all eligible items.
 Fixed reference opponents keep the default team and equipment.
 
-Equipment selectors list the full pinned catalog. In realistic mode, items
+Equipment selectors list the pinned player-equipment catalog. In realistic mode, items
 above the leek level are locked and cannot be selected, including by models.
 Lowering the level removes newly ineligible selections with a notice. Free mode
-allows all catalog levels. Selectors support name/ID searches and
+allows all player-equipment levels. Selectors support name/ID searches and
 show level, AP cost, range, line of sight, effects and the raw definition. Empty
-default equipment means no items. Catalog IDs are distinct from inventory item
-IDs. Each field's question mark provides its help once, without repeating it beneath
+default equipment means no items. Weapons use runtime `item` IDs and chips use
+catalog keys; replay events use template IDs. Each field's question mark provides its help once, without repeating it beneath
 the field. Help opens the interface,
 authoring, rules and pinned API documents without leaving the application.
 
@@ -281,3 +281,58 @@ from selectors and the model-facing chips catalog. Existing configurations using
 them must be edited before launching again; they cannot bypass validation by
 setting an allowlist or using participant-selected teams. The upstream data
 remains intact so native summons and historical replay labels continue to work.
+
+## Scenario presets and character sheets
+
+New competitions start with **Simple duel**: one level-300 leek per side, up to
+1,000 turns, no chips, and four direct-damage weapons (pistol, magnum, rifle,
+rhino). These weapons have no poison, persistent effects or passive effects and
+use single-cell areas with unrestricted launch directions. The legal 1,680
+capital is fully allocated: 700 strength, 570 life, 150 AP, 120 MP and 140 cores.
+The resulting build has 2,957 HP, 600 strength, 14 AP, 6 MP and 5 cores. Life and
+strength cannot both be maximized independently within the same capital budget.
+Saved configurations and the short offline demonstration retain their own settings.
+
+The roster uses character tabs. Each card has a name, level, prominent final
+stats, remaining capital, stat sliders and independent weapon/chip selectors.
+Sliders and numeric fields change **final stats**, not capital. The engine's tier
+costs determine the allocation; the tooltip gives the next attainable increase
+and its price. The range shows what that stat can reach at this level if all
+capital were assigned to it. The shared remaining-capital meter identifies
+overspending, which is rejected on save. Equipment capacity and level checks use
+each individual member's build. Both sides receive the same default roster;
+participant-selected teams can still choose different builds under the shared rules.
+
+**Dream team · public ranking** reads the current public active team ranking,
+then imports the highest-talent four-leek composition of the first ranked team
+with a public four-leek composition (search bounded to the first ten teams).
+It retrieves each leek's public profile and preserves actual levels (including
+301), published final stats, item IDs and item order. Missing stats, private
+loadouts, non-player chips and equipment absent from the pinned engine cause a
+visible error; no substitute or invented team is used. The current roster remains
+intact if import fails.
+
+Imports use free stats because public totals can include components and cannot
+be represented faithfully as a capital-only build. Component stat bonuses are
+included once through these totals; component objects, alterations and additional
+component-specific mechanics are not imported. This is a snapshot of published
+builds, not a copy of their private combat scripts. Every participant still writes
+its own strategies. The original public payload, retrieval date, ranking entry
+and snapshot hash are saved with the competition for reproducibility.
+
+The server running the UI needs HTTPS access to `leekwars.com`. If cloud access is
+blocked, run this locally in the activated Python environment:
+
+```sh
+python scripts/import_dream_team.py --out runs/dream-team-public.json
+```
+
+Open **Import a public team snapshot** in the scenario panel and paste the saved
+JSON. This performs the same validation without fetching the ranking again.
+Public API changes or hidden loadouts may prevent import and require an update.
+
+Matches above 64 turns use the arena's documented engine build extension:
+`engine/leekscript.init.gradle` compiles a source overlay with a 1,000-turn event
+ceiling and finalizes draws at the requested scenario limit. The pinned upstream
+checkout stays unchanged. Rebuild the engine after updating this version; existing
+runs remain viewable but cannot be resumed under a different engine identity.

@@ -115,15 +115,18 @@ const FIELD_HELP = {
   entity_strength:
     "Strength stat, which affects strength-based effects such as ordinary weapon damage.",
   entity_agility:
-    "Agility stat used by agility-based effects and combat mechanics.",
-  entity_frequency: "Initiative stat used to determine play order.",
+    "Critical-hit probability: agility / 1000 (100 agility gives 10%).",
+  entity_frequency: "Determines play order: higher frequency acts earlier.",
   entity_wisdom: "Wisdom stat used by healing-related effects.",
   entity_resistance: "Resistance stat used by shield-related effects.",
-  entity_science: "Science stat used by science-related effects.",
-  entity_magic: "Magic stat used by magic-related effects.",
+  entity_science:
+    "Increases characteristic buffs such as Protein. A science value of 100 doubles the base strength bonus.",
+  entity_magic:
+    "Increases poison damage and magic-based debuffs. A magic value of 100 doubles base poison damage.",
   entity_tp:
     "Action points available per member per turn. Weapon and chip costs consume AP.",
-  entity_mp: "Movement points available per member per turn.",
+  entity_mp:
+    "How many movement points this leek receives each turn. Ordinary movement spends one point per traversed cell.",
   entity_cores:
     "Per-turn operation limit is cores × 1,000,000, capped at 2,147,483,647.",
   entity_ram:
@@ -489,18 +492,6 @@ function freshConfig() {
   const config = structuredClone(S.boot.default_config),
     catalog = S.boot.participants.map((p) => p.spec),
     ids = config.models.map((m) => m.id);
-  config.scenario.stats_mode = "realistic-v1";
-  config.scenario.member_stats = Array.from(
-    { length: config.scenario.team_size },
-    () => ({ capital: defaultCapital(config.scenario.entity.level) }),
-  );
-  Object.assign(
-    config.scenario.entity,
-    statsForCapital(
-      config.scenario.entity.level,
-      config.scenario.member_stats[0].capital,
-    ),
-  );
   config.budget_per_session = {};
   delete config.spending.max_total_usd;
   config.models = structuredClone(catalog.filter((m) => ids.includes(m.id)));
@@ -620,7 +611,7 @@ function equipmentPicker(label, name, kind, ids, allowlist = false) {
   const emptyLabel = allowlist ? "All eligible items" : "None";
   const help = allowlist
     ? "Select the equipment participants may choose. An empty selection allows all catalog items; realistic mode also enforces the member level."
-    : "Default equipment for shared teams and fixed reference opponents. Select individual items; an empty selection equips none.";
+    : "Equipment for this leek, used by both sides and fixed reference opponents. An empty selection equips none.";
   return `<div class="field full">${fieldHeading(label, help)}<input type="hidden" name="${name}" value="${e(ids.join(", "))}"><details class="equipment-picker" data-kind="${kind}" data-name="${name}" data-empty="${emptyLabel}"><summary><span class="equipment-selection">${e(names.join(", ") || emptyLabel)}</span></summary><div class="equipment-picker-body"><label class="field">Search ${kind}<input type="search" class="equipment-search" placeholder="Name or ID"></label><div class="equipment-options">${Object.entries(
     catalog,
   )
@@ -644,9 +635,15 @@ function updateEquipmentLevels() {
   const allRemoved = [];
   for (const picker of $$(".equipment-picker", form)) {
     const removed = [];
+    const memberLevel = Number(
+      picker
+        .closest("[data-member-build]")
+        ?.querySelector("[data-member-level]")?.value || level,
+    );
     for (const input of $$(".equipment-check", picker)) {
       const item = S.equipment[picker.dataset.kind][input.value],
-        locked = limited && (item.level > level || !!item.restricted_reason);
+        locked =
+          limited && (item.level > memberLevel || !!item.restricted_reason);
       input.disabled = locked;
       input
         .closest(".equipment-option")
@@ -660,9 +657,17 @@ function updateEquipmentLevels() {
         removed.push(item.name);
       }
     }
-    const selected = $$(".equipment-check:checked", picker).map((input) =>
+    const checked = $$(".equipment-check:checked", picker).map((input) =>
       Number(input.value),
     );
+    const previous = String(form.elements[picker.dataset.name].value)
+      .split(",")
+      .filter((id) => id.trim())
+      .map(Number);
+    const selected = [
+      ...previous.filter((id) => checked.includes(id)),
+      ...checked.filter((id) => !previous.includes(id)),
+    ];
     form.elements[picker.dataset.name].value = selected.join(", ");
     $(".equipment-selection", picker).textContent =
       selected
@@ -723,105 +728,220 @@ function statsForCapital(level, capital) {
   }
   return result;
 }
+function baseStat(key, level) {
+  return (
+    (S.equipment.stat_rules.base[key] || 0) +
+    (key === "life" ? (level - 1) * 3 : 0)
+  );
+}
+function statChoices(key, level) {
+  level = Math.max(1, Math.min(301, Number(level) || 1));
+  const choices = [{ value: baseStat(key, level), cost: 0 }];
+  let bonus = 0,
+    cost = 0;
+  const steps = S.equipment.stat_rules.costs[key];
+  while (cost <= capitalTotal(level)) {
+    const step = [...steps].reverse().find((s) => bonus >= s.step);
+    cost += step.capital;
+    bonus += step.sup;
+    if (cost <= capitalTotal(level))
+      choices.push({ value: baseStat(key, level) + bonus, cost });
+  }
+  return choices;
+}
+function customSliderMax(key, level, value) {
+  if (key === "ram") return 50;
+  if (key === "cores") return 100;
+  return Math.min(
+    100000,
+    Math.max(statChoices(key, level).at(-1).value, Number(value) * 2, 1),
+  );
+}
+function capitalForStat(key, value, level) {
+  const choices = statChoices(key, level);
+  return (
+    choices.find((c) => c.value >= value) || { cost: capitalTotal(level) + 1 }
+  ).cost;
+}
+function memberGearName(index, kind) {
+  return index ? `member_${index}_${kind}` : kind;
+}
 function readStatBuilds(form) {
-  const block = $("#member-stat-builds", form),
-    mode = block.dataset.mode;
-  return $$("[data-member-build]", block).map((section) => ({
-    [mode === "realistic-v1" ? "capital" : "stats"]: Object.fromEntries(
+  const mode = $("#member-stat-builds", form).dataset.mode;
+  return $$("[data-member-build]", form).map((section, index) => {
+    const level = Number($("[data-member-level]", section).value);
+    const values = Object.fromEntries(
       $$("input[data-stat]", section).map((input) => [
         input.dataset.stat,
-        Number(input.value),
+        mode === "realistic-v1"
+          ? capitalForStat(input.dataset.stat, Number(input.value), level)
+          : Number(input.value),
       ]),
-    ),
-  }));
+    );
+    return {
+      level,
+      name: $("[data-member-name]", section).value,
+      [mode === "realistic-v1" ? "capital" : "stats"]: values,
+      ...Object.fromEntries(
+        ["weapons", "chips"].map((kind) => [
+          kind,
+          String(form.elements[memberGearName(index, kind)]?.value || "")
+            .split(",")
+            .filter((s) => s.trim())
+            .map(Number),
+        ]),
+      ),
+    };
+  });
 }
 function memberBuildsMarkup(scenario) {
   const realistic = scenario.stats_mode === "realistic-v1";
-  return `<div id="member-stat-builds" data-mode="${realistic ? "realistic-v1" : "free"}">${Array.from(
+  const groups = [
+    ["Offense", ["strength", "science", "magic"]],
+    ["Survival", ["life", "resistance", "wisdom", "agility"]],
+    ["Turn resources", ["tp", "mp", "frequency", "cores", "ram"]],
+  ];
+  return `<div id="member-stat-builds" class="character-roster" data-mode="${realistic ? "realistic-v1" : "free"}"><nav class="character-tabs" aria-label="Team members">${Array.from({ length: scenario.team_size }, (_, i) => `<button type="button" class="button ${i === 0 ? "primary" : ""}" aria-pressed="${i === 0}" data-action="character-tab" data-index="${i}">${i + 1} · ${e(scenario.member_stats?.[i]?.name || `Leek ${i + 1}`)}</button>`).join("")}</nav>${Array.from(
     { length: scenario.team_size },
     (_, index) => {
-      const spec = scenario.member_stats?.[index],
-        values = realistic
-          ? spec?.capital || defaultCapital(scenario.entity.level)
-          : spec?.stats || scenario.entity;
-      return `<details data-member-build="${index}" ${index === 0 ? "open" : ""}><summary>Leek ${index + 1}</summary><div class="member-stat-summary" aria-live="polite"></div><div class="form-grid three">${ENTITY_FIELDS.filter(
-        ([key]) => key !== "level",
-      )
-        .map(([key, label]) =>
-          field(
-            realistic ? label + " capital" : label,
-            `member_${index}_${key}`,
-            values[key] ?? 0,
-            "number",
-            realistic
-              ? `Capital assigned to ${label}. The official tier costs determine the resulting stat. ${FIELD_HELP["entity_" + key] || ""}`
-              : FIELD_HELP["entity_" + key],
-            `required min="${!realistic && ["life", "ram", "cores"].includes(key) ? 1 : 0}" max="100000" data-stat="${key}"`,
-          ),
+      const spec = scenario.member_stats?.[index] || {},
+        level = spec.level ?? scenario.entity.level;
+      const values = realistic
+        ? statsForCapital(level, spec.capital || defaultCapital(level))
+        : { ...scenario.entity, ...spec.stats };
+      return `<article class="character-card" data-member-build="${index}" ${index ? "hidden" : ""}><header class="character-header"><div class="character-avatar" aria-hidden="true">${index + 1}</div><div><label>Leek name<input data-member-name name="member_${index}_name" value="${e(spec.name || `Leek ${index + 1}`)}" maxlength="80"></label><label class="character-level">Level <input data-member-level name="member_${index}_level" type="number" min="1" max="${realistic ? 301 : 100000}" value="${level}" required></label></div></header><div class="character-highlights"></div><div class="member-stat-summary" role="status" aria-live="polite"></div><progress class="capital-meter" max="${capitalTotal(level)}" value="0" aria-label="Leek ${index + 1} capital spent" ${realistic ? "" : "hidden"}></progress><div class="character-stats">${groups
+        .map(
+          ([group, keys]) =>
+            `<section class="stat-group"><h4>${group}</h4>${keys
+              .map((key) => {
+                const label = ENTITY_FIELDS.find(([k]) => k === key)[1],
+                  value = values[key] ?? 0;
+                const choices = realistic ? statChoices(key, level) : null;
+                const min = realistic
+                  ? choices[0].value
+                  : ["life", "ram", "cores"].includes(key)
+                    ? 1
+                    : 0;
+                const max = realistic
+                  ? choices.at(-1).value
+                  : customSliderMax(key, level, value);
+                const numberMax = realistic
+                  ? max
+                  : key === "ram"
+                    ? 50
+                    : key === "cores"
+                      ? 100
+                      : 100000;
+                return `<div class="stat-row" data-stat-row="${key}">${fieldHeading(label, FIELD_HELP["entity_" + key] || "", false)}<div class="stat-controls"><input type="range" data-stat-slider="${key}" aria-label="Leek ${index + 1} ${label} slider" min="${min}" max="${max}" value="${value}"><input type="number" name="member_${index}_${key}" data-stat="${key}" aria-label="Leek ${index + 1} ${label}" min="${min}" max="${numberMax}" value="${value}" required></div><small class="stat-cost"></small></div>`;
+              })
+              .join("")}</section>`,
         )
-        .join("")}</div></details>`;
+        .join(
+          "",
+        )}</div><section class="character-equipment"><h4>Equipment</h4><div class="equipment-capacity"></div>${["weapons", "chips"].map((kind) => equipmentPicker(kind === "weapons" ? "Weapons" : "Chips", memberGearName(index, kind), kind, spec[kind] ?? scenario.entity[kind] ?? [])).join("")}</section></article>`;
     },
   ).join("")}</div>`;
 }
 function statsEditor(scenario) {
-  return `<section id="stats-editor"><h3>Stats per leek</h3><label class="check"><input type="checkbox" name="realistic_stats" ${scenario.stats_mode === "realistic-v1" ? "checked" : ""}>Realistic stats (official capital rules, no components)</label><p class="muted">Realistic mode derives stats from level and capital. Free mode accepts raw values. ${btn("Official rules and scope", "reference", 'data-document="stats"')}</p>${field("Level (all members)", "entity_level", scenario.entity.level, "number", FIELD_HELP.entity_level, 'required min="1" max="100000"')}<p id="equipment-removals" class="notice warn" role="status" hidden></p>${memberBuildsMarkup(scenario)}</section>`;
+  return `<section id="stats-editor"><h3>Team roster</h3><label class="check"><input type="checkbox" name="realistic_stats" ${scenario.stats_mode === "realistic-v1" ? "checked" : ""}>Realistic stats (official capital rules, no components)</label><p class="muted">Adjust final stats. Capital costs and remaining points update below. ${btn("Official rules and scope", "reference", 'data-document="stats"')}</p>${field("Level (all members)", "entity_level", scenario.entity.level, "number", "Changing this sets every member's level. Individual levels can then be adjusted on each card.", 'required min="1" max="100000"')}<p id="equipment-removals" class="notice warn" role="status" hidden></p>${memberBuildsMarkup(scenario)}</section>`;
 }
 function updateStatPreviews(refreshEquipment = true) {
   const form = $("#competition-form");
   if (!form) return;
-  const level = Number(form.elements.entity_level.value),
-    realistic = $("#member-stat-builds").dataset.mode === "realistic-v1";
-  const builds = readStatBuilds(form);
+  const realistic = $("#member-stat-builds").dataset.mode === "realistic-v1",
+    builds = readStatBuilds(form);
   if (refreshEquipment) updateEquipmentLevels();
   $$("[data-member-build]", form).forEach((section, index) => {
     const build = builds[index],
-      used = realistic
-        ? Object.values(build.capital).reduce((a, b) => a + b, 0)
-        : null;
+      level = build.level,
+      total = capitalTotal(level);
+    const used = realistic
+      ? Object.values(build.capital).reduce((a, b) => a + b, 0)
+      : null;
     const values = realistic
       ? statsForCapital(level, build.capital)
       : build.stats;
+    $(".character-highlights", section).innerHTML = [
+      "life",
+      "strength",
+      "tp",
+      "mp",
+    ]
+      .map(
+        (key) =>
+          `<span><strong>${fmt(values[key])}</strong>${e(ENTITY_FIELDS.find(([k]) => k === key)[1])}</span>`,
+      )
+      .join("");
     const node = $(".member-stat-summary", section);
     node.className =
-      "member-stat-summary " +
-      (realistic && (used > capitalTotal(level) || level > 301 || level < 1)
-        ? "notice error"
-        : "notice");
-    node.textContent =
-      (realistic
-        ? `Capital ${used} / ${capitalTotal(level)} · `
-        : "Free stats · ") +
-      (realistic
-        ? `Equipment capacity: ${level < 100 ? 2 : level < 200 ? 3 : 4} weapons, ${values.ram} chips · `
-        : "") +
-      ENTITY_FIELDS.filter(([key]) => key !== "level")
-        .map(([key, label]) => `${label}: ${values[key]}`)
-        .join(" · ");
+      "member-stat-summary" +
+      (realistic && (used > total || level > 301 || level < 1) ? " error" : "");
+    node.textContent = realistic
+      ? `${fmt(total - used)} capital remaining · ${fmt(used)} / ${fmt(total)} spent`
+      : "Published / custom final stats · no capital allocation";
+    $(".capital-meter", section).value = used || 0;
+    $(".capital-meter", section).max = total;
+    $(".equipment-capacity", section).textContent = realistic
+      ? `${level < 100 ? 2 : level < 200 ? 3 : 4} weapon slots · ${values.ram} chip slots`
+      : "Custom loadout · boss and summon-only chips excluded";
+    $$("[data-stat-row]", section).forEach((row) => {
+      const key = row.dataset.statRow,
+        number = $("[data-stat]", row),
+        slider = $("[data-stat-slider]", row);
+      slider.value = number.value;
+      if (!realistic) {
+        slider.max = customSliderMax(key, level, number.value);
+        slider.value = number.value;
+        $(".stat-cost", row).textContent = "Final stat";
+        return;
+      }
+      const choices = statChoices(key, level),
+        selected = choices.find((c) => c.cost === build.capital[key]),
+        next = choices.find((c) => c.cost > build.capital[key]);
+      slider.min = choices[0].value;
+      slider.max = choices.at(-1).value;
+      number.min = slider.min;
+      number.max = slider.max;
+      const cost =
+        next && selected
+          ? `Next +${next.value - selected.value}: ${next.cost - selected.cost} capital`
+          : "Level maximum";
+      $(".stat-cost", row).textContent = `${build.capital[key]} capital spent`;
+      const bubble = $(".help-bubble", row);
+      if (bubble)
+        bubble.textContent = `${FIELD_HELP["entity_" + key] || ""} ${cost}.`;
+    });
   });
 }
 function rebuildStatFields() {
   const form = $("#competition-form"),
-    oldMode = $("#member-stat-builds").dataset.mode,
-    newMode = form.elements.realistic_stats.checked ? "realistic-v1" : "free";
-  const level = Number(form.elements.entity_level.value),
-    builds = readStatBuilds(form);
+    oldMode = $("#member-stat-builds").dataset.mode;
+  const mode = form.elements.realistic_stats.checked ? "realistic-v1" : "free",
+    level = Number(form.elements.entity_level.value);
+  const builds = readStatBuilds(form),
+    count = Number(form.elements.team_size.value);
   const scenario = {
-    team_size: Number(form.elements.team_size.value),
-    stats_mode: newMode,
-    entity: { level },
-  };
-  scenario.member_stats = builds.map((build) =>
-    newMode === oldMode
-      ? build
-      : newMode === "realistic-v1"
-        ? { capital: defaultCapital(level) }
-        : { stats: statsForCapital(level, build.capital) },
-  );
-  if (newMode === "free")
-    scenario.entity = {
-      ...statsForCapital(level, defaultCapital(level)),
+    team_size: count,
+    stats_mode: mode,
+    entity: {
       level,
-    };
+      weapons: builds[0]?.weapons || [],
+      chips: builds[0]?.chips || [],
+    },
+    member_stats: Array.from({ length: count }, (_, i) => {
+      const build = builds[i] || { ...builds[0], name: `Leek ${i + 1}` };
+      return {
+        ...build,
+        ...(mode === oldMode
+          ? {}
+          : mode === "realistic-v1"
+            ? { capital: defaultCapital(build.level || level) }
+            : { stats: statsForCapital(build.level || level, build.capital) }),
+      };
+    }),
+  };
+  if (mode === "free") scenario.member_stats.forEach((m) => delete m.capital);
+  else scenario.member_stats.forEach((m) => delete m.stats);
   $("#member-stat-builds").outerHTML = memberBuildsMarkup(scenario);
   updateStatPreviews();
 }
@@ -848,16 +968,16 @@ function competitionEditor() {
       ],
       String(c.generations || 1),
     )}</div><h3 class="section-label">Selected participants</h3>${S.choiceModels.map((m) => `<label class="choice"><input type="checkbox" name="participant" value="${e(m.id)}" ${c.models.some((v) => v.id === m.id) ? "checked" : ""}><span><strong>${e(m.id)}</strong><small>${e(m.provider)} · ${e(m.model || m.profile)}</small></span></label>`).join("")}${btn("Manage profiles", "go", 'data-view="participants"')}</section>
- <section class="panel"><h2>Match rules</h2><p class="muted">Default member builds and team-building rules are shared. Matches alternate sides. Fixed mode also shares equipment.</p><div class="form-grid">${selectField(
+ <section class="panel"><h2>Scenario</h2><div class="scenario-presets">${btn("Simple duel · level 300", "preset-simple")}${btn("Dream team · public ranking", "preset-dream")}</div><p id="preset-status" role="status" class="muted">${c.scenario.source ? `Based on public team · original snapshot ${e(c.scenario.source.snapshot_sha256.slice(0, 12))}. The roster below can be edited. Component stat bonuses are included in published totals; component-specific mechanics are not imported.` : "Starting preset: one level-300 gunner per team, direct-damage weapons, no chips. Edit each character independently below."}</p>${c.scenario.source ? raw(c.scenario.source, "Public source and frozen snapshot") : ""}<details><summary>Import a public team snapshot</summary><p class="muted">Use scripts/import_dream_team.py on a machine with access to leekwars.com, then paste its snapshot JSON here.</p><textarea id="dream-snapshot" class="mono" aria-label="Public team snapshot JSON" rows="4"></textarea>${btn("Import snapshot", "preset-dream-json")}</details></section><section class="panel"><h2>Match rules</h2><p class="muted">Default member builds and team-building rules are shared. Matches alternate sides. Both sides use the same roster; every member can have different equipment.</p><div class="form-grid">${selectField(
    "Team setup",
    "team_mode",
    [
-     ["fixed", "Shared team and equipment"],
+     ["fixed", "Same roster for every participant"],
      ["participant", "Participants choose teams and equipment"],
    ],
    c.scenario.team_selection ? "participant" : "fixed",
- )}${field("Team size", "team_size", c.scenario.team_size, "number", "Exact size in shared mode; maximum size when participants choose.", 'required min="1" max="8"')}${field("Maximum turns", "max_turns", c.scenario.max_turns, "number", "", 'required min="1" max="64"')}${field("Initial / feedback seeds", "seeds", c.seeds.join(", "), "text", "Map generation seeds, for example 101, 202.", "required")}${field("Final evaluation seeds", "final_seeds", (c.final_seeds || []).join(", "), "text", "Separate from initial strategy seeds and training seed 17.")}</div><div id="team-selection-rules" ${c.scenario.team_selection ? "" : "hidden"}><p class="muted">Participants choose 1 to the maximum team size, equipment and a script per member using configure_team. Stats follow the per-leek builds and selected stat mode. Equipment must be in the pinned catalog; realistic mode also enforces the member level. Fixed reference opponents keep the default team.</p><div class="form-grid">${field("Competition weapon cap per member", "team_max_weapons", c.scenario.team_selection?.max_weapons ?? 3, "number", "", 'required min="0" max="32"')}${field("Competition chip cap per member", "team_max_chips", c.scenario.team_selection?.max_chips ?? 12, "number", "", 'required min="0" max="32"')}${equipmentPicker("Allowed weapons", "team_allowed_weapons", "weapons", c.scenario.team_selection?.allowed_weapons || [], true)}${equipmentPicker("Allowed chips", "team_allowed_chips", "chips", c.scenario.team_selection?.allowed_chips || [], true)}</div></div><label class="check" style="margin-top:15px"><input type="checkbox" name="include_mirrors" ${c.include_mirrors ? "checked" : ""}>Include mirror matches (excluded from score)</label><div style="margin-top:15px">${statsEditor(c.scenario)}</div><details><summary>Default equipment and custom map</summary><div class="form-grid" style="margin-top:15px">${equipmentPicker("Default weapons", "weapons", "weapons", c.scenario.entity.weapons)}${equipmentPicker("Default chips", "chips", "chips", c.scenario.entity.chips)}<label class="field full">Custom map (JSON, optional)<textarea name="map" class="mono">${c.scenario.map ? e(pretty(c.scenario.map)) : ""}</textarea><small>Without a custom map, the seed determines the map and starting positions.</small></label></div></details></section>
- <section class="panel"><h2>Optional limits</h2><p class="muted">Leave blank to let each model work until submission. Calls, tools, matches, tokens, elapsed time and costs are recorded regardless. Improvement branches use the same optional limits.</p><div class="form-grid">${field("Model calls", "max_calls", b.max_calls ?? "", "number", "Maximum API responses, including responses after tool results. Blank means unlimited.", 'min="1"')}${field("Tool calls", "max_agent_steps", b.max_agent_steps ?? "", "number", "Maximum tool invocations. Blank means unlimited.", 'min="1"')}${field("Preparation matches", "max_test_matches", b.max_test_matches ?? "", "number", "One test runs two matches, one per side. Blank means unlimited.", 'min="0"')}${field("Preparation time (seconds)", "max_wall_seconds", b.max_wall_seconds ?? "", "number", "Blank means no session time limit.", 'min="1"')}${field("Total input tokens", "max_input_tokens", b.max_input_tokens ?? "", "number", "Optional. Blank means no conversation token limit.", 'min="1"')}${field("Total output tokens", "max_output_tokens", b.max_output_tokens ?? "", "number", "Optional. Blank means no conversation token limit.", 'min="1"')}${field("API spending limit per conversation ($)", "max_cost_usd", b.max_cost_usd ?? "", "number", "Blank means no financial limit.", 'min="0" step="any"')}${field("API spending limit for the experiment ($)", "max_total_usd", c.spending.max_total_usd ?? "", "number", "Includes all branches. Blank means no financial limit.", 'min="0" step="any"')}</div><label class="check" style="margin-top:15px"><input type="checkbox" name="allow_paid_calls" ${c.spending.allow_paid_calls ? "checked" : ""}>Allow paid APIs for this configuration</label><small>Mock runs have no API cost. Paid runs require API authorization. Optional financial limits are checked between calls. Without an output cap, a call can exceed a configured financial limit.</small></section>
+ )}${field("Team size", "team_size", c.scenario.team_size, "number", "Exact size in shared mode; maximum size when participants choose.", 'required min="1" max="8"')}${field("Maximum turns", "max_turns", c.scenario.max_turns, "number", "", 'required min="1" max="1000"')}${field("Initial / feedback seeds", "seeds", c.seeds.join(", "), "text", "Map generation seeds, for example 101, 202.", "required")}${field("Final evaluation seeds", "final_seeds", (c.final_seeds || []).join(", "), "text", "Separate from initial strategy seeds and training seed 17.")}</div><div id="team-selection-rules" ${c.scenario.team_selection ? "" : "hidden"}><p class="muted">Participants choose 1 to the maximum team size, equipment and a script per member using configure_team. Stats follow the per-leek builds and selected stat mode. Equipment must be in the pinned catalog; realistic mode also enforces the member level. Fixed reference opponents keep the default team.</p><div class="form-grid">${field("Competition weapon cap per member", "team_max_weapons", c.scenario.team_selection?.max_weapons ?? 3, "number", "", 'required min="0" max="32"')}${field("Competition chip cap per member", "team_max_chips", c.scenario.team_selection?.max_chips ?? 12, "number", "", 'required min="0" max="32"')}${equipmentPicker("Allowed weapons", "team_allowed_weapons", "weapons", c.scenario.team_selection?.allowed_weapons || [], true)}${equipmentPicker("Allowed chips", "team_allowed_chips", "chips", c.scenario.team_selection?.allowed_chips || [], true)}</div></div><label class="check" style="margin-top:15px"><input type="checkbox" name="include_mirrors" ${c.include_mirrors ? "checked" : ""}>Include mirror matches (excluded from score)</label><div style="margin-top:15px">${statsEditor(c.scenario)}</div><details><summary>Custom map</summary><div class="form-grid" style="margin-top:15px"><label class="field full">Custom map (JSON, optional)<textarea name="map" class="mono">${c.scenario.map ? e(pretty(c.scenario.map)) : ""}</textarea><small>Without a custom map, the seed determines the map and starting positions.</small></label></div></details></section>
+ <section class="panel"><h2>Optional limits</h2><p class="muted">Leave blank to let each model work until submission. Calls, tools, matches, tokens, elapsed time and costs are recorded regardless. Improvement branches use the same optional limits.</p><div class="form-grid">${field("Model calls", "max_calls", b.max_calls ?? "", "number", "Maximum API responses, including responses after tool results. Blank means unlimited.", 'min="1"')}${field("Tool calls", "max_agent_steps", b.max_agent_steps ?? "", "number", "Maximum tool invocations. Blank means unlimited.", 'min="1"')}${field("Preparation matches", "max_test_matches", b.max_test_matches ?? "", "number", "One test runs two matches, one per side. Blank means unlimited.", 'min="0"')}${field("Preparation time (seconds)", "max_wall_seconds", b.max_wall_seconds ?? "", "number", "Blank means no session time limit.", 'min="1"')}${field("Total input tokens", "max_input_tokens", b.max_input_tokens ?? "", "number", "Optional. Blank means no conversation token limit.", 'min="1"')}${field("Total output tokens", "max_output_tokens", b.max_output_tokens ?? "", "number", "Optional. Blank means no conversation token limit.", 'min="1"')}${field("API spending limit per conversation ($)", "max_cost_usd", b.max_cost_usd ?? "", "number", "Blank means no financial limit.", 'min="0" step="any"')}${field("API spending limit for the experiment ($)", "max_total_usd", c.models.every((m) => m.provider === "mock") ? "" : (c.spending.max_total_usd ?? ""), "number", "Includes all branches. Blank means no financial limit.", 'min="0" step="any"')}</div><label class="check" style="margin-top:15px"><input type="checkbox" name="allow_paid_calls" ${c.spending.allow_paid_calls ? "checked" : ""}>Allow paid APIs for this configuration</label><small>Mock runs have no API cost. Paid runs require API authorization. Optional financial limits are checked between calls. Without an output cap, a call can exceed a configured financial limit.</small></section>
  <section class="panel"><details><summary>Import a JSON configuration</summary><textarea id="import-config" class="mono" style="width:100%;margin-top:12px" placeholder="Paste an experiment manifest"></textarea><div style="margin-top:10px">${btn("Apply configuration", "import-config")}</div></details></section></div>
  <aside class="panel sticky"><div class="eyebrow">Before launching</div><h2>Schedule</h2><p class="muted">Review the schedule and spending limit before launching.</p><div id="plan-preview">${notice("Both improvement branches start from the same initial history. One receives match feedback.")}</div>${btn("Calculate schedule", "preview-plan")}<div class="divider"></div><button type="submit" class="button primary" style="width:100%">Save configuration</button><p class="muted" style="font-size:10px;margin-top:12px">Saving does not start a run.</p></aside></div></form>`
   );
@@ -900,19 +1020,19 @@ function readCompetition(form) {
     }
   } else delete base.scenario.team_selection;
   base.scenario.stats_mode = f.has("realistic_stats") ? "realistic-v1" : "free";
-  base.scenario.entity.level = n("entity_level");
   base.scenario.member_stats = readStatBuilds(form);
+  base.scenario.entity.level = base.scenario.member_stats[0].level;
   Object.assign(
     base.scenario.entity,
     base.scenario.stats_mode === "realistic-v1"
       ? statsForCapital(
-          n("entity_level"),
+          base.scenario.member_stats[0].level,
           base.scenario.member_stats[0].capital,
         )
       : base.scenario.member_stats[0].stats,
   );
-  base.scenario.entity.weapons = array("weapons");
-  base.scenario.entity.chips = array("chips");
+  base.scenario.entity.weapons = base.scenario.member_stats[0].weapons;
+  base.scenario.entity.chips = base.scenario.member_stats[0].chips;
   if (String(f.get("map")).trim()) base.scenario.map = JSON.parse(f.get("map"));
   else delete base.scenario.map;
   base.budget_per_session = {};
@@ -1691,7 +1811,16 @@ document.addEventListener("click", async (event) => {
   const a = node.dataset.action;
   try {
     if (a === "go") navigate(node.dataset.view);
-    else if (a === "reference") {
+    else if (a === "character-tab") {
+      $$("[data-member-build]").forEach((card) => {
+        card.hidden = card.dataset.memberBuild !== node.dataset.index;
+      });
+      $$(".character-tabs button").forEach((button) => {
+        const selected = button === node;
+        button.setAttribute("aria-pressed", String(selected));
+        button.classList.toggle("primary", selected);
+      });
+    } else if (a === "reference") {
       const document = await api("/api/reference", {
         document: node.dataset.document,
       });
@@ -1756,11 +1885,37 @@ document.addEventListener("click", async (event) => {
     } else if (a === "new-competition" || a === "new-demo") {
       S.editDraft = null;
       S.editConfig =
-        a === "new-demo"
-          ? structuredClone(S.boot.default_config)
-          : freshConfig();
+        a === "new-demo" ? structuredClone(S.boot.demo_config) : freshConfig();
       navigate("editor");
       if (S.view === "editor") await renderRoute();
+    } else if (
+      a === "preset-simple" ||
+      a === "preset-dream" ||
+      a === "preset-dream-json"
+    ) {
+      const config = readCompetition($("#competition-form"));
+      node.disabled = true;
+      try {
+        if (a === "preset-simple")
+          config.scenario = structuredClone(S.boot.default_config.scenario);
+        else {
+          $("#preset-status").textContent =
+            "Reading the public ranking and four public leek profiles…";
+          const args =
+            a === "preset-dream-json"
+              ? { snapshot: JSON.parse($("#dream-snapshot").value) }
+              : {};
+          config.scenario = (await api("/api/dream-team", args, true)).scenario;
+        }
+        S.editConfig = config;
+        await renderRoute();
+      } catch (error) {
+        $("#preset-status").textContent =
+          error.message + ". The current roster was kept.";
+        throw error;
+      } finally {
+        node.disabled = false;
+      }
     } else if (a === "edit-draft") {
       const d = S.boot.drafts.find((d) => d.id === node.dataset.id);
       S.editDraft = d.id;
@@ -1969,9 +2124,17 @@ document.addEventListener("change", async (event) => {
               : "ARENA_OPENAI_KEY";
     } else if (n.matches(".equipment-check")) {
       const picker = n.closest(".equipment-picker");
-      const ids = $$(".equipment-check:checked", picker).map((el) =>
+      const checked = $$(".equipment-check:checked", picker).map((el) =>
         Number(el.value),
       );
+      const previous = String(n.form.elements[picker.dataset.name].value)
+        .split(",")
+        .filter((id) => id.trim())
+        .map(Number);
+      const ids = [
+        ...previous.filter((id) => checked.includes(id)),
+        ...checked.filter((id) => !previous.includes(id)),
+      ];
       n.form.elements[picker.dataset.name].value = ids.join(", ");
       $(".equipment-selection", picker).textContent =
         ids
@@ -1980,7 +2143,24 @@ document.addEventListener("change", async (event) => {
     } else if (n.name === "realistic_stats" || n.name === "team_size") {
       rebuildStatFields();
     } else if (n.name === "entity_level") {
-      updateEquipmentLevels();
+      $$("[data-member-level]", n.form).forEach((input) => {
+        input.value = n.value;
+      });
+      updateStatPreviews();
+    } else if (n.matches("input[data-stat]")) {
+      if ($("#member-stat-builds").dataset.mode === "realistic-v1") {
+        const level = Number(
+          $("[data-member-level]", n.closest("[data-member-build]")).value,
+        );
+        const current = Number(n.value);
+        const choice = statChoices(n.dataset.stat, level).find(
+          (c) => c.value >= current,
+        );
+        if (choice) n.value = choice.value;
+      }
+      updateStatPreviews(false);
+    } else if (n.matches("[data-member-level]")) {
+      updateStatPreviews();
     } else if (n.name === "team_mode") {
       $("#team-selection-rules").hidden = n.value !== "participant";
     } else if (n.id === "metric-set") {
@@ -2046,7 +2226,19 @@ document.addEventListener("input", (event) => {
         f.path.toLowerCase().includes(n.value.toLowerCase()),
       ),
     );
-  if (n.matches("input[data-stat]") || n.name === "entity_level")
+  if (n.matches("[data-stat-slider]")) {
+    const section = n.closest("[data-member-build]"),
+      key = n.dataset.statSlider;
+    const level = Number($("[data-member-level]", section).value);
+    let value = Number(n.value);
+    if ($("#member-stat-builds").dataset.mode === "realistic-v1")
+      value = statChoices(key, level).reduce((best, c) =>
+        Math.abs(c.value - value) < Math.abs(best.value - value) ? c : best,
+      ).value;
+    $(`[data-stat="${key}"]`, section).value = value;
+    updateStatPreviews(false);
+  }
+  if (n.matches("input[data-stat]") || n.matches("[data-member-level]"))
     updateStatPreviews(false);
   if (n.matches(".equipment-search")) {
     for (const item of $$(".equipment-option", n.closest(".equipment-picker")))

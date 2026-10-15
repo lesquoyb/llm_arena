@@ -178,6 +178,7 @@ public final class ArenaMain {
                 if (outcome.exception != null) throw outcome.exception;
                 if (outcome.fight == null) throw new IllegalStateException("No fight outcome");
                 result = outcome.toJson();
+                result.put("duration", Math.min(outcome.duration, scenario.maxTurns));
                 result.set("team_metrics", metrics.teams);
                 result.set("turn_metrics", metrics.exportTurns());
                 long commonLimit = -1;

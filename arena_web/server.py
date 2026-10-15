@@ -33,10 +33,13 @@ class Application:
             engine = {"ready": True, "identity": Engine().identity}
         except (ArenaError, OSError) as error:
             engine = {"ready": False, "error": str(error)}
+        from arena.presets import simple_scenario
+        demo = self.store.json(ROOT / "configs/offline-complete.json")
+        config = {**demo, "name": "New competition", "scenario": simple_scenario()}
         return {"token": self.token, "participants": self.store.participants(),
                 "drafts": self.store.drafts(), "runs": self.store.listing(), "jobs": self.jobs.listing(),
                 "profiles": list(PROFILES), "engine": engine,
-                "default_config": self.store.json(ROOT / "configs/offline-complete.json")}
+                "default_config": config, "demo_config": demo}
 
     def get(self, route, query):
         value = lambda key, default=None: query.get(key, [default])[0]
@@ -112,6 +115,9 @@ class Application:
                 raise ArenaError("Invalid environment variable name")
             key = secret or self.store.secrets.get(key_name) or os.environ.get(key_name)
             return list_models(data.get("provider"), key, data.get("endpoint"))
+        if route == "/api/dream-team":
+            from arena.public_teams import fetch_snapshot, scenario_from_snapshot
+            return {"scenario": scenario_from_snapshot(data.get("snapshot") or fetch_snapshot())}
         if route == "/api/participant":
             return self.store.save_participant(data["spec"], data.get("secret"))
         if route == "/api/participant/delete":

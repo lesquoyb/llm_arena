@@ -79,7 +79,7 @@ the game API. Manifest paths are relative to the manifest.
 {"id":"model-a-rep-1","path":"strategies/model-a-rep-1","entrypoint":"main.leek","model":"exact-model-id","replicate":1}
 ```
 
-The manifest sets team size, turn limit (1 to 64), stats and equipment.
+The manifest sets team size, turn limit (1 to 1,000), stats and equipment.
 `entity.cores` sets the operation budget; `entity.ram` controls LeekScript memory.
 The upstream example field `max_operations_per_entity` is not supported.
 Custom maps can define `obstacles`, `team1` and `team2`. The default grid has
@@ -92,8 +92,8 @@ the whole worker process, not one turn. Recorded timings are elapsed time, not C
 
 Results include frozen sources, scenarios, raw outcomes, logs, compact results,
 SHA-256 hashes and reports. Engine winners are 0 or 1 for the two sides and -1
-for a draw; replay teams are numbered 1 and 2. Engine duration may reach
-`max_turns + 1` when the turn limit is exhausted.
+for a draw; replay teams are numbered 1 and 2. The arena records duration up to the requested `max_turns` limit.
+New UI competitions use the [Simple duel preset and character sheets](docs/ui.md#scenario-presets-and-character-sheets).
 
 ## Validation and documentation
 

@@ -12,3 +12,20 @@ allprojects {
         }
     }
 }
+
+// Arena extension: keep upstream checkout pristine, compile a reproducible overlay.
+// Longer matches need complete turn events and draw finalization at the requested cap.
+gradle.projectsEvaluated {
+    def project = rootProject
+    def arenaSources = project.layout.buildDirectory.dir('arena-sources')
+    def prepare = project.tasks.register('prepareArenaSources', Sync) {
+        from project.file('src/main/java')
+        into arenaSources
+        filter { String line ->
+            line.replace('public final static int MAX_TURNS = 64;', 'public final static int MAX_TURNS = 1000;')
+                .replace('state.getOrder().getTurn() == Fight.MAX_TURNS + 1', 'state.getOrder().getTurn() == max_turns + 1')
+        }
+    }
+    project.sourceSets.main.java.setSrcDirs([arenaSources])
+    project.tasks.named('compileJava').configure { dependsOn prepare }
+}

@@ -1,8 +1,9 @@
 # Realistic stats and per-leek builds
 
 New competitions enable **Realistic stats** by default. Each leek has its own
-allocation of capital at the competition level. Stats are calculated from that
-allocation; entering an arbitrary final stat is only possible in **Free** mode.
+allocation of capital at its own level. The character sheet edits final stats
+and converts them to capital using the official tiers. **Free** mode accepts
+custom final stats without requiring a capital allocation.
 Capital is a game resource for building a leek, not API spending or token usage.
 
 This version supports **base stats plus capital, without components or
@@ -52,8 +53,9 @@ tables are in the snapshot. You cannot independently maximize every stat.
 
 ## Configure each member
 
-Expand **Leek 1**, **Leek 2**, etc. to assign capital. The preview shows capital
-used/available and the resulting stats. Saving rejects allocations above the
+Select a character tab to edit its final stats with sliders or numeric fields.
+Its card shows HP, strength, AP, MP, remaining capital and individual equipment.
+Each stat tooltip explains its role and the cost of the next attainable increase. Saving rejects allocations above the
 level's capital and invalid levels. Team size changes add or remove member builds.
 Switching from free to realistic mode resets builds to a valid allocation;
 switching back keeps the calculated values as editable raw stats.
@@ -65,7 +67,7 @@ the corresponding default member build. For example, at level 100:
 ```json
 {
   "members": [
-    {"entrypoint": "attacker.leek", "weapons": [1], "chips": [], "capital": {"strength": 100, "cores": 140}},
+    {"entrypoint": "attacker.leek", "weapons": [37], "chips": [], "capital": {"strength": 100, "cores": 140}},
     {"entrypoint": "support.leek", "weapons": [], "chips": [3], "capital": {"wisdom": 100, "life": 100, "cores": 140}}
   ]
 }

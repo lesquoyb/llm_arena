@@ -268,6 +268,119 @@ async function main() {
       "Realistic stats (official capital rules, no components)",
     );
     assert(await realisticStats.isChecked());
+    assert.equal(await page.getByLabel("Maximum turns").inputValue(), "1000");
+    assert.equal(await page.locator('[name="team_size"]').inputValue(), "1");
+    assert.equal(
+      await page.getByLabel("Level (all members)").inputValue(),
+      "300",
+    );
+    assert.equal(
+      await page.locator('[name="member_0_strength"]').inputValue(),
+      "600",
+    );
+    assert.equal(
+      await page.locator('[name="weapons"]').inputValue(),
+      "37, 45, 151, 153",
+    );
+    const mpHelp = await page
+      .locator('[data-stat-row="mp"] .help-bubble')
+      .first()
+      .innerText();
+    assert(mpHelp.includes("Next +1: 80 capital"));
+    await page.locator('[name="member_0_strength"]').fill("400");
+    await page.locator('[data-stat-slider="mp"]').evaluate((n) => {
+      n.value = "7";
+      n.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    assert.equal(await page.locator('[name="member_0_mp"]').inputValue(), "7");
+    assert(
+      (await page.locator(".member-stat-summary").first().innerText()).includes(
+        "320 capital remaining",
+      ),
+    );
+    await page.screenshot({
+      path: path.join(artifacts, "character-sheet.png"),
+      fullPage: true,
+    });
+    const bootstrap = await (
+      await page.request.get(url + "/api/bootstrap")
+    ).json();
+    const baseLeek = bootstrap.default_config.scenario.entity;
+    const leeks = Array.from({ length: 4 }, (_, i) => ({
+      id: 100 + i,
+      name: `Fixture public ${i + 1}`,
+      level: i === 0 ? 301 : 300,
+      ...Object.fromEntries(
+        Object.entries(baseLeek)
+          .filter(
+            ([key, value]) => key !== "level" && typeof value === "number",
+          )
+          .map(([key, value]) => ["total_" + key, value]),
+      ),
+      weapons: [{ template: i === 1 ? 45 : 37 }],
+      chips: i === 1 ? [{ template: 3 }] : [],
+    }));
+    const composition = {
+      id: 9,
+      name: "Fixture composition",
+      talent: 1000,
+      leeks: leeks.map((l) => ({ id: l.id })),
+    };
+    const snapshot = {
+      fetched_at: "2026-10-15T00:00:00+00:00",
+      rank: 1,
+      ranking_entry: { id: 8, name: "Fixture team" },
+      team: { id: 8, compositions: [composition] },
+      composition,
+      leeks,
+    };
+    await page
+      .getByText("Import a public team snapshot", { exact: true })
+      .click();
+    await page
+      .getByLabel("Public team snapshot JSON", { exact: true })
+      .fill(JSON.stringify(snapshot));
+    await page
+      .getByRole("button", { name: "Import snapshot", exact: true })
+      .click();
+    await page
+      .locator('[name="member_3_level"]')
+      .waitFor({ state: "attached" });
+    assert.equal(
+      await page.locator('[name="member_0_level"]').inputValue(),
+      "301",
+    );
+    await page.locator('[data-action="character-tab"][data-index="1"]').click();
+    assert.equal(
+      await page.locator('[name="member_1_level"]').inputValue(),
+      "300",
+    );
+    assert.equal(
+      await page.locator('[name="member_1_weapons"]').inputValue(),
+      "45",
+    );
+    assert.equal(
+      await page.locator('[name="member_1_chips"]').inputValue(),
+      "3",
+    );
+    assert(!(await realisticStats.isChecked()));
+    assert(
+      Number(
+        await page
+          .locator('[data-member-build="1"] [data-stat-slider="mp"]')
+          .getAttribute("max"),
+      ) < 100,
+      "Imported builds need useful slider ranges",
+    );
+    await page
+      .getByRole("button", { name: "Simple duel · level 300", exact: true })
+      .click();
+    await page.locator('[name="member_0_strength"]').waitFor();
+    assert.equal(await page.locator("[data-member-build]").count(), 1);
+    await page.locator('[name="team_size"]').fill("2");
+    await page.locator('[name="team_size"]').press("Tab");
+    await page.getByLabel("Level (all members)").fill("100");
+    await page.getByLabel("Level (all members)").press("Tab");
     const highLevelWeapon = page.locator(
       '.equipment-picker[data-name="weapons"] .equipment-check[value="48"]',
     );
@@ -286,20 +399,14 @@ async function main() {
     assert(await highLevelChip.isDisabled());
     assert.equal(
       await page.locator('[name="member_0_strength"]').inputValue(),
-      "50",
+      "100",
     );
-    await page
-      .getByText("Default equipment and custom map", { exact: true })
-      .click();
     const defaultWeaponPicker = page.locator(
       '.equipment-picker[data-name="weapons"]',
     );
     await defaultWeaponPicker.locator(":scope > summary").click();
     await defaultWeaponPicker.locator('.equipment-check[value="38"]').check();
     await defaultWeaponPicker.locator(":scope > summary").click();
-    await page
-      .getByText("Default equipment and custom map", { exact: true })
-      .click();
     await page.getByLabel("Level (all members)").fill("7");
     await page.getByLabel("Level (all members)").press("Tab");
     assert.equal(await page.locator('[name="weapons"]').inputValue(), "37");
@@ -310,32 +417,59 @@ async function main() {
     );
     await page.getByLabel("Level (all members)").fill("100");
     await page.getByLabel("Level (all members)").press("Tab");
-    await page.locator('[name="member_0_strength"]').fill("100");
-    await page.locator('[data-member-build="1"] > summary').click();
+    await page.locator('[name="member_0_strength"]').fill("200");
+    await page.locator('[data-action="character-tab"][data-index="1"]').click();
     await page.locator('[name="member_1_strength"]').fill("0");
-    await page.locator('[name="member_1_wisdom"]').fill("100");
-    assert(
-      (
-        await page
-          .locator('[data-member-build="0"] .member-stat-summary')
-          .innerText()
-      ).includes("Strength: 200"),
+    await page.locator('[name="member_1_wisdom"]').fill("200");
+    assert.equal(
+      await page.locator('[name="member_0_strength"]').inputValue(),
+      "200",
+    );
+    assert.equal(
+      await page.locator('[name="member_1_wisdom"]').inputValue(),
+      "200",
     );
     assert(
       (
         await page
-          .locator('[data-member-build="1"] .member-stat-summary')
+          .locator('[data-stat-row="mp"] .stat-cost')
+          .first()
           .innerText()
-      ).includes("Wisdom: 200"),
+      ).includes("capital"),
     );
-    await page.locator('[name="member_0_strength"]').fill("591");
+    await page.locator('[name="member_1_chips"]').evaluate((el) => {
+      el.value = "3";
+    });
+    await page.locator('[data-action="character-tab"][data-index="0"]').click();
+    await page.locator('[name="member_0_strength"]').fill("400");
+    const invalidStats = await page
+      .locator("#competition-form")
+      .evaluate((form) =>
+        [...form.querySelectorAll("input")]
+          .filter((n) => !n.validity.valid)
+          .map((n) => ({
+            name: n.name,
+            value: n.value,
+            min: n.min,
+            max: n.max,
+            error: n.validationMessage,
+          })),
+      );
+    assert.deepEqual(
+      invalidStats,
+      [],
+      "Stat inputs must be valid before checking the shared capital budget",
+    );
     await page
       .getByRole("button", { name: "Save configuration", exact: true })
       .click();
     await page.waitForFunction(() =>
-      document.querySelector("#toast.error")?.textContent.includes("capital"),
+      document
+        .querySelector("#toast.error")
+        ?.textContent.toLowerCase()
+        .includes("capital"),
     );
-    await page.locator('[name="member_0_strength"]').fill("100");
+    await page.locator('[name="member_0_strength"]').fill("200");
     await page
       .getByRole("button", { name: "Official rules and scope", exact: true })
       .click();
@@ -362,8 +496,8 @@ async function main() {
       );
     }
     assert(
-      (await page.locator(".member-stat-summary").first().innerText()).includes(
-        "Equipment capacity: 3 weapons, 6 chips",
+      (await page.locator(".equipment-capacity").first().innerText()).includes(
+        "3 weapon slots · 6 chip slots",
       ),
     );
     await page.getByLabel("Team setup").selectOption("participant");
@@ -440,6 +574,8 @@ async function main() {
     assert.equal(configured.scenario.stats_mode, "realistic-v1");
     assert.equal(configured.scenario.member_stats[0].capital.strength, 100);
     assert.equal(configured.scenario.member_stats[1].capital.wisdom, 100);
+    assert.deepEqual(configured.scenario.member_stats[0].chips, []);
+    assert.deepEqual(configured.scenario.member_stats[1].chips, [3]);
     assert.deepEqual(configured.scenario.team_selection.allowed_weapons, [37]);
     assert.equal(configured.scenario.team_selection.max_chips, 0);
 
