@@ -6,7 +6,7 @@ from arena.core import ArenaError, ROOT, make_scenario, read_json, scratch_direc
 from arena.engine import Engine
 from arena.equipment import catalog
 from arena.presets import simple_scenario
-from arena.public_teams import fetch_snapshot, scenario_from_snapshot, RANKING, DREAM_LEEK_IDS
+from arena.public_teams import fetch_snapshot, scenario_from_snapshot, RANKING
 from arena.stats import STATS
 
 
@@ -60,17 +60,20 @@ class PresetTests(unittest.TestCase):
         with self.assertRaisesRegex(ArenaError, 'non-player chips'):
             scenario_from_snapshot(forbidden)
 
-    def test_fetch_uses_the_four_user_selected_public_leeks(self):
-        snapshot = public_snapshot()
-        leeks = [{**leek, 'id': identifier} for leek, identifier in zip(snapshot['leeks'], DREAM_LEEK_IDS)]
-        payloads = {'farmer/get/512': {'id': 512},
-                    **{'leek/get/'+str(l['id']): l for l in leeks}}
-        fetch = mock.Mock(side_effect=payloads.__getitem__)
-        result = fetch_snapshot(fetch)
-        self.assertEqual([l['id'] for l in result['leeks']], list(DREAM_LEEK_IDS))
-        self.assertEqual(len(fetch.call_args_list), 5)
-        with self.assertRaisesRegex(ArenaError, 'does not match farmer'):
-            fetch_snapshot(lambda path: {'id': 0})
+    def test_fetch_follows_current_first_farmer_and_unwraps_public_profiles(self):
+        for farmer_id in (512, 999):
+            ids = (599,881,1549,11942) if farmer_id == 512 else (1,2,3,4)
+            leeks = [{**leek, 'id': identifier, 'farmer': {'id':farmer_id}} for leek, identifier in zip(public_snapshot()['leeks'], ids)]
+            farmer = {'id': farmer_id, 'leeks': {str(l['id']): {'id':l['id']} for l in leeks}}
+            payloads = {RANKING: {'ranking': [{'id':farmer_id}]}, 'farmer/get/'+str(farmer_id): {'farmer':farmer},
+                        **{'leek/get/'+str(l['id']):l for l in leeks}}
+            fetch = mock.Mock(side_effect=payloads.__getitem__)
+            result = fetch_snapshot(fetch)
+            self.assertEqual([l['id'] for l in result['leeks']], sorted(ids))
+            self.assertEqual(result['selection']['farmer_id'], farmer_id)
+            self.assertEqual(len(fetch.call_args_list), 6)
+        with self.assertRaisesRegex(ArenaError, 'no first entry'):
+            fetch_snapshot(lambda path: {'ranking': []})
 
     def test_long_native_match_has_complete_events_and_individual_loadouts(self):
         with scratch_directory() as tmp:

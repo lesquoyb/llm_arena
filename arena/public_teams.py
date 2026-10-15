@@ -9,7 +9,7 @@ from .equipment import catalog
 from .stats import STATS
 
 BASE = 'https://leekwars.com/api/'
-RANKING = 'ranking/get-active/team/talent/1/null'
+RANKING = 'ranking/get-active/farmer/talent/1/null'
 
 
 def public_json(path):
@@ -29,21 +29,46 @@ def public_json(path):
     return data
 
 
-# Selection supplied by the user from the current top farmer's public page.
-DREAM_FARMER_ID = 512
-DREAM_LEEK_IDS = (599, 881, 1549, 11942)
-
-
 def fetch_snapshot(fetch=public_json):
-    farmer = fetch('farmer/get/' + str(DREAM_FARMER_ID))
-    if farmer.get('id') != DREAM_FARMER_ID:
-        raise ArenaError('Public farmer response does not match farmer 512')
-    leeks = [fetch('leek/get/' + str(identifier)) for identifier in DREAM_LEEK_IDS]
-    if any(leek.get('id') != identifier for leek, identifier in zip(leeks, DREAM_LEEK_IDS)):
-        raise ArenaError('Public leek response does not match the selected leek ID')
-    return {'fetched_at': datetime.now(timezone.utc).isoformat(),
-            'selection': {'farmer_id': DREAM_FARMER_ID, 'leek_ids': list(DREAM_LEEK_IDS),
-                          'source': 'User-selected public top farmer; not a team-composition ranking'},
+    ranking = fetch(RANKING)
+    rows = ranking.get('ranking')
+    if not isinstance(rows, list) or not rows or not isinstance(rows[0], dict):
+        raise ArenaError('The public farmer ranking has no first entry')
+    leader = rows[0]
+    identifier = leader.get('id')
+    if type(identifier) is not int or identifier <= 0:
+        raise ArenaError('The first public farmer has no valid ID')
+    response = fetch('farmer/get/' + str(identifier))
+    farmer = response.get('farmer', response)
+    if not isinstance(farmer, dict) or farmer.get('id') != identifier:
+        raise ArenaError('Public farmer response does not match the current ranking leader')
+    records = farmer.get('leeks')
+    if isinstance(records, dict):
+        records = list(records.values())
+    if not isinstance(records, list) or any(not isinstance(l, dict) for l in records):
+        raise ArenaError('The first farmer has no public leek list')
+    records = [l for l in records if not l.get('deleted')]
+    if len(records) < 4:
+        raise ArenaError('The first farmer has fewer than four public leeks; no substitute team was generated')
+    records = sorted(records, key=lambda l: (-(l.get('talent') or 0), -(l.get('level') or 0), l.get('id', 0)))[:4]
+    ids = [l.get('id') for l in records]
+    if any(type(i) is not int or i <= 0 for i in ids) or len(set(ids)) != 4:
+        raise ArenaError('The selected public leeks have invalid or duplicate IDs')
+    leeks = []
+    for leek_id in ids:
+        response = fetch('leek/get/' + str(leek_id))
+        leek = response.get('leek', response)
+        if not isinstance(leek, dict) or leek.get('id') != leek_id:
+            raise ArenaError('Public leek response does not match the selected leek ID')
+        owner = leek.get('farmer')
+        owner_id = owner.get('id') if isinstance(owner, dict) else owner
+        if owner_id is not None and owner_id != identifier:
+            raise ArenaError('A selected leek changed owner during import; retry the refresh')
+        leeks.append(leek)
+    return {'fetched_at': datetime.now(timezone.utc).isoformat(), 'ranking_path': RANKING,
+            'rank': 1, 'ranking_entry': leader,
+            'selection': {'farmer_id': identifier, 'leek_ids': ids,
+                          'rule': 'First ranked farmer; four highest-talent public leeks, ties by level then ID'},
             'farmer': farmer, 'leeks': leeks}
 
 
