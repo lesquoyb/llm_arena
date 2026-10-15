@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>LLM Arena — laboratoire</title>
+    <link rel="stylesheet" href="/style.css" />
+    <script src="/app.js" defer></script>
+  </head>
+  <body>
+    <aside class="sidebar">
+      <a class="brand" href="#view=dashboard"
+        ><svg viewBox="0 0 36 36" aria-hidden="true">
+          <path d="M18 2 34 11 18 20 2 11Z" fill="#9db7ff" />
+          <path d="m2 17 16 9 16-9v7l-16 9-16-9Z" fill="#5e82ed" /></svg
+        ><span>LLM ARENA<small>LE LABORATOIRE</small></span></a
+      >
+      <p class="nav-label">ESPACE DE TRAVAIL</p>
+      <nav aria-label="Navigation principale">
+        <a href="#view=dashboard" data-nav="dashboard"
+          ><span>◈</span> Vue d’ensemble</a
+        >
+        <a href="#view=participants" data-nav="participants"
+          ><span>♧</span> Participants</a
+        >
+        <a href="#view=competitions" data-nav="competitions"
+          ><span>⚑</span> Compétitions <i id="active-count"></i
+        ></a>
+        <a href="#view=compare" data-nav="compare"
+          ><span
+            ><svg
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.5"
+              aria-hidden="true"
+            >
+              <path d="M3 18 10 11 14 15 21 6M15 6h6v6" /></svg
+          ></span>
+          Comparer les résultats</a
+        >
+      </nav>
+      <div class="sidebar-note">
+        <span class="pulse"></span> Votre laboratoire local
+        <p>
+          Du premier prompt au dernier combat, chaque étape reste consultable.
+        </p>
+      </div>
+      <a class="help-link" href="#view=help">? &nbsp; Comprendre l’arène</a>
+    </aside>
+    <div class="workspace">
+      <header class="topbar">
+        <span id="breadcrumb">Laboratoire / Vue d’ensemble</span>
+        <div>
+          <span id="engine-status" class="badge">Connexion…</span
+          ><button
+            class="icon-button"
+            data-action="refresh"
+            title="Actualiser"
+            aria-label="Actualiser"
+          >
+            ↻
+          </button>
+        </div>
+      </header>
+      <main id="main" tabindex="-1">
+        <div class="empty">Chargement du laboratoire…</div>
+      </main>
+      <footer>
+        LLM Arena <span>LeekScript 4 · moteur officiel Leek Wars</span>
+      </footer>
+    </div>
+    <dialog id="dialog"><div id="dialog-content"></div></dialog>
+    <div id="toast" role="status" aria-live="polite"></div>
+  </body>
+</html>

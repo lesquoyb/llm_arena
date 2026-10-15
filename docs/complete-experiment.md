@@ -1,7 +1,7 @@
 # Cycle complet G0 → G1
 
 Sous Windows natif, suivre [le guide PowerShell](windows.md) et utiliser
-`.venv\Scripts\python.exe` à la place de `python`, sans la ligne `source`.
+`.\.venv\Scripts\python.exe` à la place de `python`, sans la ligne `source`.
 
 ```bash
 source .venv/bin/activate

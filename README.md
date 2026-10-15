@@ -1,8 +1,19 @@
 # LLM Arena
 
-Première implémentation d'une arène locale pour comparer des stratégies **LeekScript 4**, avec le moteur officiel Leek Wars figé au commit `b99a174dd938260d9e47b2e65a208cb32230e26e`.
+Arène locale pour préparer, exécuter et comparer des stratégies **LeekScript 4**, avec le moteur officiel Leek Wars figé au commit `b99a174dd938260d9e47b2e65a208cb32230e26e`.
 
 Le socle exécute réellement les combats : analyse de scripts, équipes symétriques, round-robin aller-retour, miroirs séparés, compteurs d'opérations, replays, empreintes des sources et reprise après interruption. Les trois stratégies fournies sont des contrôles écrits à la main, pas des résultats de LLM.
+
+## Interface web locale
+
+Après installation, lancer `.\.venv\Scripts\python.exe -m arena ui --open`
+sous Windows, ou `.venv/bin/python -m arena ui --open` sous Linux.
+L’interface s’ouvre sur **http://127.0.0.1:8765** : participants et tarifs,
+configuration et suivi des compétitions, conversations intégrales,
+versions/diffs du code, lecteur graphique schématique des combats,
+bilans et agrégations entre compétitions comparables.
+Voir [le guide de l’interface](docs/ui.md), qui explique aussi les scores
+et les limites des démonstrations simulées. Aucun Node.js n’est requis.
 
 ## Démarrage
 
@@ -11,8 +22,8 @@ JDK 25 complet, puis :
 
 ```powershell
 py -3 scripts/bootstrap.py
-.venv\Scripts\python.exe -m arena doctor
-.venv\Scripts\python.exe -m arena experiment run configs/offline-complete.json --out runs/mon-premier-test
+.\.venv\Scripts\python.exe -m arena doctor
+.\.venv\Scripts\python.exe -m arena experiment run configs/offline-complete.json --out runs/mon-premier-test
 ```
 
 Voir [le guide Windows](docs/windows.md) pour l'installation, les combats,

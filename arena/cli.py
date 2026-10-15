@@ -15,6 +15,10 @@ def parser():
     commands = p.add_subparsers(dest="command", required=True)
     c = commands.add_parser("setup", help="Fetch the pinned engine, build its jar and the arena adapter")
     c.add_argument("--gradle")
+    c = commands.add_parser("ui", help="Open the local browser interface")
+    c.add_argument("--port", type=int, default=8765)
+    c.add_argument("--runs", type=Path, help="Directory of competition artifacts (default: runs)")
+    c.add_argument("--open", action="store_true", dest="open_browser")
     commands.add_parser("doctor", help="Check engine artifact hashes and Java runtime")
     c = commands.add_parser("docs", help="Export a frozen API reference from the compiled engine")
     c.add_argument("--out", type=Path, required=True)
@@ -64,6 +68,12 @@ def parser():
 def main(argv=None):
     args = parser().parse_args(argv)
     try:
+        if args.command == "ui":
+            from arena_web.server import serve
+            if not 0 <= args.port <= 65535:
+                raise ArenaError("Port must be between 0 and 65535")
+            serve(args.port, args.runs, args.open_browser)
+            return 0
         if args.command == "mcp":
             from .mcp_server import serve
             serve(args.experiment, args.session)

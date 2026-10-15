@@ -46,16 +46,27 @@ py -3 scripts/bootstrap.py
 Cette valeur est un exemple à remplacer. Le bootstrap donne la priorité
 à `JAVA_HOME`, puis cherche Java dans le `PATH`.
 
-## 3. Essayer un combat et une expérience
+## 3. Ouvrir l’interface graphique
+
+```powershell
+.\.venv\Scripts\python.exe -m arena ui --open
+```
+
+Le navigateur s’ouvre sur http://127.0.0.1:8765. On peut y configurer les
+participants et leurs tarifs, gérer les compétitions, consulter les prompts,
+versions du code et résultats, et rejouer les combats sur une carte.
+Garder le terminal ouvert. Voir [le guide de l’interface](ui.md).
+
+## 4. Essayer un combat et une expérience
 
 Lancer directement le Python du projet évite d'avoir à activer un script
 PowerShell ou modifier sa politique d'exécution :
 
 ```powershell
-.venv\Scripts\python.exe -m arena doctor
-.venv\Scripts\python.exe -m arena fight examples/strategies/rush examples/strategies/passive
-.venv\Scripts\python.exe -m arena experiment plan configs/offline-complete.json
-.venv\Scripts\python.exe -m arena experiment run configs/offline-complete.json --out runs/mon-premier-test
+.\.venv\Scripts\python.exe -m arena doctor
+.\.venv\Scripts\python.exe -m arena fight examples/strategies/rush examples/strategies/passive
+.\.venv\Scripts\python.exe -m arena experiment plan configs/offline-complete.json
+.\.venv\Scripts\python.exe -m arena experiment run configs/offline-complete.json --out runs/mon-premier-test
 ```
 
 La démo compare des **participants simulés**, qui fournissent des stratégies
@@ -67,9 +78,9 @@ préparation. Lire `runs/mon-premier-test/analysis.md` pour les scores et
 Pour reprendre une interruption, consulter l'état et exporter :
 
 ```powershell
-.venv\Scripts\python.exe -m arena experiment resume runs/mon-premier-test
-.venv\Scripts\python.exe -m arena experiment status runs/mon-premier-test
-.venv\Scripts\python.exe -m arena experiment export runs/mon-premier-test --out runs/mon-export
+.\.venv\Scripts\python.exe -m arena experiment resume runs/mon-premier-test
+.\.venv\Scripts\python.exe -m arena experiment status runs/mon-premier-test
+.\.venv\Scripts\python.exe -m arena experiment export runs/mon-premier-test --out runs/mon-export
 ```
 
 Utiliser un **nouveau dossier** pour une nouvelle expérience ou un nouvel
@@ -77,10 +88,10 @@ export. Reprendre exige le même code, la même configuration et le même
 runtime ; un run Linux ne se reprend pas directement sous Windows.
 Les résultats exportés restent lisibles sur les deux plateformes.
 
-## 4. Validation et outils avancés
+## 5. Validation et outils avancés
 
 ```powershell
-.venv\Scripts\python.exe scripts/validate.py
+.\.venv\Scripts\python.exe scripts/validate.py
 ```
 
 Cette commande vérifie le moteur, lance toute la suite de tests, puis

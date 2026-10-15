@@ -53,3 +53,7 @@ décrits dans le [guide complet](complete-experiment.md).
 Le fingerprint couvre les sous-packages et prompts ; les archives Gradle
 ont un ordre stable sans timestamps. La reprise reste stricte sur le
 runtime, même avec une identité scientifique séparée.
+
+L’[interface web locale](ui.md) se lance après installation avec
+`.venv/bin/python -m arena ui --open`. Elle utilise le même moteur et les
+mêmes expériences ; aucun Node.js n’est nécessaire pour l’utiliser.
