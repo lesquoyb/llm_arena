@@ -18,13 +18,13 @@ from arena_web.data import history_writes
 def scenario():
     config = copy.deepcopy(DEFAULT_SCENARIO)
     config['team_selection'] = {'mode': 'participant', 'max_weapons': 2, 'max_chips': 2,
-                                'allowed_weapons': [1, 37], 'allowed_chips': [3]}
+                                'allowed_weapons': [37, 408], 'allowed_chips': [3]}
     return config
 
 
 def team():
-    return {'members': [{'entrypoint': 'main.leek', 'weapons': [1], 'chips': [3]},
-                        {'entrypoint': 'healer.leek', 'weapons': [37], 'chips': []}]}
+    return {'members': [{'entrypoint': 'main.leek', 'weapons': [37], 'chips': [3]},
+                        {'entrypoint': 'healer.leek', 'weapons': [408], 'chips': []}]}
 
 
 class TeamTests(unittest.TestCase):
@@ -35,14 +35,14 @@ class TeamTests(unittest.TestCase):
         for members in ([], team()['members'] * 2,
                         [{'entrypoint': '../escape.leek', 'weapons': [], 'chips': []}],
                         [{'entrypoint': 'missing.leek', 'weapons': [], 'chips': []}],
-                        [{'entrypoint': 'main.leek', 'weapons': [1, 37, 1], 'chips': []}],
+                        [{'entrypoint': 'main.leek', 'weapons': [37, 408, 37], 'chips': []}],
                         [{'entrypoint': 'main.leek', 'weapons': [True], 'chips': []}],
                         [{'entrypoint': 'main.leek', 'weapons': [2], 'chips': []}]):
             with self.subTest(members=members), self.assertRaises(ArenaError):
                 validate_team({'members': members}, scenario(), files, data)
         unrestricted = scenario()
         unrestricted['team_selection'].pop('allowed_weapons')
-        for weapon in (99999, 10):  # Unknown ID and known weapon above level 100.
+        for weapon in (99999, 48):  # Unknown ID and known weapon above level 100.
             with self.subTest(weapon=weapon), self.assertRaises(ArenaError):
                 validate_team({'members': [{'entrypoint': 'main.leek', 'weapons': [weapon], 'chips': []}]}, unrestricted, files, data)
 
@@ -140,7 +140,7 @@ class TeamEngineTests(unittest.TestCase):
                 self.assertEqual(result['status'], 'completed')
                 entities = read_json(out / 'scenario.json')['entities'][side]
                 self.assertEqual([e['ai'] for e in entities], ['main.leek', 'healer.leek'])
-                self.assertEqual([e['weapons'] for e in entities], [[1], [37]])
+                self.assertEqual([e['weapons'] for e in entities], [[37], [408]])
                 self.assertIn('team.json', read_json(out / 'provenance.json')['submissions'][side]['files'])
             (source / 'healer.leek').write_text('var = ???')
             assessed = engine.analyze(source, 'main.leek', tmp / 'invalid-assessment')

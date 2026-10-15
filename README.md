@@ -123,3 +123,5 @@ Native Java workers have heap, output and time limits. An optional Docker
 backend disables network access. This application is a local tool, not a public
 service for hostile submissions. Python/JavaScript strategies remain future work;
 TypeScript is outside the current scope.
+
+See the [weapons, chips and summons example](examples/showcase/README.md) for a runnable mechanics demonstration.

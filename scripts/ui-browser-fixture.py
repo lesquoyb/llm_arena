@@ -27,8 +27,9 @@ def main():
                       "team_metrics": {"0": {"operations": 100, "errors": 0}, "1": {"operations": 10, "errors": 0}}}
             fight = {"version": 1, "map": {"width": 18, "height": 18, "obstacles": {"7": 1}},
                      "leeks": [{"id": 0, "name": "Équipe bleue", "team": 1, "life": 30, "cellPos": 0, "summon": False},
-                               {"id": 1, "name": "Équipe orange", "team": 2, "life": 20, "cellPos": 2, "summon": False}],
-                     "actions": [[0], [7, 0], [10, 0, 18, [18]], [16, 2, 1], [101, 1, 20, 0], [5, 1, 0]]}
+                               {"id": 1, "name": "Équipe orange", "team": 2, "life": 20, "cellPos": 2, "summon": False},
+                               {"id": 2, "name": "Fixture bulb", "team": 1, "life": 10, "cellPos": 35, "summon": True}],
+                     "actions": [[0], [7, 0], [10, 0, 18, [18]], [16, 2, 1], [101, 1, 20, 0], [9, 0, 2, 35, 1], [7, 2], [10, 2, 36, [36]], [5, 1, 0]]}
             write_json(work / "scenario.json", {"entities":[[{"cores":10}],[{"cores":10}]]})
             write_json(work / "result.json", result)
             write_json(work / "outcome.json", {"fight": fight, "winner": 0, "success": True})

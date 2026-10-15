@@ -1362,7 +1362,7 @@ async function loadMatch() {
       entities: Object.fromEntries(
         R.fight.leeks.map((l) => [
           l.id,
-          { ...l, maxLife: l.life, alive: !l.summon },
+          { ...l, maxLife: l.life, born: !l.summon, alive: !l.summon },
         ]),
       ),
       actor: null,
@@ -1409,6 +1409,8 @@ function replayState(index) {
     if (code === 9 && entity(a[2]) && a[4] === 1) {
       entity(a[2]).cellPos = a[3];
       entity(a[2]).alive = true;
+      entity(a[2]).born = true;
+      entity(a[2]).summoner = a[1];
     }
     if (code === 105 && entity(a[2]))
       Object.assign(entity(a[2]), {
@@ -1416,6 +1418,7 @@ function replayState(index) {
         life: a[4],
         maxLife: a[5],
         alive: true,
+        born: true,
       });
     if ((i + 1) % 100 === 0) R.cache.set(i + 1, structuredClone(state));
   }
@@ -1444,19 +1447,19 @@ function renderReplay(index) {
     R.cells
       .map(
         (c) =>
-          `<polygon class="tile ${obstacles[c.id] ? "obstacle" : ""}" points="${c.x - 12},${c.y} ${c.x},${c.y - 6} ${c.x + 12},${c.y} ${c.x},${c.y + 6}"><title>Case ${c.id}${obstacles[c.id] ? " · obstacle" : ""}</title></polygon>`,
+          `<polygon class="tile ${obstacles[c.id] ? "obstacle" : ""}" points="${c.x - 12},${c.y} ${c.x},${c.y - 6} ${c.x + 12},${c.y} ${c.x},${c.y + 6}"><title>Cell ${c.id}${obstacles[c.id] ? " · obstacle" : ""}</title></polygon>`,
       )
       .join("") +
     (shot && origin
       ? `<line x1="${origin.x}" y1="${origin.y}" x2="${shot.x}" y2="${shot.y}" stroke="#df8f45" stroke-width="2" stroke-dasharray="3 2"/>`
       : "") +
     entities
-      .filter((v) => !v.summon || v.alive)
+      .filter((v) => v.born)
       .map((v) => {
         const c = R.cellsById.get(v.cellPos);
         if (!c) return "";
         const color = v.team === 1 ? "#5278e5" : "#c77749";
-        return `<g class="${v.alive ? "" : "dead"}"><ellipse cx="${c.x}" cy="${c.y + 2}" rx="10" ry="5" fill="${color}" opacity=".18"/>${state.actor === v.id ? `<circle cx="${c.x}" cy="${c.y - 5}" r="10" fill="none" stroke="${color}" stroke-width="1"/>` : ""}<circle cx="${c.x}" cy="${c.y - 5}" r="7" fill="${color}"/><text class="entity-label" x="${c.x}" y="${c.y - 5}">${v.id}</text><rect x="${c.x - 9}" y="${c.y - 16}" width="18" height="2" rx="1" fill="#cdd6e7"/><rect x="${c.x - 9}" y="${c.y - 16}" width="${18 * Math.max(0, Math.min(1, v.life / (v.maxLife || 1)))}" height="2" rx="1" fill="${color}"/><title>${e(v.name)} · ${v.life}/${v.maxLife} HP · cell ${v.cellPos}</title></g>`;
+        return `<g data-entity="${v.id}" data-summon="${!!v.summon}" class="${v.alive ? "" : "dead"}"><ellipse cx="${c.x}" cy="${c.y + 2}" rx="10" ry="5" fill="${color}" opacity=".18"/>${state.actor === v.id ? `<circle cx="${c.x}" cy="${c.y - 5}" r="10" fill="none" stroke="${color}" stroke-width="1"/>` : ""}${v.summon ? `<rect x="${c.x - 6}" y="${c.y - 11}" width="12" height="12" rx="2" fill="${color}"/>` : `<circle cx="${c.x}" cy="${c.y - 5}" r="7" fill="${color}"/>`}<text class="entity-label" x="${c.x}" y="${c.y - 5}">${v.id}</text><rect x="${c.x - 9}" y="${c.y - 16}" width="18" height="2" rx="1" fill="#cdd6e7"/><rect x="${c.x - 9}" y="${c.y - 16}" width="${18 * Math.max(0, Math.min(1, v.life / (v.maxLife || 1)))}" height="2" rx="1" fill="${color}"/><title>${e(v.name)} · ${v.life}/${v.maxLife} HP · cell ${v.cellPos}</title></g>`;
       })
       .join("");
   $("#replay-range").value = index;
@@ -1465,9 +1468,10 @@ function renderReplay(index) {
     : "Initial positions";
   $("#replay-count").textContent = `Action ${index} / ${R.events.length}`;
   $("#replay-entities").innerHTML = entities
+    .filter((v) => v.born)
     .map(
       (v) =>
-        `<div class="entity-card"><strong style="color:${v.team === 1 ? "#5278e5" : "#c77749"}">● ${e(v.name)} (#${v.id})</strong><span style="float:right">${v.life} / ${v.maxLife} HP</span><div class="hp-track"><div class="hp-fill" style="width:${Math.max(0, Math.min(100, (100 * v.life) / (v.maxLife || 1)))}%;background:${v.team === 1 ? "#5278e5" : "#c77749"}"></div></div></div>`,
+        `<div class="entity-card"><strong style="color:${v.team === 1 ? "#5278e5" : "#c77749"}">${v.summon ? "◆ Summon · " : "● "}${e(v.name)} (#${v.id})</strong><span style="float:right">${v.life} / ${v.maxLife} HP</span><div class="hp-track"><div class="hp-fill" style="width:${Math.max(0, Math.min(100, (100 * v.life) / (v.maxLife || 1)))}%;background:${v.team === 1 ? "#5278e5" : "#c77749"}"></div></div></div>`,
     )
     .join("");
   $("#replay-events").innerHTML = R.events
@@ -1634,7 +1638,7 @@ function helpPage() {
       ],
       [
         "Team building and equipment",
-        "Shared mode fixes the team and equipment for all participants. Participant mode lets each model choose up to the maximum team size, a script per member, weapons and chips. Members can have different stats; realistic mode validates each capital allocation. Allowlists, slots and member level restrict equipment. Successful configure_team calls create team.json versions, inherited by improvement branches. The item selector shows the full pinned catalog; items above the leek level are locked in realistic mode. IDs are catalog keys, not item inventory IDs.",
+        "Shared mode fixes the team and equipment for all participants. Participant mode lets each model choose up to the maximum team size, a script per member, weapons and chips. Members can have different stats; realistic mode validates each capital allocation. Allowlists, slots and member level restrict equipment. Successful configure_team calls create team.json versions, inherited by improvement branches. The item selector shows the full pinned catalog; items above the leek level are locked in realistic mode. Weapon IDs use the catalog item field; chip IDs use catalog keys. Replay events use template IDs.",
       ],
       [
         "Costs and tokens",

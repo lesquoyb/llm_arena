@@ -8,7 +8,7 @@ Write the sources first, then call `configure_team` with `members`, each contain
 `entrypoint`, `weapons` and `chips`. Optionally set `capital` per member in
 realistic-v1 mode (official level/capital rules, no components), or `stats` in
 free mode. Read corpus/stat-rules.json. Omitted stat overrides inherit the
-corresponding default member build. Use the equipment catalog keys as IDs. Read
+corresponding default member build. Use weapons.json `item` values as weapon IDs (pistol: 37), and chips.json keys as chip IDs (shock: 1). Weapon catalog keys and replay template IDs are different identifiers. Read
 slot limits and allowlists in the initial message. In realistic mode, items cannot exceed member level; free mode permits higher-level items.
 Call `test` to evaluate your current team and `submit` to freeze code and `team.json`.
 Do not write team.json directly; the tool validates and records each change.

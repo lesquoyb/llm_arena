@@ -34,3 +34,30 @@ for targeting/movement, `classes/EntityClass.java` for equipment/TP/life and
 `classes/WeaponClass.java` for costs and shooting, at the commit in `index.md`.
 Other functions remain covered by the signature reference; their behavior is
 not inferred from their names.
+
+## Chips, summons and testing
+
+`getCooldown(chip)` gives the remaining cooldown. `getChipCooldown(chip)` gives
+its configured duration, not its remaining cooldown. Before casting, check the
+chip is equipped, enough AP remain, cooldown is zero and targeting is valid.
+`canUseChip` checks targeting and does not replace AP/cooldown checks.
+
+`summon(chip, cell, callback, name)` creates
+an allied entity whose callback runs on its own turns. Use an empty reachable
+cell and a summon chip. The callback sees the summon's own equipment and resources;
+`getSummoner()` identifies its owner. Read `corpus/showcase.leek` for a complete
+working example; its equipment and scenario are documented in the repository's
+`examples/showcase/README.md`.
+
+Preparation tools run against the actual pinned Java engine. Use `analyze` to
+check source code, then `test` to play training matches. Training currently uses
+the passive opponent, seed 17 and both starting sides; arbitrary opponents and
+seeds are not exposed by this tool. `test` returns summaries. Use its test ID with
+`read_replay` to inspect `fight`, `team_metrics`, `turn_metrics` or `logs`, including
+`debug` output and runtime errors. These tools expose only the participant's own
+training artifacts, not other participants' private sessions.
+
+The initial prompt includes scenario and tool descriptions. The full API reference,
+equipment, summons and stat rules are available through paginated `read_docs`;
+they are not all inserted into the prompt automatically. Read the catalogs and
+relevant function signatures before choosing equipment or writing code.

@@ -1,6 +1,6 @@
 """Participant-selected teams under shared competition rules."""
 from pathlib import PurePosixPath
-from .core import ArenaError, integer, read_json
+from .core import ArenaError, integer
 
 TEAM_FILE = "team.json"
 
@@ -51,7 +51,8 @@ def validate_team(team, scenario=None, files=None, data=None):
                 raise ArenaError(f"Invalid {kind} or slot limit exceeded")
             if len(items) != len(set(items)):
                 raise ArenaError(f"Duplicate {kind} IDs")
-            catalog = read_json(data / (kind + ".json")) if data else None
+            from .equipment import catalog as equipment_catalog
+            catalog = equipment_catalog(data, kind) if data else None
             for item in items:
                 integer(item, 1, 100000, kind)
                 allowed = rules.get("allowed_" + kind)

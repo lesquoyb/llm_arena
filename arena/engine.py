@@ -292,7 +292,8 @@ class Engine:
             if info.get("team"):
                 validate_team(info["team"], config, info["files"], Path(self.metadata["data"]))
         for key in ("weapons", "chips"):
-            known = read_json(Path(self.metadata["data"]) / f"{key}.json")
+            from .equipment import catalog
+            known = catalog(Path(self.metadata["data"]), key)
             for team in scenario["entities"]:
                 for entity in team:
                     for item in entity.get(key, []):

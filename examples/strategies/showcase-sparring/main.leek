@@ -1,0 +1,14 @@
+// Predictable opponent: causes damage so the showcase can demonstrate healing.
+var enemy = getNearestEnemy()
+var weapons = getWeapons()
+if (enemy >= 0 && isAlive(enemy) && count(weapons) > 0) {
+    setWeapon(weapons[0])
+    moveToward(enemy, 1)
+    if (getTP() >= getChipCost(CHIP_SHOCK) && canUseChip(CHIP_SHOCK, enemy)) {
+        useChip(CHIP_SHOCK, enemy)
+    }
+    for (var shot = 0; shot < 2; shot++) {
+        if (getTP() < getWeaponCost() || !isAlive(enemy)) break
+        if (useWeapon(enemy) != USE_SUCCESS) break
+    }
+}

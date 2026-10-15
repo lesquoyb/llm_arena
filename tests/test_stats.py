@@ -47,7 +47,7 @@ class RealisticStatsTests(unittest.TestCase):
             self.assertEqual(side[1]['wisdom'],200)
             self.assertEqual(side[1]['life'],797)
         config['team_selection']={'mode':'participant'}
-        chosen={'members':[{'entrypoint':'main.leek','weapons':[1],'chips':[], 'capital':{'agility':100}}]}
+        chosen={'members':[{'entrypoint':'main.leek','weapons':[37],'chips':[], 'capital':{'agility':100}}]}
         for teams in ([chosen,None],[None,chosen]):
             actual=make_scenario(config,['main.leek']*2,101,teams)
             side=actual['entities'][0 if teams[0] else 1]
@@ -62,7 +62,7 @@ class RealisticStatsTests(unittest.TestCase):
 
     def test_realistic_equipment_level_applies_to_defaults_and_model_choices(self):
         from arena.core import ROOT
-        for kind, identifier in [('weapons',10),('chips',76)]:
+        for kind, identifier in [('weapons',48),('chips',76)]:
             config=realistic()
             config['entity'][kind]=[identifier]
             with self.subTest(kind=kind), self.assertRaisesRegex(ArenaError,'requires level'):

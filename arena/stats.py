@@ -84,7 +84,8 @@ def validate_stats(scenario):
 
     if mode == 'realistic-v1':
         for kind in ('weapons', 'chips'):
-            catalog = read_json(ROOT / 'docs/leekscript-v1' / (kind + '.json'))
+            from .equipment import catalog as equipment_catalog
+            catalog = equipment_catalog(ROOT / 'docs/leekscript-v1', kind)
             for identifier in scenario['entity'].get(kind, []):
                 item = catalog.get(str(identifier))
                 if item is None:

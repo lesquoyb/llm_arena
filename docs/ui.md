@@ -253,3 +253,18 @@ for browser checks. Those are development dependencies only.
 `node scripts/test-ui.cjs` tests synthetic archives and writes screenshots to
 `runs/ui-browser`. `ARENA_BROWSER_EXECUTABLE` selects an installed Chromium.
 `ARENA_UI_LIVE_ENGINE=1` also launches and monitors a mock competition with the real engine.
+
+### Summons and example combat
+
+The engine supports summon chips and their LeekScript callbacks. In Matches,
+summons appear at the successful creation event, with square markers and their
+own health cards. Their turns, movement, damage and deaths are replayed. Rewinding
+before creation hides them again. This remains a schematic replay; inspect raw
+events for effects without animations. See the [runnable example](../examples/showcase/README.md).
+
+Equipment selectors use generator runtime IDs: weapons use the raw catalog's
+`item` field, while chips use its object keys. Replay weapon/chip actions use
+`template` IDs, translated to names in the event list. Earlier UI versions used
+weapon catalog keys in the selectors and could equip a different weapon or none.
+Reselect weapons in affected saved configurations before rerunning them. The
+original default weapon ID 37 remains the pistol. Historical results are retained.

@@ -11,7 +11,7 @@ per-member stats. Omitted overrides inherit the default member build. Write the 
 files first. Equipment must satisfy slot limits and any allowlists. Realistic mode rejects
 weapons and chips above the leek level, including default equipment; explicit
 free mode permits higher-level items.
-Use keys from leekscript-v1/weapons.json and chips.json. A selection is required
+Use `item` values from leekscript-v1/weapons.json (pistol: 37), and keys from chips.json (shock: 1). Replay actions use template IDs instead. A selection is required
 before test or submit. Successful selections create team.json, frozen with code
 and inherited by improvement branches. Fixed reference opponents use the default
 scenario team and equipment. Engine winners are sides 0 or 1, with -1 for draws.

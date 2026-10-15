@@ -71,8 +71,8 @@ class WebContractTests(unittest.TestCase):
         from arena_web.server import Application
         app = Application(self.store)
         catalog = app.get("/api/equipment", {})
-        self.assertEqual(catalog["weapons"]["1"]["name"], "pistol")
-        self.assertEqual(catalog["weapons"]["37"]["name"], "odachi")
+        self.assertEqual(catalog["weapons"]["37"]["name"], "pistol")
+        self.assertEqual(catalog["weapons"]["408"]["name"], "odachi")
         self.assertEqual(catalog["effects"]["1"], "Damage")
         self.assertGreater(len(catalog["chips"]), 100)
         document = app.get("/api/reference", {"document": ["api"]})

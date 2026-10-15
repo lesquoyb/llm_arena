@@ -84,11 +84,13 @@ class Preparation:
             section = arguments.get("section", "fight")
             if (not isinstance(test_id, str) or not re.fullmatch(r"call-[0-9]+-tool-[0-9]+", test_id)
                     or type(side) is not int or side not in (0, 1)
-                    or section not in {"fight", "team_metrics"}):
+                    or section not in {"fight", "team_metrics", "turn_metrics", "logs"}):
                 raise ArenaError("Invalid replay reference")
             base = self.directory / "tools" / f"{test_id}-side-{side}"
             cached = read_json(base / "cached.json")
             outcome = read_json(local_path(self.directory, cached["artifact_dir"]) / "outcome.json")
+            if section not in outcome:
+                raise ArenaError("This archive has no " + section + " section")
             text = json.dumps(outcome[section], ensure_ascii=False)
             offset, limit = arguments.get("offset", 0), arguments.get("limit", 4000)
             if type(offset) is not int or offset < 0 or type(limit) is not int or not 1 <= limit <= 16000:

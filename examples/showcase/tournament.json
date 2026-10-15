@@ -1,0 +1,83 @@
+{
+  "name": "Weapons, chips and summons showcase",
+  "seeds": [
+    101
+  ],
+  "include_mirrors": false,
+  "scenario": {
+    "team_size": 2,
+    "max_turns": 12,
+    "entity": {
+      "level": 100,
+      "life": 597,
+      "strength": 60,
+      "agility": 0,
+      "frequency": 100,
+      "tp": 16,
+      "mp": 4,
+      "cores": 5,
+      "ram": 6,
+      "weapons": [
+        37,
+        38
+      ],
+      "chips": [
+        1,
+        3,
+        8,
+        21,
+        73
+      ],
+      "wisdom": 60,
+      "resistance": 0,
+      "science": 60,
+      "magic": 0
+    },
+    "stats_mode": "realistic-v1",
+    "member_stats": [
+      {
+        "capital": {
+          "tp": 255,
+          "cores": 140,
+          "mp": 20,
+          "life": 50,
+          "strength": 30,
+          "wisdom": 30,
+          "science": 30
+        }
+      },
+      {
+        "capital": {
+          "tp": 255,
+          "cores": 140,
+          "mp": 20,
+          "life": 50,
+          "strength": 30,
+          "wisdom": 30,
+          "science": 30
+        }
+      }
+    ],
+    "map": {
+      "obstacles": {},
+      "team1": [
+        270,
+        305
+      ],
+      "team2": [
+        342,
+        377
+      ]
+    }
+  },
+  "strategies": [
+    {
+      "id": "showcase",
+      "path": "../strategies/feature-showcase"
+    },
+    {
+      "id": "sparring",
+      "path": "../strategies/showcase-sparring"
+    }
+  ]
+}

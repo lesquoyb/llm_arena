@@ -69,7 +69,8 @@ class MockProvider:
                     if "allowed_" + kind in rules:
                         member[kind] = [item for item in member[kind] if item in rules["allowed_" + kind]]
                         if not member[kind] and rules.get("max_" + kind, 3 if kind == "weapons" else 12):
-                            catalog = read_json(ROOT / "docs/leekscript-v1" / (kind + ".json"))
+                            from .equipment import catalog as equipment_catalog
+                            catalog = equipment_catalog(ROOT / "docs/leekscript-v1", kind)
                             eligible = [item for item in rules["allowed_" + kind]
                                         if str(item) in catalog and catalog[str(item)].get("level", 1) <= scenario["entity"]["level"]]
                             member[kind] = eligible[:1]

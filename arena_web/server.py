@@ -60,7 +60,8 @@ class Application:
                 if name.startswith("EFFECT_") and not name.startswith(("EFFECT_TARGET_", "EFFECT_MODIFIER_")):
                     effects.setdefault(str(int(float(value))), name.removeprefix("EFFECT_").replace("_", " ").title())
             from arena.stats import RULES
-            return {"stat_rules": RULES, "weapons": store.json(data / "weapons.json"), "chips": store.json(data / "chips.json"),
+            from arena.equipment import catalog
+            return {"stat_rules": RULES, "weapons": catalog(data, "weapons"), "chips": catalog(data, "chips"),
                     "effects": effects, "snapshot": store.json(data / "snapshot.json")["engine"]["lock"]["commit"]}
         if route == "/api/runs":
             return {"runs": store.listing(), "jobs": self.jobs.listing()}
@@ -87,7 +88,9 @@ class Application:
             from .replay import describe
             result = store.match(run, value("path"))
             if result["outcome"] and result["outcome"].get("fight"):
-                result["replay"] = describe(result["outcome"]["fight"])
+                from arena.equipment import catalog
+                data = ROOT / "docs/leekscript-v1"
+                result["replay"] = describe(result["outcome"]["fight"], {kind: catalog(data, kind) for kind in ("weapons", "chips")})
                 from .metrics import combat_stats
                 result["statistics"] = combat_stats(result["outcome"], result["scenario"])
             return result

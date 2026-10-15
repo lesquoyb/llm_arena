@@ -269,7 +269,7 @@ async function main() {
     );
     assert(await realisticStats.isChecked());
     const highLevelWeapon = page.locator(
-      '.equipment-picker[data-name="weapons"] .equipment-check[value="10"]',
+      '.equipment-picker[data-name="weapons"] .equipment-check[value="48"]',
     );
     const highLevelChip = page.locator(
       '.equipment-picker[data-name="chips"] .equipment-check[value="76"]',
@@ -288,9 +288,21 @@ async function main() {
       await page.locator('[name="member_0_strength"]').inputValue(),
       "50",
     );
-    await page.getByLabel("Level (all members)").fill("49");
+    await page
+      .getByText("Default equipment and custom map", { exact: true })
+      .click();
+    const defaultWeaponPicker = page.locator(
+      '.equipment-picker[data-name="weapons"]',
+    );
+    await defaultWeaponPicker.locator(":scope > summary").click();
+    await defaultWeaponPicker.locator('.equipment-check[value="38"]').check();
+    await defaultWeaponPicker.locator(":scope > summary").click();
+    await page
+      .getByText("Default equipment and custom map", { exact: true })
+      .click();
+    await page.getByLabel("Level (all members)").fill("7");
     await page.getByLabel("Level (all members)").press("Tab");
-    assert.equal(await page.locator('[name="weapons"]').inputValue(), "");
+    assert.equal(await page.locator('[name="weapons"]').inputValue(), "37");
     assert(
       (await page.locator("#equipment-removals").innerText()).includes(
         "Removed",
@@ -367,7 +379,7 @@ async function main() {
     await pistol.getByText("Effects", { exact: true }).waitFor();
     assert.equal(
       await page.locator('[name="team_allowed_weapons"]').inputValue(),
-      "1",
+      "37",
     );
     await page.screenshot({
       path: path.join(artifacts, "equipment-selector.png"),
@@ -415,7 +427,7 @@ async function main() {
     assert.equal(configured.scenario.stats_mode, "realistic-v1");
     assert.equal(configured.scenario.member_stats[0].capital.strength, 100);
     assert.equal(configured.scenario.member_stats[1].capital.wisdom, 100);
-    assert.deepEqual(configured.scenario.team_selection.allowed_weapons, [1]);
+    assert.deepEqual(configured.scenario.team_selection.allowed_weapons, [37]);
     assert.equal(configured.scenario.team_selection.max_chips, 0);
 
     await configRow.getByRole("button", { name: "Launch" }).click();
@@ -617,6 +629,27 @@ async function main() {
     );
     await page.getByRole("button", { name: "Matches", exact: true }).click();
     await page.locator("#replay-board circle").first().waitFor();
+    assert.equal(await page.locator('[data-summon="true"]').count(), 0);
+    assert(
+      !(await page.locator("#replay-entities").innerText()).includes(
+        "Fixture bulb",
+      ),
+    );
+    await page.locator("#replay-range").evaluate((n) => {
+      n.value = 6;
+      n.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    assert.equal(await page.locator('[data-summon="true"] rect').count(), 3);
+    assert(
+      (await page.locator("#replay-entities").innerText()).includes(
+        "Summon · Fixture bulb",
+      ),
+    );
+    await page.locator("#replay-range").evaluate((n) => {
+      n.value = 0;
+      n.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    assert.equal(await page.locator('[data-summon="true"]').count(), 0);
     await page.getByLabel("Metrics", { exact: false }).selectOption("compute");
     await page
       .locator(".combat-statistics th")

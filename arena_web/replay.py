@@ -23,7 +23,10 @@ def cell_position(identifier, width=18):
     return {"id": identifier, "x": (x - y) * 12, "y": (x + y) * 6}
 
 
-def describe(fight):
+def describe(fight, catalogs=None):
+    catalogs = catalogs or {}
+    templates = {kind: {int(row["template"]): row.get("name", str(row["template"]))
+                        for row in rows.values()} for kind, rows in catalogs.items()}
     width, height = fight.get("map", {}).get("width", 18), fight.get("map", {}).get("height", 18)
     names = {leek["id"]: leek.get("name", str(leek["id"])) for leek in fight.get("leeks", [])}
     turn, actor, events, unknown = 1, None, [], set()
@@ -52,10 +55,12 @@ def describe(fight):
             label = f"{names.get(action[1], action[1])} dies"
         elif code == 16 and len(action) > 2:
             label = f"{names.get(actor, actor)} shoots at cell {action[1]} (result {action[2]})"
+        elif code == 9 and len(action) > 4:
+            label = f"{names.get(action[1], action[1])} summons {names.get(action[2], action[2])} at cell {action[3]} (result {action[4]})"
         elif code == 12 and len(action) > 3:
-            label = f"{names.get(actor, actor)} uses chip {action[1]} on cell {action[2]}"
+            label = f"{names.get(actor, actor)} uses {templates.get('chips', {}).get(action[1], 'chip template ' + str(action[1]))} on cell {action[2]}"
         elif code == 13 and len(action) > 1:
-            label = f"{names.get(actor, actor)} equips weapon {action[1]}"
+            label = f"{names.get(actor, actor)} equips {templates.get('weapons', {}).get(action[1], 'weapon template ' + str(action[1]))}"
         events.append({"index": index, "turn": turn, "actor": actor, "code": code, "text": label, "raw": action})
     return {"cells": [cell_position(i, width) for i in range((2 * width - 1) * height - (width - 1))],
             "events": events, "unknown_codes": sorted(unknown),

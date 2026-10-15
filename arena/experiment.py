@@ -372,7 +372,7 @@ def initial_state(sid, model, config):
     return {"model": model["id"], "replicate": int(sid.split("-r")[-1].split("-")[0]),
             "generation": 0, "condition": "initial", "status": "running",
             "history": [{"role": "user", "content": PROMPT, "budgets": config["budget_per_session"],
-                         "scenario": config["scenario"], **({"team_instructions":
+                         "scenario": config["scenario"], "equipment_ids": {"weapons": "Use the item field in leekscript-v1/weapons.json (for example pistol = 37), not its object key or template", "chips": "Use the object key/id in leekscript-v1/chips.json (for example shock = 1); replay chip actions use template IDs"}, **({"team_instructions":
                          "Choose 1..scenario.team_size members using configure_team after writing their sources. "
                          "Each member can use a different entrypoint and equipment. Read the pinned equipment catalogs; "
                          "respect slot limits and allowlists; realistic mode also enforces equipment level. Stats follow scenario.stats_mode: per-member capital in realistic-v1 (no components), or raw stats in free mode. Omit to inherit default member builds. Read corpus/stat-rules.json. Configure the team before test or submit. "
