@@ -57,3 +57,11 @@ The [pinned reference](leekscript-v1/api.md) provides signatures and declared ba
 costs. Equipment data is in `weapons.json`, `chips.json` and `summons.json`.
 The [API guide](corpus/api-guide.md) explains the example functions. Unlisted
 behavior is not implied by a function name.
+
+
+For participant-built teams, `preview_build` calculates final stats from capital
+and `validate_team` checks the full proposed loadout without saving it. Scripts
+may be absent during the dry run; configure_team requires them. If
+`scenario.team_selection.require_capital` is true, provide capital for every
+member explicitly. The `llm-team` preset fixes levels at 300 and permits up to
+four members. Names, scripts, weapons and chips can differ per member.

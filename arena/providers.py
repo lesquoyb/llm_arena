@@ -74,6 +74,14 @@ class MockProvider:
                             eligible = [item for item in rules["allowed_" + kind]
                                         if str(item) in catalog and catalog[str(item)].get("level", 1) <= (scenario.get("member_stats") or [{}] * scenario["team_size"])[index].get("level", scenario["entity"]["level"])]
                             member[kind] = eligible[:1]
+            if rules.get("require_capital"):
+                from .stats import default_capital
+                for index, member in enumerate(members):
+                    spec = scenario["member_stats"][index]
+                    member["capital"] = spec.get("capital", default_capital(300))
+            if rules.get("require_capital"):
+                calls = [*calls, ("preview_build", {"capital": members[0]["capital"]}),
+                         ("validate_team", {"members": members})]
             calls = [*calls, ("configure_team", {"members": members})]
         return {"role": "assistant", "provider": "mock", "simulated": True, "sent_parameters": request, "request_sha256": digest(request),
                 "tool_calls": [{"name": name, "arguments": args} for name, args in calls],

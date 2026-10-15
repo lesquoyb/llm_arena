@@ -335,7 +335,7 @@ async function main() {
       leeks,
     };
     await page
-      .getByText("Import a public team snapshot", { exact: true })
+      .getByText("Refresh or replace the saved Dream team", { exact: true })
       .click();
     await page
       .getByLabel("Public team snapshot JSON", { exact: true })
@@ -372,6 +372,52 @@ async function main() {
       ) < 100,
       "Imported builds need useful slider ranges",
     );
+    await page
+      .getByRole("button", { name: "Simple duel · level 300", exact: true })
+      .click();
+    await page
+      .getByRole("button", { name: "Dream team · saved preset", exact: true })
+      .click();
+    await page
+      .locator('[name="member_3_level"]')
+      .waitFor({ state: "attached" });
+    assert.equal(
+      await page.locator('[name="member_0_level"]').inputValue(),
+      "301",
+    );
+    await page
+      .getByRole("button", { name: "LLM builds its team", exact: true })
+      .click();
+    await page.locator('[name="team_mode"]').waitFor();
+    assert.equal(
+      await page.locator('[name="team_mode"]').inputValue(),
+      "participant",
+    );
+    assert.equal(await page.locator('[name="team_size"]').inputValue(), "4");
+    assert.equal(
+      await page.locator('[name="member_0_level"]').inputValue(),
+      "300",
+    );
+    assert(await realisticStats.isChecked());
+    assert(
+      (await page.locator("#preset-status").innerText()).includes(
+        "validate_team",
+      ),
+    );
+    const teamPlanRequest = page.waitForRequest(
+      (request) =>
+        request.url().endsWith("/api/plan") && request.method() === "POST",
+    );
+    await page
+      .getByRole("button", { name: "Calculate schedule", exact: true })
+      .click();
+    const plannedTeam = (await teamPlanRequest).postDataJSON().config.scenario;
+    assert.equal(plannedTeam.team_selection.require_capital, true);
+    assert.equal(plannedTeam.preset, "llm-team");
+    await page
+      .locator("#plan-preview")
+      .getByText("Conversations", { exact: true })
+      .waitFor();
     await page
       .getByRole("button", { name: "Simple duel · level 300", exact: true })
       .click();

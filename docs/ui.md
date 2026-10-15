@@ -303,33 +303,64 @@ overspending, which is rejected on save. Equipment capacity and level checks use
 each individual member's build. Both sides receive the same default roster;
 participant-selected teams can still choose different builds under the shared rules.
 
-**Dream team · public ranking** reads the current public active team ranking,
-then imports the highest-talent four-leek composition of the first ranked team
-with a public four-leek composition (search bounded to the first ten teams).
-It retrieves each leek's public profile and preserves actual levels (including
-301), published final stats, item IDs and item order. Missing stats, private
-loadouts, non-player chips and equipment absent from the pinned engine cause a
-visible error; no substitute or invented team is used. The current roster remains
-intact if import fails.
+**Dream team · saved preset** loads a fixed local roster. Selecting it never
+contacts LeekWars. The bundled file is `data/presets/dream-team.json`; a manual
+refresh/import creates a local override in `.arena/ui/dream-team-preset.json`.
+Every competition freezes its own copy, so refreshing never changes an existing run.
 
-Imports use free stats because public totals can include components and cannot
-be represented faithfully as a capital-only build. Component stat bonuses are
-included once through these totals; component objects, alterations and additional
-component-specific mechanics are not imported. This is a snapshot of published
-builds, not a copy of their private combat scripts. Every participant still writes
-its own strategies. The original public payload, retrieval date, ranking entry
-and snapshot hash are saved with the competition for reproducibility.
+The one-time development fetch and the optional **Refetch current top farmer**
+button use the current public active farmer talent ranking, not the ranking of
+teams/compositions. The first farmer is looked up dynamically. Four public leeks
+are selected by talent, then level and ID if ties need resolving. Today the user
+observed farmer 512 with leeks 599, 881, 1549 and 11942; these identifiers are not
+hardcoded in the fetcher. Fewer than four public leeks causes an explicit error.
+The farmer endpoint wraps its profile in `farmer`; the importer unwraps it.
 
-The server running the UI needs HTTPS access to `leekwars.com`. If cloud access is
-blocked, run this locally in the activated Python environment:
+The snapshot preserves real levels (including 301), published final stats, item
+IDs and item order. Imports use free stats because public totals can include
+components. Component stat bonuses are included once; component objects,
+alterations and additional component-specific mechanics are not imported. These
+are public builds, not private combat scripts. Missing stats, private loadouts,
+non-player chips or unsupported equipment abort the import and retain the old preset.
+The original payload, date, ranking entry, selected IDs and hash are saved.
+
+To populate the bundled preset once during development, run where LeekWars is
+reachable (the cloud currently receives HTTP 403):
 
 ```sh
-python scripts/import_dream_team.py --out runs/dream-team-public.json
+python scripts/import_dream_team.py --save-preset
 ```
 
-Open **Import a public team snapshot** in the scenario panel and paste the saved
-JSON. This performs the same validation without fetching the ranking again.
-Public API changes or hidden loadouts may prevent import and require an update.
+An existing snapshot can be frozen without another request:
+
+```sh
+python scripts/import_dream_team.py --snapshot dream-team-public.json --save-preset
+```
+
+Commit the resulting data file. **Refresh or replace the saved Dream team** in
+the UI permits an explicit refresh or a pasted JSON snapshot for a local override.
+Until a real snapshot is supplied, the bundled file records the missing data and
+source policy; it does not contain an invented team.
+
+**LLM builds its team** is the third preset. Each participant chooses 1–4 leeks,
+all level 300, with an explicit capital allocation for each member. It chooses
+names, scripts, weapons and chips. Each member has 1,680 capital; RAM controls
+chip slots, the level permits four weapons, and non-player items remain forbidden.
+This realistic builder supports base stats plus capital, without components or
+alterations. The visible default roster supplies fixed reference opponents; it
+is not forced onto participant submissions.
+
+The LLM receives two read-only tools, available through native APIs and MCP:
+
+- `preview_build({capital, member_index?})` returns final stats, remaining
+  capital, equipment slots and the cost of the next stat increases.
+- `validate_team({members})` checks the complete draft and reports errors.
+  Scripts need not exist yet; missing entrypoints are reported separately.
+
+It then writes the scripts, calls `configure_team` to save the validated build,
+and uses `analyze`/`test` against the real engine. `configure_team`, test and
+submission repeat validation, so skipping a preview cannot bypass the rules.
+No inherited capital or raw-stat overrides are accepted in this preset.
 
 Matches above 64 turns use the arena's documented engine build extension:
 `engine/leekscript.init.gradle` compiles a source overlay with a 1,000-turn event

@@ -155,7 +155,7 @@ def validate_scenario(config: dict):
     unknown = set(config) - {"team_size", "max_turns", "entity", "map", "team_selection", "stats_mode", "member_stats", "preset", "source"}
     if unknown:
         raise ArenaError(f"Unsupported scenario fields: {sorted(unknown)}")
-    if config.get("preset") is not None and config["preset"] not in ("simple", "dream-team", "custom"):
+    if config.get("preset") is not None and config["preset"] not in ("simple", "dream-team", "llm-team", "custom"):
         raise ArenaError("Unknown scenario preset")
     source = config.get("source")
     if source is not None and (not isinstance(source, dict) or not isinstance(source.get("snapshot"), dict)
@@ -186,6 +186,13 @@ def validate_scenario(config: dict):
     validate_player_chips(entity.get("chips", []))
     from .stats import validate_stats
     validate_stats(config)
+    if config.get("preset") == "llm-team":
+        rules = config.get("team_selection") or {}
+        if (config.get("stats_mode") != "realistic-v1" or config["team_size"] > 4
+                or config.get("entity", {}).get("level") != 300
+                or any(m.get("level", 300) != 300 for m in config.get("member_stats", []))
+                or not rules.get("require_capital") or rules.get("mode") != "participant"):
+            raise ArenaError("LLM team preset requires 1–4 members at level 300, realistic stats and explicit per-member capital")
     if config.get("map") is not None:
         m = config["map"]
         if not isinstance(m, dict) or set(m) - {"obstacles", "team1", "team2"}:
@@ -236,7 +243,7 @@ def make_scenario(config: dict, entries: list[str], seed: int, teams=None) -> di
             {**config["entity"], **member_stats(config, i, member),
              "level": defaults[i].get("level", config["entity"]["level"]), "weapons": member["weapons"], "chips": member["chips"],
              "id": side * config["team_size"] + i + 1,
-             "name": f"Side {owner} / {defaults[i].get('name', i + 1)}", "type": 1, "farmer": owner,
+             "name": f"Side {owner} / {i + 1}" + (f" · {member.get('name', defaults[i].get('name'))}" if member.get('name', defaults[i].get('name')) else ""), "type": 1, "farmer": owner,
              "team": owner, "ai": member["entrypoint"], "ai_version": 4}
             for i, member in enumerate(members)
         ])

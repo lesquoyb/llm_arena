@@ -33,13 +33,13 @@ class Application:
             engine = {"ready": True, "identity": Engine().identity}
         except (ArenaError, OSError) as error:
             engine = {"ready": False, "error": str(error)}
-        from arena.presets import simple_scenario
+        from arena.presets import simple_scenario, participant_scenario
         demo = self.store.json(ROOT / "configs/offline-complete.json")
         config = {**demo, "name": "New competition", "scenario": simple_scenario()}
         return {"token": self.token, "participants": self.store.participants(),
                 "drafts": self.store.drafts(), "runs": self.store.listing(), "jobs": self.jobs.listing(),
                 "profiles": list(PROFILES), "engine": engine,
-                "default_config": config, "demo_config": demo}
+                "default_config": config, "demo_config": demo, "participant_scenario": participant_scenario()}
 
     def get(self, route, query):
         value = lambda key, default=None: query.get(key, [default])[0]
@@ -116,8 +116,17 @@ class Application:
             key = secret or self.store.secrets.get(key_name) or os.environ.get(key_name)
             return list_models(data.get("provider"), key, data.get("endpoint"))
         if route == "/api/dream-team":
-            from arena.public_teams import fetch_snapshot, scenario_from_snapshot
-            return {"scenario": scenario_from_snapshot(data.get("snapshot") or fetch_snapshot())}
+            from arena.presets import dream_team_scenario, save_dream_team
+            from arena.public_teams import fetch_snapshot
+            if set(data) - {"refresh", "snapshot"} or ("refresh" in data and type(data["refresh"]) is not bool):
+                raise ArenaError("Invalid Dream team refresh request")
+            cache = self.store.state / "dream-team-preset.json"
+            if data.get("refresh") or "snapshot" in data:
+                snapshot = data["snapshot"] if "snapshot" in data else fetch_snapshot()
+                with self.store.lock:
+                    scenario = save_dream_team(snapshot, cache)
+                return {"scenario": scenario}
+            return {"scenario": dream_team_scenario(cache if cache.exists() else None)}
         if route == "/api/participant":
             return self.store.save_participant(data["spec"], data.get("secret"))
         if route == "/api/participant/delete":

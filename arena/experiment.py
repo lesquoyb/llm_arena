@@ -374,8 +374,8 @@ def initial_state(sid, model, config):
             "history": [{"role": "user", "content": PROMPT, "budgets": config["budget_per_session"],
                          "scenario": config["scenario"], "equipment_ids": {"weapons": "Use the item field in leekscript-v1/weapons.json (for example pistol = 37), not its object key or template", "chips": "Use the object key/id in leekscript-v1/chips.json (for example shock = 1); replay chip actions use template IDs"}, **({"team_instructions":
                          "Choose 1..scenario.team_size members using configure_team after writing their sources. "
-                         "Each member can use a different entrypoint and equipment. Read the pinned equipment catalogs; "
-                         "respect slot limits and allowlists; realistic mode also enforces equipment level. Stats follow scenario.stats_mode: per-member capital in realistic-v1 (no components), or raw stats in free mode. Omit to inherit default member builds. Read corpus/stat-rules.json. Configure the team before test or submit. "
+                         "Each member can use a different entrypoint and equipment. Use preview_build to calculate final stats and costs, then validate_team to check the complete draft without changing files. Read the pinned equipment catalogs; "
+                         "respect slot limits and allowlists; realistic mode also enforces equipment level. Stats follow scenario.stats_mode: per-member capital in realistic-v1 (no components), or raw stats in free mode. When require_capital is true you must explicitly allocate capital for every member; raw stats and inherited allocations are not accepted. Otherwise omit to inherit default member builds. Read corpus/stat-rules.json. Configure the team before test or submit. "
                          "Improvements inherit team.json and may revise it with the same tool."}
                          if config["scenario"].get("team_selection") else {})}],
             "calls": 0, "steps": 0, "test_matches": 0, "wall_seconds": 0,

@@ -968,7 +968,7 @@ function competitionEditor() {
       ],
       String(c.generations || 1),
     )}</div><h3 class="section-label">Selected participants</h3>${S.choiceModels.map((m) => `<label class="choice"><input type="checkbox" name="participant" value="${e(m.id)}" ${c.models.some((v) => v.id === m.id) ? "checked" : ""}><span><strong>${e(m.id)}</strong><small>${e(m.provider)} · ${e(m.model || m.profile)}</small></span></label>`).join("")}${btn("Manage profiles", "go", 'data-view="participants"')}</section>
- <section class="panel"><h2>Scenario</h2><div class="scenario-presets">${btn("Simple duel · level 300", "preset-simple")}${btn("Dream team · public ranking", "preset-dream")}</div><p id="preset-status" role="status" class="muted">${c.scenario.source ? `Based on public team · original snapshot ${e(c.scenario.source.snapshot_sha256.slice(0, 12))}. The roster below can be edited. Component stat bonuses are included in published totals; component-specific mechanics are not imported.` : "Starting preset: one level-300 gunner per team, direct-damage weapons, no chips. Edit each character independently below."}</p>${c.scenario.source ? raw(c.scenario.source, "Public source and frozen snapshot") : ""}<details><summary>Import a public team snapshot</summary><p class="muted">Use scripts/import_dream_team.py on a machine with access to leekwars.com, then paste its snapshot JSON here.</p><textarea id="dream-snapshot" class="mono" aria-label="Public team snapshot JSON" rows="4"></textarea>${btn("Import snapshot", "preset-dream-json")}</details></section><section class="panel"><h2>Match rules</h2><p class="muted">Default member builds and team-building rules are shared. Matches alternate sides. Both sides use the same roster; every member can have different equipment.</p><div class="form-grid">${selectField(
+ <section class="panel"><h2>Scenario</h2><div class="scenario-presets">${btn("Simple duel · level 300", "preset-simple")}${btn("Dream team · saved preset", "preset-dream")}${btn("LLM builds its team", "preset-llm")}</div><p id="preset-status" role="status" class="muted">${c.scenario.source ? `Based on public team · original snapshot ${e(c.scenario.source.snapshot_sha256.slice(0, 12))}. The roster below can be edited. Component stat bonuses are included in published totals; component-specific mechanics are not imported.` : c.scenario.preset === "llm-team" ? "Each LLM chooses 1–4 level-300 leeks, individual scripts, capital allocations, weapons and chips. preview_build and validate_team check the official capital-only rules. The roster below is for fixed reference opponents." : "Starting preset: one level-300 gunner per team, direct-damage weapons, no chips. Edit each character independently below."}</p>${c.scenario.source ? raw(c.scenario.source, "Public source and frozen snapshot") : ""}<details><summary>Refresh or replace the saved Dream team</summary>${btn("Refetch current top farmer", "preset-dream-refresh")}<p class="muted">Only this button reads the current farmer ranking and fetches four leeks of its first player. The saved preset is reused until an explicit refresh; existing competitions keep their frozen roster.</p><p class="muted">Use scripts/import_dream_team.py on a machine with access to leekwars.com, then paste its snapshot JSON here.</p><textarea id="dream-snapshot" class="mono" aria-label="Public team snapshot JSON" rows="4"></textarea>${btn("Import snapshot", "preset-dream-json")}</details></section><section class="panel"><h2>Match rules</h2><p class="muted">Default member builds and team-building rules are shared. Matches alternate sides. Both sides use the same roster; every member can have different equipment.</p><div class="form-grid">${selectField(
    "Team setup",
    "team_mode",
    [
@@ -1007,10 +1007,12 @@ function readCompetition(form) {
   base.scenario.team_size = n("team_size");
   base.scenario.max_turns = n("max_turns");
   if (f.get("team_mode") === "participant") {
+    const explicitCapital = base.scenario.team_selection?.require_capital;
     base.scenario.team_selection = {
       mode: "participant",
       max_weapons: n("team_max_weapons"),
       max_chips: n("team_max_chips"),
+      ...(explicitCapital ? { require_capital: true } : {}),
     };
     for (const kind of ["weapons", "chips"]) {
       if (String(f.get("team_allowed_" + kind) || "").trim())
@@ -1891,20 +1893,28 @@ document.addEventListener("click", async (event) => {
     } else if (
       a === "preset-simple" ||
       a === "preset-dream" ||
-      a === "preset-dream-json"
+      a === "preset-dream-json" ||
+      a === "preset-dream-refresh" ||
+      a === "preset-llm"
     ) {
       const config = readCompetition($("#competition-form"));
       node.disabled = true;
       try {
         if (a === "preset-simple")
           config.scenario = structuredClone(S.boot.default_config.scenario);
+        else if (a === "preset-llm")
+          config.scenario = structuredClone(S.boot.participant_scenario);
         else {
           $("#preset-status").textContent =
-            "Reading the public ranking and four public leek profiles…";
+            a === "preset-dream-refresh"
+              ? "Refreshing the saved public team…"
+              : "Loading the saved Dream team preset…";
           const args =
             a === "preset-dream-json"
               ? { snapshot: JSON.parse($("#dream-snapshot").value) }
-              : {};
+              : a === "preset-dream-refresh"
+                ? { refresh: true }
+                : {};
           config.scenario = (await api("/api/dream-team", args, true)).scenario;
         }
         S.editConfig = config;

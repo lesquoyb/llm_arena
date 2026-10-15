@@ -10,8 +10,11 @@ def validate_rules(scenario):
     if rules is None:
         return
     if (not isinstance(rules, dict) or rules.get("mode") != "participant"
-            or set(rules) - {"mode", "max_weapons", "max_chips", "allowed_weapons", "allowed_chips"}):
+            or set(rules) - {"mode", "max_weapons", "max_chips", "allowed_weapons", "allowed_chips", "require_capital"}):
         raise ArenaError("Invalid participant team rules")
+    if "require_capital" in rules and (type(rules["require_capital"]) is not bool or
+                                        (rules["require_capital"] and scenario.get("stats_mode") != "realistic-v1")):
+        raise ArenaError("Explicit capital requires realistic stats")
     for kind, default in (("weapons", 3), ("chips", 12)):
         integer(rules.get("max_" + kind, default), 0, 32, "max_" + kind)
         allowed = rules.get("allowed_" + kind)
@@ -34,8 +37,12 @@ def validate_team(team, scenario=None, files=None, data=None):
         raise ArenaError(f"Team must contain 1 to {maximum} members")
     rules = (scenario or {}).get("team_selection") or {}
     for index, member in enumerate(members):
-        if not isinstance(member, dict) or not {"entrypoint", "weapons", "chips"} <= set(member) or set(member) - {"entrypoint", "weapons", "chips", "capital", "stats"}:
+        if not isinstance(member, dict) or not {"entrypoint", "weapons", "chips"} <= set(member) or set(member) - {"entrypoint", "weapons", "chips", "capital", "stats", "name"}:
             raise ArenaError("Each member needs entrypoint, weapons and chips")
+        if rules.get("require_capital") and "capital" not in member:
+            raise ArenaError("Choose an explicit capital allocation for every member")
+        if "name" in member and (not isinstance(member["name"], str) or not 1 <= len(member["name"]) <= 80):
+            raise ArenaError("Member name must contain 1 to 80 characters")
         from .stats import member_stats, STATS
         for key in ("capital", "stats"):
             if key in member and (not isinstance(member[key], dict) or set(member[key]) - set(STATS)
@@ -73,3 +80,46 @@ def validate_team(team, scenario=None, files=None, data=None):
             from .equipment import validate_loadout
             validate_loadout(level, values, member['weapons'], member['chips'])
     return team
+
+
+def build_preview(scenario, index, capital):
+    from .stats import realistic_stats, total_capital, RULES
+    integer(index, 0, scenario['team_size'] - 1, 'member index')
+    if scenario.get('stats_mode') != 'realistic-v1':
+        raise ArenaError('Capital previews require realistic stats')
+    spec = (scenario.get('member_stats') or [{}] * scenario['team_size'])[index]
+    level = spec.get('level', scenario['entity']['level'])
+    stats = realistic_stats(level, capital)
+    next_costs = {}
+    for key, value in stats.items():
+        base = RULES['base'].get(key, 0) + ((level - 1) * 3 if key == 'life' else 0)
+        step = next(s for s in reversed(RULES['costs'][key]) if value - base >= s['step'])
+        used, bonus = 0, 0
+        while bonus < value - base:
+            previous = next(s for s in reversed(RULES['costs'][key]) if bonus >= s['step'])
+            used += previous['capital']
+            bonus += previous['sup']
+        unused = capital.get(key, 0) - used
+        next_costs[key] = {'stat_increase': step['sup'], 'capital_cost': step['capital'] - unused,
+                           'unspent_in_allocation': unused}
+    return {'level': level, 'stats': stats, 'capital': capital, 'spent': sum(capital.values()),
+            'available': total_capital(level), 'remaining': total_capital(level) - sum(capital.values()),
+            'weapon_slots': 2 if level < 100 else 3 if level < 200 else 4,
+            'chip_slots': stats['ram'], 'next_increases': next_costs,
+            'scope': 'Base stats plus capital; no components or alterations.'}
+
+
+def team_preview(team, scenario, files, check_sources=False):
+    from .stats import member_stats, default_capital
+    members = []
+    for index, member in enumerate(team['members']):
+        spec = (scenario.get('member_stats') or [{}] * scenario['team_size'])[index]
+        level = spec.get('level', scenario['entity']['level'])
+        report = (build_preview(scenario, index, member.get('capital', spec.get('capital', default_capital(level))))
+                  if scenario.get('stats_mode') == 'realistic-v1' else
+                  {'level': level, 'stats': member_stats(scenario, index, member)})
+        members.append({**report, 'entrypoint': member['entrypoint'], 'weapons': member['weapons'],
+                        'chips': member['chips'], 'source_exists': member['entrypoint'] in files})
+    return {'valid': True, 'members': members, 'maximum_members': scenario['team_size'],
+            'source_files_checked': check_sources,
+            'missing_entrypoints': [m['entrypoint'] for m in members if not m['source_exists']]}

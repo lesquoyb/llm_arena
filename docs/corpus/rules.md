@@ -67,3 +67,19 @@ popcorn. Source: https://leekwars.com/encyclopedia/en/Chips and the pinned
 `FightConstants.java` comments identifying plant abilities as unobtainable.
 Apocalypse's range 0 is a self-targeting launch range; AREA_ENEMIES then applies
 instant death to enemies across the map. It is a boss ability, not player equipment.
+
+
+## Participant-designed teams
+
+The `llm-team` preset permits 1–4 leeks at level 300, with 1,680 capital per leek.
+`scenario.team_selection.require_capital` requires an explicit `capital` object
+for every member; omitted allocations and raw `stats` are rejected. Names are
+optional, scripts and equipment are selected individually. These builds use
+base stats plus capital, without components or alterations.
+
+Use `preview_build` to calculate final stats, equipment slots and remaining
+capital before writing code. Use `validate_team` to check a full proposed team
+without changing files. It may report missing scripts while still validating the
+configuration. Write those scripts, then call `configure_team`; this repeats
+validation and requires existing sources. `analyze`, `test` and `submit` use the
+saved team. All requests and validation results are recorded in the conversation.

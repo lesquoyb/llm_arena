@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "status": "awaiting-public-snapshot",
+  "source_url": "https://leekwars.com/ranking/farmer/talent",
+  "selection_policy": "First farmer in the current public talent ranking; four highest-talent public leeks",
+  "user_observation": {"farmer_id": 512, "leek_ids": [599, 881, 1549, 11942]},
+  "reason": "Public LeekWars access returns HTTP 403 in the development environment. No team data has been invented."
+}

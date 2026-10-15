@@ -71,8 +71,26 @@ class Preparation:
             tmp.write_bytes(encoded)
             tmp.replace(path)
             return {"sha256": file_hash(path)}
+        if name == "preview_build":
+            from .teams import build_preview
+            self._fields(arguments, {"capital", "member_index"})
+            try:
+                return {"valid": True, **build_preview(self.scenario, arguments.get("member_index", 0), arguments.get("capital"))}
+            except ArenaError as error:
+                return {"valid": False, "errors": [str(error)]}
+        if name == "validate_team":
+            from .teams import validate_team, team_preview
+            from .core import source_files
+            self._fields(arguments, {"members"})
+            if not self.scenario.get("team_selection"):
+                raise ArenaError("Participant teams are disabled for this competition")
+            try:
+                team = validate_team(arguments, self.scenario, None, self.docs / "leekscript-v1")
+                return team_preview(team, self.scenario, {p.relative_to(self.workspace).as_posix() for p in self.workspace.rglob("*.leek") if p.is_file()})
+            except ArenaError as error:
+                return {"valid": False, "errors": [str(error)]}
         if name == "configure_team":
-            from .teams import TEAM_FILE, validate_team
+            from .teams import TEAM_FILE, validate_team, team_preview
             from .core import source_files
             self._fields(arguments, {"members"})
             if not self.scenario.get("team_selection"):
@@ -80,7 +98,8 @@ class Preparation:
             team = validate_team(arguments, self.scenario, source_files(self.workspace), self.docs / "leekscript-v1")
             write_json(self.workspace / TEAM_FILE, team)
             return {"path": TEAM_FILE, "content": (self.workspace / TEAM_FILE).read_text(encoding="utf-8"),
-                    "sha256": file_hash(self.workspace / TEAM_FILE), "team": team}
+                    "sha256": file_hash(self.workspace / TEAM_FILE), "team": team,
+                    "validation": team_preview(team, self.scenario, source_files(self.workspace), check_sources=True)}
         if name == "read_replay":
             self._fields(arguments, {"test_id", "side", "section", "offset", "limit"})
             test_id = arguments["test_id"]
