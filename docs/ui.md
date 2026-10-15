@@ -275,7 +275,9 @@ The participant equipment caps are additional competition restrictions, not
 substitutes for these limits. Default equipment must fit every default member;
 participant-selected equipment uses each member's own resulting RAM.
 
-The full engine catalog can contain special items that are not established as
-obtainable player equipment. Apocalypse (418) is marked as such and disabled in
-realistic mode. Free mode allows deliberate experiments with it. Its level 1
-entry is not evidence that an online player can buy it.
+Boss/internal chips (411–419, 425) and summon-only abilities (444–447) are
+excluded from player loadouts in every mode, including free mode. They are hidden
+from selectors and the model-facing chips catalog. Existing configurations using
+them must be edited before launching again; they cannot bypass validation by
+setting an allowlist or using participant-selected teams. The upstream data
+remains intact so native summons and historical replay labels continue to work.

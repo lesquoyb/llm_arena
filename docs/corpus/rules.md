@@ -52,10 +52,17 @@ thresholds), `src/component/leek/leek.vue` (chip count compared to `total_ram`)
 and `src/component/leek/loadout-dialog.vue` (loadout validation), at commit
 `2d1969d3339d0ac1dc0ba6bc239b66ec2691f6e9`.
 
-The generator catalog is not a list of obtainable player items. Apocalypse (418)
-is an exceptional example: level 1 is engine metadata, not proof of market
-availability. In this snapshot it costs 5 AP, has one use per turn and applies
-instant death over AREA_ENEMIES. It does not kill the caster. Player obtainability
-has not been verified, so the arena excludes it from realistic builds and marks
-it as special in the equipment selector; it remains usable in explicit free mode.
-This exception is not a complete audit of every catalog item's obtainability.
+The generator catalog also contains boss/internal chips (411–419 and 425) and
+summon-only abilities (444–447). These are not player equipment and are excluded
+from every arena loadout, including free mode, participant teams and competition
+allowlists. They are absent from the equipment selectors and the chips catalog
+returned by `read_docs`. Raw upstream files are retained for engine integrity,
+native summon abilities and historical replay decoding; reading a constant in
+the raw API reference does not make that item legal to equip.
+
+Excluded names: shuriken, kemuridama, fire_ball, trebuchet, awakening, thunder,
+kill, apocalypse, divine_protection, exasperation, piquant, capsaicin, sugar,
+popcorn. Source: https://leekwars.com/encyclopedia/en/Chips and the pinned
+`FightConstants.java` comments identifying plant abilities as unobtainable.
+Apocalypse's range 0 is a self-targeting launch range; AREA_ENEMIES then applies
+instant death to enemies across the map. It is a boss ability, not player equipment.

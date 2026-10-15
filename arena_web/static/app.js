@@ -633,7 +633,7 @@ function equipmentPicker(label, name, kind, ids, allowlist = false) {
     )
     .join(
       "",
-    )}</div><small class="equipment-level-status" role="status"></small><small>Complete catalog · pinned engine ${e(S.equipment?.snapshot?.slice(0, 12))}. <a href="#view=help" target="_blank" rel="noopener">Equipment and API guide</a></small></div></details></div>`;
+    )}</div><small class="equipment-level-status" role="status"></small><small>Player equipment catalog · pinned engine ${e(S.equipment?.snapshot?.slice(0, 12))}. <a href="#view=help" target="_blank" rel="noopener">Equipment and API guide</a></small></div></details></div>`;
 }
 function updateEquipmentLevels() {
   const form = $("#competition-form");
@@ -674,8 +674,8 @@ function updateEquipmentLevels() {
       status.textContent = `Removed ineligible items at level ${level}: ${removed.join(", ")}.`;
     else if (!status.textContent.startsWith("Removed"))
       status.textContent = limited
-        ? `Items above level ${level} and special engine items are locked in realistic mode.`
-        : "Free mode: all catalog levels are selectable.";
+        ? `Items above level ${level} are locked in realistic mode. Boss and summon-only chips are excluded in every mode.`
+        : "Free mode: all player-equipment levels are selectable. Boss and summon-only chips remain excluded.";
   }
   if (allRemoved.length) {
     const warning = $("#equipment-removals", form);
@@ -1642,7 +1642,7 @@ function helpPage() {
       ],
       [
         "Team building and equipment",
-        "Shared mode fixes the team and equipment for all participants. Participant mode lets each model choose up to the maximum team size, a script per member, weapons and chips. Members can have different stats; realistic mode validates each capital allocation. Allowlists, slots and member level restrict equipment. In realistic mode, RAM also sets chip capacity; weapon capacity is 2 below level 100, 3 below 200, then 4. Competition caps can only reduce these capacities. Successful configure_team calls create team.json versions, inherited by improvement branches. The item selector shows the full pinned catalog; items above the leek level are locked in realistic mode. Weapon IDs use the catalog item field; chip IDs use catalog keys. Replay events use template IDs.",
+        "Shared mode fixes the team and equipment for all participants. Participant mode lets each model choose up to the maximum team size, a script per member, weapons and chips. Members can have different stats; realistic mode validates each capital allocation. Allowlists, slots and member level restrict equipment. In realistic mode, RAM also sets chip capacity; weapon capacity is 2 below level 100, 3 below 200, then 4. Competition caps can only reduce these capacities. Successful configure_team calls create team.json versions, inherited by improvement branches. The item selector shows the pinned player equipment catalog; items above the leek level are locked in realistic mode. Weapon IDs use the catalog item field; chip IDs use catalog keys. Replay events use template IDs.",
       ],
       [
         "Costs and tokens",

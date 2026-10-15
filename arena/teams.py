@@ -20,6 +20,9 @@ def validate_rules(scenario):
                 raise ArenaError("Equipment allowlists must contain unique IDs")
             for item in allowed:
                 integer(item, 1, 100000, kind)
+            if kind == "chips":
+                from .equipment import validate_player_chips
+                validate_player_chips(allowed)
 
 
 def validate_team(team, scenario=None, files=None, data=None):
@@ -63,6 +66,8 @@ def validate_team(team, scenario=None, files=None, data=None):
                         raise ArenaError(f"Unknown {kind} ID: {item}")
                     if scenario and scenario.get("stats_mode") != "free" and catalog[str(item)].get("level", 1) > scenario["entity"]["level"]:
                         raise ArenaError(f"{kind} ID {item} requires a higher level")
+        from .equipment import validate_player_chips
+        validate_player_chips(member["chips"])
         if scenario and scenario.get('stats_mode') == 'realistic-v1':
             from .equipment import validate_loadout
             validate_loadout(scenario['entity']['level'], values, member['weapons'], member['chips'])

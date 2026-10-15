@@ -126,7 +126,7 @@ class EquipmentCapacityTests(unittest.TestCase):
                 validate_loadout(level, {'ram': 6}, list(range(slots + 1)), [])
         with self.assertRaisesRegex(ArenaError, 'RAM 6'):
             validate_loadout(100, {'ram': 6}, [], list(range(7)))
-        with self.assertRaisesRegex(ArenaError, 'Special engine item'):
+        with self.assertRaisesRegex(ArenaError, 'not player equipment'):
             validate_loadout(100, {'ram': 6}, [], [418])
 
     def test_default_and_selected_teams_enforce_each_members_ram(self):

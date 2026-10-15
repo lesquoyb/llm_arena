@@ -46,6 +46,10 @@ class Preparation:
             self._fields(arguments, {"path", "offset", "limit"})
             root = self.docs if name == "read_docs" else self.workspace
             text = local_path(root, arguments["path"]).read_text(encoding="utf-8")
+            if name == "read_docs" and local_path(root, arguments["path"]) == root / "leekscript-v1/chips.json":
+                from .equipment import SPECIAL_CHIPS
+                text = json.dumps({key: row for key, row in json.loads(text).items()
+                                   if int(key) not in SPECIAL_CHIPS}, ensure_ascii=False, indent=2)
             offset, limit = arguments.get("offset", 0), arguments.get("limit", 4000)
             if type(offset) is not int or offset < 0 or type(limit) is not int or not 1 <= limit <= 16000:
                 raise ArenaError("Invalid page")

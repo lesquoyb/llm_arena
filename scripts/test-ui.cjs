@@ -370,9 +370,10 @@ async function main() {
     const specialChip = page.locator(
       '.equipment-picker[data-name="team_allowed_chips"] .equipment-check[value="418"]',
     );
-    assert(
-      await specialChip.isDisabled(),
-      "Apocalypse must be unavailable in realistic mode",
+    assert.equal(
+      await specialChip.count(),
+      0,
+      "Boss chips must be absent from selectors",
     );
     await page.getByLabel("Competition weapon cap per member").fill("1");
     await page.getByLabel("Competition chip cap per member").fill("0");

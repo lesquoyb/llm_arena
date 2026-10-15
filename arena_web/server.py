@@ -90,7 +90,7 @@ class Application:
             if result["outcome"] and result["outcome"].get("fight"):
                 from arena.equipment import catalog
                 data = ROOT / "docs/leekscript-v1"
-                result["replay"] = describe(result["outcome"]["fight"], {kind: catalog(data, kind) for kind in ("weapons", "chips")})
+                result["replay"] = describe(result["outcome"]["fight"], {kind: catalog(data, kind, include_special=True) for kind in ("weapons", "chips")})
                 from .metrics import combat_stats
                 result["statistics"] = combat_stats(result["outcome"], result["scenario"])
             return result

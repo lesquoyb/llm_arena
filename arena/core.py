@@ -176,6 +176,8 @@ def validate_scenario(config: dict):
             low = 1 if key in {"level", "life", "cores", "ram"} else 0
             high = 50 if key == "ram" else 100 if key == "cores" else 100000
             integer(value, low, high, key)
+    from .equipment import validate_player_chips
+    validate_player_chips(entity.get("chips", []))
     from .stats import validate_stats
     validate_stats(config)
     if config.get("map") is not None:

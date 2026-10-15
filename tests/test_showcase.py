@@ -50,21 +50,50 @@ class ShowcaseTests(unittest.TestCase):
             self.assertTrue(page['truncated'])
             self.assertEqual(page['next_offset'], 4)
 
-    def test_apocalypse_kills_enemies_without_killing_caster_in_free_mode(self):
+    def test_special_chips_rejected_in_all_modes(self):
         import copy
-        from arena.core import DEFAULT_SCENARIO, submission
+        from arena.core import ArenaError, DEFAULT_SCENARIO, validate_scenario
+        from arena.equipment import SPECIAL_CHIPS
+        for mode in (None, 'free', 'realistic-v1'):
+            for chip in SPECIAL_CHIPS:
+                scenario = copy.deepcopy(DEFAULT_SCENARIO)
+                if mode:
+                    scenario['stats_mode'] = mode
+                scenario['entity']['chips'] = [chip]
+                with self.subTest(mode=mode, chip=chip), self.assertRaisesRegex(ArenaError, 'not player equipment'):
+                    validate_scenario(scenario)
+
+    def test_special_chips_hidden_from_selectors_and_model_catalog(self):
+        import json
+        from arena.equipment import SPECIAL_CHIPS
+        items = catalog(ROOT / 'docs/leekscript-v1', 'chips')
+        self.assertFalse(set(map(str, SPECIAL_CHIPS)) & items.keys())
         with scratch_directory() as tmp:
-            source = tmp / 'source'
-            source.mkdir()
-            (source / 'main.leek').write_text('useChip(CHIP_APOCALYPSE, getEntity())', encoding='utf-8')
-            opponent = ROOT / 'examples/strategies/passive'
+            tools = Preparation(tmp, ROOT / 'docs', None, {})
+            offset, pages = 0, []
+            while True:
+                page = tools.call('read_docs', {'path': 'leekscript-v1/chips.json', 'offset': offset, 'limit': 16000}, '1')
+                pages.append(page['content'])
+                if not page['truncated']:
+                    break
+                offset = page['next_offset']
+            self.assertEqual(set(json.loads(''.join(pages))), set(items))
+        self.assertIn('418', catalog(ROOT / 'docs/leekscript-v1', 'chips', include_special=True))
+
+    def test_special_chips_cannot_bypass_team_selection_or_allowlists(self):
+        import copy
+        from arena.core import ArenaError, DEFAULT_SCENARIO, validate_scenario
+        from arena.equipment import SPECIAL_CHIPS
+        from arena.teams import validate_team
+        for chip in SPECIAL_CHIPS:
             scenario = copy.deepcopy(DEFAULT_SCENARIO)
             scenario['stats_mode'] = 'free'
-            scenario['entity']['chips'] = [418]
-            result = Engine().fight([source, opponent], [submission(source), submission(opponent)], scenario, 101, tmp / 'fight')
-            self.assertEqual(result['status'], 'completed')
-            self.assertEqual(result['winner_side'], 0)
-            fight = read_json(tmp / 'fight/outcome.json')['fight']
-            killed = {a[1] for a in fight['actions'] if a[0] == 5}
-            enemies = {l['id'] for l in fight['leeks'] if l['team'] == 2}
-            self.assertEqual(killed, enemies)
+            team = {'members': [{'entrypoint': 'main.leek', 'weapons': [], 'chips': [chip]}]}
+            with self.subTest(chip=chip), self.assertRaises(ArenaError):
+                validate_team(team, scenario, {'main.leek': ''}, ROOT / 'docs/leekscript-v1')
+            scenario['team_selection'] = {'mode': 'participant', 'allowed_chips': [chip]}
+            with self.subTest(chip=chip), self.assertRaisesRegex(ArenaError, 'not player equipment'):
+                validate_scenario(scenario)
+        raw = read_json(ROOT / 'docs/leekscript-v1/chips.json')
+        self.assertIn('444', raw)
+        self.assertIn(444, read_json(ROOT / 'docs/leekscript-v1/summons.json')['10']['chips'])
