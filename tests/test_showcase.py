@@ -49,3 +49,22 @@ class ShowcaseTests(unittest.TestCase):
             page = tools.call('read_replay', {'test_id': 'call-1-tool-1', 'section': 'logs', 'limit': 4}, '2')
             self.assertTrue(page['truncated'])
             self.assertEqual(page['next_offset'], 4)
+
+    def test_apocalypse_kills_enemies_without_killing_caster_in_free_mode(self):
+        import copy
+        from arena.core import DEFAULT_SCENARIO, submission
+        with scratch_directory() as tmp:
+            source = tmp / 'source'
+            source.mkdir()
+            (source / 'main.leek').write_text('useChip(CHIP_APOCALYPSE, getEntity())', encoding='utf-8')
+            opponent = ROOT / 'examples/strategies/passive'
+            scenario = copy.deepcopy(DEFAULT_SCENARIO)
+            scenario['stats_mode'] = 'free'
+            scenario['entity']['chips'] = [418]
+            result = Engine().fight([source, opponent], [submission(source), submission(opponent)], scenario, 101, tmp / 'fight')
+            self.assertEqual(result['status'], 'completed')
+            self.assertEqual(result['winner_side'], 0)
+            fight = read_json(tmp / 'fight/outcome.json')['fight']
+            killed = {a[1] for a in fight['actions'] if a[0] == 5}
+            enemies = {l['id'] for l in fight['leeks'] if l['team'] == 2}
+            self.assertEqual(killed, enemies)

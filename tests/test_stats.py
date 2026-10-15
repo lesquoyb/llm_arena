@@ -115,3 +115,30 @@ class RealisticEngineTests(unittest.TestCase):
             self.assertEqual(stats['operation_limits'],[2000000,5000000])
             self.assertIsNone(stats['operations_limit_per_turn'])
             self.assertEqual({e['name']:e['operations_limit_per_turn'] for e in stats['entities']}['Side 1 / 2'],5000000)
+
+
+class EquipmentCapacityTests(unittest.TestCase):
+    def test_weapon_thresholds_ram_slots_and_special_items(self):
+        from arena.equipment import validate_loadout
+        for level, slots in [(1, 2), (99, 2), (100, 3), (199, 3), (200, 4), (301, 4)]:
+            validate_loadout(level, {'ram': 6}, list(range(slots)), list(range(6)))
+            with self.assertRaisesRegex(ArenaError, 'weapons'):
+                validate_loadout(level, {'ram': 6}, list(range(slots + 1)), [])
+        with self.assertRaisesRegex(ArenaError, 'RAM 6'):
+            validate_loadout(100, {'ram': 6}, [], list(range(7)))
+        with self.assertRaisesRegex(ArenaError, 'Special engine item'):
+            validate_loadout(100, {'ram': 6}, [], [418])
+
+    def test_default_and_selected_teams_enforce_each_members_ram(self):
+        value = realistic()
+        value['entity']['chips'] = [1, 3, 19, 8, 2, 21, 7]
+        with self.assertRaisesRegex(ArenaError, 'RAM 6'):
+            validate_scenario(value)
+        value['entity']['chips'] = []
+        selection = {'members': [{'entrypoint': 'main.leek', 'weapons': [],
+                                 'chips': [1, 3, 19, 8, 2, 21, 7]}]}
+        value['team_selection'] = {'mode': 'participant', 'max_chips': 32}
+        with self.assertRaisesRegex(ArenaError, 'RAM 6'):
+            validate_team(selection, value, {'main.leek': ''}, ROOT / 'docs/leekscript-v1')
+        selection['members'][0]['capital'] = {'ram': 20}
+        validate_team(selection, value, {'main.leek': ''}, ROOT / 'docs/leekscript-v1')

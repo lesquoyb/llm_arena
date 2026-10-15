@@ -268,3 +268,14 @@ Equipment selectors use generator runtime IDs: weapons use the raw catalog's
 weapon catalog keys in the selectors and could equip a different weapon or none.
 Reselect weapons in affected saved configurations before rerunning them. The
 original default weapon ID 37 remains the pistol. Historical results are retained.
+
+Realistic equipment capacity is per leek: 2 weapons below level 100, 3 from 100,
+4 from 200, and one chip per RAM point. The stat preview shows this capacity.
+The participant equipment caps are additional competition restrictions, not
+substitutes for these limits. Default equipment must fit every default member;
+participant-selected equipment uses each member's own resulting RAM.
+
+The full engine catalog can contain special items that are not established as
+obtainable player equipment. Apocalypse (418) is marked as such and disabled in
+realistic mode. Free mode allows deliberate experiments with it. Its level 1
+entry is not evidence that an online player can buy it.

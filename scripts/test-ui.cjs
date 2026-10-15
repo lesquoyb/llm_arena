@@ -361,9 +361,21 @@ async function main() {
         "",
       );
     }
+    assert(
+      (await page.locator(".member-stat-summary").first().innerText()).includes(
+        "Equipment capacity: 3 weapons, 6 chips",
+      ),
+    );
     await page.getByLabel("Team setup").selectOption("participant");
-    await page.getByLabel("Weapons per member").fill("1");
-    await page.getByLabel("Chips per member").fill("0");
+    const specialChip = page.locator(
+      '.equipment-picker[data-name="team_allowed_chips"] .equipment-check[value="418"]',
+    );
+    assert(
+      await specialChip.isDisabled(),
+      "Apocalypse must be unavailable in realistic mode",
+    );
+    await page.getByLabel("Competition weapon cap per member").fill("1");
+    await page.getByLabel("Competition chip cap per member").fill("0");
     const weaponPicker = page.locator(
       '.equipment-picker[data-name="team_allowed_weapons"]',
     );

@@ -39,7 +39,7 @@ def validate_team(team, scenario=None, files=None, data=None):
                                   or any(type(v) is not int or v < 0 or v > 100000 for v in member[key].values())):
                 raise ArenaError("Invalid member characteristics")
         if scenario:
-            member_stats(scenario, index, member)
+            values = member_stats(scenario, index, member)
         entry = member["entrypoint"]
         if (not isinstance(entry, str) or not entry.endswith(".leek") or "\\" in entry
                 or ":" in entry or PurePosixPath(entry).is_absolute() or ".." in PurePosixPath(entry).parts
@@ -63,4 +63,7 @@ def validate_team(team, scenario=None, files=None, data=None):
                         raise ArenaError(f"Unknown {kind} ID: {item}")
                     if scenario and scenario.get("stats_mode") != "free" and catalog[str(item)].get("level", 1) > scenario["entity"]["level"]:
                         raise ArenaError(f"{kind} ID {item} requires a higher level")
+        if scenario and scenario.get('stats_mode') == 'realistic-v1':
+            from .equipment import validate_loadout
+            validate_loadout(scenario['entity']['level'], values, member['weapons'], member['chips'])
     return team

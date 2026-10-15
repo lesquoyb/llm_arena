@@ -127,11 +127,11 @@ const FIELD_HELP = {
   entity_cores:
     "Per-turn operation limit is cores × 1,000,000, capped at 2,147,483,647.",
   entity_ram:
-    "Memory available to each leek script for arrays and objects during a fight, not LLM context. Each RAM stat point permits 8,000,000 tracked 64-bit units (about 64 MB); the generator caps this at 50 points. The Java process has a separate heap limit.",
+    "Also sets the maximum number of equipped chips (one chip per RAM point) in realistic mode. Memory available to each leek script for arrays and objects during a fight, not LLM context. Each RAM stat point permits 8,000,000 tracked 64-bit units (about 64 MB); the generator caps this at 50 points. The Java process has a separate heap limit.",
   team_max_weapons:
-    "Maximum weapons each participant-selected member can equip. Zero forbids weapons.",
+    "Additional competition cap. Realistic mode also permits 2 weapons below level 100, 3 below 200, then 4. Zero forbids weapons.",
   team_max_chips:
-    "Maximum chips each participant-selected member can equip. Zero forbids chips.",
+    "Additional competition cap. In realistic mode each member is also limited to one chip per RAM point. Zero forbids chips.",
 };
 let helpSequence = 0,
   activeHelp = null,
@@ -612,7 +612,7 @@ const ENTITY_FIELDS = [
   ["tp", "AP per turn", 12],
   ["mp", "MP per turn", 5],
   ["cores", "Cores", 10],
-  ["ram", "LeekScript memory (RAM)", 6],
+  ["ram", "RAM / chip slots", 6],
 ];
 function equipmentPicker(label, name, kind, ids, allowlist = false) {
   const catalog = S.equipment?.[kind] || {};
@@ -629,7 +629,7 @@ function equipmentPicker(label, name, kind, ids, allowlist = false) {
     )
     .map(
       ([id, item]) =>
-        `<article class="equipment-option" data-search="${e(`${id} ${item.name}`.toLowerCase())}"><label class="check"><input type="checkbox" class="equipment-check" value="${e(id)}" ${ids.includes(Number(id)) ? "checked" : ""}><strong>${e(item.name)}</strong><span>ID ${e(id)} · level ${e(item.level)}</span></label><small>${e(item.cost)} AP · range ${e(item.min_range)}–${e(item.max_range)} · ${item.los ? "line of sight required" : "no line of sight required"}</small><details><summary>Item details</summary><p>These values come from the pinned engine catalog. Effects depend on the member stats and target rules.</p><dl><dt>Cooldown</dt><dd>${e(item.cooldown ?? "Not applicable")} turns</dd><dt>Uses per turn</dt><dd>${e(item.max_uses ?? "Not specified")}</dd><dt>Effects</dt><dd>${(item.effects || []).map((effect) => `${e(S.equipment.effects[String(effect.type)] || `Effect ${effect.type}`)}: base ${e(effect.value1)} + random component ${e(effect.value2)}; duration ${e(effect.turns)} turns`).join("<br>") || "None"}</dd></dl>${raw(item, "Full pinned item definition")}</details></article>`,
+        `<article class="equipment-option" data-search="${e(`${id} ${item.name}`.toLowerCase())}"><label class="check"><input type="checkbox" class="equipment-check" value="${e(id)}" ${ids.includes(Number(id)) ? "checked" : ""}><strong>${e(item.name)}</strong><span>ID ${e(id)} · level ${e(item.level)}</span></label><small>${item.restricted_reason ? `<strong>${e(item.restricted_reason)}</strong><br>` : ""}${e(item.cost)} AP · range ${e(item.min_range)}–${e(item.max_range)} · ${item.los ? "line of sight required" : "no line of sight required"}</small><details><summary>Item details</summary><p>These values come from the pinned engine catalog. Effects depend on the member stats and target rules.</p><dl><dt>Cooldown</dt><dd>${e(item.cooldown ?? "Not applicable")} turns</dd><dt>Uses per turn</dt><dd>${e(item.max_uses ?? "Not specified")}</dd><dt>Effects</dt><dd>${(item.effects || []).map((effect) => `${e(S.equipment.effects[String(effect.type)] || `Effect ${effect.type}`)}: base ${e(effect.value1)} + random component ${e(effect.value2)}; duration ${e(effect.turns)} turns`).join("<br>") || "None"}</dd></dl>${raw(item, "Full pinned item definition")}</details></article>`,
     )
     .join(
       "",
@@ -646,13 +646,14 @@ function updateEquipmentLevels() {
     const removed = [];
     for (const input of $$(".equipment-check", picker)) {
       const item = S.equipment[picker.dataset.kind][input.value],
-        locked = limited && item.level > level;
+        locked = limited && (item.level > level || !!item.restricted_reason);
       input.disabled = locked;
       input
         .closest(".equipment-option")
         .classList.toggle("equipment-locked", locked);
       input.title = locked
-        ? `Requires level ${item.level}; leek level is ${level}`
+        ? item.restricted_reason ||
+          `Requires level ${item.level}; leek level is ${level}`
         : "";
       if (locked && input.checked) {
         input.checked = false;
@@ -670,15 +671,15 @@ function updateEquipmentLevels() {
     const status = $(".equipment-level-status", picker);
     allRemoved.push(...removed);
     if (removed.length)
-      status.textContent = `Removed items above level ${level}: ${removed.join(", ")}.`;
+      status.textContent = `Removed ineligible items at level ${level}: ${removed.join(", ")}.`;
     else if (!status.textContent.startsWith("Removed"))
       status.textContent = limited
-        ? `Items above level ${level} are locked in realistic mode.`
+        ? `Items above level ${level} and special engine items are locked in realistic mode.`
         : "Free mode: all catalog levels are selectable.";
   }
   if (allRemoved.length) {
     const warning = $("#equipment-removals", form);
-    warning.textContent = `Removed equipment above level ${level}: ${[...new Set(allRemoved)].join(", ")}.`;
+    warning.textContent = `Removed ineligible equipment at level ${level}: ${[...new Set(allRemoved)].join(", ")}.`;
     warning.hidden = false;
   }
 }
@@ -790,6 +791,9 @@ function updateStatPreviews(refreshEquipment = true) {
       (realistic
         ? `Capital ${used} / ${capitalTotal(level)} · `
         : "Free stats · ") +
+      (realistic
+        ? `Equipment capacity: ${level < 100 ? 2 : level < 200 ? 3 : 4} weapons, ${values.ram} chips · `
+        : "") +
       ENTITY_FIELDS.filter(([key]) => key !== "level")
         .map(([key, label]) => `${label}: ${values[key]}`)
         .join(" · ");
@@ -852,7 +856,7 @@ function competitionEditor() {
      ["participant", "Participants choose teams and equipment"],
    ],
    c.scenario.team_selection ? "participant" : "fixed",
- )}${field("Team size", "team_size", c.scenario.team_size, "number", "Exact size in shared mode; maximum size when participants choose.", 'required min="1" max="8"')}${field("Maximum turns", "max_turns", c.scenario.max_turns, "number", "", 'required min="1" max="64"')}${field("Initial / feedback seeds", "seeds", c.seeds.join(", "), "text", "Map generation seeds, for example 101, 202.", "required")}${field("Final evaluation seeds", "final_seeds", (c.final_seeds || []).join(", "), "text", "Separate from initial strategy seeds and training seed 17.")}</div><div id="team-selection-rules" ${c.scenario.team_selection ? "" : "hidden"}><p class="muted">Participants choose 1 to the maximum team size, equipment and a script per member using configure_team. Stats follow the per-leek builds and selected stat mode. Equipment must be in the pinned catalog; realistic mode also enforces the member level. Fixed reference opponents keep the default team.</p><div class="form-grid">${field("Weapons per member", "team_max_weapons", c.scenario.team_selection?.max_weapons ?? 3, "number", "", 'required min="0" max="32"')}${field("Chips per member", "team_max_chips", c.scenario.team_selection?.max_chips ?? 12, "number", "", 'required min="0" max="32"')}${equipmentPicker("Allowed weapons", "team_allowed_weapons", "weapons", c.scenario.team_selection?.allowed_weapons || [], true)}${equipmentPicker("Allowed chips", "team_allowed_chips", "chips", c.scenario.team_selection?.allowed_chips || [], true)}</div></div><label class="check" style="margin-top:15px"><input type="checkbox" name="include_mirrors" ${c.include_mirrors ? "checked" : ""}>Include mirror matches (excluded from score)</label><div style="margin-top:15px">${statsEditor(c.scenario)}</div><details><summary>Default equipment and custom map</summary><div class="form-grid" style="margin-top:15px">${equipmentPicker("Default weapons", "weapons", "weapons", c.scenario.entity.weapons)}${equipmentPicker("Default chips", "chips", "chips", c.scenario.entity.chips)}<label class="field full">Custom map (JSON, optional)<textarea name="map" class="mono">${c.scenario.map ? e(pretty(c.scenario.map)) : ""}</textarea><small>Without a custom map, the seed determines the map and starting positions.</small></label></div></details></section>
+ )}${field("Team size", "team_size", c.scenario.team_size, "number", "Exact size in shared mode; maximum size when participants choose.", 'required min="1" max="8"')}${field("Maximum turns", "max_turns", c.scenario.max_turns, "number", "", 'required min="1" max="64"')}${field("Initial / feedback seeds", "seeds", c.seeds.join(", "), "text", "Map generation seeds, for example 101, 202.", "required")}${field("Final evaluation seeds", "final_seeds", (c.final_seeds || []).join(", "), "text", "Separate from initial strategy seeds and training seed 17.")}</div><div id="team-selection-rules" ${c.scenario.team_selection ? "" : "hidden"}><p class="muted">Participants choose 1 to the maximum team size, equipment and a script per member using configure_team. Stats follow the per-leek builds and selected stat mode. Equipment must be in the pinned catalog; realistic mode also enforces the member level. Fixed reference opponents keep the default team.</p><div class="form-grid">${field("Competition weapon cap per member", "team_max_weapons", c.scenario.team_selection?.max_weapons ?? 3, "number", "", 'required min="0" max="32"')}${field("Competition chip cap per member", "team_max_chips", c.scenario.team_selection?.max_chips ?? 12, "number", "", 'required min="0" max="32"')}${equipmentPicker("Allowed weapons", "team_allowed_weapons", "weapons", c.scenario.team_selection?.allowed_weapons || [], true)}${equipmentPicker("Allowed chips", "team_allowed_chips", "chips", c.scenario.team_selection?.allowed_chips || [], true)}</div></div><label class="check" style="margin-top:15px"><input type="checkbox" name="include_mirrors" ${c.include_mirrors ? "checked" : ""}>Include mirror matches (excluded from score)</label><div style="margin-top:15px">${statsEditor(c.scenario)}</div><details><summary>Default equipment and custom map</summary><div class="form-grid" style="margin-top:15px">${equipmentPicker("Default weapons", "weapons", "weapons", c.scenario.entity.weapons)}${equipmentPicker("Default chips", "chips", "chips", c.scenario.entity.chips)}<label class="field full">Custom map (JSON, optional)<textarea name="map" class="mono">${c.scenario.map ? e(pretty(c.scenario.map)) : ""}</textarea><small>Without a custom map, the seed determines the map and starting positions.</small></label></div></details></section>
  <section class="panel"><h2>Optional limits</h2><p class="muted">Leave blank to let each model work until submission. Calls, tools, matches, tokens, elapsed time and costs are recorded regardless. Improvement branches use the same optional limits.</p><div class="form-grid">${field("Model calls", "max_calls", b.max_calls ?? "", "number", "Maximum API responses, including responses after tool results. Blank means unlimited.", 'min="1"')}${field("Tool calls", "max_agent_steps", b.max_agent_steps ?? "", "number", "Maximum tool invocations. Blank means unlimited.", 'min="1"')}${field("Preparation matches", "max_test_matches", b.max_test_matches ?? "", "number", "One test runs two matches, one per side. Blank means unlimited.", 'min="0"')}${field("Preparation time (seconds)", "max_wall_seconds", b.max_wall_seconds ?? "", "number", "Blank means no session time limit.", 'min="1"')}${field("Total input tokens", "max_input_tokens", b.max_input_tokens ?? "", "number", "Optional. Blank means no conversation token limit.", 'min="1"')}${field("Total output tokens", "max_output_tokens", b.max_output_tokens ?? "", "number", "Optional. Blank means no conversation token limit.", 'min="1"')}${field("API spending limit per conversation ($)", "max_cost_usd", b.max_cost_usd ?? "", "number", "Blank means no financial limit.", 'min="0" step="any"')}${field("API spending limit for the experiment ($)", "max_total_usd", c.spending.max_total_usd ?? "", "number", "Includes all branches. Blank means no financial limit.", 'min="0" step="any"')}</div><label class="check" style="margin-top:15px"><input type="checkbox" name="allow_paid_calls" ${c.spending.allow_paid_calls ? "checked" : ""}>Allow paid APIs for this configuration</label><small>Mock runs have no API cost. Paid runs require API authorization. Optional financial limits are checked between calls. Without an output cap, a call can exceed a configured financial limit.</small></section>
  <section class="panel"><details><summary>Import a JSON configuration</summary><textarea id="import-config" class="mono" style="width:100%;margin-top:12px" placeholder="Paste an experiment manifest"></textarea><div style="margin-top:10px">${btn("Apply configuration", "import-config")}</div></details></section></div>
  <aside class="panel sticky"><div class="eyebrow">Before launching</div><h2>Schedule</h2><p class="muted">Review the schedule and spending limit before launching.</p><div id="plan-preview">${notice("Both improvement branches start from the same initial history. One receives match feedback.")}</div>${btn("Calculate schedule", "preview-plan")}<div class="divider"></div><button type="submit" class="button primary" style="width:100%">Save configuration</button><p class="muted" style="font-size:10px;margin-top:12px">Saving does not start a run.</p></aside></div></form>`
@@ -1638,7 +1642,7 @@ function helpPage() {
       ],
       [
         "Team building and equipment",
-        "Shared mode fixes the team and equipment for all participants. Participant mode lets each model choose up to the maximum team size, a script per member, weapons and chips. Members can have different stats; realistic mode validates each capital allocation. Allowlists, slots and member level restrict equipment. Successful configure_team calls create team.json versions, inherited by improvement branches. The item selector shows the full pinned catalog; items above the leek level are locked in realistic mode. Weapon IDs use the catalog item field; chip IDs use catalog keys. Replay events use template IDs.",
+        "Shared mode fixes the team and equipment for all participants. Participant mode lets each model choose up to the maximum team size, a script per member, weapons and chips. Members can have different stats; realistic mode validates each capital allocation. Allowlists, slots and member level restrict equipment. In realistic mode, RAM also sets chip capacity; weapon capacity is 2 below level 100, 3 below 200, then 4. Competition caps can only reduce these capacities. Successful configure_team calls create team.json versions, inherited by improvement branches. The item selector shows the full pinned catalog; items above the leek level are locked in realistic mode. Weapon IDs use the catalog item field; chip IDs use catalog keys. Replay events use template IDs.",
       ],
       [
         "Costs and tokens",

@@ -78,6 +78,9 @@ def validate_stats(scenario):
         raise ArenaError('Specify one stat build for every default team member')
     for index in range(scenario['team_size']):
         values = member_stats(scenario, index)
+        if mode == 'realistic-v1':
+            from .equipment import validate_loadout
+            validate_loadout(scenario['entity']['level'], values, scenario['entity'].get('weapons', []), scenario['entity'].get('chips', []))
         if mode == 'realistic-v1' and index == 0:
             if any(scenario['entity'].get(key, 0) != value for key, value in values.items()):
                 raise ArenaError('Default entity stats must match the first realistic capital allocation')
