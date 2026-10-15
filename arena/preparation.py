@@ -1,19 +1,24 @@
 """Common local preparation tools restricted to a single session."""
 from __future__ import annotations
 
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 import json
 import re
 from uuid import uuid4
 
-from .core import ArenaError, ROOT, copy_submission, file_hash, read_json, submission, write_json
+from .core import ArenaError, ROOT, copy_submission, file_hash, is_link, read_json, submission, write_json
 
 
 def local_path(root: Path, name: str) -> Path:
-    if not isinstance(name, str) or not name or Path(name).is_absolute():
+    if (not isinstance(name, str) or not name or Path(name).is_absolute()
+            or PureWindowsPath(name).anchor or ":" in name
+            or any(re.match(r"(?i)(con|prn|aux|nul|com[1-9¹²³]|lpt[1-9¹²³])(?:\.|$)",
+                            part.rstrip(" .")) for part in PureWindowsPath(name).parts)):
         raise ArenaError("Expected a relative path")
     path = root / name
-    if ".." in Path(name).parts or any(p.is_symlink() for p in [path, *path.parents]):
+    if (".." in PureWindowsPath(name).parts or ".." in Path(name).parts
+            or any(is_link(p)
+                   for p in [path, *path.parents])):
         raise ArenaError("Traversal and links are not allowed")
     if not path.resolve().is_relative_to(root.resolve()):
         raise ArenaError("Path escapes session")

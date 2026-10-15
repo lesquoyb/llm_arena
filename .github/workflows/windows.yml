@@ -1,0 +1,31 @@
+name: Windows native engine
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  integration:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      PYTHONUTF8: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+      - name: Build pinned engine (native Python and Java)
+        run: python scripts/bootstrap.py
+      - name: Validate engine, MCP, G0/G1, export and resume
+        run: .venv\Scripts\python.exe scripts/validate.py runs/ci-windows
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-engine-evidence
+          path: |
+            runs/
+            vendor/leek-wars-generator/build/reports/
+          if-no-files-found: warn

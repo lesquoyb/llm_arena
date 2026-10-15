@@ -8,7 +8,7 @@ import time
 from contextlib import contextmanager
 from pathlib import Path
 
-from .core import (ArenaError, ROOT, digest, file_hash, integer, read_json, submission,
+from .core import (ArenaError, ROOT, digest, file_hash, is_link, file_lock, integer, read_json, submission,
                    tree_hash, validate_scenario, write_json)
 from .engine import Engine
 from .preparation import Preparation
@@ -158,17 +158,8 @@ def plan(config: dict) -> dict:
 
 @contextmanager
 def experiment_lock(out: Path):
-    # OS lock is released on crash; its file remains as harmless metadata.
-    import fcntl
-    with (out / ".lock").open("a") as stream:
-        try:
-            fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError as error:
-            raise ArenaError("Another orchestrator is writing this experiment") from error
-        try:
-            yield
-        finally:
-            fcntl.flock(stream, fcntl.LOCK_UN)
+    with file_lock(out / ".lock"):
+        yield
 
 
 class Journal:
@@ -367,10 +358,10 @@ def initial_state(sid, model, config):
 
 def workspace_files(directory):
     files = {}
-    if directory.is_symlink():
+    if is_link(directory):
         raise ArenaError("Working source links are not allowed")
     for path in sorted(directory.rglob("*")):
-        if path.is_symlink():
+        if is_link(path):
             raise ArenaError("Working source links are not allowed")
         if path.is_file() and path.suffix == ".leek":
             files[path.relative_to(directory).as_posix()] = file_hash(path)

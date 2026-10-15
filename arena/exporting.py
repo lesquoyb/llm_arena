@@ -1,7 +1,7 @@
 """Portable audited exports; runtime identities retained as provenance."""
 import shutil
 from pathlib import Path
-from .core import ArenaError, file_hash, read_json, write_json
+from .core import ArenaError, file_hash, is_link, read_json, write_json
 from .experiment import Journal, experiment_lock
 
 
@@ -15,7 +15,7 @@ def export_experiment(source: Path, target: Path):
             journal.verify()
             target.mkdir(parents=True)
             for path in source.rglob("*"):
-                if path.is_symlink():
+                if is_link(path):
                     raise ArenaError("Links are not allowed in exports")
                 if not path.is_file() or path.name in {".lock", "journal.sqlite", "journal.sqlite-wal", "journal.sqlite-shm"}:
                     continue

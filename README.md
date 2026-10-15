@@ -6,6 +6,20 @@ Le socle exécute réellement les combats : analyse de scripts, équipes symétr
 
 ## Démarrage
 
+Sous **Windows natif (PowerShell)**, installer Python ≥ 3.11, Git et un
+JDK 25 complet, puis :
+
+```powershell
+py -3 scripts/bootstrap.py
+.venv\Scripts\python.exe -m arena doctor
+.venv\Scripts\python.exe -m arena experiment run configs/offline-complete.json --out runs/mon-premier-test
+```
+
+Voir [le guide Windows](docs/windows.md) pour l'installation, les combats,
+la reprise et la validation. Aucune activation PowerShell, WSL ou Bash
+n'est nécessaire. La démo utilise des participants simulés et de vrais
+combats, sans appel API payant.
+
 Sous Linux x86_64 : `bash scripts/bootstrap-linux.sh`, puis
 `bash scripts/validate-linux.sh`. Voir [le guide Linux](docs/linux.md)
 pour le proxy, les checksums, la CI et les limites.
@@ -14,7 +28,8 @@ Prérequis : **Python ≥ 3.11, JDK 25, Git et Gradle 9.3.1**.
 Le moteur et les adaptateurs API utilisent la bibliothèque standard ;
 le transport MCP utilise le SDK verrouillé installé par le bootstrap.
 Exécuter les commandes depuis le dépôt et activer .venv pour MCP.
-Java 25 doit être sur le PATH ; le bootstrap configure un cache Gradle local.
+Le bootstrap Linux installe Java ; le bootstrap portable utilise le JDK 25
+installé via JAVA_HOME ou PATH. Les deux configurent un cache Gradle local.
 
 ```powershell
 python -m arena setup

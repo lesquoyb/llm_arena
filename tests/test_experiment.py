@@ -82,8 +82,17 @@ class ContractTests(unittest.TestCase):
         with scratch_directory() as tmp:
             root = tmp / "workspace"
             root.mkdir()
-            (root / "link").symlink_to(tmp, target_is_directory=True)
-            for name in ("../other/main.leek", "/etc/passwd", "link/main.leek"):
+            try:
+                (root / "link").symlink_to(tmp, target_is_directory=True)
+            except OSError:
+                if os.name != "nt":
+                    raise
+                # Junctions require no administrator/developer-mode privilege.
+                subprocess.run(["cmd", "/c", "mklink", "/J", str(root / "link"), str(tmp)],
+                               check=True, capture_output=True)
+            for name in ("../other/main.leek", "/etc/passwd", "link/main.leek",
+                         "C:relative.leek", "C:/absolute.leek", r"..\outside.leek",
+                         "main.leek:stream", "NUL.leek"):
                 with self.assertRaises(ArenaError):
                     local_path(root, name)
             docs = tmp / "docs"
