@@ -6,7 +6,7 @@ equipment. Participant-team mode lets you choose the
 team size, equipment, stat builds and per-member entry points under `scenario.team_selection`.
 Write the sources first, then call `configure_team` with `members`, each containing
 `entrypoint`, `weapons` and `chips`. Optionally set `capital` per member in
-realistic-v1 mode (official level/capital rules, no components), or `stats` in
+realistic-v1 mode (official level/capital rules plus base components), or `stats` in
 free mode. Read corpus/stat-rules.json. Omitted stat overrides inherit the
 corresponding default member build. Use weapons.json `item` values as weapon IDs (pistol: 37), and chips.json keys as chip IDs (shock: 1). Weapon catalog keys and replay template IDs are different identifiers. Read
 slot limits and allowlists in the initial message. In realistic mode, items cannot exceed member level; free mode permits higher-level items.

@@ -179,7 +179,7 @@ def validate_scenario(config: dict):
             for item in value:
                 integer(item, 1, 100000, key)
         else:
-            low = 1 if key in {"level", "life", "cores", "ram"} else 0
+            low = -100000 if key in {"strength","agility","wisdom","resistance","science","magic","frequency"} else 1 if key in {"level", "life", "cores", "ram"} else 0
             high = 50 if key == "ram" else 100 if key == "cores" else 100000
             integer(value, low, high, key)
     from .equipment import validate_player_chips
@@ -241,7 +241,8 @@ def make_scenario(config: dict, entries: list[str], seed: int, teams=None) -> di
                    for i in range(config["team_size"])]
         result["entities"].append([
             {**config["entity"], **member_stats(config, i, member),
-             "level": defaults[i].get("level", config["entity"]["level"]), "weapons": member["weapons"], "chips": member["chips"],
+             "level": defaults[i].get("level", config["entity"]["level"]),
+             "components": member.get("components", defaults[i].get("components", [])), "weapons": member["weapons"], "chips": member["chips"],
              "id": side * config["team_size"] + i + 1,
              "name": f"Side {owner} / {i + 1}" + (f" · {member.get('name', defaults[i].get('name'))}" if member.get('name', defaults[i].get('name')) else ""), "type": 1, "farmer": owner,
              "team": owner, "ai": member["entrypoint"], "ai_version": 4}

@@ -63,8 +63,9 @@ class Application:
                 if name.startswith("EFFECT_") and not name.startswith(("EFFECT_TARGET_", "EFFECT_MODIFIER_")):
                     effects.setdefault(str(int(float(value))), name.removeprefix("EFFECT_").replace("_", " ").title())
             from arena.stats import RULES
+            from arena.components import catalog as component_catalog
             from arena.equipment import catalog
-            return {"stat_rules": RULES, "weapons": catalog(data, "weapons"), "chips": catalog(data, "chips"),
+            return {"components": component_catalog(), "stat_rules": RULES, "weapons": catalog(data, "weapons"), "chips": catalog(data, "chips"),
                     "effects": effects, "snapshot": store.json(data / "snapshot.json")["engine"]["lock"]["commit"]}
         if route == "/api/runs":
             return {"runs": store.listing(), "jobs": self.jobs.listing()}

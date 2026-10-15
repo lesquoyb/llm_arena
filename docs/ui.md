@@ -103,7 +103,7 @@ financial limit; accounting reservations are not provider billing guarantees.
 teams. In participant mode, **Team size** is the maximum, not the exact size.
 Each model chooses 1 to that many members, equipment and a script and stat allocation per member using
 `configure_team`. Each member can have a different stat build. New competitions enable realistic
-capital rules by default, without components or alterations. Free mode accepts
+capital rules by default, with base components; alterations are not validated. Free mode accepts
 raw stats. See [realistic stats](realistic-stats.md) for rules and sources. Weapons/chips must
 exist in the pinned catalog, meet the corresponding member level in realistic mode, respect slot limits
 and appear in any selected allowlists. Empty allowlists mean all eligible items.
@@ -318,8 +318,9 @@ The farmer endpoint wraps its profile in `farmer`; the importer unwraps it.
 
 The snapshot preserves real levels (including 301), published final stats, item
 IDs and item order. Imports use free stats because public totals can include
-components. Component stat bonuses are included once; component objects,
-alterations and additional component-specific mechanics are not imported. These
+components. Published final totals are preserved unchanged. Public component
+templates and alteration deltas are retained as metadata, without applying
+bonuses a second time. Alteration legality is not validated by the free importer. These
 are public builds, not private combat scripts. Missing stats, private loadouts,
 non-player chips or unsupported equipment abort the import and retain the old preset.
 The original payload, date, ranking entry, selected IDs and hash are saved.
@@ -346,8 +347,7 @@ source policy; it does not contain an invented team.
 all level 300, with an explicit capital allocation for each member. It chooses
 names, scripts, weapons and chips. Each member has 1,680 capital; RAM controls
 chip slots, the level permits four weapons, and non-player items remain forbidden.
-This realistic builder supports base stats plus capital, without components or
-alterations. The visible default roster supplies fixed reference opponents; it
+This realistic builder supports base stats plus capital, with base components; alterations are not validated. The visible default roster supplies fixed reference opponents; it
 is not forced onto participant submissions.
 
 The LLM receives two read-only tools, available through native APIs and MCP:

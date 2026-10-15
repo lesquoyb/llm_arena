@@ -605,6 +605,65 @@ const ENTITY_FIELDS = [
   ["cores", "Cores", 10],
   ["ram", "RAM / chip slots", 6],
 ];
+function componentIds(pieces) {
+  return pieces.map((piece) =>
+    typeof piece === "object" ? piece.template : piece,
+  );
+}
+function componentBonuses(pieces) {
+  const result = {};
+  for (const piece of pieces || []) {
+    const item =
+      S.equipment.components[
+        typeof piece === "object" ? piece.template : piece
+      ];
+    for (const [key, value] of item?.stats || [])
+      result[key] = (result[key] || 0) + value;
+    if (typeof piece === "object")
+      for (const [key, value] of Object.entries(piece.stats || {}))
+        result[key] = (result[key] || 0) + value;
+  }
+  return result;
+}
+function withComponents(stats, pieces) {
+  const bonus = componentBonuses(pieces);
+  return Object.fromEntries(
+    Object.entries(stats).map(([key, value]) => [
+      key,
+      value + (bonus[key] || 0),
+    ]),
+  );
+}
+function selectedComponents(section) {
+  const original = JSON.parse(section.dataset.componentInstances || "[]");
+  return String(
+    section.querySelector(
+      'input[name="' +
+        memberGearName(Number(section.dataset.memberBuild), "components") +
+        '"]',
+    ).value,
+  )
+    .split(",")
+    .filter((v) => v.trim())
+    .map(Number)
+    .map(
+      (id) =>
+        original.find(
+          (piece) => typeof piece === "object" && piece.template === id,
+        ) || id,
+    );
+}
+function syncComponentStats(section) {
+  if (!section) return;
+  const old = JSON.parse(section.dataset.componentBonus || "{}"),
+    next = componentBonuses(selectedComponents(section));
+  for (const input of $$("input[data-stat]", section))
+    input.value =
+      Number(input.value) +
+      (next[input.dataset.stat] || 0) -
+      (old[input.dataset.stat] || 0);
+  section.dataset.componentBonus = JSON.stringify(next);
+}
 function equipmentPicker(label, name, kind, ids, allowlist = false) {
   const catalog = S.equipment?.[kind] || {};
   const names = ids.map((id) => catalog[id]?.name || `Unknown ID ${id}`);
@@ -620,7 +679,7 @@ function equipmentPicker(label, name, kind, ids, allowlist = false) {
     )
     .map(
       ([id, item]) =>
-        `<article class="equipment-option" data-search="${e(`${id} ${item.name}`.toLowerCase())}"><label class="check"><input type="checkbox" class="equipment-check" value="${e(id)}" ${ids.includes(Number(id)) ? "checked" : ""}><strong>${e(item.name)}</strong><span>ID ${e(id)} · level ${e(item.level)}</span></label><small>${item.restricted_reason ? `<strong>${e(item.restricted_reason)}</strong><br>` : ""}${e(item.cost)} AP · range ${e(item.min_range)}–${e(item.max_range)} · ${item.los ? "line of sight required" : "no line of sight required"}</small><details><summary>Item details</summary><p>These values come from the pinned engine catalog. Effects depend on the member stats and target rules.</p><dl><dt>Cooldown</dt><dd>${e(item.cooldown ?? "Not applicable")} turns</dd><dt>Uses per turn</dt><dd>${e(item.max_uses ?? "Not specified")}</dd><dt>Effects</dt><dd>${(item.effects || []).map((effect) => `${e(S.equipment.effects[String(effect.type)] || `Effect ${effect.type}`)}: base ${e(effect.value1)} + random component ${e(effect.value2)}; duration ${e(effect.turns)} turns`).join("<br>") || "None"}</dd></dl>${raw(item, "Full pinned item definition")}</details></article>`,
+        `<article class="equipment-option" data-search="${e(`${id} ${item.name}`.toLowerCase())}"><label class="check"><input type="checkbox" class="equipment-check" value="${e(id)}" ${ids.includes(Number(id)) ? "checked" : ""}><strong>${e(item.name)}</strong><span>ID ${e(id)} · level ${e(item.level)}</span></label><small>${item.restricted_reason ? `<strong>${e(item.restricted_reason)}</strong><br>` : ""}${kind === "components" ? `${item.slots} / 8 slots · ${(item.stats || []).map(([key, value]) => `${value > 0 ? "+" : ""}${value} ${key}`).join(" · ")}</small><details><summary>Item details</summary><p>Bonuses are added after capital allocation. Each template can be equipped once. Recovery components consume three slots. Realistic mode supports base components; imported altered instances retain their published final stats.</p>${raw(item, "Component definition")}</details></article>` : `${e(item.cost)} AP · range ${e(item.min_range)}–${e(item.max_range)} · ${item.los ? "line of sight required" : "no line of sight required"}</small><details><summary>Item details</summary><p>These values come from the pinned engine catalog. Effects depend on the member stats and target rules.</p><dl><dt>Cooldown</dt><dd>${e(item.cooldown ?? "Not applicable")} turns</dd><dt>Uses per turn</dt><dd>${e(item.max_uses ?? "Not specified")}</dd><dt>Effects</dt><dd>${(item.effects || []).map((effect) => `${e(S.equipment.effects[String(effect.type)] || `Effect ${effect.type}`)}: base ${e(effect.value1)} + random component ${e(effect.value2)}; duration ${e(effect.turns)} turns`).join("<br>") || "None"}</dd></dl>${raw(item, "Full pinned item definition")}</details></article>`}`,
     )
     .join(
       "",
@@ -643,7 +702,10 @@ function updateEquipmentLevels() {
     for (const input of $$(".equipment-check", picker)) {
       const item = S.equipment[picker.dataset.kind][input.value],
         locked =
-          limited && (item.level > memberLevel || !!item.restricted_reason);
+          limited &&
+          (item.level > memberLevel ||
+            !!item.restricted_reason ||
+            (picker.dataset.kind === "components" && item.level == null));
       input.disabled = locked;
       input
         .closest(".equipment-option")
@@ -669,6 +731,8 @@ function updateEquipmentLevels() {
       ...checked.filter((id) => !previous.includes(id)),
     ];
     form.elements[picker.dataset.name].value = selected.join(", ");
+    if (picker.dataset.kind === "components")
+      syncComponentStats(picker.closest("[data-member-build]"));
     $(".equipment-selection", picker).textContent =
       selected
         .map((id) => S.equipment[picker.dataset.kind][id]?.name || id)
@@ -770,17 +834,24 @@ function readStatBuilds(form) {
   const mode = $("#member-stat-builds", form).dataset.mode;
   return $$("[data-member-build]", form).map((section, index) => {
     const level = Number($("[data-member-level]", section).value);
+    const components = selectedComponents(section),
+      bonus = componentBonuses(components);
     const values = Object.fromEntries(
       $$("input[data-stat]", section).map((input) => [
         input.dataset.stat,
         mode === "realistic-v1"
-          ? capitalForStat(input.dataset.stat, Number(input.value), level)
+          ? capitalForStat(
+              input.dataset.stat,
+              Number(input.value) - (bonus[input.dataset.stat] || 0),
+              level,
+            )
           : Number(input.value),
       ]),
     );
     return {
       level,
       name: $("[data-member-name]", section).value,
+      components,
       [mode === "realistic-v1" ? "capital" : "stats"]: values,
       ...Object.fromEntries(
         ["weapons", "chips"].map((kind) => [
@@ -806,10 +877,14 @@ function memberBuildsMarkup(scenario) {
     (_, index) => {
       const spec = scenario.member_stats?.[index] || {},
         level = spec.level ?? scenario.entity.level;
+      const bonus = componentBonuses(spec.components || []);
       const values = realistic
-        ? statsForCapital(level, spec.capital || defaultCapital(level))
+        ? withComponents(
+            statsForCapital(level, spec.capital || defaultCapital(level)),
+            spec.components || [],
+          )
         : { ...scenario.entity, ...spec.stats };
-      return `<article class="character-card" data-member-build="${index}" ${index ? "hidden" : ""}><header class="character-header"><div class="character-avatar" aria-hidden="true">${index + 1}</div><div><label>Leek name<input data-member-name name="member_${index}_name" value="${e(spec.name || `Leek ${index + 1}`)}" maxlength="80"></label><label class="character-level">Level <input data-member-level name="member_${index}_level" type="number" min="1" max="${realistic ? 301 : 100000}" value="${level}" required></label></div></header><div class="character-highlights"></div><div class="member-stat-summary" role="status" aria-live="polite"></div><progress class="capital-meter" max="${capitalTotal(level)}" value="0" aria-label="Leek ${index + 1} capital spent" ${realistic ? "" : "hidden"}></progress><div class="character-stats">${groups
+      return `<article class="character-card" data-member-build="${index}" data-component-instances="${e(JSON.stringify(spec.components || []))}" data-component-bonus="${e(JSON.stringify(bonus))}" ${index ? "hidden" : ""}><header class="character-header"><div class="character-avatar" aria-hidden="true">${index + 1}</div><div><label>Leek name<input data-member-name name="member_${index}_name" value="${e(spec.name || `Leek ${index + 1}`)}" maxlength="80"></label><label class="character-level">Level <input data-member-level name="member_${index}_level" type="number" min="1" max="${realistic ? 301 : 100000}" value="${level}" required></label></div></header><div class="character-highlights"></div><div class="member-stat-summary" role="status" aria-live="polite"></div><progress class="capital-meter" max="${capitalTotal(level)}" value="0" aria-label="Leek ${index + 1} capital spent" ${realistic ? "" : "hidden"}></progress><div class="character-stats">${groups
         .map(
           ([group, keys]) =>
             `<section class="stat-group"><h4>${group}</h4>${keys
@@ -818,12 +893,14 @@ function memberBuildsMarkup(scenario) {
                   value = values[key] ?? 0;
                 const choices = realistic ? statChoices(key, level) : null;
                 const min = realistic
-                  ? choices[0].value
+                  ? choices[0].value + (bonus[key] || 0)
                   : ["life", "ram", "cores"].includes(key)
                     ? 1
-                    : 0;
+                    : ["tp", "mp"].includes(key)
+                      ? 0
+                      : -100000;
                 const max = realistic
-                  ? choices.at(-1).value
+                  ? choices.at(-1).value + (bonus[key] || 0)
                   : customSliderMax(key, level, value);
                 const numberMax = realistic
                   ? max
@@ -838,19 +915,19 @@ function memberBuildsMarkup(scenario) {
         )
         .join(
           "",
-        )}</div><section class="character-equipment"><h4>Equipment</h4><div class="equipment-capacity"></div>${["weapons", "chips"].map((kind) => equipmentPicker(kind === "weapons" ? "Weapons" : "Chips", memberGearName(index, kind), kind, spec[kind] ?? scenario.entity[kind] ?? [])).join("")}</section></article>`;
+        )}</div><section class="character-equipment"><h4>Equipment</h4><div class="equipment-capacity"></div>${["weapons", "chips", "components"].map((kind) => equipmentPicker(kind === "weapons" ? "Weapons" : kind === "chips" ? "Chips" : "Components", memberGearName(index, kind), kind, kind === "components" ? componentIds(spec.components || []) : (spec[kind] ?? scenario.entity[kind] ?? []))).join("")}</section></article>`;
     },
   ).join("")}</div>`;
 }
 function statsEditor(scenario) {
-  return `<section id="stats-editor"><h3>Team roster</h3><label class="check"><input type="checkbox" name="realistic_stats" ${scenario.stats_mode === "realistic-v1" ? "checked" : ""}>Realistic stats (official capital rules, no components)</label><p class="muted">Adjust final stats. Capital costs and remaining points update below. ${btn("Official rules and scope", "reference", 'data-document="stats"')}</p>${field("Level (all members)", "entity_level", scenario.entity.level, "number", "Changing this sets every member's level. Individual levels can then be adjusted on each card.", 'required min="1" max="100000"')}<p id="equipment-removals" class="notice warn" role="status" hidden></p>${memberBuildsMarkup(scenario)}</section>`;
+  return `<section id="stats-editor"><h3>Team roster</h3><label class="check"><input type="checkbox" name="realistic_stats" ${scenario.stats_mode === "realistic-v1" ? "checked" : ""}>Realistic stats (capital and base components)</label><p class="muted">Adjust final stats. Capital costs and remaining points update below. ${btn("Official rules and scope", "reference", 'data-document="stats"')}</p>${field("Level (all members)", "entity_level", scenario.entity.level, "number", "Changing this sets every member's level. Individual levels can then be adjusted on each card.", 'required min="1" max="100000"')}<p id="equipment-removals" class="notice warn" role="status" hidden></p>${memberBuildsMarkup(scenario)}</section>`;
 }
 function updateStatPreviews(refreshEquipment = true) {
   const form = $("#competition-form");
   if (!form) return;
+  if (refreshEquipment) updateEquipmentLevels();
   const realistic = $("#member-stat-builds").dataset.mode === "realistic-v1",
     builds = readStatBuilds(form);
-  if (refreshEquipment) updateEquipmentLevels();
   $$("[data-member-build]", form).forEach((section, index) => {
     const build = builds[index],
       level = build.level,
@@ -859,7 +936,7 @@ function updateStatPreviews(refreshEquipment = true) {
       ? Object.values(build.capital).reduce((a, b) => a + b, 0)
       : null;
     const values = realistic
-      ? statsForCapital(level, build.capital)
+      ? withComponents(statsForCapital(level, build.capital), build.components)
       : build.stats;
     $(".character-highlights", section).innerHTML = [
       "life",
@@ -881,9 +958,19 @@ function updateStatPreviews(refreshEquipment = true) {
       : "Published / custom final stats · no capital allocation";
     $(".capital-meter", section).value = used || 0;
     $(".capital-meter", section).max = total;
-    $(".equipment-capacity", section).textContent = realistic
-      ? `${level < 100 ? 2 : level < 200 ? 3 : 4} weapon slots · ${values.ram} chip slots`
-      : "Custom loadout · boss and summon-only chips excluded";
+    const componentSlots = componentIds(build.components).reduce(
+      (sum, id) => sum + (S.equipment.components[id]?.slots || 0),
+      0,
+    );
+    $(".equipment-capacity", section).classList.toggle(
+      "error",
+      componentSlots > 8,
+    );
+    $(".equipment-capacity", section).textContent =
+      `${componentSlots} / 8 component slots · ` +
+      (realistic
+        ? `${level < 100 ? 2 : level < 200 ? 3 : 4} weapon slots · ${values.ram} chip slots`
+        : "Custom loadout · boss and summon-only chips excluded");
     $$("[data-stat-row]", section).forEach((row) => {
       const key = row.dataset.statRow,
         number = $("[data-stat]", row),
@@ -898,15 +985,19 @@ function updateStatPreviews(refreshEquipment = true) {
       const choices = statChoices(key, level),
         selected = choices.find((c) => c.cost === build.capital[key]),
         next = choices.find((c) => c.cost > build.capital[key]);
-      slider.min = choices[0].value;
-      slider.max = choices.at(-1).value;
+      slider.min =
+        choices[0].value + (componentBonuses(build.components)[key] || 0);
+      slider.max =
+        choices.at(-1).value + (componentBonuses(build.components)[key] || 0);
       number.min = slider.min;
       number.max = slider.max;
+      slider.value = number.value;
       const cost =
         next && selected
           ? `Next +${next.value - selected.value}: ${next.cost - selected.cost} capital`
           : "Level maximum";
-      $(".stat-cost", row).textContent = `${build.capital[key]} capital spent`;
+      $(".stat-cost", row).textContent =
+        `${build.capital[key]} capital spent${componentBonuses(build.components)[key] ? ` · components ${componentBonuses(build.components)[key] > 0 ? "+" : ""}${componentBonuses(build.components)[key]}` : ""}`;
       const bubble = $(".help-bubble", row);
       if (bubble)
         bubble.textContent = `${FIELD_HELP["entity_" + key] || ""} ${cost}.`;
@@ -936,7 +1027,12 @@ function rebuildStatFields() {
           ? {}
           : mode === "realistic-v1"
             ? { capital: defaultCapital(build.level || level) }
-            : { stats: statsForCapital(build.level || level, build.capital) }),
+            : {
+                stats: withComponents(
+                  statsForCapital(build.level || level, build.capital),
+                  build.components,
+                ),
+              }),
       };
     }),
   };
@@ -968,7 +1064,7 @@ function competitionEditor() {
       ],
       String(c.generations || 1),
     )}</div><h3 class="section-label">Selected participants</h3>${S.choiceModels.map((m) => `<label class="choice"><input type="checkbox" name="participant" value="${e(m.id)}" ${c.models.some((v) => v.id === m.id) ? "checked" : ""}><span><strong>${e(m.id)}</strong><small>${e(m.provider)} · ${e(m.model || m.profile)}</small></span></label>`).join("")}${btn("Manage profiles", "go", 'data-view="participants"')}</section>
- <section class="panel"><h2>Scenario</h2><div class="scenario-presets">${btn("Simple duel · level 300", "preset-simple")}${btn("Dream team · saved preset", "preset-dream")}${btn("LLM builds its team", "preset-llm")}</div><p id="preset-status" role="status" class="muted">${c.scenario.source ? `Based on public team · original snapshot ${e(c.scenario.source.snapshot_sha256.slice(0, 12))}. The roster below can be edited. Component stat bonuses are included in published totals; component-specific mechanics are not imported.` : c.scenario.preset === "llm-team" ? "Each LLM chooses 1–4 level-300 leeks, individual scripts, capital allocations, weapons and chips. preview_build and validate_team check the official capital-only rules. The roster below is for fixed reference opponents." : "Starting preset: one level-300 gunner per team, direct-damage weapons, no chips. Edit each character independently below."}</p>${c.scenario.source ? raw(c.scenario.source, "Public source and frozen snapshot") : ""}<details><summary>Refresh or replace the saved Dream team</summary>${btn("Refetch current top farmer", "preset-dream-refresh")}<p class="muted">Only this button reads the current farmer ranking and fetches four leeks of its first player. The saved preset is reused until an explicit refresh; existing competitions keep their frozen roster.</p><p class="muted">Use scripts/import_dream_team.py on a machine with access to leekwars.com, then paste its snapshot JSON here.</p><textarea id="dream-snapshot" class="mono" aria-label="Public team snapshot JSON" rows="4"></textarea>${btn("Import snapshot", "preset-dream-json")}</details></section><section class="panel"><h2>Match rules</h2><p class="muted">Default member builds and team-building rules are shared. Matches alternate sides. Both sides use the same roster; every member can have different equipment.</p><div class="form-grid">${selectField(
+ <section class="panel"><h2>Scenario</h2><div class="scenario-presets">${btn("Simple duel · level 300", "preset-simple")}${btn("Dream team · saved preset", "preset-dream")}${btn("LLM builds its team", "preset-llm")}</div><p id="preset-status" role="status" class="muted">${c.scenario.source ? `Based on public team · original snapshot ${e(c.scenario.source.snapshot_sha256.slice(0, 12))}. The roster below can be edited. Published final stats include component bonuses; component selections and alteration deltas are preserved without adding bonuses twice.` : c.scenario.preset === "llm-team" ? "Each LLM chooses 1–4 level-300 leeks, individual scripts, capital allocations, weapons, chips and components. preview_build and validate_team check the official capital and base-component rules. The roster below is for fixed reference opponents." : "Starting preset: one level-300 gunner per team, direct-damage weapons, no chips. Edit each character independently below."}</p>${c.scenario.source ? raw(c.scenario.source, "Public source and frozen snapshot") : ""}<details><summary>Refresh or replace the saved Dream team</summary>${btn("Refetch current top farmer", "preset-dream-refresh")}<p class="muted">Only this button reads the current farmer ranking and fetches four leeks of its first player. The saved preset is reused until an explicit refresh; existing competitions keep their frozen roster.</p><p class="muted">Use scripts/import_dream_team.py on a machine with access to leekwars.com, then paste its snapshot JSON here.</p><textarea id="dream-snapshot" class="mono" aria-label="Public team snapshot JSON" rows="4"></textarea>${btn("Import snapshot", "preset-dream-json")}</details></section><section class="panel"><h2>Match rules</h2><p class="muted">Default member builds and team-building rules are shared. Matches alternate sides. Both sides use the same roster; every member can have different equipment.</p><div class="form-grid">${selectField(
    "Team setup",
    "team_mode",
    [
@@ -1027,9 +1123,12 @@ function readCompetition(form) {
   Object.assign(
     base.scenario.entity,
     base.scenario.stats_mode === "realistic-v1"
-      ? statsForCapital(
-          base.scenario.member_stats[0].level,
-          base.scenario.member_stats[0].capital,
+      ? withComponents(
+          statsForCapital(
+            base.scenario.member_stats[0].level,
+            base.scenario.member_stats[0].capital,
+          ),
+          base.scenario.member_stats[0].components,
         )
       : base.scenario.member_stats[0].stats,
   );
@@ -2150,6 +2249,9 @@ document.addEventListener("change", async (event) => {
         ids
           .map((id) => S.equipment[picker.dataset.kind][id]?.name || id)
           .join(", ") || picker.dataset.empty;
+      if (picker.dataset.kind === "components")
+        syncComponentStats(picker.closest("[data-member-build]"));
+      updateStatPreviews(false);
     } else if (n.name === "realistic_stats" || n.name === "team_size") {
       rebuildStatFields();
     } else if (n.name === "entity_level") {
@@ -2162,11 +2264,15 @@ document.addEventListener("change", async (event) => {
         const level = Number(
           $("[data-member-level]", n.closest("[data-member-build]")).value,
         );
-        const current = Number(n.value);
+        const bonus =
+          componentBonuses(
+            selectedComponents(n.closest("[data-member-build]")),
+          )[n.dataset.stat] || 0;
+        const current = Number(n.value) - bonus;
         const choice = statChoices(n.dataset.stat, level).find(
           (c) => c.value >= current,
         );
-        if (choice) n.value = choice.value;
+        if (choice) n.value = choice.value + bonus;
       }
       updateStatPreviews(false);
     } else if (n.matches("[data-member-level]")) {
@@ -2240,11 +2346,17 @@ document.addEventListener("input", (event) => {
     const section = n.closest("[data-member-build]"),
       key = n.dataset.statSlider;
     const level = Number($("[data-member-level]", section).value);
+    const components = selectedComponents(section),
+      bonus = componentBonuses(components);
     let value = Number(n.value);
     if ($("#member-stat-builds").dataset.mode === "realistic-v1")
-      value = statChoices(key, level).reduce((best, c) =>
-        Math.abs(c.value - value) < Math.abs(best.value - value) ? c : best,
-      ).value;
+      value =
+        statChoices(key, level).reduce((best, c) =>
+          Math.abs(c.value + (bonus[key] || 0) - value) <
+          Math.abs(best.value + (bonus[key] || 0) - value)
+            ? c
+            : best,
+        ).value + (bonus[key] || 0);
     $(`[data-stat="${key}"]`, section).value = value;
     updateStatPreviews(false);
   }

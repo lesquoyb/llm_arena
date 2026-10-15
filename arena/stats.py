@@ -1,4 +1,4 @@
-"""Pinned official capital allocation; realistic builds exclude components."""
+"""Pinned official capital allocation and per-member component bonuses."""
 from .core import ArenaError, ROOT, integer, read_json
 
 RULES = read_json(ROOT / 'docs/corpus/stat-rules.json')
@@ -48,7 +48,7 @@ def free_stats(values, baseline):
         raise ArenaError('Unknown member characteristics')
     result = {key: values.get(key, baseline.get(key, 0)) for key in STATS if key in values or key in baseline}
     for key, value in result.items():
-        integer(value, 1 if key in ('life', 'cores', 'ram') else 0,
+        integer(value, -100000 if key in ('strength','agility','wisdom','resistance','science','magic','frequency') else 1 if key in ('life', 'cores', 'ram') else 0,
                 50 if key == 'ram' else 100 if key == 'cores' else 100000, key)
     return result
 
@@ -61,12 +61,16 @@ def member_stats(scenario, index, member=None):
     level = default.get('level', scenario['entity']['level'])
     integer(level, 1, 301 if mode == 'realistic-v1' else 100000, 'member level')
     if mode == 'realistic-v1':
-        if 'stats' in member or set(default) - {'capital', 'weapons', 'chips', 'name', 'level'}:
+        if 'stats' in member or set(default) - {'capital', 'weapons', 'chips', 'name', 'level', 'components'}:
             raise ArenaError('Realistic mode accepts capital allocations, not raw stats')
         capital = member.get('capital', default.get('capital', default_capital(level)))
-        return realistic_stats(level, capital)
-    if 'capital' in member or set(default) - {'stats', 'weapons', 'chips', 'name', 'level'}:
+        from .components import describe, add_bonuses
+        components = member.get('components', default.get('components', []))
+        return add_bonuses(realistic_stats(level, capital), describe(components, level)['bonuses'])
+    if 'capital' in member or set(default) - {'stats', 'weapons', 'chips', 'name', 'level', 'components'}:
         raise ArenaError('Free mode accepts raw stats; switch to realistic mode for capital allocations')
+    from .components import describe
+    describe(member.get('components', default.get('components', [])), level, realistic=False)
     baseline = free_stats(default.get('stats', {}), scenario['entity'])
     return free_stats(member.get('stats', {}), baseline)
 

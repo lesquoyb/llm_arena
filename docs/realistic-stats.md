@@ -6,9 +6,9 @@ and converts them to capital using the official tiers. **Free** mode accepts
 custom final stats without requiring a capital allocation.
 Capital is a game resource for building a leek, not API spending or token usage.
 
-This version supports **base stats plus capital, without components or
-alterations**. It is a constructible subset of official builds, not an exhaustive
-simulation of the online account, inventory, components, loadouts or economy.
+This version supports **base stats plus capital plus base components**.
+Alterations are not supported by the realistic builder. Online account ownership,
+inventory and economy are outside this validation. See [Components](corpus/components.md).
 Weapons and chips still use the pinned generator catalog and the competition's
 level, slot and allowlist rules. In realistic mode, default equipment and
 participant-selected items above the leek level are rejected by validation and

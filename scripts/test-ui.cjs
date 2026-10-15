@@ -265,7 +265,7 @@ async function main() {
     await page.getByLabel("Repetitions per participant").fill("2");
     await page.getByLabel("Evaluation cycle").selectOption("1");
     const realisticStats = page.getByLabel(
-      "Realistic stats (official capital rules, no components)",
+      "Realistic stats (capital and base components)",
     );
     assert(await realisticStats.isChecked());
     assert.equal(await page.getByLabel("Maximum turns").inputValue(), "1000");
@@ -282,6 +282,50 @@ async function main() {
       await page.locator('[name="weapons"]').inputValue(),
       "37, 45, 151, 153",
     );
+    const componentPicker = page.locator(
+      '[data-member-build="0"] [data-kind="components"]',
+    );
+    await componentPicker.locator("summary").first().click();
+    const initialCapital = await page
+      .locator(".member-stat-summary")
+      .first()
+      .innerText();
+    await componentPicker.locator('input[value="313"]').check();
+    assert.equal(
+      await page.locator('[name="member_0_ram"]').inputValue(),
+      "10",
+    );
+    assert.equal(
+      await page.locator(".member-stat-summary").first().innerText(),
+      initialCapital,
+    );
+    assert(
+      (await page.locator(".equipment-capacity").first().innerText()).includes(
+        "10 chip slots",
+      ),
+    );
+    await componentPicker.locator('input[value="317"]').check();
+    assert.equal(
+      await page.locator('[name="member_0_resistance"]').inputValue(),
+      "-30",
+    );
+    assert.equal(await page.locator('[name="member_0_mp"]').inputValue(), "7");
+    await page.locator('[data-stat-slider="mp"]').evaluate((n) => {
+      n.value = "8";
+      n.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    assert.equal(await page.locator('[name="member_0_mp"]').inputValue(), "8");
+    await componentPicker.locator('input[value="317"]').uncheck();
+    assert.equal(await page.locator('[name="member_0_mp"]').inputValue(), "7");
+    await page.locator('[name="member_0_mp"]').fill("6");
+    await page.locator('[name="member_0_mp"]').dispatchEvent("change");
+    await componentPicker.locator('input[value="313"]').uncheck();
+    assert.equal(await page.locator('[name="member_0_ram"]').inputValue(), "6");
+    assert.equal(
+      await page.locator(".member-stat-summary").first().innerText(),
+      initialCapital,
+    );
+    await componentPicker.locator("summary").first().click();
     const mpHelp = await page
       .locator('[data-stat-row="mp"] .help-bubble')
       .first()
@@ -599,6 +643,15 @@ async function main() {
       "Configuration navigateur",
     );
 
+    const savedComponents = page.locator(
+      '[data-member-build="0"] [data-kind="components"]',
+    );
+    await savedComponents.locator(":scope > summary").click();
+    await savedComponents.locator('input[value="313"]').check();
+    assert.equal(
+      await page.locator('[name="member_0_ram"]').inputValue(),
+      "10",
+    );
     await page.getByRole("button", { name: "Calculate schedule" }).click();
     await page
       .locator("#plan-preview")
@@ -620,6 +673,10 @@ async function main() {
     assert.equal(configured.scenario.stats_mode, "realistic-v1");
     assert.equal(configured.scenario.member_stats[0].capital.strength, 100);
     assert.equal(configured.scenario.member_stats[1].capital.wisdom, 100);
+    assert.deepEqual(configured.scenario.member_stats[0].components, [313]);
+    assert.deepEqual(configured.scenario.member_stats[1].components, []);
+    assert.equal(configured.scenario.entity.ram, 10);
+    assert.equal(configured.scenario.member_stats[0].capital.ram, 0);
     assert.deepEqual(configured.scenario.member_stats[0].chips, []);
     assert.deepEqual(configured.scenario.member_stats[1].chips, [3]);
     assert.deepEqual(configured.scenario.team_selection.allowed_weapons, [37]);

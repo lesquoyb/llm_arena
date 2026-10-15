@@ -14,3 +14,5 @@ Resolve ambiguities against generator commit
 accessing the web during an experimental session.
 
 - `showcase.leek`: weapons, chips, healing and a summon callback (requires the showcase loadout).
+
+- `components.md` and `component-levels.json`: per-leek base component rules and public item levels.
