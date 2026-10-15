@@ -29,22 +29,22 @@ def public_json(path):
     return data
 
 
+# Selection supplied by the user from the current top farmer's public page.
+DREAM_FARMER_ID = 512
+DREAM_LEEK_IDS = (599, 881, 1549, 11942)
+
+
 def fetch_snapshot(fetch=public_json):
-    ranking = fetch(RANKING)
-    rows = ranking.get('ranking')
-    if not isinstance(rows, list):
-        raise ArenaError('The public ranking has no ranking list')
-    for rank, row in enumerate(rows[:10], 1):
-        team = fetch('team/get/' + str(int(row['id'])))
-        compositions = [c for c in team.get('compositions', []) if len(c.get('leeks', [])) == 4]
-        if not compositions:
-            continue
-        composition = max(compositions, key=lambda c: c.get('talent', 0))
-        leeks = [fetch('leek/get/' + str(int(l['id']))) for l in composition['leeks']]
-        return {'fetched_at': datetime.now(timezone.utc).isoformat(), 'ranking_path': RANKING,
-                'rank': rank, 'ranking_entry': row, 'team': team,
-                'composition': composition, 'leeks': leeks}
-    raise ArenaError('No public four-leek composition in the first ten ranked teams. No substitute build was generated.')
+    farmer = fetch('farmer/get/' + str(DREAM_FARMER_ID))
+    if farmer.get('id') != DREAM_FARMER_ID:
+        raise ArenaError('Public farmer response does not match farmer 512')
+    leeks = [fetch('leek/get/' + str(identifier)) for identifier in DREAM_LEEK_IDS]
+    if any(leek.get('id') != identifier for leek, identifier in zip(leeks, DREAM_LEEK_IDS)):
+        raise ArenaError('Public leek response does not match the selected leek ID')
+    return {'fetched_at': datetime.now(timezone.utc).isoformat(),
+            'selection': {'farmer_id': DREAM_FARMER_ID, 'leek_ids': list(DREAM_LEEK_IDS),
+                          'source': 'User-selected public top farmer; not a team-composition ranking'},
+            'farmer': farmer, 'leeks': leeks}
 
 
 def scenario_from_snapshot(snapshot):
