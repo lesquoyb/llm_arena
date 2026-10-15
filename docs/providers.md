@@ -7,8 +7,8 @@ API contracts are tested using offline fixtures.
 
 ## Model configuration
 
-A real model needs an exact ID, key binding, output and admission limits, and
-dated USD prices. This is a template, not an executable manifest:
+A real model needs an exact ID, key binding and dated USD prices. Output and
+input admission limits are optional, except for Anthropic output. This is a template, not an executable manifest:
 
 ```json
 {
@@ -38,9 +38,9 @@ OpenAI-compatible providers require a full endpoint, such as
 `https://example.test/v1/chat/completions`, and Bearer authentication.
 Embedded credentials and query parameters in endpoints are rejected.
 
-Paid manifests must set `spending.allow_paid_calls=true`, a positive total
-spending limit and per-session input, output and dollar limits. Missing settings
-fail validation before calls. Model aliases and commercial prices are not hardcoded.
+Paid manifests must set `spending.allow_paid_calls=true`. A total spending limit
+and per-session input, output and dollar limits may be omitted. If a total
+spending limit is configured, it must be positive. Model aliases and commercial prices are not hardcoded.
 Verify IDs, supported parameters and prices with the provider.
 
 Supply keys through server environment variables or the UI password field.
@@ -112,8 +112,8 @@ Official contract sources checked on 15 October 2026:
 - [Anthropic Messages request types](https://github.com/anthropics/anthropic-sdk-python/blob/main/src/anthropic/types/message_create_params.py).
 - [Google GenerateContentConfig and seed behavior](https://github.com/googleapis/python-genai/blob/main/google/genai/types.py).
 
-A live provider smoke test requires explicit keys, exact models, prices and a
-spending limit. It is not part of standard CI.
+A live provider smoke test requires explicit keys, exact models, prices and
+paid-call authorization. A spending limit is optional. It is not part of standard CI.
 
 ## Optional token limits
 
@@ -127,11 +127,21 @@ bound; it is not an exact tokenizer count. Conversation token caps are optional
 and use returned usage. If a total output cap is set, each request is limited to
 the remaining allowance. No minimum number of tokens is imposed.
 
-Financial budgets remain required for paid calls. With no output cap, the runner
-reserves all remaining funds while the call is in flight. Its cost is not bounded
-in advance: one response may exceed the remaining financial budget. Usage is
-reconciled on receipt and subsequent calls stop when the budget is exhausted.
-Unknown outcomes keep the reservation and require reconciliation.
+All preparation limits are optional: model calls, tool calls, test matches,
+elapsed time, input/output tokens and cost. New UI competitions leave them blank.
+A model call is one provider response, including each response after tool results.
+A tool call is one requested action, such as writing code or running a test.
+Without a limit, preparation continues until submission, an ordinary end of
+conversation, a provider failure, or an explicit stop. API context limits and
+required request parameters still apply. Resource usage and costs are always recorded.
+
+Paid calls require explicit activation. Conversation and experiment financial
+ceilings are optional. With no output cap but a financial ceiling, the runner
+reserves the remaining funds while the call is in flight. Without either, its
+pending cost is marked unknown. One response can exceed a configured financial
+limit; usage is reconciled on receipt and subsequent calls stop when the limit
+is exhausted. Unknown outcomes require reconciliation and are never retried blindly.
+Existing manifests, demos and profiles retain their explicit limits.
 
 Model catalogs are fetched with the configured key and filtered for known
 incompatible endpoints and image/audio/video/embedding models. Excluded IDs and

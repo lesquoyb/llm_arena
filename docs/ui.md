@@ -89,13 +89,35 @@ A match seed controls reproducible map generation and placement. Preparation
 seed 17, feedback seeds and final evaluation seeds are separate. Mirrors compare
 a strategy with itself and do not affect the ranked score.
 
-Budgets cover model calls, tool calls, preparation matches, time and cost.
-Token caps are optional and blank by default in new profiles; Anthropic requires
-an explicit per-call output cap. Existing settings are preserved. Without an
-output cap, one API response can exceed the remaining financial budget.
-Saving settings makes no API calls. Paid launches require confirmation of the
-total limit, including initial strategy and both improved strategy branches. Per-conversation limits also apply.
-Reservations are conservative estimates, not guarantees of provider billing.
+All preparation limits are optional and blank in new competitions: calls, tools,
+test matches, time, tokens and cost. A **Model call** is one API response,
+including each response after tool results. A **Tool call** is one action requested
+by that response. Counts, usage, elapsed time and cost are recorded even without
+limits. Models may use different amounts of preparation to reach their submissions.
+Anthropic still requires an explicit per-call output cap. Existing configurations
+and demos retain their limits. Paid launches require API authorization and show
+whether a financial limit is configured. One response can exceed a configured
+financial limit; accounting reservations are not provider billing guarantees.
+
+**Team setup** switches between shared teams/equipment and participant-selected
+teams. In participant mode, **Team size** is the maximum, not the exact size.
+Each model chooses 1 to that many members, equipment and a script per member using
+`configure_team`. All members retain the shared base stats. Weapons/chips must
+exist in the pinned catalog, meet the shared member level, respect slot limits
+and appear in any selected allowlists. Empty allowlists mean all eligible items.
+Fixed reference opponents keep the default team and equipment.
+
+Equipment selectors list the full pinned catalog, support name/ID searches and
+show level, AP cost, range, line of sight, effects and the raw definition. Empty
+default equipment means no items. Catalog IDs are distinct from inventory item
+IDs. Each field's question mark explains its meaning; Help opens the interface,
+authoring, rules and pinned API documents without leaving the application.
+
+`configure_team` writes `team.json`, which is hashed and frozen with sources.
+It creates a version in **Code & versions** and is inherited by both improvement
+branches. The exact team appears in recorded tool calls, submissions and match
+scenarios; changing sides preserves the chosen team. All member scripts are
+included in submission analysis.
 
 One managed competition runs at a time. **Stop** keeps checkpoints. **Resume**
 checks them and reuses completed work. An API call with an unknown outcome keeps

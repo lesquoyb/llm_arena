@@ -1288,3 +1288,78 @@ dialog::backdrop {
   overflow-wrap: anywhere;
   margin-bottom: 16px;
 }
+
+.field-heading {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.help-tip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 17px;
+  height: 17px;
+  border: 1px solid #a6b4d0;
+  border-radius: 50%;
+  font-size: 11px;
+  cursor: help;
+  flex-shrink: 0;
+}
+.help-bubble {
+  display: none;
+  position: absolute;
+  bottom: 24px;
+  left: -12px;
+  width: min(270px, 65vw);
+  padding: 10px 12px;
+  z-index: 8;
+  background: #233454;
+  color: white;
+  border-radius: 7px;
+  font-weight: 400;
+  font-size: 12px;
+  line-height: 1.5;
+  box-shadow: 0 4px 18px #20304a30;
+}
+.help-tip:hover .help-bubble,
+.help-tip:focus .help-bubble {
+  display: block;
+}
+.equipment-picker {
+  border: 1px solid #dce1ec;
+  border-radius: 7px;
+  background: white;
+  min-width: 0;
+}
+.equipment-picker > summary {
+  padding: 10px 12px;
+  overflow-wrap: anywhere;
+}
+.equipment-picker-body {
+  padding: 12px;
+}
+.equipment-options {
+  max-height: 340px;
+  overflow-y: auto;
+  margin: 12px 0;
+}
+.equipment-option {
+  padding: 10px 4px;
+  border-bottom: 1px solid #dce1ec;
+}
+.equipment-option .check {
+  flex-wrap: wrap;
+}
+.equipment-option small {
+  display: block;
+  margin: 5px 0;
+}
+.equipment-option details {
+  font-weight: 400;
+  font-size: 12px;
+}
+.equipment-option dd {
+  margin: 3px 0 10px;
+}

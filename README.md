@@ -106,7 +106,7 @@ python scripts/validate.py
 `validate.py` requires a built engine and checks a full 18-match tournament
 and resume without recalculation. CI covers Linux and Windows. Provider adapters
 use offline fixtures in CI; real API calls require explicit models, prices,
-keys and spending limits. Check the workflow result for the commit being used.
+keys and paid-call authorization; spending limits are optional. Check the workflow result for the commit being used.
 
 - [Interface](docs/ui.md): matrix links, filters, files, requests, replays and statistics.
 - [Full experiment](docs/complete-experiment.md): initial/improved strategies, MCP, exports and Docker.

@@ -41,7 +41,7 @@ class Preparation:
         if name == "list_files":
             self._fields(arguments, set())
             return {"files": sorted(p.relative_to(self.workspace).as_posix()
-                                   for p in self.workspace.rglob("*.leek") if p.is_file())}
+                                   for p in self.workspace.rglob("*") if p.is_file() and (p.suffix == ".leek" or p == self.workspace / "team.json"))}
         if name in {"read_file", "read_docs"}:
             self._fields(arguments, {"path", "offset", "limit"})
             root = self.docs if name == "read_docs" else self.workspace
@@ -59,7 +59,7 @@ class Preparation:
             if path.suffix != ".leek" or not isinstance(content, str):
                 raise ArenaError("Only text .leek files are allowed")
             encoded = content.encode("utf-8")
-            existing = [p for p in self.workspace.rglob("*.leek") if p.is_file() and p != path]
+            existing = [p for p in self.workspace.rglob("*") if p.is_file() and (p.suffix == ".leek" or p == self.workspace / "team.json") and p != path]
             if len(existing) >= 128 or sum(p.stat().st_size for p in existing) + len(encoded) > 2_000_000:
                 raise ArenaError("Submission quota exceeded")
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -67,6 +67,16 @@ class Preparation:
             tmp.write_bytes(encoded)
             tmp.replace(path)
             return {"sha256": file_hash(path)}
+        if name == "configure_team":
+            from .teams import TEAM_FILE, validate_team
+            from .core import source_files
+            self._fields(arguments, {"members"})
+            if not self.scenario.get("team_selection"):
+                raise ArenaError("Participant teams are disabled for this competition")
+            team = validate_team(arguments, self.scenario, source_files(self.workspace), self.docs / "leekscript-v1")
+            write_json(self.workspace / TEAM_FILE, team)
+            return {"path": TEAM_FILE, "content": (self.workspace / TEAM_FILE).read_text(encoding="utf-8"),
+                    "sha256": file_hash(self.workspace / TEAM_FILE), "team": team}
         if name == "read_replay":
             self._fields(arguments, {"test_id", "side", "section", "offset", "limit"})
             test_id = arguments["test_id"]
@@ -92,6 +102,11 @@ class Preparation:
                                    arguments.get("opponent_id", "passive") != "passive"):
                 raise ArenaError("Test is outside the preparation catalog")
             info = submission(self.workspace, entry)
+            if self.scenario.get("team_selection") and name in {"test", "submit"}:
+                from .teams import validate_team
+                if "team" not in info:
+                    raise ArenaError("Choose a team with configure_team before testing or submitting")
+                validate_team(info["team"], self.scenario, info["files"], self.docs / "leekscript-v1")
             if name == "submit":
                 target = self.directory / "submission"
                 if target.exists():

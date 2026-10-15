@@ -1,8 +1,15 @@
 # Rules and preparation catalog
 
-Teams have equal size, stats, weapons and chips. The manifest fixes equipment,
-which is supplied in the initial prompt. Each member runs the same entry point
-on each of its turns. Engine winners are sides 0 or 1, with -1 for draws.
+The manifest declares the team-building mode in the initial prompt. Without
+`scenario.team_selection`, teams have equal size, stats, weapons and chips and
+members share the submission entry point. With participant selection enabled,
+base stats stay fixed but each model chooses 1..scenario.team_size members,
+per-member entry points and equipment using `configure_team`. Write the source
+files first. Equipment must satisfy the level, slot limits and any allowlists;
+use keys from leekscript-v1/weapons.json and chips.json. A selection is required
+before test or submit. Successful selections create team.json, frozen with code
+and inherited by improvement branches. Fixed reference opponents use the default
+scenario team and equipment. Engine winners are sides 0 or 1, with -1 for draws.
 Replay teams are numbered 1 and 2. Mirrors are diagnostics outside the main score.
 
 TP limits actions, MP limits movement, and cores sets the per-turn operation

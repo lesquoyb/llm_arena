@@ -113,25 +113,29 @@ def source_files(source: Path) -> dict[str, bytes]:
     for p in sorted(source.rglob("*")):
         if is_link(p):
             raise ArenaError(f"Links are not allowed in submissions: {p}")
-        if p.is_file() and p.suffix == ".leek":
+        if p.is_file() and (p.suffix == ".leek" or p == source / "team.json"):
             files[p.relative_to(source).as_posix()] = p.read_bytes()
-    if not files or len(files) > 128 or sum(map(len, files.values())) > 2_000_000:
+    if not any(name.endswith(".leek") for name in files) or sum(name.endswith(".leek") for name in files) > 128 or sum(map(len, files.values())) > 2_000_000:
         raise ArenaError("A submission must contain 1–128 .leek files, totalling at most 2 MB")
     return files
 
 
 def submission(source: Path, entrypoint: str = "main.leek") -> dict:
     files = source_files(source)
-    if entrypoint not in files:
+    if entrypoint not in files or not entrypoint.endswith(".leek"):
         raise ArenaError(f"Entrypoint must name a .leek file within the submission: {entrypoint}")
     hashes = {name: hashlib.sha256(content).hexdigest() for name, content in files.items()}
-    return {"entrypoint": entrypoint, "files": hashes, "sha256": digest(hashes)}
+    info = {"entrypoint": entrypoint, "files": hashes, "sha256": digest(hashes)}
+    if "team.json" in files:
+        from .teams import validate_team
+        info["team"] = validate_team(json.loads(files["team.json"]), files=files)
+    return info
 
 
 def copy_submission(source: Path, target: Path, expected: dict):
     files = source_files(source)
     actual = {name: hashlib.sha256(content).hexdigest() for name, content in files.items()}
-    if actual != expected["files"]:
+    if actual != expected["files"] or submission(source, expected["entrypoint"]) != expected:
         raise ArenaError(f"Submission changed since scheduling: {source}")
     target.mkdir(parents=True, exist_ok=True)
     for name, content in files.items():
@@ -148,9 +152,11 @@ def integer(value, low: int, high: int, label: str):
 def validate_scenario(config: dict):
     if not isinstance(config, dict):
         raise ArenaError("scenario must be an object")
-    unknown = set(config) - {"team_size", "max_turns", "entity", "map"}
+    unknown = set(config) - {"team_size", "max_turns", "entity", "map", "team_selection"}
     if unknown:
         raise ArenaError(f"Unsupported scenario fields: {sorted(unknown)}")
+    from .teams import validate_rules
+    validate_rules(config)
     integer(config.get("team_size"), 1, 8, "team_size")
     integer(config.get("max_turns"), 1, 64, "max_turns")
     entity = config.get("entity", {})
@@ -191,7 +197,7 @@ def validate_scenario(config: dict):
                 cells.append(cell)
 
 
-def make_scenario(config: dict, entries: list[str], seed: int) -> dict:
+def make_scenario(config: dict, entries: list[str], seed: int, teams=None) -> dict:
     validate_scenario(config)
     integer(seed, 1, 2**31 - 1, "seed")
     result = {
@@ -199,17 +205,29 @@ def make_scenario(config: dict, entries: list[str], seed: int) -> dict:
         "farmers": [], "teams": [], "entities": [],
     }
     if config.get("map") is not None:
-        result["map"] = config["map"]
+        result["map"] = {k: (list(v) if isinstance(v, list) else v) for k, v in config["map"].items()}
     for side in range(2):
         owner = side + 1
         result["farmers"].append({"id": owner, "name": f"Side {owner}", "country": "fr"})
         result["teams"].append({"id": owner, "name": f"Side {owner}"})
+        team = (teams or [None, None])[side]
+        if team is not None:
+            from .teams import validate_team
+            if not config.get("team_selection"):
+                raise ArenaError("Participant teams are disabled for this competition")
+            validate_team(team, config)
+        members = team["members"] if team else [dict(entrypoint=entries[side],
+                   weapons=config["entity"].get("weapons", []), chips=config["entity"].get("chips", []))
+                   for _ in range(config["team_size"])]
         result["entities"].append([
-            {**config["entity"], "id": side * config["team_size"] + i + 1,
+            {**config["entity"], "weapons": member["weapons"], "chips": member["chips"],
+             "id": side * config["team_size"] + i + 1,
              "name": f"Side {owner} / {i + 1}", "type": 1, "farmer": owner,
-             "team": owner, "ai": entries[side], "ai_version": 4}
-            for i in range(config["team_size"])
+             "team": owner, "ai": member["entrypoint"], "ai_version": 4}
+            for i, member in enumerate(members)
         ])
+        if "map" in result:
+            result["map"][f"team{owner}"] = result["map"][f"team{owner}"][:len(members)]
     return result
 
 

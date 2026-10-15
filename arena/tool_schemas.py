@@ -24,5 +24,9 @@ TOOLS = [
     {"name": "read_replay", "description": "Lit une page du replay de TON test.",
      "input_schema": schema({"test_id": TEXT, "side": {"type": "integer", "enum": [0, 1]},
                              "section": {"type": "string", "enum": ["fight", "team_metrics"]}, **PAGE}, ["test_id"])},
+    {"name": "configure_team", "description": "Choose team members, per-member .leek entrypoints, weapons and chips. Available only when scenario.team_selection enables participant teams. Sources must exist first. Read leekscript-v1/weapons.json and chips.json; use their keys as IDs. Stats stay fixed; equipment must meet the level, allowlists and slot limits. The selection is journaled as team.json and frozen with submit.",
+     "input_schema": schema({"members": {"type": "array", "minItems": 1, "maxItems": 8,
+         "items": schema({"entrypoint": TEXT, "weapons": {"type": "array", "items": {"type": "integer"}},
+                          "chips": {"type": "array", "items": {"type": "integer"}}}, ["entrypoint", "weapons", "chips"])}}, ["members"])},
     {"name": "submit", "description": "Fige ta soumission et clôt la session.", "input_schema": schema(ENTRY)},
 ]

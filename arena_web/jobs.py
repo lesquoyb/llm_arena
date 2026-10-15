@@ -54,8 +54,10 @@ class Jobs:
                 out = self.store.runs / run_id
             validate_config(config)
             paid = any(m["provider"] != "mock" for m in config["models"])
-            if paid and (confirm_paid is not True or ceiling is None or
-                         amount(ceiling) != amount(config["spending"]["max_total_usd"])):
+            configured_ceiling = config["spending"].get("max_total_usd")
+            ceiling_matches = ((ceiling is None and configured_ceiling is None) or
+                               (ceiling is not None and configured_ceiling is not None and amount(ceiling) == amount(configured_ceiling)))
+            if paid and (confirm_paid is not True or not ceiling_matches):
                 raise ArenaError("Confirm the spending limit before making API calls")
             env = dict(os.environ)
             for model in config["models"]:
@@ -64,7 +66,7 @@ class Jobs:
                 name = model["api_key_env"]
                 secret = self.store.secrets.get(name) or os.environ.get(name)
                 if not secret:
-                    raise ArenaError(f"API key manquante : {name}")
+                    raise ArenaError(f"Missing API key: {name}")
                 env[name] = secret
             from arena.engine import Engine
             engine = Engine()

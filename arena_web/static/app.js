@@ -90,10 +90,66 @@ const empty = (title, description, action = "") =>
   `<div class="empty"><h2>${e(title)}</h2><p>${e(description)}</p>${action}</div>`;
 const table = (headers, rows) =>
   `<div class="table-scroll"><table><thead><tr>${headers.map((h) => `<th>${h}</th>`).join("")}</tr></thead><tbody>${rows.join("")}</tbody></table></div>`;
-const field = (label, name, value = "", type = "text", help = "", attrs = "") =>
-  `<label class="field">${e(label)}<input type="${type}" name="${name}" value="${e(value)}" ${attrs}>${help ? `<small>${e(help)}</small>` : ""}</label>`;
-const selectField = (label, name, values, current, help = "") =>
-  `<label class="field">${e(label)}<select name="${name}">${values.map(([v, l]) => `<option value="${e(v)}" ${v === current ? "selected" : ""}>${e(l)}</option>`).join("")}</select>${help ? `<small>${e(help)}</small>` : ""}</label>`;
+const FIELD_HELP = {
+  name: "Name shown in competition lists and exported reports.",
+  id: "Local participant identifier. Previous competitions keep their saved participant configuration.",
+  provider:
+    "Protocol used to call the model. Mock runs a recorded scripted fixture without API calls.",
+  replicates:
+    "Independent conversations per participant. Each starts with a fresh history; this measures variation between attempts.",
+  generations:
+    "Evaluate the initial submission alone, or also create two improvements from the same checkpoint: with and without match feedback.",
+  team_mode:
+    "Shared mode fixes every member and item. Participant mode lets each AI choose its members, scripts and equipment under the same rules.",
+  max_turns:
+    "Maximum match rounds. This limits the game, not how long the model can prepare its strategy.",
+  input_price:
+    "USD per one million input tokens. Used to calculate cost from returned usage; this is a price, not a spending limit.",
+  output_price:
+    "USD per one million output tokens, including billable reasoning tokens where reported. This is a price, not a spending limit.",
+  pricing_date:
+    "Date of the prices you entered. The arena does not fetch prices automatically.",
+  entity_level:
+    "Level shared by all members. Participant-selected equipment cannot require a higher level.",
+  entity_life: "Starting health points per member.",
+  entity_strength:
+    "Shared strength stat, which affects strength-based effects such as ordinary weapon damage.",
+  entity_agility:
+    "Shared agility stat used by agility-based effects and combat mechanics.",
+  entity_frequency: "Initiative stat used to determine play order.",
+  entity_wisdom: "Shared wisdom stat used by healing-related effects.",
+  entity_resistance: "Shared resistance stat used by shield-related effects.",
+  entity_science: "Shared science stat used by science-related effects.",
+  entity_magic: "Shared magic stat used by magic-related effects.",
+  entity_tp:
+    "Action points available per member per turn. Weapon and chip costs consume AP.",
+  entity_mp: "Movement points available per member per turn.",
+  entity_cores:
+    "Per-turn operation limit is cores × 1,000,000, capped at 2,147,483,647.",
+  entity_ram:
+    "LeekScript memory budget per member: min(RAM, 50) × 8,000,000 slots. Separate from Java heap memory.",
+  team_max_weapons:
+    "Maximum weapons each participant-selected member can equip. Zero forbids weapons.",
+  team_max_chips:
+    "Maximum chips each participant-selected member can equip. Zero forbids chips.",
+};
+const fieldHeading = (label, help) =>
+  `<span class="field-heading">${e(label)}${help ? `<span class="help-tip" tabindex="0" aria-label="${e(help)}">?<span class="help-bubble" role="tooltip">${e(help)}</span></span>` : ""}</span>`;
+const field = (
+  label,
+  name,
+  value = "",
+  type = "text",
+  help = "",
+  attrs = "",
+) => {
+  help ||= FIELD_HELP[name] || "";
+  return `<label class="field">${fieldHeading(label, help)}<input type="${type}" name="${name}" value="${e(value)}" ${attrs}>${help ? `<small>${e(help)}</small>` : ""}</label>`;
+};
+const selectField = (label, name, values, current, help = "") => {
+  help ||= FIELD_HELP[name] || "";
+  return `<label class="field">${fieldHeading(label, help)}<select name="${name}">${values.map(([v, l]) => `<option value="${e(v)}" ${v === current ? "selected" : ""}>${e(l)}</option>`).join("")}</select>${help ? `<small>${e(help)}</small>` : ""}</label>`;
+};
 const query = (args) =>
   new URLSearchParams(
     Object.entries(args).filter(([, v]) => v !== undefined && v !== null),
@@ -241,6 +297,10 @@ async function renderRoute() {
     await renderRun(epoch);
     return;
   }
+  if (S.view === "editor" && !S.equipment) {
+    S.equipment = await api("/api/equipment");
+    if (epoch !== S.epoch) return;
+  }
   const renderers = {
     dashboard: dashboard,
     participants: participants,
@@ -339,6 +399,8 @@ function freshConfig() {
   const config = structuredClone(S.boot.default_config),
     catalog = S.boot.participants.map((p) => p.spec),
     ids = config.models.map((m) => m.id);
+  config.budget_per_session = {};
+  delete config.spending.max_total_usd;
   config.models = structuredClone(catalog.filter((m) => ids.includes(m.id)));
   if (!config.models.length)
     config.models = structuredClone(catalog.slice(0, 2));
@@ -430,7 +492,7 @@ function participantDialog(identifier = null, provider = null) {
          m.profile || "single-shot",
          "single-shot submits a simple strategy; repair-and-submit fixes a script and submits rush.",
        )
-     : `<h3 class="field full">API connection</h3>${field("API key environment variable", "api_key_env", m.api_key_env || (p === "anthropic" ? "ARENA_ANTHROPIC_KEY" : p === "gemini" ? "ARENA_GEMINI_KEY" : "ARENA_OPENAI_KEY"), "text", "A key set in the server environment can also be used.", "required")}<label class="field full">API key (this server session only)<input name="secret" type="password" autocomplete="new-password" placeholder="Leave blank to keep the available key"><small>Not returned to the browser or written to configuration files.</small></label>${p === "openai-compatible" ? field("Full HTTPS endpoint", "endpoint", m.endpoint || "", "url", "Include the API path. Do not put keys or query parameters in the URL.", "required") : m.endpoint ? field("HTTPS endpoint", "endpoint", m.endpoint, "url") : ""}<h3 class="field full">Model</h3><div class="field full">${btn("Load models", "list-models")}<label class="field" hidden id="model-search-field">Search models<input type="search" id="model-search" placeholder="Filter by model name or ID"></label><div id="available-models" class="model-catalog" role="group" aria-label="Available models" hidden></div><small id="model-list-status">Load models available to the configured API key. You can also enter an ID manually.</small><details id="excluded-models" hidden><summary>Excluded models</summary><div id="excluded-model-list"></div></details></div>${field("Exact model ID", "model", m.model || "", "text", "The exact ID accepted by the API.", "required")}${field("Input price / million tokens ($)", "input_price", pricing.input_per_million ?? "", "number", "", 'required min="0" step="any"')}${field("Output price / million tokens ($)", "output_price", pricing.output_per_million ?? "", "number", "", 'required min="0" step="any"')}${field("Price date", "pricing_date", pricing.date || new Date().toISOString().slice(0, 10), "date", "", "required")}${field("Cache read price / million ($), optional", "cached_price", pricing.cached_input_per_million ?? "", "number", "Blank uses the standard input price.", 'min="0" step="any"')}${field("Cache write price / million ($), optional", "creation_price", pricing.cache_creation_per_million ?? "", "number", "", 'min="0" step="any"')}${field("Maximum input per call (tokens)", "max_input_tokens_per_call", m.max_input_tokens_per_call ?? "", "number", "Optional. Blank disables local input admission limits.", 'min="1"')}${field("Maximum output per call (tokens)", "max_output_tokens", m.max_output_tokens ?? "", "number", p === "anthropic" ? "Required by Anthropic (max_tokens)." : "Optional. Blank uses the API default; one call may exceed the remaining financial budget.", p === "anthropic" ? 'required min="1"' : 'min="1"')}${field("Call timeout (seconds)", "timeout_seconds", m.timeout_seconds || 60, "number", "", 'required min="1" max="300"')}${field("Retries on HTTP 429", "max_retries", m.max_retries ?? 1, "number", "Calls with unknown outcomes are not retried automatically.", 'required min="0" max="3"')}${p === "anthropic" ? `<p class="muted">Seed: not available in the Anthropic API.</p>` : field("Model seed", "model_seed", m.parameters?.seed ?? (identifier ? "" : 0), "number", p === "openai-compatible" ? "Server support varies. Identical output is not guaranteed." : "Sent with every call when supported by the model. Identical output is not guaranteed.", 'min="0" max="2147483647"')}<label class="field full">Model parameters (JSON)<textarea name="parameters" class="mono">${e(pretty(m.parameters || {}))}</textarea><small>API-specific options such as temperature and top_p. Set the seed above.</small></label>`
+     : `<h3 class="field full">API connection</h3>${field("API key environment variable", "api_key_env", m.api_key_env || (p === "anthropic" ? "ARENA_ANTHROPIC_KEY" : p === "gemini" ? "ARENA_GEMINI_KEY" : "ARENA_OPENAI_KEY"), "text", "Name of the server environment variable containing the key, or the name under which to store a session key entered below.", "required")}<label class="field full">API key (this server session only)<input name="secret" type="password" autocomplete="new-password" placeholder="Leave blank to keep the available key"><small>Not returned to the browser or written to configuration files.</small></label>${p === "openai-compatible" ? field("Full HTTPS endpoint", "endpoint", m.endpoint || "", "url", "Include the API path. Do not put keys or query parameters in the URL.", "required") : m.endpoint ? field("HTTPS endpoint", "endpoint", m.endpoint, "url") : ""}<h3 class="field full">Model</h3><div class="field full">${btn("Load models", "list-models")}<label class="field" hidden id="model-search-field">Search models<input type="search" id="model-search" placeholder="Filter by model name or ID"></label><div id="available-models" class="model-catalog" role="group" aria-label="Available models" hidden></div><small id="model-list-status">Load models available to the configured API key. You can also enter an ID manually.</small><details id="excluded-models" hidden><summary>Excluded models</summary><div id="excluded-model-list"></div></details></div>${field("Exact model ID", "model", m.model || "", "text", "The exact ID accepted by the API.", "required")}${field("Input price / million tokens ($)", "input_price", pricing.input_per_million ?? "", "number", "", 'required min="0" step="any"')}${field("Output price / million tokens ($)", "output_price", pricing.output_per_million ?? "", "number", "", 'required min="0" step="any"')}${field("Price date", "pricing_date", pricing.date || new Date().toISOString().slice(0, 10), "date", "", "required")}${field("Cache read price / million ($), optional", "cached_price", pricing.cached_input_per_million ?? "", "number", "Blank uses the standard input price.", 'min="0" step="any"')}${field("Cache write price / million ($), optional", "creation_price", pricing.cache_creation_per_million ?? "", "number", "", 'min="0" step="any"')}${field("Maximum input per call (tokens)", "max_input_tokens_per_call", m.max_input_tokens_per_call ?? "", "number", "Optional. Blank disables local input admission limits.", 'min="1"')}${field("Maximum output per call (tokens)", "max_output_tokens", m.max_output_tokens ?? "", "number", p === "anthropic" ? "Required by Anthropic (max_tokens)." : "Optional. Blank uses the API default; one call may exceed the remaining financial budget.", p === "anthropic" ? 'required min="1"' : 'min="1"')}${field("Call timeout (seconds)", "timeout_seconds", m.timeout_seconds || 60, "number", "", 'required min="1" max="300"')}${field("Retries on HTTP 429", "max_retries", m.max_retries ?? 1, "number", "Calls with unknown outcomes are not retried automatically.", 'required min="0" max="3"')}${p === "anthropic" ? `<p class="muted">Seed: not available in the Anthropic API.</p>` : field("Model seed", "model_seed", m.parameters?.seed ?? (identifier ? "" : 0), "number", p === "openai-compatible" ? "Server support varies. Identical output is not guaranteed." : "Sent with every call when supported by the model. Identical output is not guaranteed.", 'min="0" max="2147483647"')}<label class="field full">Model parameters (JSON)<textarea name="parameters" class="mono">${e(pretty(m.parameters || {}))}</textarea><small>API-specific options such as temperature and top_p. Set the seed above.</small></label>`
  }</div><div class="form-footer">${btn("Cancel", "close-dialog")}<button type="submit" class="button primary">Save participant</button></div></form>`,
   );
 }
@@ -449,6 +511,27 @@ const ENTITY_FIELDS = [
   ["cores", "Cores", 10],
   ["ram", "RAM LeekScript", 10],
 ];
+function equipmentPicker(label, name, kind, ids, allowlist = false) {
+  const catalog = S.equipment?.[kind] || {};
+  const names = ids.map((id) => catalog[id]?.name || `Unknown ID ${id}`);
+  const emptyLabel = allowlist ? "All eligible items" : "None";
+  const help = allowlist
+    ? "Select the equipment participants may choose. An empty selection allows all catalog items within the member level."
+    : "Default equipment for shared teams and fixed reference opponents. Select individual items; an empty selection equips none.";
+  return `<div class="field full">${fieldHeading(label, help)}<input type="hidden" name="${name}" value="${e(ids.join(", "))}"><details class="equipment-picker" data-kind="${kind}" data-name="${name}" data-empty="${emptyLabel}"><summary><span class="equipment-selection">${e(names.join(", ") || emptyLabel)}</span></summary><div class="equipment-picker-body"><label class="field">Search ${kind}<input type="search" class="equipment-search" placeholder="Name or ID"></label><div class="equipment-options">${Object.entries(
+    catalog,
+  )
+    .sort(
+      (a, b) => a[1].level - b[1].level || a[1].name.localeCompare(b[1].name),
+    )
+    .map(
+      ([id, item]) =>
+        `<article class="equipment-option" data-search="${e(`${id} ${item.name}`.toLowerCase())}"><label class="check"><input type="checkbox" class="equipment-check" value="${e(id)}" ${ids.includes(Number(id)) ? "checked" : ""}><strong>${e(item.name)}</strong><span>ID ${e(id)} · level ${e(item.level)}</span></label><small>${e(item.cost)} AP · range ${e(item.min_range)}–${e(item.max_range)} · ${item.los ? "line of sight required" : "no line of sight required"}</small><details><summary>Item details</summary><p>These values come from the pinned engine catalog. Effects depend on the shared stats and target rules.</p><dl><dt>Cooldown</dt><dd>${e(item.cooldown ?? "Not applicable")} turns</dd><dt>Uses per turn</dt><dd>${e(item.max_uses ?? "Not specified")}</dd><dt>Effects</dt><dd>${(item.effects || []).map((effect) => `${e(S.equipment.effects[String(effect.type)] || `Effect ${effect.type}`)}: base ${e(effect.value1)} + random component ${e(effect.value2)}; duration ${e(effect.turns)} turns`).join("<br>") || "None"}</dd></dl>${raw(item, "Full pinned item definition")}</details></article>`,
+    )
+    .join(
+      "",
+    )}</div><small>Complete catalog · pinned engine ${e(S.equipment?.snapshot?.slice(0, 12))}. <a href="#view=help" target="_blank" rel="noopener">Equipment and API guide</a></small></div></details><small>${e(help)}</small></div>`;
+}
 function competitionEditor() {
   const c = S.editConfig || structuredClone(S.boot.default_config),
     b = c.budget_per_session;
@@ -460,7 +543,8 @@ function competitionEditor() {
   return (
     head(
       S.editDraft ? "Edit competition" : "New competition",
-      "All participants share the same rules and budgets. Saving settings does not call an API.",
+      "Shared game rules; optional preparation limits. Saving settings does not call an API.",
+      btn("Settings guide", "reference", 'data-document="ui"'),
     ) +
     `<form data-form="competition" id="competition-form"><div class="grid asymmetric"><div><section class="panel"><h2>Name and participants</h2><p class="muted">Each repetition starts an independent conversation.</p><div class="form-grid">${field("Competition name", "name", c.name, "text", "", "required")}${field("Repetitions per participant", "replicates", c.replicates, "number", "", 'required min="1" max="20"')}${selectField(
       "Evaluation cycle",
@@ -471,8 +555,16 @@ function competitionEditor() {
       ],
       String(c.generations || 1),
     )}</div><h3 class="section-label">Selected participants</h3>${S.choiceModels.map((m) => `<label class="choice"><input type="checkbox" name="participant" value="${e(m.id)}" ${c.models.some((v) => v.id === m.id) ? "checked" : ""}><span><strong>${e(m.id)}</strong><small>${e(m.provider)} · ${e(m.model || m.profile)}</small></span></label>`).join("")}${btn("Manage profiles", "go", 'data-view="participants"')}</section>
- <section class="panel"><h2>Match rules</h2><p class="muted">Both teams use the same stats and equipment. Matches alternate sides.</p><div class="form-grid">${field("Entities per team", "team_size", c.scenario.team_size, "number", "", 'required min="1" max="8"')}${field("Maximum turns", "max_turns", c.scenario.max_turns, "number", "", 'required min="1" max="64"')}${field("Initial / feedback seeds", "seeds", c.seeds.join(", "), "text", "Map generation seeds, for example 101, 202.", "required")}${field("Final evaluation seeds", "final_seeds", (c.final_seeds || []).join(", "), "text", "Separate from initial strategy seeds and training seed 17.")}</div><label class="check" style="margin-top:15px"><input type="checkbox" name="include_mirrors" ${c.include_mirrors ? "checked" : ""}>Include mirror matches (excluded from score)</label><details><summary>Stats, equipment and custom map</summary><div class="form-grid three" style="margin-top:15px">${ENTITY_FIELDS.map(([key, label, def]) => field(label, "entity_" + key, c.scenario.entity[key] ?? def, "number", "", 'required min="0"')).join("")}</div><div class="form-grid" style="margin-top:15px">${field("Weapon IDs", "weapons", c.scenario.entity.weapons.join(", "), "text", "The demo uses weapon 37.")}${field("Chip IDs", "chips", c.scenario.entity.chips.join(", "), "text", "Leave blank for no chips.")}<label class="field full">Custom map (JSON, optional)<textarea name="map" class="mono">${c.scenario.map ? e(pretty(c.scenario.map)) : ""}</textarea><small>Without a custom map, the seed determines the map and starting positions.</small></label></div></details></section>
- <section class="panel"><h2>Budgets per conversation</h2><p class="muted">Both improvement branches receive the same additional budgets.</p><div class="form-grid">${field("Model calls", "max_calls", b.max_calls, "number", "", 'required min="1"')}${field("Tool calls", "max_agent_steps", b.max_agent_steps, "number", "", 'required min="1"')}${field("Preparation matches", "max_test_matches", b.max_test_matches, "number", "One test runs two matches, one per side.", 'required min="0"')}${field("Preparation time (seconds)", "max_wall_seconds", b.max_wall_seconds, "number", "", 'required min="1"')}${field("Total input tokens", "max_input_tokens", b.max_input_tokens ?? "", "number", "Optional. Blank means no conversation token limit.", 'min="1"')}${field("Total output tokens", "max_output_tokens", b.max_output_tokens ?? "", "number", "Optional. Blank means no conversation token limit.", 'min="1"')}${field("API spending limit per conversation ($)", "max_cost_usd", b.max_cost_usd ?? "1", "number", "", 'required min="0" step="any"')}${field("API spending limit for the experiment ($)", "max_total_usd", c.spending.max_total_usd || "5", "number", "Includes initial strategy and all improvement branches.", 'required min="0" step="any"')}</div><label class="check" style="margin-top:15px"><input type="checkbox" name="allow_paid_calls" ${c.spending.allow_paid_calls ? "checked" : ""}>Allow paid APIs for this configuration</label><small>Mock runs have no API cost. Paid runs require confirmation of the spending limit. Without an output token cap, one call can exceed the remaining financial budget; subsequent calls stop.</small></section>
+ <section class="panel"><h2>Match rules</h2><p class="muted">Base stats and team-building rules are shared. Matches alternate sides. Fixed mode also shares equipment.</p><div class="form-grid">${selectField(
+   "Team setup",
+   "team_mode",
+   [
+     ["fixed", "Shared team and equipment"],
+     ["participant", "Participants choose teams and equipment"],
+   ],
+   c.scenario.team_selection ? "participant" : "fixed",
+ )}${field("Team size", "team_size", c.scenario.team_size, "number", "Exact size in shared mode; maximum size when participants choose.", 'required min="1" max="8"')}${field("Maximum turns", "max_turns", c.scenario.max_turns, "number", "", 'required min="1" max="64"')}${field("Initial / feedback seeds", "seeds", c.seeds.join(", "), "text", "Map generation seeds, for example 101, 202.", "required")}${field("Final evaluation seeds", "final_seeds", (c.final_seeds || []).join(", "), "text", "Separate from initial strategy seeds and training seed 17.")}</div><div id="team-selection-rules" ${c.scenario.team_selection ? "" : "hidden"}><p class="muted">Participants choose 1 to the maximum team size, equipment and a script per member using configure_team. Stats stay fixed. Equipment must be in the pinned catalog and within the member level. Fixed reference opponents keep the default team.</p><div class="form-grid">${field("Weapons per member", "team_max_weapons", c.scenario.team_selection?.max_weapons ?? 3, "number", "", 'required min="0" max="32"')}${field("Chips per member", "team_max_chips", c.scenario.team_selection?.max_chips ?? 12, "number", "", 'required min="0" max="32"')}${equipmentPicker("Allowed weapons", "team_allowed_weapons", "weapons", c.scenario.team_selection?.allowed_weapons || [], true)}${equipmentPicker("Allowed chips", "team_allowed_chips", "chips", c.scenario.team_selection?.allowed_chips || [], true)}</div></div><label class="check" style="margin-top:15px"><input type="checkbox" name="include_mirrors" ${c.include_mirrors ? "checked" : ""}>Include mirror matches (excluded from score)</label><details><summary>Stats, equipment and custom map</summary><div class="form-grid three" style="margin-top:15px">${ENTITY_FIELDS.map(([key, label, def]) => field(label, "entity_" + key, c.scenario.entity[key] ?? def, "number", "", 'required min="0"')).join("")}</div><div class="form-grid" style="margin-top:15px">${equipmentPicker("Default weapons", "weapons", "weapons", c.scenario.entity.weapons)}${equipmentPicker("Default chips", "chips", "chips", c.scenario.entity.chips)}<label class="field full">Custom map (JSON, optional)<textarea name="map" class="mono">${c.scenario.map ? e(pretty(c.scenario.map)) : ""}</textarea><small>Without a custom map, the seed determines the map and starting positions.</small></label></div></details></section>
+ <section class="panel"><h2>Optional limits</h2><p class="muted">Leave blank to let each model work until submission. Calls, tools, matches, tokens, elapsed time and costs are recorded regardless. Improvement branches use the same optional limits.</p><div class="form-grid">${field("Model calls", "max_calls", b.max_calls ?? "", "number", "Maximum API responses, including responses after tool results. Blank means unlimited.", 'min="1"')}${field("Tool calls", "max_agent_steps", b.max_agent_steps ?? "", "number", "Maximum tool invocations. Blank means unlimited.", 'min="1"')}${field("Preparation matches", "max_test_matches", b.max_test_matches ?? "", "number", "One test runs two matches, one per side. Blank means unlimited.", 'min="0"')}${field("Preparation time (seconds)", "max_wall_seconds", b.max_wall_seconds ?? "", "number", "Blank means no session time limit.", 'min="1"')}${field("Total input tokens", "max_input_tokens", b.max_input_tokens ?? "", "number", "Optional. Blank means no conversation token limit.", 'min="1"')}${field("Total output tokens", "max_output_tokens", b.max_output_tokens ?? "", "number", "Optional. Blank means no conversation token limit.", 'min="1"')}${field("API spending limit per conversation ($)", "max_cost_usd", b.max_cost_usd ?? "", "number", "Blank means no financial limit.", 'min="0" step="any"')}${field("API spending limit for the experiment ($)", "max_total_usd", c.spending.max_total_usd ?? "", "number", "Includes all branches. Blank means no financial limit.", 'min="0" step="any"')}</div><label class="check" style="margin-top:15px"><input type="checkbox" name="allow_paid_calls" ${c.spending.allow_paid_calls ? "checked" : ""}>Allow paid APIs for this configuration</label><small>Mock runs have no API cost. Paid runs require API authorization. Optional financial limits are checked between calls. Without an output cap, a call can exceed a configured financial limit.</small></section>
  <section class="panel"><details><summary>Import a JSON configuration</summary><textarea id="import-config" class="mono" style="width:100%;margin-top:12px" placeholder="Paste an experiment manifest"></textarea><div style="margin-top:10px">${btn("Apply configuration", "import-config")}</div></details></section></div>
  <aside class="panel sticky"><div class="eyebrow">Before launching</div><h2>Schedule</h2><p class="muted">Review the schedule and spending limit before launching.</p><div id="plan-preview">${notice("Both improvement branches start from the same initial history. One receives match feedback.")}</div>${btn("Calculate schedule", "preview-plan")}<div class="divider"></div><button type="submit" class="button primary" style="width:100%">Save configuration</button><p class="muted" style="font-size:10px;margin-top:12px">Saving does not start a run.</p></aside></div></form>`
   );
@@ -501,6 +593,19 @@ function readCompetition(form) {
   base.include_mirrors = f.has("include_mirrors");
   base.scenario.team_size = n("team_size");
   base.scenario.max_turns = n("max_turns");
+  if (f.get("team_mode") === "participant") {
+    base.scenario.team_selection = {
+      mode: "participant",
+      max_weapons: n("team_max_weapons"),
+      max_chips: n("team_max_chips"),
+    };
+    for (const kind of ["weapons", "chips"]) {
+      if (String(f.get("team_allowed_" + kind) || "").trim())
+        base.scenario.team_selection["allowed_" + kind] = array(
+          "team_allowed_" + kind,
+        );
+    }
+  } else delete base.scenario.team_selection;
   ENTITY_FIELDS.forEach(
     ([key]) => (base.scenario.entity[key] = n("entity_" + key)),
   );
@@ -508,27 +613,23 @@ function readCompetition(form) {
   base.scenario.entity.chips = array("chips");
   if (String(f.get("map")).trim()) base.scenario.map = JSON.parse(f.get("map"));
   else delete base.scenario.map;
-  base.budget_per_session = {
-    max_calls: n("max_calls"),
-    max_agent_steps: n("max_agent_steps"),
-    max_test_matches: n("max_test_matches"),
-    max_wall_seconds: n("max_wall_seconds"),
-  };
-  if (real)
-    Object.assign(base.budget_per_session, {
-      max_cost_usd: f.get("max_cost_usd"),
-    });
-  if (real)
-    for (const key of ["max_input_tokens", "max_output_tokens"]) {
-      if (String(f.get(key) || "").trim())
-        base.budget_per_session[key] = n(key);
-    }
+  base.budget_per_session = {};
+  for (const key of [
+    "max_calls",
+    "max_agent_steps",
+    "max_test_matches",
+    "max_wall_seconds",
+    ...(real ? ["max_input_tokens", "max_output_tokens"] : []),
+  ]) {
+    if (String(f.get(key) || "").trim()) base.budget_per_session[key] = n(key);
+  }
+  if (real && String(f.get("max_cost_usd") || "").trim())
+    base.budget_per_session.max_cost_usd = f.get("max_cost_usd");
   base.spending = real
-    ? {
-        allow_paid_calls: f.has("allow_paid_calls"),
-        max_total_usd: f.get("max_total_usd"),
-      }
+    ? { allow_paid_calls: f.has("allow_paid_calls") }
     : { allow_paid_calls: false, max_total_usd: 0 };
+  if (real && String(f.get("max_total_usd") || "").trim())
+    base.spending.max_total_usd = f.get("max_total_usd");
   return base;
 }
 function planMarkup(p) {
@@ -537,7 +638,7 @@ function planMarkup(p) {
     p.mirrors_if_all_submit +
     p.g1_contemporary_matches +
     p.common_reference_matches;
-  return `<div class="info-row"><span>Conversations</span><strong>${fmt(p.sessions)}</strong></div><div class="info-row"><span>Evaluation matches</span><strong>${fmt(total)}</strong></div><div class="info-row"><span>Maximum preparation matches</span><strong>${fmt(p.max_preparation_matches)}</strong></div><div class="info-row"><span>Total API spending limit</span><strong>${money(p.max_cost_usd)}</strong></div><p class="muted" style="font-size:10px;margin-top:12px">Schedule assuming every participant submits a strategy. ${p.simulated ? "Mock run with no API calls." : "Reservations estimate cost; they do not confirm provider billing."}</p>`;
+  return `<div class="info-row"><span>Conversations</span><strong>${fmt(p.sessions)}</strong></div><div class="info-row"><span>Evaluation matches</span><strong>${fmt(total)}</strong></div><div class="info-row"><span>Maximum preparation matches</span><strong>${p.max_preparation_matches == null ? "Unlimited" : fmt(p.max_preparation_matches)}</strong></div><div class="info-row"><span>Total API spending limit</span><strong>${p.simulated ? "$0 (mock)" : p.max_cost_usd == null ? "No limit" : money(p.max_cost_usd)}</strong></div><p class="muted" style="font-size:10px;margin-top:12px">Schedule assuming every participant submits a strategy. ${p.simulated ? "Mock run with no API calls." : "Reservations estimate cost; they do not confirm provider billing."}</p>`;
 }
 async function launchDialog(draftId = null, runId = null) {
   const config = draftId
@@ -548,7 +649,7 @@ async function launchDialog(draftId = null, runId = null) {
   openDialog(
     runId ? "Resume competition" : "Launch competition",
     config.name,
-    `<form data-form="launch">${planMarkup(p)}${p.simulated ? notice("Mock participants, real matches. No LLM calls or API charges.") : notice("Calls use the configured keys and prices. Calculated costs are not confirmed provider bills.", "warn")}<div>${config.models.map((m) => `<div class="info-row"><span>${e(m.id)}${m.provider !== "mock" ? `<small>${e(m.endpoint || (m.provider === "anthropic" ? "https://api.anthropic.com/v1/messages" : m.provider === "gemini" ? "https://generativelanguage.googleapis.com/v1beta" : "https://api.openai.com/v1/chat/completions"))}<br>Key: ${e(m.api_key_env)}</small>` : ""}</span><strong>${e(m.model || m.profile)}${m.provider !== "mock" ? `<small>Seed: ${m.parameters?.seed ?? (m.provider === "anthropic" ? "not available" : "not set")}</small>` : ""}</strong></div>`).join("")}</div>${!p.simulated ? `<label class="check" style="margin-top:20px"><input type="checkbox" name="confirm_paid" required>I authorize API calls up to the total spending limit of ${money(config.spending.max_total_usd)}.</label>` : ""}<div class="form-footer">${btn("Cancel", "close-dialog")}<button type="submit" class="button primary">${runId ? "Resume" : "Start competition"}</button></div></form>`,
+    `<form data-form="launch">${planMarkup(p)}${p.simulated ? notice("Mock participants, real matches. No LLM calls or API charges.") : notice("Calls use the configured keys and prices. Calculated costs are not confirmed provider bills.", "warn")}<div>${config.models.map((m) => `<div class="info-row"><span>${e(m.id)}${m.provider !== "mock" ? `<small>${e(m.endpoint || (m.provider === "anthropic" ? "https://api.anthropic.com/v1/messages" : m.provider === "gemini" ? "https://generativelanguage.googleapis.com/v1beta" : "https://api.openai.com/v1/chat/completions"))}<br>Key: ${e(m.api_key_env)}</small>` : ""}</span><strong>${e(m.model || m.profile)}${m.provider !== "mock" ? `<small>Seed: ${m.parameters?.seed ?? (m.provider === "anthropic" ? "not available" : "not set")}</small>` : ""}</strong></div>`).join("")}</div>${!p.simulated ? `<label class="check" style="margin-top:20px"><input type="checkbox" name="confirm_paid" required>I authorize API calls ${config.spending.max_total_usd == null ? "without an arena spending limit" : "with a configured total spending limit of " + money(config.spending.max_total_usd)}.</label>` : ""}<div class="form-footer">${btn("Cancel", "close-dialog")}<button type="submit" class="button primary">${runId ? "Resume" : "Start competition"}</button></div></form>`,
   );
 }
 const TABS = [
@@ -672,7 +773,7 @@ function summary(d, statistics = null) {
           "warn",
         )
       : "") +
-    `<div class="metrics">${metric("Finished sessions", `${done} / ${d.sessions.length}`, `${r.valid_submissions ?? 0} valid submissions`)}${metric("Completed matches", fmt(completed(r)), "Evaluation only; preparation listed separately", "⚔")}${metric("API cost", r.cost_usd === undefined ? "N/A" : money(r.cost_usd), r.reserved_usd && Number(r.reserved_usd) > 0 ? `${money(r.reserved_usd)} reserved` : "Mock run or cost calculated from usage", "↗")}${metric("Input / output tokens", r.input_tokens == null ? "Not measured" : `${fmt(r.input_tokens)} / ${fmt(r.output_tokens)}`, r.simulated ? "No LLM tokens in mock runs" : "Unavailable values stay unknown", "≋")}</div>` +
+    `<div class="metrics">${metric("Finished sessions", `${done} / ${d.sessions.length}`, `${r.valid_submissions ?? 0} valid submissions`)}${metric("Completed matches", fmt(completed(r)), "Evaluation only; preparation listed separately", "⚔")}${metric("API cost", r.cost_usd === undefined ? "N/A" : money(r.cost_usd), r.reserved_usd === null ? "Pending call cost unknown" : r.reserved_usd && Number(r.reserved_usd) > 0 ? `${money(r.reserved_usd)} reserved` : "Mock run or cost calculated from usage", "↗")}${metric("Input / output tokens", r.input_tokens == null ? "Not measured" : `${fmt(r.input_tokens)} / ${fmt(r.output_tokens)}`, r.simulated ? "No LLM tokens in mock runs" : "Unavailable values stay unknown", "≋")}</div>` +
     (statistics ? competitionStatistics(statistics) : "") +
     (a
       ? `<section class="panel"><div class="panel-title"><div><h2>Strategy performance</h2><small>Initial and improved strategies evaluated against the same panel on final seeds.</small></div><select id="panel-choice" aria-label="Evaluation panel">${["all", "controls", "g0"].map((p) => `<option value="${p}" ${S.panel === p ? "selected" : ""}>${text(p)}</option>`).join("")}</select></div>${bars(rows.map((v) => ({ label: v.session, score: v.score })))}<p class="muted" style="font-size:11px;margin:13px 0 0">Score = (wins + 0.5 × draws) / completed matches. Mirrors are excluded. The full panel includes frozen initial strategies and handwritten controls.</p></section>
@@ -768,7 +869,7 @@ function codePage(data) {
   S.file = current.files.includes(S.file) ? S.file : current.files[0];
   return (
     notice(
-      "Each successful file write creates a version in the journal. Improved versions include inherited initial history. Git is not required in participant folders.",
+      "Each successful source write or team configuration creates a version in the journal. Improved versions include inherited initial history. Git is not required in participant folders.",
     ) +
     `<div class="code-grid"><section class="panel"><h3>File write history</h3><div class="version-list">${data.versions.map((v) => `<button class="version-button ${v.index === S.version ? "active" : ""}" data-action="version" data-version="${v.index}"><strong>Version ${v.index + 1} <span class="timeline-tag">${generationLabel(v.generation)}</span></strong>${e(v.path)}<small>After message ${v.message + 1} · ${v.files.length} files</small></button>`).join("")}</div></section><section class="panel"><div class="toolbar"><select id="source-file" aria-label="File">${current.files.map((f) => `<option ${f === S.file ? "selected" : ""}>${e(f)}</option>`).join("")}</select><span class="spacer"></span>${btn("Open conversation", "version-message", `data-message="${current.message}"`)}</div><div class="toolbar"><label for="source-previous">Compare with</label><select id="source-previous"><option value="-1">Empty state</option>${data.versions
       .slice(0, S.version)
@@ -1182,8 +1283,8 @@ function comparisonResult(data) {
           `<section class="panel"><div class="panel-title"><div><h2>Comparison group ${i + 1}</h2><small>${g.runs.length} competitions; same rules, seeds and fixed opponents</small></div>${badge(g.protocol.simulated ? "Simulation" : "Real API calls", g.protocol.simulated ? "blue" : "orange")}</div>${lineChart(g)}<div style="margin-top:22px">${table(
             [
               "Model / condition",
-              "Score moyen",
-              "Conversations retenues",
+              "Mean score",
+              "Included conversations",
               "Incomplete",
               "Competitions",
               "API cost",
@@ -1211,6 +1312,7 @@ function comparisonResult(data) {
 function helpPage() {
   return (
     head("Help", "Experiment design, scoring and recorded data.") +
+    `<section class="panel"><h2>Documentation</h2><div class="actions">${btn("Interface guide", "reference", 'data-document="ui"')}${btn("API providers and pricing", "reference", 'data-document="providers"')}${btn("Strategy authoring", "reference", 'data-document="authoring"')}${btn("Game rules", "reference", 'data-document="rules"')}${btn("API usage guide", "reference", 'data-document="api-guide"')}${btn("LeekScript API reference", "reference", 'data-document="api"')}</div></section>` +
     `<div class="help-grid">${[
       [
         "Participants and conversations",
@@ -1227,6 +1329,14 @@ function helpPage() {
       [
         "Mock participants",
         "Mocks follow predefined scripts. Compilation, diagnostics and Java matches are real, but the generated strategies do not measure LLM performance.",
+      ],
+      [
+        "Preparation limits and quality benchmarks",
+        "A model call is one API response; tool calls are the requested actions such as writing code or testing a team. New competitions have no arena preparation limits. Leave optional limits blank to compare final strategy quality and measure the resources each model actually uses. Existing configurations and demos retain their limits.",
+      ],
+      [
+        "Team building and equipment",
+        "Shared mode fixes the team and equipment for all participants. Participant mode lets each model choose up to the maximum team size, a script per member, weapons and chips. Stats stay common. Allowlists, slots and member level restrict equipment. Successful configure_team calls create team.json versions, inherited by improvement branches. The item selector shows the full pinned catalog; high-level entries may be unusable at the selected level. IDs are catalog keys, not item inventory IDs.",
       ],
       [
         "Costs and tokens",
@@ -1275,7 +1385,16 @@ document.addEventListener("click", async (event) => {
   const a = node.dataset.action;
   try {
     if (a === "go") navigate(node.dataset.view);
-    else if (a === "refresh") {
+    else if (a === "reference") {
+      const document = await api("/api/reference", {
+        document: node.dataset.document,
+      });
+      openDialog(
+        document.title,
+        "Repository documentation",
+        `<div class="markdown">${markdownView(document.content)}</div>`,
+      );
+    } else if (a === "refresh") {
       await refreshBoot();
       await renderRoute();
       toast("Data refreshed.");
@@ -1541,6 +1660,18 @@ document.addEventListener("change", async (event) => {
             : provider === "gemini"
               ? "ARENA_GEMINI_KEY"
               : "ARENA_OPENAI_KEY";
+    } else if (n.matches(".equipment-check")) {
+      const picker = n.closest(".equipment-picker");
+      const ids = $$(".equipment-check:checked", picker).map((el) =>
+        Number(el.value),
+      );
+      n.form.elements[picker.dataset.name].value = ids.join(", ");
+      $(".equipment-selection", picker).textContent =
+        ids
+          .map((id) => S.equipment[picker.dataset.kind][id]?.name || id)
+          .join(", ") || picker.dataset.empty;
+    } else if (n.name === "team_mode") {
+      $("#team-selection-rules").hidden = n.value !== "participant";
     } else if (n.id === "metric-set") {
       S.metricSet = n.value;
       if (S.tab === "summary")
@@ -1604,6 +1735,10 @@ document.addEventListener("input", (event) => {
         f.path.toLowerCase().includes(n.value.toLowerCase()),
       ),
     );
+  if (n.matches(".equipment-search")) {
+    for (const item of $$(".equipment-option", n.closest(".equipment-picker")))
+      item.hidden = !item.dataset.search.includes(n.value.toLowerCase());
+  }
   if (n.id === "model-search") renderModelCatalog();
   if (n.id === "match-search") filterMatches().catch(showError);
   if (n.id === "replay-range") renderReplay(Number(n.value));
@@ -1676,7 +1811,7 @@ refreshBoot()
   .then(route)
   .catch((error) => {
     $("#main").innerHTML = empty(
-      "Connexion impossible",
+      "Connection failed",
       error.message,
       btn("Retry", "refresh"),
     );

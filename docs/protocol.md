@@ -1,7 +1,9 @@
 # Experiment protocol
 
 The experiment measures models writing, debugging and improving Leek Wars combat
-strategies under controlled documentation and budgets. It measures programming
+strategies under controlled documentation and shared game rules. Preparation
+limits are optional; unrestricted runs measure final quality alongside the
+resources each model actually consumed. It measures programming
 and strategy in this environment, not general coding ability.
 
 This document records the protocol rationale. See the [implementation status](implementation-status.md)
@@ -28,10 +30,12 @@ condition. Each repetition starts an independent conversation. Later generations
 continue its history with the same context policy. Pin engine, game data,
 compiler, prompts and documents by version and hash.
 
-Fix team size, stats and equipment. Start with symmetric 2-vs-2 teams sharing
-an entry point; a script can choose different roles through the API. Additional
+Declare the team-building mode: shared teams/equipment or participant-selected
+team size, per-member code and equipment under common level/slot/allowlist rules.
+Base stats remain shared. Initial demos use symmetric 2-vs-2 teams sharing an
+entry point; a script can choose different roles through the API. Additional
 scenarios should be reported separately. Deliverables are source folders with
-a declared entry point, frozen and hashed at the deadline. Do not manually select
+a declared entry point, frozen and hashed on submission or at an explicitly configured deadline. Do not manually select
 the best repetition or repair invalid final code outside the declared policy.
 
 All participants receive the same preparation tools and local documentation.
@@ -107,7 +111,8 @@ A technical pilot can start with three models and three conversations each.
 Nine strategies on ten seeds require 720 ranked matches plus 90 mirrors if
 enabled. Improvement branches and reference panels add more matches; use the planner.
 Three conversations per model are insufficient for a definitive ranking.
-Choose available exact model IDs and an explicit spending limit before paid work.
+Choose available exact model IDs and authorize paid calls explicitly. Configure
+a spending limit only when it is part of the intended comparison or cost control.
 
 Keep stable prompt prefixes, verify actual cache usage, index local documents,
 page logs and bound returned feedback. Cache matches only by source, engine,

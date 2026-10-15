@@ -36,11 +36,12 @@ def validate_config(value: dict) -> dict:
             type(value["schema_version"]) is not int or value["schema_version"] not in (1, 2)):
         raise ArenaError("Unsupported offline experiment schema")
     spending = value["spending"]
-    if not isinstance(spending, dict) or set(spending) != {"allow_paid_calls", "max_total_usd"}:
+    if not isinstance(spending, dict) or "allow_paid_calls" not in spending or set(spending) - {"allow_paid_calls", "max_total_usd"}:
         raise ArenaError("Invalid spending policy")
     if type(spending["allow_paid_calls"]) is not bool:
         raise ArenaError("allow_paid_calls must be explicit boolean")
-    amount(spending["max_total_usd"])
+    if "max_total_usd" in spending:
+        amount(spending["max_total_usd"])
     if value.get("prompt_language", "fr") != "fr":
         raise ArenaError("The versioned prompts are French")
     integer(value.get("generations", 1), 1, 2, "generations")
@@ -70,8 +71,8 @@ def validate_config(value: dict) -> dict:
             if (model["provider"] not in {"openai", "openai-compatible", "anthropic", "gemini"} or not fields <= set(model)
                     or set(model) - fields - {"endpoint", "parameters", "timeout_seconds", "max_retries", "max_input_tokens_per_call", "max_output_tokens"}):
                 raise ArenaError("Invalid API model configuration")
-            if not spending["allow_paid_calls"] or amount(spending["max_total_usd"]) == 0:
-                raise ArenaError("Real providers require explicit paid activation and financial ceiling")
+            if not spending["allow_paid_calls"] or ("max_total_usd" in spending and amount(spending["max_total_usd"]) == 0):
+                raise ArenaError("Real providers require explicit paid activation and a positive ceiling if configured")
             if not isinstance(model["model"], str) or not model["model"]:
                 raise ArenaError("An exact model identifier is required")
             if not isinstance(model["api_key_env"], str) or not re.fullmatch(r"[A-Za-z_][A-Za-z_0-9]*", model["api_key_env"]):
@@ -115,16 +116,13 @@ def validate_config(value: dict) -> dict:
             for key in set(pricing) - {"date", "currency"}:
                 amount(pricing[key])
     budget = value["budget_per_session"]
-    if (not isinstance(budget, dict) or not {"max_calls", "max_agent_steps", "max_test_matches", "max_wall_seconds"} <= set(budget)
-            or set(budget) - {"max_calls", "max_agent_steps", "max_test_matches", "max_wall_seconds",
+    if (not isinstance(budget, dict) or set(budget) - {"max_calls", "max_agent_steps", "max_test_matches", "max_wall_seconds",
                              "max_input_tokens", "max_output_tokens", "max_cost_usd"}):
         raise ArenaError("Invalid budgets; token budgets are unavailable for simulated usage")
     for key in set(budget) - {"max_cost_usd"}:
         integer(budget[key], 0 if key == "max_test_matches" else 1, 100_000_000, key)
     if "max_cost_usd" in budget:
         amount(budget["max_cost_usd"])
-    if any(m["provider"] != "mock" for m in models) and "max_cost_usd" not in budget:
-        raise ArenaError("API sessions require a financial budget")
     seeds = value["seeds"]
     if not isinstance(seeds, list) or not seeds or len(seeds) > 100 or len(seeds) != len(set(seeds)):
         raise ArenaError("Invalid evaluation seeds")
@@ -158,9 +156,9 @@ def plan(config: dict) -> dict:
             "g1_contemporary_matches": (2*n*(2*n-1) + (2*n if config["include_mirrors"] else 0)) *
                                       len(config.get("final_seeds", [])) if evolved else 0,
             "common_reference_matches": 3*n*(n+3)*2*len(config.get("final_seeds", [])) if evolved else 0,
-            "max_preparation_matches": n * (3 if evolved else 1) * config["budget_per_session"]["max_test_matches"],
-            "max_cost_usd": config["spending"]["max_total_usd"],
-            "financial_ceiling": "best_effort_with_reservations" if paid else "no_paid_calls",
+            "max_preparation_matches": (n * (3 if evolved else 1) * config["budget_per_session"]["max_test_matches"]) if "max_test_matches" in config["budget_per_session"] else None,
+            "max_cost_usd": config["spending"].get("max_total_usd"),
+            "financial_ceiling": ("best_effort_with_reservations" if "max_total_usd" in config["spending"] else "unlimited") if paid else "no_paid_calls",
             "required_keys": sorted({m["api_key_env"] for m in paid})}
 
 
@@ -268,21 +266,22 @@ def provider_response(sid, state, model, config, journal):
         spent = amount(state.get("cost_spent", "0"))
         total = sum(amount(s.get("cost_spent", "0")) + amount(s.get("money_reserved", "0"))
                     for s in journal.states().values())
-        if bound["cost_bound"] is None:
-            # With provider-default output there is no finite per-call estimate.
-            # Reserve all remaining funds until the response is reconciled.
-            available = min(amount(budget["max_cost_usd"]) - spent,
-                            amount(config["spending"]["max_total_usd"]) - total)
-            if available <= 0:
-                state["status"] = "budget_exhausted"
-                return None
-            bound["cost_bound"] = str(available)
-        if (("max_input_tokens" in budget and state.get("input_tokens", 0) + bound["input_bound"] > budget["max_input_tokens"])
-                or spent + amount(bound["cost_bound"]) > amount(budget["max_cost_usd"])
-                or total + amount(bound["cost_bound"]) > amount(config["spending"]["max_total_usd"])):
+        remaining = []
+        if "max_cost_usd" in budget:
+            remaining.append(amount(budget["max_cost_usd"]) - spent)
+        if "max_total_usd" in config["spending"]:
+            remaining.append(amount(config["spending"]["max_total_usd"]) - total)
+        if any(value <= 0 for value in remaining):
             state["status"] = "budget_exhausted"
             return None
-        state["money_reserved"] = bound["cost_bound"]
+        state["reservation_unbounded"] = bound["cost_bound"] is None and not remaining
+        if bound["cost_bound"] is None and remaining:
+            bound["cost_bound"] = str(min(remaining))
+        if (("max_input_tokens" in budget and state.get("input_tokens", 0) + bound["input_bound"] > budget["max_input_tokens"])
+                or (bound["cost_bound"] is not None and any(amount(bound["cost_bound"]) > value for value in remaining))):
+            state["status"] = "budget_exhausted"
+            return None
+        state["money_reserved"] = bound["cost_bound"] or "0"
     else:
         bound = None
     state["calls"] += 1
@@ -301,6 +300,7 @@ def provider_response(sid, state, model, config, journal):
         state["in_flight"] = error.uncertain
         if not error.uncertain:
             state["money_reserved"] = "0"
+            state["reservation_unbounded"] = False
         journal.save(sid, state, "provider_failure", {"error": str(error),
                                                     "uncertain": error.uncertain, "retryable": error.retryable})
         return None
@@ -322,9 +322,10 @@ def provider_response(sid, state, model, config, journal):
             state["output_tokens"] = state.get("output_tokens", 0) + usage["output_tokens"]
             state["cost_spent"] = str(amount(state.get("cost_spent", "0")) + amount(response["cost_usd"]))
             state["money_reserved"] = "0"
+            state["reservation_unbounded"] = False
             if (("max_input_tokens" in budget and state["input_tokens"] > budget["max_input_tokens"])
                     or ("max_output_tokens" in budget and state["output_tokens"] > budget["max_output_tokens"])
-                    or amount(state["cost_spent"]) > amount(config["budget_per_session"]["max_cost_usd"])):
+                    or ("max_cost_usd" in budget and amount(state["cost_spent"]) > amount(budget["max_cost_usd"]))):
                 state["status"] = "budget_exhausted"
         else:
             state["token_usage_known"] = False
@@ -343,8 +344,8 @@ def execute_tool(sid, state, tools, journal, call, call_id, budget):
     if state["status"] != "running":
         raise ArenaError("Session is closed")
     if (state.get("reserved") != call_id and
-            (state["steps"] >= budget["max_agent_steps"] or
-             (call["name"] == "test" and state["test_matches"] + 2 > budget["max_test_matches"]))):
+            (state["steps"] >= budget.get("max_agent_steps", float("inf")) or
+             (call["name"] == "test" and state["test_matches"] + 2 > budget.get("max_test_matches", float("inf"))))):
         raise ArenaError("Tool budget exhausted")
     if state.get("reserved") != call_id:
         state["steps"] += 1
@@ -371,7 +372,12 @@ def initial_state(sid, model, config):
     return {"model": model["id"], "replicate": int(sid.split("-r")[-1].split("-")[0]),
             "generation": 0, "condition": "initial", "status": "running",
             "history": [{"role": "user", "content": PROMPT, "budgets": config["budget_per_session"],
-                         "scenario": config["scenario"]}],
+                         "scenario": config["scenario"], **({"team_instructions":
+                         "Choose 1..scenario.team_size members using configure_team after writing their sources. "
+                         "Each member can use a different entrypoint and equipment. Read the pinned equipment catalogs; "
+                         "respect level, slot limits and allowlists. Base stats stay fixed. Configure the team before test or submit. "
+                         "Improvements inherit team.json and may revise it with the same tool."}
+                         if config["scenario"].get("team_selection") else {})}],
             "calls": 0, "steps": 0, "test_matches": 0, "wall_seconds": 0,
             "pending": None, "cursor": 0, "workspace_files": {}}
 
@@ -383,7 +389,7 @@ def workspace_files(directory):
     for path in sorted(directory.rglob("*")):
         if is_link(path):
             raise ArenaError("Working source links are not allowed")
-        if path.is_file() and path.suffix == ".leek":
+        if path.is_file() and (path.suffix == ".leek" or path == directory / "team.json"):
             files[path.relative_to(directory).as_posix()] = file_hash(path)
     return files
 
@@ -402,6 +408,9 @@ def verify_workspace(state, tools):
             from .preparation import local_path
             name = local_path(tools.workspace, args["path"]).relative_to(tools.workspace).as_posix()
             candidate[name] = hashlib.sha256(args["content"].encode()).hexdigest()
+        if call.get("name") == "configure_team" and isinstance(args, dict):
+            content = json.dumps(args, ensure_ascii=False, indent=2) + "\n"
+            candidate["team.json"] = hashlib.sha256(content.encode()).hexdigest()
         if actual != candidate:
             raise ArenaError("Working sources changed outside the recorded tools")
     state["workspace_files"] = actual
@@ -423,11 +432,11 @@ def run_session(sid, model, config, out, journal, engine, interrupt=None):
     try:
         while state["status"] == "running":
             state["wall_seconds"] = previous + time.monotonic() - started
-            if state["wall_seconds"] >= budget["max_wall_seconds"]:
+            if state["wall_seconds"] >= budget.get("max_wall_seconds", float("inf")):
                 _finish(sid, state, tools, journal, "budget_exhausted")
                 break
             if state["pending"] is None:
-                if state["calls"] >= budget["max_calls"]:
+                if state["calls"] >= budget.get("max_calls", float("inf")):
                     _finish(sid, state, tools, journal, "budget_exhausted")
                     break
                 response = provider_response(sid, state, model, config, journal)
@@ -444,14 +453,14 @@ def run_session(sid, model, config, out, journal, engine, interrupt=None):
             calls = state["pending"]["tool_calls"]
             while state["cursor"] < len(calls) and state["status"] == "running":
                 state["wall_seconds"] = previous + time.monotonic() - started
-                if state["wall_seconds"] >= budget["max_wall_seconds"]:
+                if state["wall_seconds"] >= budget.get("max_wall_seconds", float("inf")):
                     _finish(sid, state, tools, journal, "budget_exhausted")
                     break
                 call = calls[state["cursor"]]
                 call_id = f"call-{state['calls']}-tool-{state['cursor']}"
                 if state.get("reserved") != call_id and (
-                        state["steps"] >= budget["max_agent_steps"] or
-                        (call["name"] == "test" and state["test_matches"] + 2 > budget["max_test_matches"])):
+                        state["steps"] >= budget.get("max_agent_steps", float("inf")) or
+                        (call["name"] == "test" and state["test_matches"] + 2 > budget.get("max_test_matches", float("inf")))):
                     _finish(sid, state, tools, journal, "budget_exhausted")
                     break
                 execute_tool(sid, state, tools, journal, call, call_id, budget)
@@ -590,7 +599,7 @@ def run(config: dict, out: Path, resume=False, interrupt=None, prepare_only=Fals
                        "tool_calls": sum(s["steps"] for s in states.values()),
                        "preparation_matches_reserved": sum(s["test_matches"] for s in states.values()),
                        "known_cost_subtotal_usd": str(sum(amount(s.get("cost_spent", "0")) for s in states.values())),
-                       "reserved_usd": str(sum(amount(s.get("money_reserved", "0")) for s in states.values())),
+                       "reserved_usd": None if any(s.get("reservation_unbounded") for s in states.values()) else str(sum(amount(s.get("money_reserved", "0")) for s in states.values())),
                        "cost_usd": None if any(s["status"] == "needs_reconciliation" or amount(s.get("money_reserved", "0")) > 0
                                               for s in states.values()) else str(sum(amount(s.get("cost_spent", "0")) for s in states.values())),
                        "cost_status": "simulation" if simulated else "calculated_or_reserved",

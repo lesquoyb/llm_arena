@@ -284,6 +284,63 @@ class ProviderContractTests(unittest.TestCase):
         with self.assertRaises(ArenaError):
             validate_config(config)
 
+    def test_unlimited_preparation_records_every_call_and_cost_until_submission(self):
+        descriptor = model()
+        descriptor.pop("max_input_tokens_per_call")
+        descriptor.pop("max_output_tokens")
+        config = read_json(ROOT / "configs/offline-demo.json")
+        config["models"] = [descriptor]
+        config["budget_per_session"] = {}
+        config["spending"] = {"allow_paid_calls": True}
+        validate_config(config)
+        count = 0
+        def response(*args):
+            nonlocal count
+            count += 1
+            call = {"name": "submit", "arguments": {}} if count == 12 else {
+                "name": "write_file", "arguments": {"path": "main.leek", "content": "// attempt " + str(count)}}
+            return {"role": "assistant", "native": {"role": "assistant", "content": "working"},
+                    "tool_calls": [call], "usage": {"input_tokens": 7, "output_tokens": 11},
+                    "cost_usd": "0.5", "request_id": "fixture-" + str(count)}
+        with scratch_directory() as tmp:
+            journal = Journal(tmp)
+            try:
+                with mock.patch("arena.experiment.APIProvider") as provider:
+                    provider.return_value.respond.side_effect = response
+                    run_session("fixture-r0", descriptor, config, tmp, journal, None)
+                state = journal.state("fixture-r0")
+                self.assertEqual(state["status"], "submitted")
+                self.assertEqual(state["calls"], 12)
+                self.assertEqual(state["steps"], 12)
+                self.assertEqual(state["cost_spent"], "6.0")
+                self.assertEqual(state["input_tokens"], 84)
+                self.assertEqual(state["output_tokens"], 132)
+                self.assertFalse(state["reservation_unbounded"])
+                journal.verify()
+            finally:
+                journal.db.close()
+
+    def test_unlimited_unknown_remote_call_is_recorded_and_never_retried(self):
+        descriptor = model()
+        descriptor.pop("max_output_tokens")
+        config = read_json(ROOT / "configs/offline-demo.json")
+        config.update(models=[descriptor], budget_per_session={}, spending={"allow_paid_calls": True})
+        validate_config(config)
+        with scratch_directory() as tmp:
+            journal = Journal(tmp)
+            try:
+                state = initial_state("fixture-r0", descriptor, config)
+                with mock.patch("arena.experiment.APIProvider") as provider:
+                    provider.return_value.respond.side_effect = ProviderFailure("timeout", uncertain=True)
+                    self.assertIsNone(provider_response("fixture-r0", state, descriptor, config, journal))
+                self.assertTrue(state["reservation_unbounded"])
+                self.assertEqual(state["status"], "needs_reconciliation")
+                with mock.patch("arena.experiment.APIProvider") as provider:
+                    self.assertIsNone(provider_response("fixture-r0", state, descriptor, config, journal))
+                    provider.assert_not_called()
+            finally:
+                journal.db.close()
+
     def test_global_ceiling_and_unknown_remote_state_preserve_reservation(self):
         config = read_json(ROOT / "configs/offline-demo.json")
         config["models"] = [model()]

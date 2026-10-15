@@ -36,7 +36,7 @@ def verify_record(root: Path, record: dict):
     strategies = {s["id"]: s for s in experiment["manifest"]["strategies"]}
     expected = [strategies[s]["submission"] for s in record["match"]["sides"]]
     scenario = make_scenario(experiment["manifest"]["scenario"],
-                             [s["entrypoint"] for s in expected], record["match"]["seed"])
+                             [s["entrypoint"] for s in expected], record["match"]["seed"], [s.get("team") for s in expected])
     if (provenance["engine"] != experiment["engine"] or provenance["submissions"] != expected or
             provenance["scenario_sha256"] != digest(scenario) or read_json(work / "scenario.json") != scenario):
         raise ArenaError("Stored match provenance or scenario was modified")

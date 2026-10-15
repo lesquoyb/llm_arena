@@ -54,7 +54,7 @@ def references(engine, config, out, journal, entrants, label, panel):
                                 raise ArenaError("Reference outcome changed")
                             if read_json(work / "result.json") != record["result"]:
                                 raise ArenaError("Reference result changed")
-                            scenario = make_scenario(config["scenario"], [s["submission"]["entrypoint"] for s in sources], seed)
+                            scenario = make_scenario(config["scenario"], [s["submission"]["entrypoint"] for s in sources], seed, [s["submission"].get("team") for s in sources])
                             provenance = read_json(work / "provenance.json")
                             if (read_json(work / "scenario.json") != scenario or provenance["engine"] != engine.identity
                                     or provenance["submissions"] != [s["submission"] for s in sources]):
@@ -94,7 +94,7 @@ def run_evolution(config, out, journal, engine, initial, interrupt=None):
                 state.update(generation=1, condition=condition, parent=parent["id"],
                              parent_checkpoint_sha256=digest(parent_state), status="running",
                              calls=0, steps=0, test_matches=0, wall_seconds=0, pending=None, cursor=0,
-                             in_flight=False, money_reserved="0", cost_spent="0", input_tokens=0, output_tokens=0)
+                             in_flight=False, money_reserved="0", reservation_unbounded=False, cost_spent="0", input_tokens=0, output_tokens=0)
                 state["token_usage_known"] = False
                 state.pop("submission", None)
                 state.pop("reserved", None)

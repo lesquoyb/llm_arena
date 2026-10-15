@@ -265,17 +265,39 @@ class Engine:
         copy_submission(source, out / "strategies/1", info)
         write_json(out / "provenance.json", {"engine": self.identity, "submission": info, "timeout_seconds": self.timeout})
         result = self.invoke(out, "analyze", entrypoint)
+        member_results = {}
+        entries = sorted({member["entrypoint"] for member in info.get("team", {}).get("members", [])} - {entrypoint})
+        for index, member_entry in enumerate(entries):
+            work = out / "member-analysis" / str(index)
+            member_info = submission(source, member_entry)
+            copy_submission(source, work / "strategies/1", member_info)
+            write_json(work / "provenance.json", {"engine": self.identity, "submission": member_info,
+                       "timeout_seconds": self.timeout})
+            assessment = self.invoke(work, "analyze", member_entry)
+            write_json(work / "result.json", assessment)
+            member_results[member_entry] = assessment
+        if member_results:
+            result["member_analyses"] = member_results
+            statuses = [result["status"], *[r["status"] for r in member_results.values()]]
+            result["status"] = "engine_error" if "engine_error" in statuses else "invalid" if "invalid" in statuses else "valid"
+            result["success"] = result["status"] == "valid"
         result["source_sha256"] = info["sha256"]
         write_json(out / "result.json", result)
         return result
 
     def fight(self, sources: list[Path], infos: list[dict], config: dict, seed: int, out: Path) -> dict:
-        scenario = make_scenario(config, [s["entrypoint"] for s in infos], seed)
+        scenario = make_scenario(config, [s["entrypoint"] for s in infos], seed, [s.get("team") for s in infos])
+        from .teams import validate_team
+        for info in infos:
+            if info.get("team"):
+                validate_team(info["team"], config, info["files"], Path(self.metadata["data"]))
         for key in ("weapons", "chips"):
             known = read_json(Path(self.metadata["data"]) / f"{key}.json")
-            for item in config["entity"].get(key, []):
-                if str(item) not in known:
-                    raise ArenaError(f"Unknown {key} ID in pinned game data: {item}")
+            for team in scenario["entities"]:
+                for entity in team:
+                    for item in entity.get(key, []):
+                        if str(item) not in known:
+                            raise ArenaError(f"Unknown {key} ID in pinned game data: {item}")
         out.mkdir(parents=True, exist_ok=False)
         for side in range(2):
             copy_submission(sources[side], out / f"strategies/{side + 1}", infos[side])

@@ -1,8 +1,14 @@
 # Writing an arena strategy
 
 The engine runs LeekScript 4. `main.leek` contains the logic for one entity turn.
-Game functions are available globally without imports. Team members run the
-same entry point; both teams use the stats and equipment set by the scenario.
+Game functions are available globally without imports. In shared-team mode, all members run the same entry point and share the scenario
+equipment. Participant-team mode keeps common base stats but lets you choose the
+team size, equipment and per-member entry points under `scenario.team_selection`.
+Write the sources first, then call `configure_team` with `members`, each containing
+`entrypoint`, `weapons` and `chips`. Use the equipment catalog keys as IDs. Read
+slot limits and allowlists in the initial message. Items cannot exceed member level.
+Call `test` to evaluate your current team and `submit` to freeze code and `team.json`.
+Do not write team.json directly; the tool validates and records each change.
 
 Action points (`getTP()`), movement points (`getMP()`) and operations
 (`getOperations()`) are separate resources. Operation budgets are

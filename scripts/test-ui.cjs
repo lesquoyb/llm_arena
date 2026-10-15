@@ -190,6 +190,64 @@ async function main() {
     await page.getByLabel("Competition name").fill("Configuration navigateur");
     await page.getByLabel("Repetitions per participant").fill("2");
     await page.getByLabel("Evaluation cycle").selectOption("1");
+    for (const name of [
+      "Model calls",
+      "Tool calls",
+      "Preparation matches",
+      "Preparation time (seconds)",
+      "API spending limit per conversation",
+      "API spending limit for the experiment",
+    ]) {
+      assert.equal(
+        await page.getByLabel(name, { exact: false }).inputValue(),
+        "",
+      );
+    }
+    await page.getByLabel("Team setup").selectOption("participant");
+    await page.getByLabel("Weapons per member").fill("1");
+    await page.getByLabel("Chips per member").fill("0");
+    const weaponPicker = page.locator(
+      '.equipment-picker[data-name="team_allowed_weapons"]',
+    );
+    await weaponPicker.locator(":scope > summary").click();
+    assert.equal(await weaponPicker.locator(".equipment-option").count(), 39);
+    await weaponPicker.getByLabel("Search weapons").fill("pistol");
+    const pistol = weaponPicker
+      .locator(".equipment-option")
+      .filter({ hasText: "pistol" })
+      .first();
+    await pistol.locator('input[type="checkbox"]').check();
+    await pistol.getByText("Item details", { exact: true }).click();
+    await pistol.getByText("Effects", { exact: true }).waitFor();
+    assert.equal(
+      await page.locator('[name="team_allowed_weapons"]').inputValue(),
+      "1",
+    );
+    await page.screenshot({
+      path: path.join(artifacts, "equipment-selector.png"),
+      fullPage: true,
+    });
+    await weaponPicker.locator(":scope > summary").click();
+    assert((await page.locator(".help-tip").count()) > 10);
+    await page.locator(".help-tip").first().focus();
+    await page
+      .locator(".help-tip")
+      .first()
+      .locator(".help-bubble")
+      .waitFor({ state: "visible" });
+    await page
+      .getByRole("button", { name: "Settings guide", exact: true })
+      .click();
+    await page
+      .getByRole("dialog")
+      .getByRole("heading", { name: "Competition settings", exact: true })
+      .waitFor();
+    await page.getByRole("button", { name: "Close", exact: true }).click();
+    assert.equal(
+      await page.getByLabel("Competition name").inputValue(),
+      "Configuration navigateur",
+    );
+
     await page.getByRole("button", { name: "Calculate schedule" }).click();
     await page
       .locator("#plan-preview")
@@ -204,6 +262,13 @@ async function main() {
       .locator("tr")
       .filter({ hasText: "Configuration navigateur" });
     await configRow.waitFor();
+    const configured = (
+      await (await page.request.get(url + "/api/bootstrap")).json()
+    ).drafts.find((d) => d.config.name === "Configuration navigateur").config;
+    assert.deepEqual(configured.budget_per_session, {});
+    assert.deepEqual(configured.scenario.team_selection.allowed_weapons, [1]);
+    assert.equal(configured.scenario.team_selection.max_chips, 0);
+
     await configRow.getByRole("button", { name: "Launch" }).click();
     assert(
       (await page.getByRole("dialog").innerText()).includes("No LLM calls"),

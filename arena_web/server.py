@@ -44,6 +44,23 @@ class Application:
         store, run, sid = self.store, value("run"), value("session")
         if route == "/api/bootstrap":
             return self.bootstrap()
+        if route == "/api/reference":
+            documents = {"authoring": "authoring.md", "rules": "corpus/rules.md",
+                         "api-guide": "corpus/api-guide.md", "api": "leekscript-v1/api.md",
+                         "ui": "ui.md", "providers": "providers.md"}
+            name = value("document")
+            if name not in documents:
+                raise ArenaError("Unknown reference document")
+            return {"title": documents[name], "content": (ROOT / "docs" / documents[name]).read_text(encoding="utf-8")}
+        if route == "/api/equipment":
+            data = ROOT / "docs/leekscript-v1"
+            constants = store.json(data / "api.json")["constants"]
+            effects = {}
+            for name, value in constants.items():
+                if name.startswith("EFFECT_") and not name.startswith(("EFFECT_TARGET_", "EFFECT_MODIFIER_")):
+                    effects.setdefault(str(int(float(value))), name.removeprefix("EFFECT_").replace("_", " ").title())
+            return {"weapons": store.json(data / "weapons.json"), "chips": store.json(data / "chips.json"),
+                    "effects": effects, "snapshot": store.json(data / "snapshot.json")["engine"]["lock"]["commit"]}
         if route == "/api/runs":
             return {"runs": store.listing(), "jobs": self.jobs.listing()}
         if route == "/api/run":

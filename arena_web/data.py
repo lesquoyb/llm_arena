@@ -46,7 +46,9 @@ def history_writes(history):
                 continue
             call = pending.pop(match)
             args, result = call.get("arguments") or {}, message.get("result") or {}
-            if (call.get("name") == "write_file" and not result.get("error")
+            if call.get("name") == "configure_team" and not result.get("error"):
+                args = {"path": "team.json", "content": result.get("content")}
+            if (call.get("name") in {"write_file", "configure_team"} and not result.get("error")
                     and isinstance(args.get("content"), str) and isinstance(args.get("path"), str)):
                 content = args["content"]
                 expected = hashlib.sha256(content.encode("utf-8")).hexdigest()
@@ -260,7 +262,7 @@ class Store:
             files[write["path"]] = write["sha256"]
             versions.append({k: v for k, v in write.items() if k != "content"} |
                             {"index": len(versions), "files": sorted(files), "tree_sha256": digest(files)})
-        return {"versions": versions, "basis": "Successful file writes only; failed proposals are excluded."}
+        return {"versions": versions, "basis": "Successful source writes and team configurations; failed proposals are excluded."}
 
     def source(self, identifier, sid, version, filename, previous=None):
         files, before, after = {}, {}, None
