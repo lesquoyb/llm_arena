@@ -261,6 +261,14 @@ class Store:
             raise ArenaError("Message not found")
         return {"message": history[index]}
 
+    def output_block(self, identifier, sid, index, block):
+        from .provider_output import blocks
+        message = self.message(identifier, sid, index)['message']
+        parts = blocks(message)
+        if not 0 <= block < len(parts):
+            raise ArenaError("Output block not found")
+        return parts[block]
+
     def conversation(self, identifier, sid, offset=0, limit=25):
         state = self.session(identifier, sid)
         history = state.get("history", [])
@@ -299,6 +307,16 @@ class Store:
             # Requests contain full prior histories. Do not transfer them N times
             # on every live refresh. Exact records remain available on demand.
             visible = {k:v for k,v in item.items() if k not in {"raw", "sent_parameters"}}
+            if item.get('role') in {'assistant', 'tool'}:
+                from .provider_output import preview
+                visible.update(preview(item))
+                visible.pop('native', None)
+                if item.get('role') == 'assistant':
+                    visible['tool_calls'] = [{k:v for k,v in call.items() if k != 'arguments'} for call in item.get('tool_calls', [])]
+                    visible.pop('content', None)
+                else:
+                    visible['tool_error'] = bool((item.get('result') or {}).get('error') or (item.get('result') or {}).get('valid') is False) if isinstance(item.get('result'), dict) else False
+                    visible.pop('result', None)
             parameters = item.get("sent_parameters") or {}
             visible["request_recorded"] = "sent_parameters" in item
             visible["request_seed"] = parameters.get("seed", parameters.get("generationConfig", {}).get("seed"))
@@ -306,10 +324,17 @@ class Store:
                 from arena.briefing import participant_scenario
                 visible["scenario"] = participant_scenario(visible["scenario"])
             messages.append(visible)
+        failure_event = None
+        if state.get('status') in {'provider_unavailable', 'needs_reconciliation', 'generation_failed'}:
+            database = self.run_path(identifier) / 'journal.sqlite'
+            with closing(sqlite3.connect(database.as_uri() + '?mode=ro', uri=True)) as connection:
+                row = connection.execute("SELECT id,kind FROM events WHERE session=? AND kind IN ('malformed_provider_response','provider_failure') ORDER BY id DESC LIMIT 1", (sid,)).fetchone()
+                if row: failure_event = {'id': row[0], 'kind': row[1]}
         return {"total": len(history), "offset": offset, "messages": messages,
                 "times": times[offset:offset + limit], "timeline": timeline[offset:offset + limit], "model": state.get("model"),
                 "status": state["status"], "failure": failure, "instruction_index": start,
-                "generation": state.get("generation", 0), "condition": state.get("condition", "initial")}
+                "generation": state.get("generation", 0), "condition": state.get("condition", "initial"),
+                "failure_event": failure_event}
 
     def events(self, identifier, sid=None, offset=0, limit=100, model=None):
         root = self.run_path(identifier)

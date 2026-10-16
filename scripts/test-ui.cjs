@@ -871,6 +871,77 @@ async function main() {
         .count(),
       0,
     );
+    await page.goto(url + "/#view=run&run=outputs&tab=conversation");
+    await page.getByText("Visible answer", { exact: true }).waitFor();
+    assert.equal(await page.locator(".provider-output[open]").count(), 0);
+    assert.equal(await page.locator(".provider-output.reasoning").count(), 3);
+    await page
+      .getByText("Provider-reported tool activity · remote_search", {
+        exact: true,
+      })
+      .waitFor();
+    await page
+      .getByText("Provider block · future_block", { exact: true })
+      .waitFor();
+    await page
+      .getByText(
+        "42 reasoning tokens reported; no readable reasoning text returned.",
+        { exact: true },
+      )
+      .waitFor();
+    let outputRequests = 0;
+    const watchOutput = (request) => {
+      if (request.url().includes("/api/message-output?")) outputRequests++;
+    };
+    page.on("request", watchOutput);
+    const reasoning = page.locator(".provider-output.reasoning").first();
+    assert.equal(await reasoning.locator("pre").innerText(), "");
+    await reasoning.locator("summary").click();
+    await page.waitForFunction(() =>
+      document
+        .querySelector(".provider-output.reasoning pre")
+        ?.textContent.startsWith("Exposed reasoning example"),
+    );
+    assert.equal(outputRequests, 1);
+    await reasoning.locator("summary").click();
+    await reasoning.locator("summary").click();
+    assert.equal(outputRequests, 1);
+    const remote = page
+      .locator(".provider-output")
+      .filter({
+        has: page.getByText("Provider-reported tool activity · remote_search", {
+          exact: true,
+        }),
+      });
+    await remote.locator("summary").click();
+    await page.waitForFunction(() =>
+      [...document.querySelectorAll(".provider-output pre")].some((n) =>
+        n.textContent.includes("unknown-mcp-server"),
+      ),
+    );
+    const toolResult = page.locator(".provider-output.tool_result");
+    assert.equal(await toolResult.locator("pre").innerText(), "");
+    await toolResult.locator("summary").click();
+    await page.waitForFunction(() =>
+      document
+        .querySelector(".provider-output.tool_result pre")
+        ?.textContent.includes("WHOLE_TOOL_OUTPUT"),
+    );
+    const envelope = page
+      .getByText("Complete provider response", { exact: true })
+      .first()
+      .locator("..");
+    await envelope.click();
+    await page.waitForFunction(() =>
+      [...document.querySelectorAll(".provider-output.raw pre")].some((n) =>
+        n.textContent.includes("extra_remote_tool"),
+      ),
+    );
+    await page.screenshot({
+      path: path.join(artifacts, "provider-output.png"),
+      fullPage: true,
+    });
+    page.off("request", watchOutput);
     // Matrix counts must keep the pair, stage and result perspective across side swaps.
     const matrixSummary = url + "/#view=run&run=matrix";
     const paths = async () =>

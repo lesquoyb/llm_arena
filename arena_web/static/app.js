@@ -1881,6 +1881,20 @@ function feedbackView(value) {
     ),
   )}</section>`;
 }
+function providerOutput(message, index) {
+  const blocks = message.output_blocks || [];
+  return (
+    blocks
+      .map(
+        (block) =>
+          `<details class="provider-output ${e(block.kind)}" data-output-block="${block.index}" data-output-message="${index}" data-record-run="${e(S.run)}" data-record-session="${e(S.session)}"><summary><span>${e(block.label)}</span><small>${fmt(block.characters)} characters</small></summary><pre></pre></details>`,
+      )
+      .join("") +
+    (Number(message.usage?.reasoning_tokens) > 0
+      ? `<p class="output-coverage">${fmt(message.usage.reasoning_tokens)} reasoning tokens reported${blocks.some((b) => b.kind === "reasoning" && b.readable) ? "" : "; no readable reasoning text returned"}.</p>`
+      : "")
+  );
+}
 function conversation(data) {
   conversationValues = [];
   const failure = data.failure;
@@ -1891,6 +1905,9 @@ function conversation(data) {
           "error",
         )
       : "") +
+    (data.failure_event
+      ? `<details class="provider-output" data-provider-event="${data.failure_event.id}" data-record-run="${e(S.run)}"><summary>Provider response or failure record</summary><pre></pre></details>`
+      : "") +
     (data.generation > 0
       ? `<div class="toolbar">${badge("Round 2 · " + text(data.condition), "blue")}${btn("Round 2 instruction", "conversation-page", `data-offset="${data.instruction_index}"`)}${btn("Initial history", "conversation-page", 'data-offset="0"')}</div>`
       : "") +
@@ -1900,7 +1917,8 @@ function conversation(data) {
         const absolute = S.offset + index,
           native = m.native;
         const content =
-          m.role === "user"
+          m.output_text ??
+          (m.role === "user"
             ? m.content
             : m.role === "tool"
               ? pretty(m.result)
@@ -1916,7 +1934,7 @@ function conversation(data) {
                         .filter((v) => v.text && !v.thought)
                         .map((v) => v.text)
                         .join("\n")
-                    : m.content || "";
+                    : m.content || "");
         const direction =
           m.role === "user"
             ? `Arena → Model · ${generationLabel(m.generation ?? (absolute >= data.instruction_index ? data.generation : 0))}${m.condition ? " · " + text(m.condition) : ""}`
@@ -1924,16 +1942,17 @@ function conversation(data) {
               ? `Tool → Model · ${m.name}`
               : `${data.model || "Model"} → Arena`;
         const resultError =
-          m.role === "tool" && (m.result?.error || m.result?.valid === false);
+          m.role === "tool" &&
+          (m.tool_error || m.result?.error || m.result?.valid === false);
         const display = data.timeline?.[index] || {};
-        const calls = (m.tool_calls || [])
+        const calls = (m.output_blocks ? [] : m.tool_calls || [])
           .map(
             (call, n) =>
               `<section class="tool-call" id="call-${absolute}-${n}"><strong>Model → Tool · ${e(call.name)}</strong><small>Call ${n + 1} in this response${call.id ? " · " + e(call.id) : ""}</small>${conversationData(call.arguments, "Tool arguments")}</section>`,
           )
           .join("");
         const snippet = String(content || "").slice(0, 1800);
-        return `${data.generation > 0 && absolute === data.instruction_index ? `<div class="notice"><strong>Round 2 starts here · ${e(text(data.condition))}</strong></div>` : ""}<article class="chat-message ${e(m.role)} ${resultError ? "tool-error" : ""}" id="message-${absolute}"><div class="message-head"><strong>${e(direction)}${m.simulated ? " · predefined strategy" : ""}</strong><span>Message ${absolute + 1} · ${data.times?.[index] ? date(data.times[index]) : "Time not recorded"}</span></div>${display.reply_to != null ? `<p class="message-reply">Result of tool request in message ${display.reply_to + 1}${display.reply_to >= S.offset && display.reply_to < S.offset + 25 ? ` · <a href="#message-${display.reply_to}" data-action="message-anchor" data-index="${display.reply_to}">Go to request</a>` : ""}${m.call_id ? " · " + e(m.call_id) : ""}</p>` : ""}${resultError ? badge("Tool error", "red") : ""}${snippet ? `<div class="message-content">${e(snippet)}${content.length > 1800 ? "\n[Preview truncated; open the full record below.]" : ""}</div>` : m.role === "assistant" && calls ? '<p class="muted">The model requested tools without a text response.</p>' : ""}${m.briefing ? `<div class="game-brief"><strong>Game briefing sent to the model</strong><p>${e(m.briefing.game)}</p><p>${e(m.briefing.objective)}</p><p>${e(m.briefing.team_mode)}</p></div>` : ""}${m.role === "user" ? feedbackView(m.feedback) : ""}${calls}${m.role === "user" ? conversationData(Object.fromEntries(Object.entries(m).filter(([key]) => !["role", "content", "request_recorded", "request_seed"].includes(key))), m.generation ? "Full improvement instruction and supplied feedback" : "Scenario, roster, ID guide and preparation rules sent to the model") : ""}${m.usage ? `<small>Input ${fmt(m.usage.input_tokens)} · Output ${fmt(m.usage.output_tokens)} · Cost ${money(m.cost_usd)} · Response took ${fmt(m.elapsed_seconds, 3)} s</small>` : ""}${m.request_recorded ? `<p class="muted">Sent seed: ${e(m.request_seed ?? "not set")}${m.stop_reason ? " · Stop reason: " + e(m.stop_reason) : ""}</p>` : ""}<details data-message-record="${absolute}" data-record-run="${e(S.run)}" data-record-session="${e(S.session)}"><summary>Full record: exact request, native response and metadata</summary><pre></pre></details></article>`;
+        return `${data.generation > 0 && absolute === data.instruction_index ? `<div class="notice"><strong>Round 2 starts here · ${e(text(data.condition))}</strong></div>` : ""}<article class="chat-message ${e(m.role)} ${resultError ? "tool-error" : ""}" id="message-${absolute}"><div class="message-head"><strong>${e(direction)}${m.simulated ? " · predefined strategy" : ""}</strong><span>Message ${absolute + 1} · ${data.times?.[index] ? date(data.times[index]) : "Time not recorded"}</span></div>${display.reply_to != null ? `<p class="message-reply">Result of tool request in message ${display.reply_to + 1}${display.reply_to >= S.offset && display.reply_to < S.offset + 25 ? ` · <a href="#message-${display.reply_to}" data-action="message-anchor" data-index="${display.reply_to}">Go to request</a>` : ""}${m.call_id ? " · " + e(m.call_id) : ""}</p>` : ""}${resultError ? badge("Tool error", "red") : ""}${snippet ? `<div class="message-content">${e(snippet)}${m.output_text_truncated || content.length > 1800 ? "\n[Preview truncated; open the full record below.]" : ""}</div>` : m.role === "assistant" && calls ? '<p class="muted">The model requested tools without a text response.</p>' : ""}${m.briefing ? `<div class="game-brief"><strong>Game briefing sent to the model</strong><p>${e(m.briefing.game)}</p><p>${e(m.briefing.objective)}</p><p>${e(m.briefing.team_mode)}</p></div>` : ""}${m.role === "user" ? feedbackView(m.feedback) : ""}${calls}${providerOutput(m, absolute)}${m.role === "user" ? conversationData(Object.fromEntries(Object.entries(m).filter(([key]) => !["role", "content", "request_recorded", "request_seed"].includes(key))), m.generation ? "Full improvement instruction and supplied feedback" : "Scenario, roster, ID guide and preparation rules sent to the model") : ""}${m.usage ? `<small>Input ${fmt(m.usage.input_tokens)} · Output ${fmt(m.usage.output_tokens)} · Cost ${money(m.cost_usd)} · Response took ${fmt(m.elapsed_seconds, 3)} s</small>` : ""}${m.request_recorded ? `<p class="muted">Sent seed: ${e(m.request_seed ?? "not set")}${m.stop_reason ? " · Stop reason: " + e(m.stop_reason) : ""}</p>` : ""}<details data-message-record="${absolute}" data-record-run="${e(S.run)}" data-record-session="${e(S.session)}"><summary>Full record: exact request, native response and metadata</summary><pre></pre></details></article>`;
       })
       .join("")
   );
@@ -1946,14 +1965,30 @@ document.addEventListener(
       !node.open ||
       node.dataset.loaded ||
       !node.matches(
-        "details[data-conversation-value], details[data-message-record]",
+        "details[data-conversation-value], details[data-message-record], details[data-output-block], details[data-provider-event]",
       )
     )
       return;
     node.dataset.loaded = "true";
     const output = $("pre", node);
     try {
-      if (node.dataset.messageRecord != null) {
+      if (node.dataset.outputBlock != null) {
+        output.textContent = "Loading recorded output...";
+        const block = await api("/api/message-output", {
+          run: node.dataset.recordRun,
+          session: node.dataset.recordSession,
+          index: node.dataset.outputMessage,
+          block: node.dataset.outputBlock,
+        });
+        output.textContent =
+          typeof block.value === "string" ? block.value : pretty(block.value);
+      } else if (node.dataset.providerEvent != null) {
+        const record = await api("/api/event", {
+          run: node.dataset.recordRun,
+          id: node.dataset.providerEvent,
+        });
+        output.textContent = pretty(record);
+      } else if (node.dataset.messageRecord != null) {
         output.textContent = "Loading exact record...";
         const record = await api("/api/message", {
           run: node.dataset.recordRun,
@@ -3123,7 +3158,10 @@ setInterval(async () => {
       S.view === "run" &&
       !$("#dialog").open &&
       S.follow &&
-      !(S.tab === "conversation" && $(".chat-message details[open]")) &&
+      !(
+        S.tab === "conversation" &&
+        $(".chat-message details[open], details[data-provider-event][open]")
+      ) &&
       !(S.tab === "summary" && $(".overview-details[open]")) &&
       !(S.tab === "matches" && replayTimer) &&
       (activeJobs().some((j) => j.run === S.run) ||

@@ -132,6 +132,27 @@ def main():
             journal.save("mock-repair-r0-g1-"+condition, {**parent,"generation":1,"condition":condition,
                 "parent":"mock-repair-r0","history":[*inherited,message,{"role":"assistant","content":"New branch response"}]},"branch_created")
         journal.db.close()
+        output_root=fixture(store,"outputs")
+        journal=Journal(output_root);state=journal.state("mock-repair-r0")
+        native_openai={"role":"assistant","content":"Visible answer", "reasoning_content":"Exposed reasoning example " * 3000,
+                       "unexpected_annotation":{"keep":"UNKNOWN_FIELD"}}
+        native_anthropic={"role":"assistant","content":[
+            {"type":"thinking","thinking":"Provider reasoning summary","signature":"SIGNED_THOUGHT"},
+            {"type":"redacted_thinking","data":"OPAQUE_THOUGHT"},
+            {"type":"mcp_tool_use","name":"remote_search","server_name":"unknown-mcp-server","input":{"query":"example"}},
+            {"type":"mcp_tool_result","tool_use_id":"external-call","content":[{"type":"text","text":"EXTERNAL_TOOL_RESULT"}]},
+            {"type":"future_block","value":"UNRECOGNIZED_OUTPUT"},
+            {"type":"text","text":"Another visible answer"}]}
+        native_gemini={"role":"model","parts":[{"thought":True,"text":"Gemini exposed summary","thoughtSignature":"SIGNED_PART"},
+                          {"text":"Gemini answer"},{"executableCode":{"language":"PYTHON","code":"print(1)"}}]}
+        state['history']=[{"role":"user","content":"Output inspection fixture"},
+            {"role":"assistant","native":native_openai,"raw":{"choices":[{"message":native_openai}],"server_tool_calls":[{"name":"extra_remote_tool"}]}},
+            {"role":"assistant","native":native_anthropic,"raw":{"content":native_anthropic['content']}},
+            {"role":"assistant","native":native_gemini,"raw":{"candidates":[{"content":native_gemini}]}},
+            {"role":"tool","name":"read_docs","result":{"content":"WHOLE_TOOL_OUTPUT"}},
+            {"role":"assistant","native":{"role":"assistant","content":"Only token counts are exposed"},"usage":{"reasoning_tokens":42}}]
+        journal.save('mock-repair-r0',state,'model_response',{'fixture':'all provider outputs'})
+        journal.db.close()
         class FixtureApplication(Application):
             def post(self, route, data):
                 if route != '/api/fixture-live':

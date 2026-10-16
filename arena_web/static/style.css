@@ -1982,3 +1982,49 @@ dialog::backdrop {
     font-size: 14px;
   }
 }
+
+.provider-output {
+  margin: 8px 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--paper);
+}
+.provider-output > summary {
+  padding: 10px 12px;
+  cursor: pointer;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.provider-output > summary small {
+  color: var(--muted);
+  font-size: 10px;
+  margin-left: 10px;
+  white-space: nowrap;
+}
+.provider-output.reasoning {
+  border-left: 3px solid #8f75c8;
+}
+.provider-output.provider_tool {
+  border-left: 3px solid #3e9b87;
+}
+.provider-output.opaque {
+  border-left: 3px solid #c18a4f;
+}
+.provider-output > pre {
+  margin: 0;
+  max-height: 65vh;
+  overflow: auto;
+  padding: 14px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.output-coverage {
+  font-size: 11px;
+  color: var(--muted);
+  margin: 8px 0;
+}
+.provider-output > summary {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
