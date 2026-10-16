@@ -24,7 +24,7 @@ TOOLS = [
      "input_schema": schema({"path": TEXT, "content": TEXT}, ["path", "content"])},
     {"name": "read_docs", "description": "Read a page of the pinned shared documentation. Paths start at authoring.md, corpus/ or leekscript-v1/.",
      "input_schema": schema({"path": TEXT, **PAGE}, ["path"])},
-    {"name": "analyze", "description": "Compile/analyze your entrypoint with the native engine and return diagnostics.", "input_schema": schema(ENTRY)},
+    {"name": "analyze", "description": "Compile/analyze your saved entrypoint and every configured team entrypoint with the native engine. Returns status and readable diagnostic_messages with severity, file, line and compiler code. Analyze after the final edit; fix all errors and repeat until status=valid before submit. Analysis does not change your files.", "input_schema": schema(ENTRY)},
     {"name": "test", "description": "Run two native-engine training fights against passive, one per starting side. Read the returned test ID with read_replay for actions, metrics and debug/errors.",
      "input_schema": schema({**ENTRY, "scenario_id": {"type": "string", "enum": ["training"]},
                              "seed_id": {"type": "string", "enum": ["train-17"]},
@@ -36,7 +36,7 @@ TOOLS = [
      "input_schema": schema({"members": {"type": "array", "minItems": 1, "maxItems": 8,
          "items": schema({"entrypoint": TEXT, "level": LEVEL, "name": {"type": "string", "minLength": 1, "maxLength": 80}, "weapons": {"type": "array", "items": {"type": "integer"}},
                           "chips": {"type": "array", "items": {"type": "integer"}}, "capital": STAT_VALUES, "stats": FINAL_STATS, "components": COMPONENTS}, ["entrypoint", "weapons", "chips"])}}, ["members"])},
-    {"name": "submit", "description": "Freeze your saved sources and configured team, then end preparation.", "input_schema": schema(ENTRY)},
+    {"name": "submit", "description": "Freeze your saved sources and configured team, then end preparation. This does not check compilation or repair code. First call analyze on the final saved version and fix errors until status=valid. After submit you cannot repair this version during its evaluation fights.", "input_schema": schema(ENTRY)},
 ]
 
 # Identical contracts across native provider APIs and MCP.

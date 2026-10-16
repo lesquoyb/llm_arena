@@ -286,13 +286,18 @@ class Store:
             metrics = match['result'].get('team_metrics', {})
             errors = sum((metrics.get(str(side)) or {}).get('errors', 0) for side, participant in enumerate(match['sides']) if participant == sid)
             if errors:
-                problems.append({'phase': 'script execution', 'status': 'runtime_errors',
+                problems.append({'phase': 'script execution', 'status': 'script_errors',
                     'message': f'{errors} script errors were recorded for your side. This fight completed; inspect its replay logs for the exact messages.',
                     'path': match['path'], 'stage': match['stage'], 'sides': match['sides'], 'seed': match['seed']})
-        return {'generation_status': state['status'], 'has_submission': bool(state.get('submission')) or state['status'] == 'submitted',
+        from arena.compiler_diagnostics import compilation_rows
+        compilation = compilation_rows(assessment, (self.json(root / 'experiment.json') or {}).get('engine'))
+        return {'compilation': compilation, 'generation_status': state['status'], 'has_submission': bool(state.get('submission')) or state['status'] == 'submitted',
                 'validation_status': validity or ('pending' if state.get('submission') or state['status'] == 'submitted' else 'not_submitted'),
                 'assessment': assessment, 'problems': problems,
-                'matches': {'completed': sum(m['result'].get('status') == 'completed' for m in matches if m['kind'] != 'training'),
+                'matches': {'competition_completed': sum(m['kind'] == 'competition' and not m.get('mirror') and m['result'].get('status') == 'completed' for m in matches),
+                            'reference_completed': sum(m['kind'] == 'evaluation' and m['result'].get('status') == 'completed' for m in matches),
+                            'mirror_completed': sum(m['kind'] == 'competition' and m.get('mirror') and m['result'].get('status') == 'completed' for m in matches),
+                            'completed': sum(m['result'].get('status') == 'completed' for m in matches if m['kind'] != 'training'),
                             'failed': sum(m['kind'] != 'training' for m in failed),
                             'preparation_completed': sum(m['result'].get('status') == 'completed' for m in matches if m['kind'] == 'training')},
                 'schedule_note': 'A submitted strategy is frozen. Round 2 tournament and reference evaluation fights start after all Round 2 preparation conversations finish. Preparation tests are separate and unscored.'}

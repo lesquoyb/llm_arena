@@ -150,13 +150,14 @@ class Preparation:
                 return {"submission": info}
             if name == "analyze":
                 out = self.directory / "tools" / call_id
+                from .compiler_diagnostics import readable_analysis
                 if (out / "result.json").exists():
                     if read_json(out / "provenance.json")["submission"] != info:
                         raise ArenaError("Cached analysis source differs from current source")
-                    return read_json(out / "result.json")
+                    return readable_analysis(read_json(out / "result.json"), getattr(self.engine, "identity", None))
                 # An interrupted invocation is retained; retry in a new directory.
                 out = self._attempt(out)
-                return self.engine.analyze(self.workspace, entry, out)
+                return readable_analysis(self.engine.analyze(self.workspace, entry, out), getattr(self.engine, "identity", None))
             opponent = ROOT / "examples/strategies/passive"
             results = []
             for side in range(2):

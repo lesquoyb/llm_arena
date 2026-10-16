@@ -14,7 +14,16 @@ Read corpus/stat-rules.json and corpus/component-rules.json for current values.
 Legacy configurations without independent_builds retain default stat inheritance;
 free mode accepts raw `stats`. Use weapons.json `item` values as weapon IDs (pistol: 37), and chips.json keys as chip IDs (shock: 1). Weapon catalog keys and replay template IDs are different identifiers. Read
 slot limits and allowlists in the initial message. In realistic mode, items cannot exceed member level; free mode permits higher-level items.
-Call `test` to evaluate your current team and `submit` to freeze code and `team.json`.
+Call `analyze` on your final saved entrypoint before `submit`. It also compiles
+all entrypoints in your configured team. The result includes `diagnostic_messages`
+with severity, file, line, column and readable messages; the original numeric
+`diagnostics` are retained. Fix all errors and repeat until `status` is `valid`.
+Recheck after further source edits or entrypoint changes. Use `test` and
+`read_replay` to check behavior and execution errors as well: compiling is not
+proof of a correct strategy. `submit` freezes code and `team.json` and ends
+preparation without compiling or repairing them. Invalid code is a failed
+strategy submission, even when the engine completes its fight process; this
+frozen version cannot be repaired during evaluation.
 Do not write team.json directly; the tool validates and records each change.
 
 Action points (`getTP()`), movement points (`getMP()`) and operations

@@ -882,7 +882,14 @@ async function main() {
     await page
       .getByText("Submission validation report", { exact: true })
       .click();
-    await page.getByText(/Unknown function DIAGNOSTIC_FIXTURE/).waitFor();
+    await page
+      .getByText("Unknown variable or function: moveResult", { exact: false })
+      .first()
+      .waitFor();
+    await page.getByText("main.leek:15:8", { exact: true }).waitFor();
+    await page
+      .getByText("1 compilation error · 1 warning", { exact: true })
+      .waitFor();
     await page.goto(url + "/#view=run&run=outputs&tab=conversation");
     await page.getByText("Visible answer", { exact: true }).waitFor();
     assert.equal(await page.locator(".provider-output[open]").count(), 0);

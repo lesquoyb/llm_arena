@@ -134,7 +134,7 @@ def main():
         journal.db.close()
         diagnostic_root=fixture(store,"diagnostics")
         write_json(diagnostic_root/'sessions/mock-repair-r0/assessment.json', {
-            'status':'invalid','diagnostics':[{'file':'main.leek','line':8,'message':'Unknown function DIAGNOSTIC_FIXTURE'}]})
+            'status':'invalid','diagnostics':[[0,'main.leek',15,8,15,17,33,['moveResult']],[1,'main.leek',22,23,22,25,93]]})
         output_root=fixture(store,"outputs")
         journal=Journal(output_root);state=journal.state("mock-repair-r0")
         native_openai={"role":"assistant","content":"Visible answer", "reasoning_content":"Exposed reasoning example " * 3000,

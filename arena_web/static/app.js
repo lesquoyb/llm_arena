@@ -47,6 +47,7 @@ const LABELS = {
   provider_unavailable: "API unavailable",
   valid: "Valid",
   invalid: "Invalid",
+  script_errors: "Script error events",
   initial: "Initial version",
   control: "Without feedback",
   feedback: "With feedback",
@@ -1899,7 +1900,12 @@ function providerOutput(message, index) {
 }
 function sessionDiagnostics(data, full = false) {
   if (!data) return "";
-  const problems = data.problems || [];
+  const problems = data.problems || [],
+    compilation = data.compilation || [];
+  const validationProblems = problems.filter(
+    (p) => p.phase !== "script execution",
+  );
+  const scriptProblems = problems.filter((p) => p.phase === "script execution");
   const validation =
     data.validation_status === "pending"
       ? "Validation pending"
@@ -1908,8 +1914,25 @@ function sessionDiagnostics(data, full = false) {
         : data.validation_status === "valid"
           ? "Compilation passed"
           : "Validation: " + text(data.validation_status);
-  return `<div class="notice ${problems.length ? "error" : ""}" data-session-diagnostics><strong>${data.has_submission ? "Strategy submitted" : e(text(data.generation_status))}</strong> · ${e(validation)}<p>${fmt(data.matches.completed)} completed evaluation fights · ${fmt(data.matches.failed)} failed · ${fmt(data.matches.preparation_completed)} preparation fights</p>${problems.map((p) => `<div><strong>${e(p.phase)} · ${e(text(p.status))}</strong><p>${e(p.message)}</p>${p.sides ? `<small>${e(p.sides.map(strategyName).join(" vs "))} · Seed ${e(p.seed)}</small>` : ""}${p.path ? `<small class="mono">${e(p.path)}</small>` : ""}</div>`).join("")}${!problems.length ? "<p>No recorded validation or fight failure for this strategy.</p>" : ""}<small>${e(data.schedule_note)}</small>${data.assessment ? `<details><summary>Submission validation report</summary><pre>${e(pretty(data.assessment))}</pre></details>` : ""}${full ? `<details><summary>Diagnostic JSON</summary><pre id="session-diagnostic-json">${e(pretty(data))}</pre></details>` : ""}</div>`;
+  const problem = (p) =>
+    `<div><strong>${e(p.phase)} · ${e(text(p.status))}</strong><p>${e(p.message)}</p>${p.sides ? `<small>${e(p.sides.map(strategyName).join(" vs "))} · Seed ${e(p.seed)}</small>` : ""}${p.path ? `<small class="mono">${e(p.path)}</small>` : ""}</div>`;
+  const errors = compilation.filter((row) => row.severity === "error").length;
+  const warnings = compilation.filter(
+    (row) => row.severity === "warning",
+  ).length;
+  return `<div class="notice ${problems.length ? "error" : ""}" data-session-diagnostics><strong>${data.has_submission ? "Strategy submitted" : e(text(data.generation_status))}</strong> · ${e(validation)}<p>${fmt(data.matches.completed)} completed fights across all categories · ${fmt(data.matches.failed)} engine failures</p><small>${fmt(data.matches.competition_completed)} scored tournament fights · ${fmt(data.matches.reference_completed)} reference evaluations · ${fmt(data.matches.mirror_completed)} tournament mirrors · ${fmt(data.matches.preparation_completed)} preparation fights</small>${validationProblems.map(problem).join("")}${
+    compilation.length
+      ? `<p><strong>${errors} compilation error${errors === 1 ? "" : "s"} · ${warnings} warning${warnings === 1 ? "" : "s"}</strong></p>${table(
+          ["Severity", "Location", "Diagnostic"],
+          compilation.map(
+            (row) =>
+              `<tr><td>${e(row.severity)}</td><td class="mono">${e(row.file)}:${e(row.line ?? "?")}:${e(row.column ?? "?")}</td><td>${e(row.message)}<small>Code ${e(row.code ?? "?")}${row.name ? " · " + e(row.name) : ""}</small></td></tr>`,
+          ),
+        )}`
+      : ""
+  }${scriptProblems.length ? `<details><summary>Script error events in ${scriptProblems.length} fights</summary><p>The same error can recur on many turns. These counts are error events, not distinct bugs. Completed fights can contain compilation or execution errors.</p>${scriptProblems.map(problem).join("")}</details>` : ""}${!problems.length ? "<p>No recorded validation or fight failure for this strategy.</p>" : ""}<small>${e(data.schedule_note)}</small>${data.assessment ? `<details><summary>Submission validation report</summary><pre>${e(pretty(data.assessment))}</pre></details>` : ""}${full ? `<details><summary>Diagnostic JSON</summary><pre id="session-diagnostic-json">${e(pretty(data))}</pre></details>` : ""}</div>`;
 }
+
 function conversation(data) {
   conversationValues = [];
   const failure = data.failure;
