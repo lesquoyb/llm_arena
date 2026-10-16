@@ -6,7 +6,7 @@ import json
 import re
 from uuid import uuid4
 
-from .core import ArenaError, ROOT, copy_submission, file_hash, is_link, read_json, submission, write_json
+from .core import ArenaError, ROOT, copy_submission, file_hash, is_link, read_json, replace_file, submission, write_json
 
 
 def local_path(root: Path, name: str) -> Path:
@@ -69,7 +69,7 @@ class Preparation:
             path.parent.mkdir(parents=True, exist_ok=True)
             tmp = path.with_suffix(".leek.tmp")
             tmp.write_bytes(encoded)
-            tmp.replace(path)
+            replace_file(tmp, path)
             return {"sha256": file_hash(path)}
         if name == "preview_build":
             from .teams import build_preview

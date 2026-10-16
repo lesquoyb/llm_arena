@@ -86,7 +86,7 @@ def validate_config(value: dict) -> dict:
                     integer(model[key], 1, 10_000_000, key)
             if model["provider"] == "anthropic" and "max_output_tokens" not in model:
                 raise ArenaError("Anthropic requires an explicit maximum output per call (max_tokens)")
-            integer(model.get("timeout_seconds", 60), 1, 300, "timeout_seconds")
+            integer(model.get("timeout_seconds", 60), 1, 3600, "timeout_seconds")
             integer(model.get("max_retries", 0), 0, 3, "max_retries")
             params = model.get("parameters", {})
             allowed = {"temperature", "top_p", "reasoning_effort", "seed"}
