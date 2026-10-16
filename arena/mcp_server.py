@@ -37,7 +37,7 @@ def serve(out: Path, sid: str):
             async def call_tool(name, arguments):
                 state["wall_seconds"] = previous + time.monotonic() - started
                 try:
-                    if state["wall_seconds"] >= config["budget_per_session"]["max_wall_seconds"]:
+                    if state["wall_seconds"] >= config["budget_per_session"].get("max_wall_seconds", float("inf")):
                         _finish(sid, state, tools, journal, "budget_exhausted")
                         raise ArenaError("Wall budget exhausted")
                     identifier = f"call-0-tool-{state['steps']}"

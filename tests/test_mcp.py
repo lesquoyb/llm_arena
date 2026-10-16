@@ -23,7 +23,8 @@ class MCPIntegrationTests(unittest.TestCase):
                 async with ClientSession(reader, writer, read_timeout_seconds=timedelta(seconds=120)) as session:
                     await session.initialize()
                     listing = await session.list_tools()
-                    self.assertEqual(len(listing.tools), 8)
+                    self.assertEqual(len(listing.tools), 11)
+                    self.assertIn("configure_team", {tool.name for tool in listing.tools})
                     result = await session.call_tool("write_file", {"path": "main.leek", "content": "var a = 1"})
                     self.assertIn("sha256", json.loads(result.content[0].text))
                     result = await session.call_tool("read_file", {"path": "main.leek"})

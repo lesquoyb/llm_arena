@@ -46,7 +46,9 @@ def history_writes(history):
                 continue
             call = pending.pop(match)
             args, result = call.get("arguments") or {}, message.get("result") or {}
-            if (call.get("name") == "write_file" and not result.get("error")
+            if call.get("name") == "configure_team" and not result.get("error"):
+                args = {"path": "team.json", "content": result.get("content")}
+            if (call.get("name") in {"write_file", "configure_team"} and not result.get("error")
                     and isinstance(args.get("content"), str) and isinstance(args.get("path"), str)):
                 content = args["content"]
                 expected = hashlib.sha256(content.encode("utf-8")).hexdigest()
@@ -94,7 +96,8 @@ class Store:
             return value
 
     def participants(self):
-        return [{"spec": m, "key_configured": bool(self.secrets.get(m.get("api_key_env")) or
+        from arena.endpoints import optional_local_key
+        return [{"spec": m, "key_optional": optional_local_key(m), "key_configured": bool(self.secrets.get(m.get("api_key_env")) or
                                                     os.environ.get(m.get("api_key_env", "")))}
                 for m in self.catalog()]
 
@@ -162,7 +165,7 @@ class Store:
                 yield directory
                 dirs[:] = []
 
-    def states(self, root):
+    def states(self, root, fields=None):
         path = root / "journal.sqlite"
         if not path.is_file() or is_link(path):
             return {}
@@ -170,13 +173,22 @@ class Store:
         with closing(sqlite3.connect(path.as_uri() + "?mode=ro", uri=True, timeout=2)) as connection:
             if not connection.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='sessions'").fetchone():
                 return {}
+            if fields:
+                paths = ", ".join("'$." + field + "'" for field in fields)
+                rows = connection.execute("SELECT id,json_extract(state," + paths + "),json_array_length(state,'$.history') FROM sessions ORDER BY id")
+                return {sid: {**{key:value for key,value in zip(fields,json.loads(raw)) if value is not None}, "messages": count or 0}
+                        for sid,raw,count in rows}
             return {sid: json.loads(raw) for sid, raw in connection.execute("SELECT id,state FROM sessions ORDER BY id")}
 
     def session(self, identifier, sid):
-        result = self.states(self.run_path(identifier)).get(sid)
-        if result is None:
+        path = self.run_path(identifier) / "journal.sqlite"
+        if not path.is_file() or is_link(path):
             raise ArenaError("Session not found")
-        return result
+        with closing(sqlite3.connect(path.as_uri() + "?mode=ro", uri=True, timeout=2)) as connection:
+            row = connection.execute("SELECT state FROM sessions WHERE id=?", (sid,)).fetchone()
+        if row is None:
+            raise ArenaError("Session not found")
+        return json.loads(row[0])
 
     def listing(self):
         rows = []
@@ -204,14 +216,13 @@ class Store:
     def detail(self, identifier):
         root = self.run_path(identifier)
         metadata = self.json(root / "experiment.json")
-        states = self.states(root)
         sessions = []
         keys = ("model", "replicate", "generation", "condition", "parent", "parent_checkpoint_sha256",
                 "status", "validity", "calls", "steps", "test_matches", "wall_seconds", "cost_spent",
                 "money_reserved", "token_usage_known", "input_tokens", "output_tokens", "submission")
-        for sid, state in states.items():
+        for sid, state in self.states(root, keys).items():
             sessions.append({"id": sid, **{k: state[k] for k in keys if k in state},
-                             "messages": len(state.get("history", []))})
+                             "messages": state["messages"]})
         return {"id": identifier, "metadata": metadata, "report": self.json(root / "report.json", {}),
                 "analysis": self.json(root / "analysis.json"), "sessions": sessions,
                 "g0": self.json(root / "tournament/report.json"),
@@ -219,11 +230,60 @@ class Store:
                 "standings": self.json(root / "report.json", {}).get("standings"),
                 "archived": (root / "export.json").exists()}
 
+    def message(self, identifier, sid, index):
+        history = self.session(identifier, sid).get("history", [])
+        if not 0 <= index < len(history):
+            raise ArenaError("Message not found")
+        return {"message": history[index]}
+
     def conversation(self, identifier, sid, offset=0, limit=25):
         state = self.session(identifier, sid)
         history = state.get("history", [])
-        return {"total": len(history), "offset": offset, "messages": history[offset:offset + limit],
-                "status": state["status"]}
+        failure = state.get("failure")
+        times = list(state.get("message_times", [None] * len(history)))
+        times.extend([None] * (len(history) - len(times)))
+        events = self.events(identifier, sid, 0, 100000)["events"] if any(at is None for at in times) or (not failure and state.get("status") in TERMINAL - {"submitted", "budget_exhausted", "no_submission"}) else []
+        start = max((i for i,m in enumerate(history) if m.get("role") == "user" and m.get("generation", 0) == state.get("generation", 0)), default=0)
+        cursor = start + 1
+        for event in events:
+            if event["kind"] in {"session_created", "branch_created"} and history:
+                times[start] = times[start] or event.get("at")
+            role = {"model_response": "assistant", "tool_result": "tool"}.get(event["kind"])
+            if role:
+                match = next((i for i in range(cursor,len(history)) if history[i].get("role") == role), None)
+                if match is not None:
+                    times[match] = times[match] or event.get("at")
+                    cursor = match + 1
+        # Older runs keep failure detail only in journal events. Read artifacts
+        # through the same hash-checked reader used by the journal UI.
+        if not failure and state.get("status") in {"provider_unavailable", "needs_reconciliation", "generation_failed"}:
+            event = next((e for e in reversed(events) if e["kind"] in {"provider_failure", "malformed_provider_response"}), None)
+            if event:
+                payload = self.event(identifier, event["id"]) or {}
+                failure = {"message": payload.get("error") or "Malformed provider response: " + payload.get("error_type", "unknown"),
+                           "at": event.get("at"), "phase": event["kind"], "event_id": event["id"],
+                           "retryable": payload.get("retryable"), "uncertain": payload.get("uncertain")}
+        timeline, last_request, turn = [], None, 0
+        for item in history:
+            if item.get("role") == "assistant":
+                last_request = len(timeline)
+                turn += 1
+            timeline.append({"reply_to": last_request if item.get("role") == "tool" else None, "turn": turn})
+        messages = []
+        for item in history[offset:offset + limit]:
+            # Requests contain full prior histories. Do not transfer them N times
+            # on every live refresh. Exact records remain available on demand.
+            visible = {k:v for k,v in item.items() if k not in {"raw", "sent_parameters"}}
+            parameters = item.get("sent_parameters") or {}
+            visible["request_recorded"] = "sent_parameters" in item
+            visible["request_seed"] = parameters.get("seed", parameters.get("generationConfig", {}).get("seed"))
+            if item.get("role") == "user" and "scenario" in visible:
+                from arena.briefing import participant_scenario
+                visible["scenario"] = participant_scenario(visible["scenario"])
+            messages.append(visible)
+        return {"total": len(history), "offset": offset, "messages": messages,
+                "times": times[offset:offset + limit], "timeline": timeline[offset:offset + limit], "model": state.get("model"),
+                "status": state["status"], "failure": failure}
 
     def events(self, identifier, sid=None, offset=0, limit=100):
         root = self.run_path(identifier)
@@ -260,7 +320,7 @@ class Store:
             files[write["path"]] = write["sha256"]
             versions.append({k: v for k, v in write.items() if k != "content"} |
                             {"index": len(versions), "files": sorted(files), "tree_sha256": digest(files)})
-        return {"versions": versions, "basis": "Successful file writes only; failed proposals are excluded."}
+        return {"versions": versions, "basis": "Successful source writes and team configurations; failed proposals are excluded."}
 
     def source(self, identifier, sid, version, filename, previous=None):
         files, before, after = {}, {}, None

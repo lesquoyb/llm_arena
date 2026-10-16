@@ -2,10 +2,12 @@
 from __future__ import annotations
 import json
 import os
+import re
 import time
 from urllib import request, error, parse
 from .core import ArenaError, digest
 from .usage import normalize, cost
+from .endpoints import validate_endpoint, optional_local_key
 
 
 class ProviderFailure(ArenaError):
@@ -14,20 +16,43 @@ class ProviderFailure(ArenaError):
         self.uncertain, self.retryable = uncertain, retryable
 
 
+class LocalRedirectHandler(request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        validate_endpoint(newurl, allow_query=True)
+        redirected = super().redirect_request(req, fp, code, msg, headers, newurl)
+        if redirected and parse.urlsplit(newurl).netloc != parse.urlsplit(req.full_url).netloc:
+            for name in ('Authorization', 'X-api-key', 'X-goog-api-key'):
+                redirected.remove_header(name)
+        return redirected
+
+
 def http_json(url, payload, headers, timeout):
-    if parse.urlsplit(url).scheme != "https":
-        raise ArenaError("Provider endpoints must use HTTPS")
+    validate_endpoint(url, allow_query=True)
     req = request.Request(url, data=json.dumps(payload).encode() if payload is not None else None,
                           headers=headers, method="POST" if payload is not None else "GET")
     try:
-        with request.urlopen(req, timeout=timeout) as response:
+        open_url = (request.build_opener(LocalRedirectHandler()).open
+                    if parse.urlsplit(url).scheme == 'http' else request.urlopen)
+        with open_url(req, timeout=timeout) as response:
             body = response.read(8_000_001)
             if len(body) > 8_000_000:
                 raise ProviderFailure("Provider response exceeded quota", uncertain=True)
             return json.loads(body), response.headers.get("x-request-id") or response.headers.get("request-id")
     except error.HTTPError as exc:
-        # Do not store or print headers, request bodies or credential-bearing error bodies.
-        raise ProviderFailure(f"Provider HTTP {exc.code}", uncertain=exc.code >= 500,
+        # Keep only the structured public error fields, never the raw error body.
+        detail = ""
+        try:
+            problem = json.loads(exc.read(16000)).get("error", {})
+            if isinstance(problem, dict):
+                detail = " · ".join(str(problem[k]) for k in ("status", "type", "message")
+                                    if isinstance(problem.get(k), (str, int)))[:2000]
+                for header, value in headers.items():
+                    if header.lower() in {"authorization", "x-api-key", "x-goog-api-key"}:
+                        detail = detail.replace(value, "[REDACTED]").replace(value.removeprefix("Bearer "), "[REDACTED]")
+                detail = re.sub(r"(?i)(key|api_key|token)=([^\s&]+)", r"\1=[REDACTED]", detail)
+        except (ValueError, OSError, AttributeError):
+            pass
+        raise ProviderFailure(f"Provider HTTP {exc.code}" + (": " + detail if detail else ""), uncertain=exc.code >= 500,
                               retryable=exc.code == 429) from None
     except (error.URLError, TimeoutError, OSError, ValueError) as exc:
         raise ProviderFailure(f"Provider response unavailable ({type(exc).__name__})", uncertain=True) from None
@@ -63,17 +88,20 @@ class APIProvider:
                     messages.append({"role": "tool", "tool_call_id": item["provider_call_id"], "content": content})
         payload = {"model": m["model"], "messages": messages, **m.get("parameters", {})}
         if m["provider"] == "anthropic":
+            if output_limit is None:
+                raise ArenaError("Anthropic requires max_tokens; configure maximum output per call")
             payload.update(max_tokens=output_limit, tools=tools)
         else:
-            payload.update(max_completion_tokens=output_limit,
-                           tools=[{"type": "function", "function": {"name": t["name"],
+            if output_limit is not None:
+                payload["max_completion_tokens"] = output_limit
+            payload.update(tools=[{"type": "function", "function": {"name": t["name"],
                                   "description": t["description"], "parameters": t["input_schema"]}} for t in tools])
         return payload
 
     def respond(self, history, tools, output_limit):
         m = self.model
         key = os.environ.get(m["api_key_env"])
-        if not key:
+        if not key and not optional_local_key(m):
             raise ProviderFailure(f"Missing credential binding: {m['api_key_env']}")
         anthropic = m["provider"] == "anthropic"
         endpoint, headers = connection(m, key)
@@ -142,7 +170,7 @@ def connection(model, key):
         headers["x-goog-api-key"] = key
     elif provider == "anthropic":
         headers.update({"x-api-key": key, "anthropic-version": "2023-06-01"})
-    else:
+    elif key:
         headers["Authorization"] = "Bearer " + key
     return endpoint, headers
 
@@ -171,7 +199,8 @@ def gemini_payload(history, tools, output_limit, parameters):
             contents.append({"role": role, "parts": parts})
     mapping = {"top_p": "topP", "top_k": "topK", "thinking_config": "thinkingConfig"}
     generation = {mapping.get(k,k):v for k,v in parameters.items()}
-    generation["maxOutputTokens"] = output_limit
+    if output_limit is not None:
+        generation["maxOutputTokens"] = output_limit
     return {"contents": contents, "generationConfig": generation,
             "tools": [{"functionDeclarations": [{"name":t["name"], "description":t["description"],
                        "parametersJsonSchema":t["input_schema"]} for t in tools]}]}
@@ -184,24 +213,44 @@ def request_snapshot(model, history, tools, output_limit):
         endpoint, headers = "local:mock/" + model["profile"], {}
     else:
         body = APIProvider(model).payload(history, tools, output_limit)
-        endpoint, headers = connection(model, "[REDACTED]")
+        credential = (None if optional_local_key(model) and not os.environ.get(model.get("api_key_env", "")) else "[REDACTED]")
+        endpoint, headers = connection(model, credential)
     return {"method": "LOCAL" if model["provider"] == "mock" else "POST", "endpoint": endpoint,
             "headers": headers, "body": body, "body_sha256": digest(body),
             "credential_values_recorded": False}
 
 
+def model_exclusion(provider, row, identifier):
+    """Exclude known non-chat catalogs; absence of metadata is not proof of support."""
+    name = identifier.lower().removeprefix("models/")
+    if provider == "gemini" and "generateContent" not in row.get("supportedGenerationMethods", []):
+        return "No text generation endpoint"
+    capabilities = row.get("capabilities", {})
+    if isinstance(capabilities, dict) and any(capabilities.get(k) is False for k in ("chat", "tools", "function_calling")):
+        return "Chat or tool calls explicitly unsupported"
+    if re.search(r"(?:^|[-/_.])(embedding\w*|embed\w*|imagen\w*|image\w*|dall-e|whisper\w*|tts|transcrib\w*|moderation\w*|realtime|audio|veo\w*|video|music\w*|aqa)(?:$|[-/_.])", name):
+        return "Image, audio, video, embedding or other non-agent model"
+    if provider == "openai":
+        if "search-preview" in name or "codex" in name or name.startswith(("o1-preview", "o1-mini")):
+            return "Chat tool protocol not supported by this adapter"
+        if name in {"babbage-002", "davinci-002", "gpt-3.5-turbo-instruct"} or "-instruct-" in name:
+            return "Legacy completion endpoint"
+        if re.match(r"(?:o1-pro|o3-pro|gpt-5(?:\.\d+)?-pro|.*deep-research)(?:$|-)", name):
+            return "Requires an endpoint not implemented by this adapter"
+    return None
+
+
 def list_models(provider, key, endpoint=None, transport=http_json):
     if provider not in {"openai", "openai-compatible", "anthropic", "gemini"}:
         raise ArenaError("This protocol has no model catalog")
-    if not key:
-        raise ArenaError("Configure an API key to load models")
     spec = {"provider":provider, "model":"unused"}
     if endpoint:
         spec["endpoint"] = endpoint
+    validate_endpoint(endpoint or DEFAULT_ENDPOINTS.get(provider, ""))
+    if not key and not optional_local_key(spec):
+        raise ArenaError("Configure an API key to load models")
     url, headers = connection(spec, key)
-    parsed = parse.urlsplit(url)
-    if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password or parsed.query or parsed.fragment:
-        raise ArenaError("Use an HTTPS endpoint without credentials or query parameters")
+    validate_endpoint(url)
     if provider == "gemini":
         base = url.rsplit("/models/", 1)[0] + "/models"
     else:
@@ -209,22 +258,29 @@ def list_models(provider, key, endpoint=None, transport=http_json):
         if not url.endswith(suffix):
             raise ArenaError("Nonstandard endpoint path; enter the model ID manually")
         base = url[:-len(suffix)] + "/models"
-    models, cursor = {}, None
+    models, excluded, cursor = {}, {}, None
+    def result(truncated):
+        return {"models": sorted(models.values(), key=lambda row: row["id"]),
+                "excluded": sorted(excluded.values(), key=lambda row: row["id"]),
+                "truncated": truncated}
     for _ in range(50):
         params = ({"pageSize":100} if provider == "gemini" else {"limit":100} if provider == "anthropic" else {})
         if cursor:
             params["pageToken" if provider == "gemini" else "after_id"] = cursor
         raw, _ = transport(base + ("?" + parse.urlencode(params) if params else ""), None, headers, 30)
         for row in raw.get("models" if provider == "gemini" else "data", []):
-            if provider == "gemini" and "generateContent" not in row.get("supportedGenerationMethods", []):
-                continue
             identifier = row.get("name") if provider == "gemini" else row.get("id")
             if isinstance(identifier, str):
-                models[identifier] = {"id": identifier, "name": row.get("displayName", row.get("display_name", identifier))}
+                reason = model_exclusion(provider, row, identifier)
+                if reason:
+                    excluded[identifier] = {"id": identifier, "reason": reason}
+                else:
+                    models[identifier] = {"id": identifier, "name": row.get("displayName", row.get("display_name", identifier)),
+                                          "availability": "Listed by API; chat and tool support unverified"}
         previous = cursor
         cursor = raw.get("nextPageToken") if provider == "gemini" else raw.get("last_id") if raw.get("has_more") else None
         if not cursor:
-            return {"models": sorted(models.values(), key=lambda row: row["id"]), "truncated": False}
+            return result(False)
         if cursor == previous:
             raise ArenaError("Model catalog pagination did not advance")
-    return {"models": sorted(models.values(), key=lambda row: row["id"]), "truncated": True}
+    return result(True)

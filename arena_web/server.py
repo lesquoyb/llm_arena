@@ -12,7 +12,7 @@ import threading
 from urllib.parse import parse_qs, urlsplit, quote
 import webbrowser
 
-from arena.core import ArenaError, ROOT, file_lock
+from arena.core import ArenaError, ROOT, file_lock, read_json
 from arena.experiment import plan, validate_config
 from .data import Store, safe_path
 from .jobs import Jobs
@@ -33,10 +33,13 @@ class Application:
             engine = {"ready": True, "identity": Engine().identity}
         except (ArenaError, OSError) as error:
             engine = {"ready": False, "error": str(error)}
+        from arena.presets import simple_scenario, participant_scenario
+        demo = self.store.json(ROOT / "configs/offline-complete.json")
+        config = {**demo, "name": "New competition", "scenario": simple_scenario()}
         return {"token": self.token, "participants": self.store.participants(),
                 "drafts": self.store.drafts(), "runs": self.store.listing(), "jobs": self.jobs.listing(),
                 "profiles": list(PROFILES), "engine": engine,
-                "default_config": self.store.json(ROOT / "configs/offline-complete.json")}
+                "default_config": config, "demo_config": demo, "participant_scenario": participant_scenario()}
 
     def get(self, route, query):
         value = lambda key, default=None: query.get(key, [default])[0]
@@ -44,12 +47,36 @@ class Application:
         store, run, sid = self.store, value("run"), value("session")
         if route == "/api/bootstrap":
             return self.bootstrap()
+        if route == "/api/reference":
+            documents = {"authoring": "authoring.md", "rules": "corpus/rules.md",
+                         "api-guide": "corpus/api-guide.md", "api": "leekscript-v1/api.md",
+                         "ui": "ui.md", "providers": "providers.md", "stats": "realistic-stats.md"}
+            name = value("document")
+            if name not in documents:
+                raise ArenaError("Unknown reference document")
+            return {"title": documents[name], "content": (ROOT / "docs" / documents[name]).read_text(encoding="utf-8")}
+        if route == "/api/equipment":
+            data = ROOT / "docs/leekscript-v1"
+            constants = store.json(data / "api.json")["constants"]
+            effects = {}
+            for name, value in constants.items():
+                if name.startswith("EFFECT_") and not name.startswith(("EFFECT_TARGET_", "EFFECT_MODIFIER_")):
+                    effects.setdefault(str(int(float(value))), name.removeprefix("EFFECT_").replace("_", " ").title())
+            from arena.stats import RULES
+            from arena.components import catalog as component_catalog
+            from arena.equipment import catalog
+            component_rules = read_json(ROOT/'docs/corpus/component-rules.json')
+            return {"components": component_catalog(), "stat_rules": RULES, "weapons": catalog(data, "weapons"), "chips": catalog(data, "chips"),
+                    "component_snapshot": {key: component_rules[key] for key in ('source_url', 'master_version', 'fetched_at')},
+                    "effects": effects, "snapshot": store.json(data / "snapshot.json")["engine"]["lock"]["commit"]}
         if route == "/api/runs":
             return {"runs": store.listing(), "jobs": self.jobs.listing()}
         if route == "/api/run":
             return store.detail(run)
         if route == "/api/conversation":
             return store.conversation(run, sid, number("offset", 0), min(number("limit", 25), 100))
+        if route == "/api/message":
+            return store.message(run, sid, number("index", 0))
         if route == "/api/events":
             return store.events(run, sid, number("offset", 0), min(number("limit", 100), 500))
         if route == "/api/event":
@@ -69,7 +96,9 @@ class Application:
             from .replay import describe
             result = store.match(run, value("path"))
             if result["outcome"] and result["outcome"].get("fight"):
-                result["replay"] = describe(result["outcome"]["fight"])
+                from arena.equipment import catalog
+                data = ROOT / "docs/leekscript-v1"
+                result["replay"] = describe(result["outcome"]["fight"], {kind: catalog(data, kind, include_special=True) for kind in ("weapons", "chips")})
                 from .metrics import combat_stats
                 result["statistics"] = combat_stats(result["outcome"], result["scenario"])
             return result
@@ -91,6 +120,21 @@ class Application:
                 raise ArenaError("Invalid environment variable name")
             key = secret or self.store.secrets.get(key_name) or os.environ.get(key_name)
             return list_models(data.get("provider"), key, data.get("endpoint"))
+        if route == "/api/dream-team":
+            from arena.presets import dream_team_scenario, save_dream_team
+            from arena.public_teams import fetch_snapshot
+            if set(data) - {"refresh", "snapshot"} or ("refresh" in data and type(data["refresh"]) is not bool):
+                raise ArenaError("Invalid Dream team refresh request")
+            cache = self.store.state / "dream-team-preset.json"
+            if data.get("refresh") or "snapshot" in data:
+                snapshot = data["snapshot"] if "snapshot" in data else fetch_snapshot()
+                with self.store.lock:
+                    scenario = save_dream_team(snapshot, cache)
+                return {"scenario": scenario}
+            return {"scenario": dream_team_scenario(cache if cache.exists() else None)}
+        if route == "/api/stats/realistic":
+            from arena.stats import to_realistic
+            return {"scenario": to_realistic(data['scenario'])}
         if route == "/api/participant":
             return self.store.save_participant(data["spec"], data.get("secret"))
         if route == "/api/participant/delete":

@@ -82,6 +82,74 @@ async function main() {
       await page.getByLabel("Participant ID").inputValue(),
       "browser-api",
     );
+    await page.locator("#dialog").evaluate((el) => {
+      el.style.width = "240px";
+      el.style.maxHeight = "260px";
+    });
+    const modalTip = page.locator("#dialog .help-tip").first();
+    await modalTip.focus();
+    await modalTip.locator(".help-bubble").waitFor({ state: "visible" });
+    const tooltipGeometry = await modalTip.evaluate((anchor) => {
+      const bubble = anchor.querySelector(".help-bubble"),
+        rect = bubble.getBoundingClientRect(),
+        modal = anchor.closest("dialog").getBoundingClientRect();
+      const points = [
+        [rect.left + 2, rect.top + 2],
+        [rect.right - 2, rect.top + 2],
+        [rect.left + 2, rect.bottom - 2],
+        [rect.right - 2, rect.bottom - 2],
+      ];
+      const outside = points.find(
+        ([x, y]) =>
+          x < modal.left ||
+          x > modal.right ||
+          y < modal.top ||
+          y > modal.bottom,
+      );
+      return {
+        open: bubble.matches(":popover-open"),
+        withinViewport:
+          rect.left >= 0 &&
+          rect.top >= 0 &&
+          rect.right <= innerWidth &&
+          rect.bottom <= innerHeight,
+        outsideVisible: Boolean(
+          outside &&
+            document.elementFromPoint(...outside)?.closest(".help-bubble") ===
+              bubble,
+        ),
+      };
+    });
+    assert(
+      tooltipGeometry.open &&
+        tooltipGeometry.withinViewport &&
+        tooltipGeometry.outsideVisible,
+      "Tooltip must paint outside the modal without clipping",
+    );
+    await page.keyboard.press("Escape");
+    assert(
+      await page.locator("#dialog").evaluate((el) => el.open),
+      "Escape dismisses the tooltip before the dialog",
+    );
+    await page.locator("#dialog").evaluate((el) => {
+      el.style.width = "";
+      el.style.maxHeight = "";
+    });
+    await page.setViewportSize({ width: 375, height: 700 });
+    await modalTip.click();
+    assert(
+      await modalTip.locator(".help-bubble").evaluate((el) => {
+        const r = el.getBoundingClientRect();
+        return (
+          r.left >= 0 &&
+          r.right <= innerWidth &&
+          r.top >= 0 &&
+          r.bottom <= innerHeight
+        );
+      }),
+    );
+    await page.keyboard.press("Escape");
+    await page.setViewportSize({ width: 1440, height: 1000 });
     const icon = await page.request.get(url + "/favicon.png");
     assert.equal(icon.status(), 200);
     assert.equal(icon.headers()["content-type"], "image/png");
@@ -91,24 +159,81 @@ async function main() {
       assert.equal(payload.provider, "openai");
       await route.fulfill({
         json: {
-          models: [{ id: "fixture-model", name: "Catalog model" }],
+          models: [
+            {
+              id: "fixture-model",
+              name: "Catalog model " + "long model name ".repeat(15),
+            },
+            { id: "other-model", name: "Other model" },
+          ],
+          excluded: [{ id: "image-model", reason: "Image generation only" }],
           truncated: false,
         },
       });
     });
     await page.getByRole("button", { name: "Load models" }).click();
-    await page.getByLabel("Available models").selectOption("fixture-model");
+    await page.getByLabel("Search models").fill("fixture");
+    assert.equal(await page.locator(".model-option").count(), 1);
+    const modelFits = await page
+      .locator(".model-option strong")
+      .evaluate((el) => el.scrollWidth <= el.clientWidth + 1);
+    assert(modelFits, "Long model names must wrap without horizontal clipping");
+    await page.locator(".model-option").click();
+    await page.getByText("Excluded models", { exact: true }).click();
+    await page
+      .locator("#excluded-model-list")
+      .getByText("Image generation only", { exact: false })
+      .waitFor();
     assert.equal(
       await page.getByLabel("Exact model ID").inputValue(),
       "fixture-model",
     );
+    assert.equal(
+      await page.getByLabel("Maximum input per call").inputValue(),
+      "",
+    );
+    assert.equal(
+      await page.getByLabel("Maximum output per call").inputValue(),
+      "",
+    );
     await page.getByLabel("Model seed").fill("42");
+    assert.equal(
+      await page
+        .getByLabel("Input price / million")
+        .evaluate((el) => el.closest("label").querySelectorAll("small").length),
+      0,
+    );
     await page.getByLabel("Input price / million").fill("1.25");
     await page.getByLabel("Output price / million").fill("2.5");
     await page.getByLabel("Cache read price / million").fill("0.125");
     await page
       .getByLabel("API key (this server session only)")
       .fill("browser-only-secret");
+    await page.route(
+      "**/api/participant",
+      (route) =>
+        route.fulfill({
+          status: 400,
+          json: { error: "Fixture validation error: choose a valid model" },
+        }),
+      { times: 1 },
+    );
+    await page.getByRole("button", { name: "Save participant" }).click();
+    await page.locator("#dialog-error").waitFor({ state: "visible" });
+    assert(
+      await page
+        .locator("#dialog-error")
+        .evaluate((el) => el.closest("dialog").open),
+    );
+    assert(
+      (await page.locator("#dialog-error").textContent()).includes(
+        "Fixture validation error",
+      ),
+    );
+    assert.equal(
+      await page.getByLabel("Participant ID").inputValue(),
+      "browser-api",
+    );
     await page.getByRole("button", { name: "Save participant" }).click();
     await page.getByText("browser-api", { exact: true }).waitFor();
     const boot = await page.request.get(url + "/api/bootstrap");
@@ -139,6 +264,421 @@ async function main() {
     await page.getByLabel("Competition name").fill("Configuration navigateur");
     await page.getByLabel("Repetitions per participant").fill("2");
     await page.getByLabel("Evaluation cycle").selectOption("1");
+    const realisticStats = page.getByLabel(
+      "Realistic stats (capital, components and alterations)",
+    );
+    assert(await realisticStats.isChecked());
+    assert.equal(await page.getByLabel("Maximum turns").inputValue(), "1000");
+    assert.equal(await page.locator('[name="team_size"]').inputValue(), "1");
+    assert.equal(
+      await page.getByLabel("Level (all members)").inputValue(),
+      "300",
+    );
+    assert.equal(
+      await page.locator('[name="member_0_strength"]').inputValue(),
+      "600",
+    );
+    assert.equal(
+      await page.locator('[name="weapons"]').inputValue(),
+      "37, 45, 151, 153",
+    );
+    const componentPicker = page.locator(
+      '[data-member-build="0"] [data-kind="components"]',
+    );
+    await componentPicker.locator("summary").first().click();
+    const initialCapital = await page
+      .locator(".member-stat-summary")
+      .first()
+      .innerText();
+    await componentPicker.locator('input[value="313"]').check();
+    assert.equal(
+      await page.locator('[name="member_0_ram"]').inputValue(),
+      "10",
+    );
+    assert.equal(
+      await page.locator(".member-stat-summary").first().innerText(),
+      initialCapital,
+    );
+    assert(
+      (await page.locator(".equipment-capacity").first().innerText()).includes(
+        "10 chip slots",
+      ),
+    );
+    await componentPicker.locator('input[value="317"]').check();
+    assert.equal(
+      await page.locator('[name="member_0_resistance"]').inputValue(),
+      "-30",
+    );
+    assert.equal(await page.locator('[name="member_0_mp"]').inputValue(), "7");
+    await page.locator('[data-stat-slider="mp"]').evaluate((n) => {
+      n.value = "8";
+      n.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    assert.equal(await page.locator('[name="member_0_mp"]').inputValue(), "8");
+    await componentPicker.locator('input[value="317"]').uncheck();
+    assert.equal(await page.locator('[name="member_0_mp"]').inputValue(), "7");
+    await page.locator('[name="member_0_mp"]').fill("6");
+    await page.locator('[name="member_0_mp"]').dispatchEvent("change");
+    await componentPicker.locator('input[value="313"]').uncheck();
+    assert.equal(await page.locator('[name="member_0_ram"]').inputValue(), "6");
+    assert.equal(
+      await page.locator(".member-stat-summary").first().innerText(),
+      initialCapital,
+    );
+    await componentPicker.locator("summary").first().click();
+    const mpHelp = await page
+      .locator('[data-stat-row="mp"] .help-bubble')
+      .first()
+      .innerText();
+    assert(mpHelp.includes("Next +1: 80 capital"));
+    await page.locator('[name="member_0_strength"]').fill("400");
+    await page.locator('[data-stat-slider="mp"]').evaluate((n) => {
+      n.value = "7";
+      n.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    assert.equal(await page.locator('[name="member_0_mp"]').inputValue(), "7");
+    assert(
+      (await page.locator(".member-stat-summary").first().innerText()).includes(
+        "320 capital remaining",
+      ),
+    );
+    await page.screenshot({
+      path: path.join(artifacts, "character-sheet.png"),
+      fullPage: true,
+    });
+    const bootstrap = await (
+      await page.request.get(url + "/api/bootstrap")
+    ).json();
+    const baseLeek = bootstrap.default_config.scenario.entity;
+    const leeks = Array.from({ length: 4 }, (_, i) => ({
+      id: 100 + i,
+      name: `Fixture public ${i + 1}`,
+      level: i === 0 ? 301 : 300,
+      ...Object.fromEntries(
+        Object.entries(baseLeek)
+          .filter(
+            ([key, value]) => key !== "level" && typeof value === "number",
+          )
+          .map(([key, value]) => ["total_" + key,
+            value + (key === "life" ? (i === 0 ? -1 : -4) : key === "ram" ? 5 : 0)]),
+      ),
+      components: [{ template: 313, stats: { ram: 1, life: -4 } }],
+      weapons: [{ template: i === 1 ? 45 : 37 }],
+      chips: i === 1 ? [{ template: 3 }] : [],
+    }));
+    const composition = {
+      id: 9,
+      name: "Fixture composition",
+      talent: 1000,
+      leeks: leeks.map((l) => ({ id: l.id })),
+    };
+    const snapshot = {
+      fetched_at: "2026-10-15T00:00:00+00:00",
+      rank: 1,
+      ranking_entry: { id: 8, name: "Fixture team" },
+      team: { id: 8, compositions: [composition] },
+      composition,
+      leeks,
+    };
+    await page
+      .getByText("Refresh or replace the saved Dream team", { exact: true })
+      .click();
+    await page
+      .getByLabel("Public team snapshot JSON", { exact: true })
+      .fill(JSON.stringify(snapshot));
+    await page
+      .getByRole("button", { name: "Import snapshot", exact: true })
+      .click();
+    await page
+      .locator('[name="member_3_level"]')
+      .waitFor({ state: "attached" });
+    assert.equal(
+      await page.locator('[name="member_0_level"]').inputValue(),
+      "301",
+    );
+    await page.locator('[data-action="character-tab"][data-index="1"]').click();
+    assert.equal(
+      await page.locator('[name="member_1_level"]').inputValue(),
+      "300",
+    );
+    assert.equal(
+      await page.locator('[name="member_1_weapons"]').inputValue(),
+      "45",
+    );
+    assert.equal(
+      await page.locator('[name="member_1_chips"]').inputValue(),
+      "3",
+    );
+    assert(!(await realisticStats.isChecked()));
+    const publishedStats = await page.locator("input[data-stat]").evaluateAll(
+      (inputs) => inputs.map((input) => input.value),
+    );
+    const conversionResponse = page.waitForResponse((response) => response.url().endsWith('/api/stats/realistic'));
+    await realisticStats.check();
+    const conversionResult = await conversionResponse;
+    assert(conversionResult.ok(), JSON.stringify(await conversionResult.json()));
+    await page.locator('#member-stat-builds[data-mode="realistic-v1"]').waitFor();
+    assert.deepEqual(await page.locator("input[data-stat]").evaluateAll(
+      (inputs) => inputs.map((input) => input.value),
+    ), publishedStats, "Public totals and altered instances must survive realistic validation");
+    assert((await page.locator("#stats-validation").innerText()).includes("All final stats preserved"));
+    await realisticStats.uncheck();
+    assert(
+      Number(
+        await page
+          .locator('[data-member-build="1"] [data-stat-slider="mp"]')
+          .getAttribute("max"),
+      ) < 100,
+      "Imported builds need useful slider ranges",
+    );
+    await page
+      .getByRole("button", { name: "Simple duel · level 300", exact: true })
+      .click();
+    await page
+      .getByRole("button", { name: "Dream team · saved preset", exact: true })
+      .click();
+    await page
+      .locator('[name="member_3_level"]')
+      .waitFor({ state: "attached" });
+    assert.equal(
+      await page.locator('[name="member_0_level"]').inputValue(),
+      "301",
+    );
+    await page
+      .getByRole("button", { name: "LLM builds its team", exact: true })
+      .click();
+    await page.locator('[name="team_mode"]').waitFor();
+    assert.equal(
+      await page.locator('[name="team_mode"]').inputValue(),
+      "participant",
+    );
+    assert.equal(await page.locator('[name="team_size"]').inputValue(), "4");
+    assert.equal(
+      await page.locator('[name="member_0_level"]').inputValue(),
+      "300",
+    );
+    assert(await realisticStats.isChecked());
+    assert(
+      (await page.locator("#preset-status").innerText()).includes(
+        "validate_team",
+      ),
+    );
+    const teamPlanRequest = page.waitForRequest(
+      (request) =>
+        request.url().endsWith("/api/plan") && request.method() === "POST",
+    );
+    await page
+      .getByRole("button", { name: "Calculate schedule", exact: true })
+      .click();
+    const plannedTeam = (await teamPlanRequest).postDataJSON().config.scenario;
+    assert.equal(plannedTeam.team_selection.require_capital, true);
+    assert.equal(plannedTeam.preset, "llm-team");
+    await page
+      .locator("#plan-preview")
+      .getByText("Conversations", { exact: true })
+      .waitFor();
+    await page.getByLabel("Team setup").selectOption("fixed");
+    assert(await page.locator("#fixed-roster").isVisible());
+    const fixedRequest = page.waitForRequest((request) => request.url().endsWith('/api/plan'));
+    await page.getByRole("button", { name: "Calculate schedule" }).click();
+    const fixedScenario = (await fixedRequest).postDataJSON().config.scenario;
+    assert.equal(fixedScenario.preset, "custom");
+    assert.equal(fixedScenario.team_selection, undefined);
+    await page
+      .getByRole("button", { name: "Simple duel · level 300", exact: true })
+      .click();
+    await page.locator('[name="member_0_strength"]').waitFor();
+    assert.equal(await page.locator("[data-member-build]").count(), 1);
+    await page.locator('[name="team_size"]').fill("2");
+    await page.locator('[name="team_size"]').press("Tab");
+    await page.getByLabel("Level (all members)").fill("100");
+    await page.getByLabel("Level (all members)").press("Tab");
+    const highLevelWeapon = page.locator(
+      '.equipment-picker[data-name="weapons"] .equipment-check[value="48"]',
+    );
+    const highLevelChip = page.locator(
+      '.equipment-picker[data-name="chips"] .equipment-check[value="76"]',
+    );
+    assert(await highLevelWeapon.isDisabled());
+    assert(await highLevelChip.isDisabled());
+
+    await realisticStats.uncheck();
+    assert(await highLevelWeapon.isEnabled());
+    assert(await highLevelChip.isEnabled());
+    await page.locator('[name="member_0_strength"]').fill("100000");
+    await realisticStats.check();
+    await page.waitForFunction(() => document.querySelector("#stats-validation")?.textContent.includes("validation failed"));
+    assert(!(await realisticStats.isChecked()));
+    assert(await highLevelWeapon.isEnabled());
+    assert.equal(await page.locator('[name="member_0_strength"]').inputValue(), "100000");
+    // A failed validation preserves the build. Supply a valid level-100 build explicitly.
+    const validLevel100 = { life: 597, strength: 100, wisdom: 0, agility: 0,
+      resistance: 0, science: 0, magic: 0, frequency: 100, cores: 5, ram: 6, tp: 12, mp: 5 };
+    for (const i of [0, 1]) {
+      await page.locator(`[data-action="character-tab"][data-index="${i}"]`).click();
+      for (const [key, value] of Object.entries(validLevel100))
+        await page.locator(`[name="member_${i}_${key}"]`).fill(String(value));
+    }
+    await page.locator('[data-action="character-tab"][data-index="0"]').click();
+    await realisticStats.check();
+    await page.locator('#member-stat-builds[data-mode="realistic-v1"]').waitFor();
+    assert(await highLevelWeapon.isDisabled());
+    assert(await highLevelChip.isDisabled());
+    assert.equal(
+      await page.locator('[name="member_0_strength"]').inputValue(),
+      "100",
+    );
+    const defaultWeaponPicker = page.locator(
+      '.equipment-picker[data-name="weapons"]',
+    );
+    await defaultWeaponPicker.locator(":scope > summary").click();
+    await defaultWeaponPicker.locator('.equipment-check[value="38"]').check();
+    await defaultWeaponPicker.locator(":scope > summary").click();
+    await page.getByLabel("Level (all members)").fill("7");
+    await page.getByLabel("Level (all members)").press("Tab");
+    assert.equal(await page.locator('[name="weapons"]').inputValue(), "37");
+    assert(
+      (await page.locator("#equipment-removals").innerText()).includes(
+        "Removed",
+      ),
+    );
+    await page.getByLabel("Level (all members)").fill("100");
+    await page.getByLabel("Level (all members)").press("Tab");
+    await page.locator('[name="member_0_strength"]').fill("200");
+    await page.locator('[data-action="character-tab"][data-index="1"]').click();
+    await page.locator('[name="member_1_strength"]').fill("0");
+    await page.locator('[name="member_1_wisdom"]').fill("200");
+    assert.equal(
+      await page.locator('[name="member_0_strength"]').inputValue(),
+      "200",
+    );
+    assert.equal(
+      await page.locator('[name="member_1_wisdom"]').inputValue(),
+      "200",
+    );
+    assert(
+      (
+        await page
+          .locator('[data-stat-row="mp"] .stat-cost')
+          .first()
+          .innerText()
+      ).includes("capital"),
+    );
+    await page.locator('[name="member_1_chips"]').evaluate((el) => {
+      el.value = "3";
+    });
+    await page.locator('[data-action="character-tab"][data-index="0"]').click();
+    await page.locator('[name="member_0_strength"]').fill("400");
+    const invalidStats = await page
+      .locator("#competition-form")
+      .evaluate((form) =>
+        [...form.querySelectorAll("input")]
+          .filter((n) => !n.validity.valid)
+          .map((n) => ({
+            name: n.name,
+            value: n.value,
+            min: n.min,
+            max: n.max,
+            error: n.validationMessage,
+          })),
+      );
+    assert.deepEqual(
+      invalidStats,
+      [],
+      "Stat inputs must be valid before checking the shared capital budget",
+    );
+    await page
+      .getByRole("button", { name: "Save configuration", exact: true })
+      .click();
+    await page.waitForFunction(() =>
+      document
+        .querySelector("#toast.error")
+        ?.textContent.toLowerCase()
+        .includes("capital"),
+    );
+    await page.locator('[name="member_0_strength"]').fill("200");
+    await page
+      .getByRole("button", { name: "Official rules and scope", exact: true })
+      .click();
+    await page
+      .getByRole("dialog")
+      .getByRole("heading", {
+        name: "Realistic stats and per-leek builds",
+        exact: true,
+      })
+      .waitFor();
+    await page.getByRole("button", { name: "Close", exact: true }).click();
+
+    for (const name of [
+      "Model calls",
+      "Tool calls",
+      "Preparation matches",
+      "Preparation time (seconds)",
+      "API spending limit per conversation",
+      "API spending limit for the experiment",
+    ]) {
+      assert.equal(
+        await page.getByLabel(name, { exact: false }).inputValue(),
+        "",
+      );
+    }
+    assert(
+      (await page.locator(".equipment-capacity").first().innerText()).includes(
+        "3 weapon slots · 6 chip slots",
+      ),
+    );
+    await page.getByLabel("Team setup").selectOption("participant");
+    const specialChip = page.locator(
+      '.equipment-picker[data-name="team_allowed_chips"] .equipment-check[value="418"]',
+    );
+    assert.equal(
+      await specialChip.count(),
+      0,
+      "Boss chips must be absent from selectors",
+    );
+    assert(await page.locator("#fixed-roster").isHidden());
+    assert.equal(await page.getByLabel("Competition weapon cap per member").count(), 0);
+    assert.equal(await page.locator('[name="team_allowed_chips"]').count(), 0);
+    const independentRequest = page.waitForRequest((request) => request.url().endsWith('/api/plan'));
+    await page.getByRole("button", { name: "Calculate schedule" }).click();
+    const independent = (await independentRequest).postDataJSON().config.scenario;
+    assert.equal(independent.team_selection.independent_builds, true);
+    assert.equal(independent.team_selection.require_capital, true);
+    assert.equal(independent.team_selection.max_weapons, 4);
+    assert.equal(independent.team_selection.max_chips, 50);
+    assert.equal(independent.team_size, 4);
+    assert.equal(independent.team_selection.allowed_weapons, undefined);
+    await page.getByLabel("Team setup").selectOption("fixed");
+    assert(await page.locator("#fixed-roster").isVisible());
+    assert((await page.locator(".help-tip").count()) > 10);
+    await page.locator(".help-tip").first().focus();
+    await page
+      .locator(".help-tip")
+      .first()
+      .locator(".help-bubble")
+      .waitFor({ state: "visible" });
+    await page
+      .getByRole("button", { name: "Settings guide", exact: true })
+      .click();
+    await page
+      .getByRole("dialog")
+      .getByRole("heading", { name: "Competition settings", exact: true })
+      .waitFor();
+    await page.getByRole("button", { name: "Close", exact: true }).click();
+    assert.equal(
+      await page.getByLabel("Competition name").inputValue(),
+      "Configuration navigateur",
+    );
+
+    const savedComponents = page.locator(
+      '[data-member-build="0"] [data-kind="components"]',
+    );
+    await savedComponents.locator(":scope > summary").click();
+    await savedComponents.locator('input[value="313"]').check();
+    assert.equal(
+      await page.locator('[name="member_0_ram"]').inputValue(),
+      "10",
+    );
     await page.getByRole("button", { name: "Calculate schedule" }).click();
     await page
       .locator("#plan-preview")
@@ -153,6 +693,21 @@ async function main() {
       .locator("tr")
       .filter({ hasText: "Configuration navigateur" });
     await configRow.waitFor();
+    const configured = (
+      await (await page.request.get(url + "/api/bootstrap")).json()
+    ).drafts.find((d) => d.config.name === "Configuration navigateur").config;
+    assert.deepEqual(configured.budget_per_session, {});
+    assert.equal(configured.scenario.stats_mode, "realistic-v1");
+    assert.equal(configured.scenario.member_stats[0].capital.strength, 100);
+    assert.equal(configured.scenario.member_stats[1].capital.wisdom, 100);
+    assert.deepEqual(configured.scenario.member_stats[0].components, [313]);
+    assert.deepEqual(configured.scenario.member_stats[1].components, []);
+    assert.equal(configured.scenario.entity.ram, 10);
+    assert.equal(configured.scenario.member_stats[0].capital.ram, 0);
+    assert.deepEqual(configured.scenario.member_stats[0].chips, []);
+    assert.deepEqual(configured.scenario.member_stats[1].chips, [3]);
+    assert.equal(configured.scenario.team_selection, undefined);
+
     await configRow.getByRole("button", { name: "Launch" }).click();
     assert(
       (await page.getByRole("dialog").innerText()).includes("No LLM calls"),
@@ -186,6 +741,17 @@ async function main() {
         path: path.join(artifacts, "live-competition.png"),
         fullPage: true,
       });
+      await page.getByRole("button", { name: "Run log", exact: true }).click();
+      await page
+        .getByRole("button", { name: "Copy log", exact: true })
+        .waitFor();
+      await page.getByRole("button", { name: "Copy log", exact: true }).click();
+      assert(
+        !(await page.locator("#toast").innerText()).includes(
+          "Clipboard unavailable",
+        ),
+      );
+      await page.getByRole("button", { name: "Close", exact: true }).click();
       console.log(
         "Real engine competition launched and monitored through browser.",
       );
@@ -201,7 +767,7 @@ async function main() {
     await page.locator("[name=participant][value=mock-repair]").uncheck();
     await page.locator("[name=participant][value=mock-single]").uncheck();
     await page.locator("[name=participant][value=browser-api]").check();
-    await page.getByLabel("Allow paid APIs").check();
+    await page.getByLabel("Authorize API calls").check();
     await page.getByRole("button", { name: "Save configuration" }).click();
     await page
       .locator("tr")
@@ -329,6 +895,38 @@ async function main() {
       await page.evaluate(() => window.__arenaUnexpectedScript),
       undefined,
     );
+    assert(
+      (
+        await page
+          .locator(".chat-message.user .message-head")
+          .first()
+          .innerText()
+      ).includes("Arena → Model"),
+    );
+    assert(
+      (
+        await page
+          .locator(".chat-message.tool .message-head")
+          .first()
+          .innerText()
+      ).includes("Tool → Model"),
+    );
+    assert.equal(
+      await page.locator('[data-message-record="0"] pre').innerText(),
+      "",
+    );
+    let exactRequests = 0;
+    page.on("request", (request) => {
+      if (request.url().includes("/api/message?")) exactRequests++;
+    });
+    await page.locator('[data-message-record="0"] > summary').click();
+    await page.waitForFunction(() =>
+      document
+        .querySelector('[data-message-record="0"] pre')
+        ?.textContent.includes("PROMPT INITIAL"),
+    );
+    assert.equal(exactRequests, 1);
+    await page.locator('[data-message-record="0"] > summary').click();
     await page
       .getByRole("button", { name: "Code & versions", exact: true })
       .click();
@@ -352,6 +950,27 @@ async function main() {
     );
     await page.getByRole("button", { name: "Matches", exact: true }).click();
     await page.locator("#replay-board circle").first().waitFor();
+    assert.equal(await page.locator('[data-summon="true"]').count(), 0);
+    assert(
+      !(await page.locator("#replay-entities").innerText()).includes(
+        "Fixture bulb",
+      ),
+    );
+    await page.locator("#replay-range").evaluate((n) => {
+      n.value = 6;
+      n.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    assert.equal(await page.locator('[data-summon="true"] rect').count(), 3);
+    assert(
+      (await page.locator("#replay-entities").innerText()).includes(
+        "Summon · Fixture bulb",
+      ),
+    );
+    await page.locator("#replay-range").evaluate((n) => {
+      n.value = 0;
+      n.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    assert.equal(await page.locator('[data-summon="true"]').count(), 0);
     await page.getByLabel("Metrics", { exact: false }).selectOption("compute");
     await page
       .locator(".combat-statistics th")

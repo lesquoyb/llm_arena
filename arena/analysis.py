@@ -83,7 +83,7 @@ def analyze_evolution(config, out, states, initial, branches, baseline, evolved,
     result = {"rows": rows, "paired": paired, "model_scores": model_scores, "missing_sessions": missing,
               "cost_usd": None if amount(held) > 0 or any(s["status"] == "needs_reconciliation" for s in states.values())
                           else total_cost,
-              "known_cost_subtotal_usd": total_cost, "reserved_usd": held, "interval_95_exploratory": interval,
+              "known_cost_subtotal_usd": total_cost, "reserved_usd": None if any(s.get("reservation_unbounded") for s in states.values()) else held, "interval_95_exploratory": interval,
               "incomplete": bool(missing) or any(r["failed"] for r in rows) or
                             any(s["status"] == "needs_reconciliation" for s in states.values()) or
                             bool(contemporaries and (contemporaries["failed"] or contemporaries["pending"])),

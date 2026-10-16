@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import copy
-from .core import ROOT, ArenaError, digest
+from .core import ROOT, ArenaError, digest, read_json
 
 PROFILES = {"single-shot", "repair-and-submit", "invalid", "empty", "malformed", "timeout", "rate-limit", "budget"}
 
@@ -56,6 +56,35 @@ class MockProvider:
             calls = sequence[step] if step < len(sequence) else []
         if profile == "budget":
             calls = [("write_file", {"path": "main.leek", "content": source})]
+        scenario = history[0].get("scenario", {})
+        if scenario.get("team_selection") and any(name == "write_file" for name, _ in calls):
+            rules = scenario["team_selection"]
+            # Fixtures exercise the same tool as native providers without API calls.
+            members = [{"entrypoint": "main.leek",
+                        "weapons": (scenario.get("member_stats") or [{}] * scenario["team_size"])[index].get("weapons", scenario["entity"].get("weapons", []))[:rules.get("max_weapons", 3)],
+                        "chips": (scenario.get("member_stats") or [{}] * scenario["team_size"])[index].get("chips", scenario["entity"].get("chips", []))[:rules.get("max_chips", 12)]}
+                       for index in range(scenario["team_size"])]
+            for index, member in enumerate(members):
+                for kind in ("weapons", "chips"):
+                    if "allowed_" + kind in rules:
+                        member[kind] = [item for item in member[kind] if item in rules["allowed_" + kind]]
+                        if not member[kind] and rules.get("max_" + kind, 3 if kind == "weapons" else 12):
+                            from .equipment import catalog as equipment_catalog
+                            catalog = equipment_catalog(ROOT / "docs/leekscript-v1", kind)
+                            eligible = [item for item in rules["allowed_" + kind]
+                                        if str(item) in catalog and catalog[str(item)].get("level", 1) <= (scenario.get("member_stats") or [{}] * scenario["team_size"])[index].get("level", scenario["entity"]["level"])]
+                            member[kind] = eligible[:1]
+            if rules.get("require_capital"):
+                from .stats import default_capital
+                for index, member in enumerate(members):
+                    spec = scenario["member_stats"][index]
+                    member["capital"] = spec.get("capital", default_capital(300))
+                    if rules.get('independent_builds'):
+                        member['level'] = spec.get('level', scenario['entity']['level'])
+            if rules.get("require_capital"):
+                calls = [*calls, ("preview_build", {"capital": members[0]["capital"], **({'level': members[0]['level']} if 'level' in members[0] else {})}),
+                         ("validate_team", {"members": members})]
+            calls = [*calls, ("configure_team", {"members": members})]
         return {"role": "assistant", "provider": "mock", "simulated": True, "sent_parameters": request, "request_sha256": digest(request),
                 "tool_calls": [{"name": name, "arguments": args} for name, args in calls],
                 "stop_reason": "tool_calls" if calls else "end",

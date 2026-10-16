@@ -1,7 +1,4 @@
-Amélioration G1 — feedback — protocole 1.
-
-Poursuis cette conversation et améliore ta stratégie à partir du code G0.
-Les règles, outils et budgets de préparation restent identiques.
-Tu reçois un résumé borné de tes rencontres G0 et de tes propres métriques.
-Le code adverse reste masqué. Les adversaires peuvent évoluer.
-Soumets main.leek. Le dernier état sera conservé à l'arrêt du budget.
+Improve your submitted strategy using the existing code and conversation.
+The scenario, tools and preparation rules are unchanged. Opponents may improve too.
+Use the supplied summary of your matches and metrics; opposing scripts remain private.
+Submit the updated strategy explicitly. Optional preparation limits apply to this branch.

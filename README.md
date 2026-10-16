@@ -79,7 +79,7 @@ the game API. Manifest paths are relative to the manifest.
 {"id":"model-a-rep-1","path":"strategies/model-a-rep-1","entrypoint":"main.leek","model":"exact-model-id","replicate":1}
 ```
 
-The manifest sets team size, turn limit (1 to 64), stats and equipment.
+The manifest sets team size, turn limit (1 to 1,000), stats and equipment.
 `entity.cores` sets the operation budget; `entity.ram` controls LeekScript memory.
 The upstream example field `max_operations_per_entity` is not supported.
 Custom maps can define `obstacles`, `team1` and `team2`. The default grid has
@@ -92,8 +92,8 @@ the whole worker process, not one turn. Recorded timings are elapsed time, not C
 
 Results include frozen sources, scenarios, raw outcomes, logs, compact results,
 SHA-256 hashes and reports. Engine winners are 0 or 1 for the two sides and -1
-for a draw; replay teams are numbered 1 and 2. Engine duration may reach
-`max_turns + 1` when the turn limit is exhausted.
+for a draw; replay teams are numbered 1 and 2. The arena records duration up to the requested `max_turns` limit.
+New UI competitions use the [Simple duel preset and character sheets](docs/ui.md#scenario-presets-and-character-sheets).
 
 ## Validation and documentation
 
@@ -106,8 +106,9 @@ python scripts/validate.py
 `validate.py` requires a built engine and checks a full 18-match tournament
 and resume without recalculation. CI covers Linux and Windows. Provider adapters
 use offline fixtures in CI; real API calls require explicit models, prices,
-keys and spending limits. Check the workflow result for the commit being used.
+keys and paid-call authorization; spending limits are optional. Check the workflow result for the commit being used.
 
+- [Realistic stats](docs/realistic-stats.md): official capital rules and per-leek builds.
 - [Interface](docs/ui.md): matrix links, filters, files, requests, replays and statistics.
 - [Full experiment](docs/complete-experiment.md): initial/improved strategies, MCP, exports and Docker.
 - [Providers](docs/providers.md): OpenAI, Anthropic, Gemini, compatible APIs, seeds and billing.
@@ -122,3 +123,5 @@ Native Java workers have heap, output and time limits. An optional Docker
 backend disables network access. This application is a local tool, not a public
 service for hostile submissions. Python/JavaScript strategies remain future work;
 TypeScript is outside the current scope.
+
+See the [weapons, chips and summons example](examples/showcase/README.md) for a runnable mechanics demonstration.

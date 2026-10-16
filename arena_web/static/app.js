@@ -38,6 +38,7 @@ const LABELS = {
   stopped: "Stopped",
   completed: "Completed",
   failed: "Failed",
+  incomplete: "Incomplete",
   interrupted: "Interrupted",
   needs_reconciliation: "Billing reconciliation needed",
   budget_exhausted: "Budget exhausted",
@@ -90,10 +91,156 @@ const empty = (title, description, action = "") =>
   `<div class="empty"><h2>${e(title)}</h2><p>${e(description)}</p>${action}</div>`;
 const table = (headers, rows) =>
   `<div class="table-scroll"><table><thead><tr>${headers.map((h) => `<th>${h}</th>`).join("")}</tr></thead><tbody>${rows.join("")}</tbody></table></div>`;
-const field = (label, name, value = "", type = "text", help = "", attrs = "") =>
-  `<label class="field">${e(label)}<input type="${type}" name="${name}" value="${e(value)}" ${attrs}>${help ? `<small>${e(help)}</small>` : ""}</label>`;
-const selectField = (label, name, values, current, help = "") =>
-  `<label class="field">${e(label)}<select name="${name}">${values.map(([v, l]) => `<option value="${e(v)}" ${v === current ? "selected" : ""}>${e(l)}</option>`).join("")}</select>${help ? `<small>${e(help)}</small>` : ""}</label>`;
+const FIELD_HELP = {
+  name: "Name shown in competition lists and exported reports.",
+  id: "Local participant identifier. Previous competitions keep their saved participant configuration.",
+  provider:
+    "Protocol used to call the model. Mock runs a recorded scripted fixture without API calls.",
+  replicates:
+    "Independent conversations per participant. Each starts with a fresh history; this measures variation between attempts.",
+  generations:
+    "Evaluate the initial submission alone, or also create two improvements from the same checkpoint: with and without match feedback.",
+  team_mode:
+    "Shared mode fixes every member and item. Participant mode lets each AI choose its members, scripts and equipment under the same rules.",
+  max_turns:
+    "Maximum match rounds. This limits the game, not how long the model can prepare its strategy.",
+  input_price:
+    "USD per one million input tokens. Used to calculate cost from returned usage; this is a price, not a spending limit.",
+  output_price:
+    "USD per one million output tokens, including billable reasoning tokens where reported. This is a price, not a spending limit.",
+  pricing_date:
+    "Date of the prices you entered. The arena does not fetch prices automatically.",
+  entity_level:
+    "Level shared by all members. Participant-selected equipment cannot require a higher level.",
+  entity_life: "Starting health points per member.",
+  entity_strength:
+    "Strength stat, which affects strength-based effects such as ordinary weapon damage.",
+  entity_agility:
+    "Critical-hit probability: agility / 1000 (100 agility gives 10%).",
+  entity_frequency: "Determines play order: higher frequency acts earlier.",
+  entity_wisdom: "Wisdom stat used by healing-related effects.",
+  entity_resistance: "Resistance stat used by shield-related effects.",
+  entity_science:
+    "Increases characteristic buffs such as Protein. A science value of 100 doubles the base strength bonus.",
+  entity_magic:
+    "Increases poison damage and magic-based debuffs. A magic value of 100 doubles base poison damage.",
+  entity_tp:
+    "Action points available per member per turn. Weapon and chip costs consume AP.",
+  entity_mp:
+    "How many movement points this leek receives each turn. Ordinary movement spends one point per traversed cell.",
+  entity_cores:
+    "Per-turn operation limit is cores × 1,000,000, capped at 2,147,483,647.",
+  entity_ram:
+    "Also sets the maximum number of equipped chips (one chip per RAM point) in realistic mode. Memory available to each leek script for arrays and objects during a fight, not LLM context. Each RAM stat point permits 8,000,000 tracked 64-bit units (about 64 MB); the generator caps this at 50 points. The Java process has a separate heap limit.",
+  team_max_weapons:
+    "Additional competition cap. Realistic mode also permits 2 weapons below level 100, 3 below 200, then 4. Zero forbids weapons.",
+  team_max_chips:
+    "Additional competition cap. In realistic mode each member is also limited to one chip per RAM point. Zero forbids chips.",
+};
+let helpSequence = 0,
+  activeHelp = null,
+  helpHideTimer;
+const fieldHeading = (label, help) => {
+  const id = `field-help-${++helpSequence}`;
+  return `<span class="field-heading">${e(label)}${help ? `<span class="help-tip" tabindex="0" role="button" aria-label="Field information" aria-describedby="${id}">?<span id="${id}" class="help-bubble" popover="manual" role="tooltip">${e(help)}</span></span>` : ""}</span>`;
+};
+function hideHelp() {
+  clearTimeout(helpHideTimer);
+  if (activeHelp) activeHelp.bubble.hidePopover();
+  activeHelp = null;
+}
+function positionHelp() {
+  if (!activeHelp) return;
+  const { anchor, bubble } = activeHelp;
+  if (!anchor.isConnected) return hideHelp();
+  const rect = anchor.getBoundingClientRect();
+  const container = anchor.closest("dialog")?.getBoundingClientRect();
+  if (
+    rect.bottom < 0 ||
+    rect.top > innerHeight ||
+    (container && (rect.bottom < container.top || rect.top > container.bottom))
+  )
+    return hideHelp();
+  const gap = 8,
+    margin = 8,
+    size = bubble.getBoundingClientRect();
+  const above = rect.top - gap - size.height;
+  const top =
+    above >= margin
+      ? above
+      : Math.min(rect.bottom + gap, innerHeight - size.height - margin);
+  bubble.style.left = `${Math.max(margin, Math.min(rect.left, innerWidth - size.width - margin))}px`;
+  bubble.style.top = `${Math.max(margin, top)}px`;
+}
+function showHelp(anchor) {
+  clearTimeout(helpHideTimer);
+  if (activeHelp?.anchor === anchor) return positionHelp();
+  hideHelp();
+  const bubble = $(".help-bubble", anchor);
+  activeHelp = { anchor, bubble };
+  bubble.showPopover();
+  positionHelp();
+}
+function scheduleHideHelp() {
+  clearTimeout(helpHideTimer);
+  helpHideTimer = setTimeout(hideHelp, 180);
+}
+document.addEventListener("pointerover", (event) => {
+  const anchor = event.target.closest(".help-tip");
+  if (anchor) showHelp(anchor);
+});
+document.addEventListener("pointerout", (event) => {
+  const anchor = event.target.closest(".help-tip");
+  if (anchor && !anchor.contains(event.relatedTarget)) scheduleHideHelp();
+});
+document.addEventListener("focusin", (event) => {
+  const anchor = event.target.closest(".help-tip");
+  if (anchor) showHelp(anchor);
+});
+document.addEventListener("focusout", (event) => {
+  if (event.target.closest(".help-tip")) scheduleHideHelp();
+});
+document.addEventListener("click", (event) => {
+  const anchor = event.target.closest(".help-tip");
+  if (anchor) {
+    event.preventDefault();
+    showHelp(anchor);
+  }
+});
+document.addEventListener(
+  "keydown",
+  (event) => {
+    if (event.key === "Escape" && activeHelp) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      hideHelp();
+    } else if (
+      (event.key === "Enter" || event.key === " ") &&
+      event.target.matches(".help-tip")
+    ) {
+      event.preventDefault();
+      showHelp(event.target);
+    }
+  },
+  true,
+);
+window.addEventListener("resize", positionHelp);
+document.addEventListener("scroll", positionHelp, true);
+const field = (
+  label,
+  name,
+  value = "",
+  type = "text",
+  help = "",
+  attrs = "",
+) => {
+  help ||= FIELD_HELP[name] || "";
+  return `<label class="field">${fieldHeading(label, help)}<input type="${type}" name="${name}" value="${e(value)}" ${attrs}></label>`;
+};
+const selectField = (label, name, values, current, help = "") => {
+  help ||= FIELD_HELP[name] || "";
+  return `<label class="field">${fieldHeading(label, help)}<select name="${name}">${values.map(([v, l]) => `<option value="${e(v)}" ${v === current ? "selected" : ""}>${e(l)}</option>`).join("")}</select></label>`;
+};
 const query = (args) =>
   new URLSearchParams(
     Object.entries(args).filter(([, v]) => v !== undefined && v !== null),
@@ -130,11 +277,21 @@ async function api(path, args = {}, post = false) {
   );
   const value = await response.json();
   if (!response.ok)
-    throw new Error(value.error || `Erreur HTTP ${response.status}`);
+    throw new Error(value.error || `HTTP error ${response.status}`);
   return value;
 }
 function toast(message, error = false) {
   const node = $("#toast");
+  const dialog = $("#dialog");
+  if (error && dialog.open) {
+    const alert = $("#dialog-error");
+    alert.textContent = message;
+    alert.hidden = false;
+    alert.scrollIntoView({ block: "nearest" });
+    alert.focus({ preventScroll: true });
+    return;
+  }
+  (dialog.open ? dialog : document.body).appendChild(node);
   node.textContent = message;
   node.className = error ? "error" : "";
   node.style.display = "block";
@@ -170,6 +327,7 @@ function showError(error) {
 }
 async function refreshBoot() {
   S.boot = await api("/api/bootstrap");
+  S.equipment ||= await api("/api/equipment");
   updateChrome();
 }
 function activeJobs() {
@@ -206,6 +364,7 @@ function updateChrome() {
     }[S.view] || "Overview");
 }
 async function renderRoute() {
+  hideHelp();
   const epoch = ++S.epoch;
   clearInterval(replayTimer);
   replayTimer = null;
@@ -231,6 +390,10 @@ async function renderRoute() {
     await renderRun(epoch);
     return;
   }
+  if (S.view === "editor" && !S.equipment) {
+    S.equipment = await api("/api/equipment");
+    if (epoch !== S.epoch) return;
+  }
   const renderers = {
     dashboard: dashboard,
     participants: participants,
@@ -240,6 +403,7 @@ async function renderRoute() {
     editor: competitionEditor,
   };
   $("#main").innerHTML = (renderers[S.view] || dashboard)();
+  if (S.view === "editor") updateStatPreviews();
 }
 function completed(report) {
   if (!report) return 0;
@@ -255,7 +419,7 @@ function completed(report) {
 function runRows(runs) {
   return runs.map((r) => {
     const job = S.boot.jobs.find((j) => j.run === r.id);
-    return `<tr><td><button class="table-button" data-action="open-run" data-run="${e(r.id)}">${e(r.name)}</button><small>${e(r.id)}</small></td><td>${job && ["running", "stopping"].includes(job.status) ? status(job.status) : r.error ? status("failed") : r.complete ? status("completed") : badge("Review needed", "orange")}</td><td>${r.simulated === true ? badge("Simulation", "blue") : r.simulated === false ? badge("Real API calls", "orange") : badge("Strategies")}</td><td class="numeric">${fmt(r.report?.sessions ?? r.models)}</td><td class="numeric">${fmt(completed(r.report))}</td><td class="numeric">${r.report?.cost_usd === undefined ? "N/A" : money(r.report.cost_usd)}</td><td>${date(r.created_at)}</td></tr>`;
+    return `<tr><td><button class="table-button" data-action="open-run" data-run="${e(r.id)}">${e(r.name)}</button><small>${e(r.id)}</small></td><td>${job && ["running", "stopping"].includes(job.status) ? status(job.status === "failed" && r.report?.incomplete ? "incomplete" : job.status) : r.error ? status("failed") : r.complete ? status("completed") : badge("Review needed", "orange")}</td><td>${r.simulated === true ? badge("Simulation", "blue") : r.simulated === false ? badge("Real API calls", "orange") : badge("Strategies")}</td><td class="numeric">${fmt(r.report?.sessions ?? r.models)}</td><td class="numeric">${fmt(completed(r.report))}</td><td class="numeric">${r.report?.cost_usd === undefined ? "N/A" : money(r.report.cost_usd)}</td><td>${date(r.created_at)}</td></tr>`;
   });
 }
 function runTable(runs) {
@@ -315,8 +479,8 @@ function participants() {
         "",
       ],
       S.boot.participants.map(
-        ({ spec: m, key_configured }) =>
-          `<tr><td><strong>${e(m.id)}</strong><small>${m.provider === "mock" ? "Mock participant" : "Configured model"}</small></td><td>${e(m.provider)}<small>${e(m.model || m.profile)}</small></td><td>${m.pricing ? `${e(m.pricing.input_per_million)} / ${e(m.pricing.output_per_million)} $<small>Per million tokens · ${e(m.pricing.date)}</small>` : "No API calls"}</td><td>${m.provider === "mock" ? "N/A" : badge(key_configured ? "Configured" : "Missing", key_configured ? "green" : "orange")}</td><td><div class="actions">${btn("Edit", "edit-participant", `data-id="${e(m.id)}"`)}<button class="icon-button" data-action="delete-participant" data-id="${e(m.id)}" title="Remove this profile" aria-label="Remove ${e(m.id)}">×</button></div></td></tr>`,
+        ({ spec: m, key_configured, key_optional }) =>
+          `<tr><td><strong>${e(m.id)}</strong><small>${m.provider === "mock" ? "Mock participant" : "Configured model"}</small></td><td>${e(m.provider)}<small>${e(m.model || m.profile)}</small></td><td>${m.pricing ? `${e(m.pricing.input_per_million)} / ${e(m.pricing.output_per_million)} $<small>Per million tokens · ${e(m.pricing.date)}</small>` : "No API calls"}</td><td>${m.provider === "mock" ? "N/A" : badge(key_optional && !key_configured ? "Not required (local)" : key_configured ? "Configured" : "Missing", key_configured || key_optional ? "green" : "orange")}</td><td><div class="actions">${btn("Edit", "edit-participant", `data-id="${e(m.id)}"`)}<button class="icon-button" data-action="delete-participant" data-id="${e(m.id)}" title="Remove this profile" aria-label="Remove ${e(m.id)}">×</button></div></td></tr>`,
       ),
     )}</section>` +
     notice(
@@ -329,6 +493,8 @@ function freshConfig() {
   const config = structuredClone(S.boot.default_config),
     catalog = S.boot.participants.map((p) => p.spec),
     ids = config.models.map((m) => m.id);
+  config.budget_per_session = {};
+  delete config.spending.max_total_usd;
   config.models = structuredClone(catalog.filter((m) => ids.includes(m.id)));
   if (!config.models.length)
     config.models = structuredClone(catalog.slice(0, 2));
@@ -371,9 +537,24 @@ function competitions() {
   );
 }
 function openDialog(title, subtitle, body) {
+  hideHelp();
   $("#dialog-content").innerHTML =
-    `<div class="dialog-head"><div><h2>${e(title)}</h2><p>${e(subtitle)}</p></div><button class="icon-button" data-action="close-dialog" aria-label="Close">×</button></div>${body}`;
+    `<div class="dialog-head"><div><h2>${e(title)}</h2><p>${e(subtitle)}</p></div><button class="icon-button" data-action="close-dialog" aria-label="Close">×</button></div><div id="dialog-error" class="notice error dialog-error" role="alert" tabindex="-1" hidden></div>${body}`;
   if (!$("#dialog").open) $("#dialog").showModal();
+}
+function renderModelCatalog() {
+  const term = $("#model-search").value.toLowerCase();
+  const models = (S.catalogModels || []).filter((m) =>
+    `${m.id} ${m.name}`.toLowerCase().includes(term),
+  );
+  $("#available-models").innerHTML = models.length
+    ? models
+        .map(
+          (m) =>
+            `<button type="button" class="model-option" data-action="select-model" data-model="${e(m.id)}"><strong>${e(m.name || m.id)}</strong><code>${e(m.id)}</code><small>${e(m.availability || "Listed by API; chat and tool support unverified")}</small></button>`,
+        )
+        .join("")
+    : `<p>No matching models.</p>`;
 }
 function participantDialog(identifier = null, provider = null) {
   const m = identifier
@@ -406,7 +587,7 @@ function participantDialog(identifier = null, provider = null) {
          m.profile || "single-shot",
          "single-shot submits a simple strategy; repair-and-submit fixes a script and submits rush.",
        )
-     : `${field("Exact model ID", "model", m.model || "", "text", "The exact ID accepted by the API.", "required")}<div class="field full"><div class="actions">${btn("Load models", "list-models")}<select id="available-models" aria-label="Available models"><option value="">Catalog not loaded</option></select></div><small id="model-list-status">Load the API catalog using the configured key, or enter an ID manually.</small></div>${field("API key environment variable", "api_key_env", m.api_key_env || (p === "anthropic" ? "ARENA_ANTHROPIC_KEY" : p === "gemini" ? "ARENA_GEMINI_KEY" : "ARENA_OPENAI_KEY"), "text", "A key set in the server environment can also be used.", "required")}<label class="field full">API key (this server session only)<input name="secret" type="password" autocomplete="new-password" placeholder="Leave blank to keep the available key"><small>Not returned to the browser or written to configuration files.</small></label>${p === "openai-compatible" ? field("Full HTTPS endpoint", "endpoint", m.endpoint || "", "url", "Include the API path. Do not put keys or query parameters in the URL.", "required") : m.endpoint ? field("HTTPS endpoint", "endpoint", m.endpoint, "url") : ""}${field("Input price / million tokens ($)", "input_price", pricing.input_per_million ?? "", "number", "", 'required min="0" step="any"')}${field("Output price / million tokens ($)", "output_price", pricing.output_per_million ?? "", "number", "", 'required min="0" step="any"')}${field("Price date", "pricing_date", pricing.date || new Date().toISOString().slice(0, 10), "date", "", "required")}${field("Cache read price / million ($), optional", "cached_price", pricing.cached_input_per_million ?? "", "number", "Blank uses the standard input price.", 'min="0" step="any"')}${field("Cache write price / million ($), optional", "creation_price", pricing.cache_creation_per_million ?? "", "number", "", 'min="0" step="any"')}${field("Maximum input per call (tokens)", "max_input_tokens_per_call", m.max_input_tokens_per_call || 150000, "number", "Conservative admission bound.", 'required min="1"')}${field("Maximum output per call (tokens)", "max_output_tokens", m.max_output_tokens || 12000, "number", "", 'required min="1"')}${field("Call timeout (seconds)", "timeout_seconds", m.timeout_seconds || 60, "number", "", 'required min="1" max="300"')}${field("Retries on HTTP 429", "max_retries", m.max_retries ?? 1, "number", "Calls with unknown outcomes are not retried automatically.", 'required min="0" max="3"')}${p === "anthropic" ? `<p class="muted">Seed: not available in the Anthropic API.</p>` : field("Model seed", "model_seed", m.parameters?.seed ?? (identifier ? "" : 0), "number", p === "openai-compatible" ? "Server support varies. Identical output is not guaranteed." : "Sent with every call when supported by the model. Identical output is not guaranteed.", 'min="0" max="2147483647"')}<label class="field full">Model parameters (JSON)<textarea name="parameters" class="mono">${e(pretty(m.parameters || {}))}</textarea><small>API-specific options such as temperature and top_p. Set the seed above.</small></label>`
+     : `<h3 class="field full">API connection</h3>${field("API key environment variable", "api_key_env", m.api_key_env || (p === "anthropic" ? "ARENA_ANTHROPIC_KEY" : p === "gemini" ? "ARENA_GEMINI_KEY" : "ARENA_OPENAI_KEY"), "text", "Name of the server environment variable containing the key, or the name under which to store a session key entered below.", "required")}<label class="field full">API key (this server session only)<input name="secret" type="password" autocomplete="new-password" placeholder="Optional for local compatible servers; otherwise leave blank to keep the key"><small>Not returned to the browser or written to configuration files.</small></label>${p === "openai-compatible" ? field("Full API endpoint", "endpoint", m.endpoint || "", "url", "Ollama: http://localhost:11434/v1/chat/completions. HTTP is allowed on loopback; remote servers require HTTPS. API keys are optional for local compatible servers.", "required") : m.endpoint ? field("HTTPS endpoint", "endpoint", m.endpoint, "url") : ""}<h3 class="field full">Model</h3><div class="field full">${btn("Load models", "list-models")}<label class="field" hidden id="model-search-field">Search models<input type="search" id="model-search" placeholder="Filter by model name or ID"></label><div id="available-models" class="model-catalog" role="group" aria-label="Available models" hidden></div><small id="model-list-status">Load models available to the configured API key. You can also enter an ID manually.</small><details id="excluded-models" hidden><summary>Excluded models</summary><div id="excluded-model-list"></div></details></div>${field("Exact model ID", "model", m.model || "", "text", "The exact ID accepted by the API.", "required")}${field("Input price / million tokens ($)", "input_price", pricing.input_per_million ?? "", "number", "", 'required min="0" step="any"')}${field("Output price / million tokens ($)", "output_price", pricing.output_per_million ?? "", "number", "", 'required min="0" step="any"')}${field("Price date", "pricing_date", pricing.date || new Date().toISOString().slice(0, 10), "date", "", "required")}${field("Cache read price / million ($), optional", "cached_price", pricing.cached_input_per_million ?? "", "number", "Blank uses the standard input price.", 'min="0" step="any"')}${field("Cache write price / million ($), optional", "creation_price", pricing.cache_creation_per_million ?? "", "number", "", 'min="0" step="any"')}${field("Maximum input per call (tokens)", "max_input_tokens_per_call", m.max_input_tokens_per_call ?? "", "number", "Optional. Blank disables local input admission limits.", 'min="1"')}${field("Maximum output per call (tokens)", "max_output_tokens", m.max_output_tokens ?? "", "number", p === "anthropic" ? "Required by Anthropic (max_tokens)." : "Optional. Blank uses the API default; one call may exceed the remaining financial budget.", p === "anthropic" ? 'required min="1"' : 'min="1"')}${field("Call timeout (seconds)", "timeout_seconds", m.timeout_seconds || 60, "number", "", 'required min="1" max="300"')}${field("Retries on HTTP 429", "max_retries", m.max_retries ?? 1, "number", "Calls with unknown outcomes are not retried automatically.", 'required min="0" max="3"')}${p === "anthropic" ? `<p class="muted">Seed: not available in the Anthropic API.</p>` : field("Model seed", "model_seed", m.parameters?.seed ?? (identifier ? "" : 0), "number", p === "openai-compatible" ? "Server support varies. Identical output is not guaranteed." : "Sent with every call when supported by the model. Identical output is not guaranteed.", 'min="0" max="2147483647"')}<label class="field full">Model parameters (JSON)<textarea name="parameters" class="mono">${e(pretty(m.parameters || {}))}</textarea><small>API-specific options such as temperature and top_p. Set the seed above.</small></label>`
  }</div><div class="form-footer">${btn("Cancel", "close-dialog")}<button type="submit" class="button primary">Save participant</button></div></form>`,
   );
 }
@@ -423,8 +604,487 @@ const ENTITY_FIELDS = [
   ["tp", "AP per turn", 12],
   ["mp", "MP per turn", 5],
   ["cores", "Cores", 10],
-  ["ram", "RAM LeekScript", 10],
+  ["ram", "RAM / chip slots", 6],
 ];
+function componentIds(pieces) {
+  return pieces.map((piece) =>
+    typeof piece === "object" ? piece.template : piece,
+  );
+}
+function componentBonuses(pieces) {
+  const result = {};
+  for (const piece of pieces || []) {
+    const item =
+      S.equipment.components[
+        typeof piece === "object" ? piece.template : piece
+      ];
+    for (const [key, value] of item?.stats || [])
+      result[key] = (result[key] || 0) + value;
+    if (typeof piece === "object")
+      for (const [key, value] of Object.entries(piece.stats || {}))
+        result[key] = (result[key] || 0) + value;
+  }
+  return result;
+}
+function withComponents(stats, pieces) {
+  const bonus = componentBonuses(pieces);
+  return Object.fromEntries(
+    Object.entries(stats).map(([key, value]) => [
+      key,
+      value + (bonus[key] || 0),
+    ]),
+  );
+}
+function selectedComponents(section) {
+  const original = JSON.parse(section.dataset.componentInstances || "[]");
+  return String(
+    section.querySelector(
+      'input[name="' +
+        memberGearName(Number(section.dataset.memberBuild), "components") +
+        '"]',
+    ).value,
+  )
+    .split(",")
+    .filter((v) => v.trim())
+    .map(Number)
+    .map(
+      (id) =>
+        original.find(
+          (piece) => typeof piece === "object" && piece.template === id,
+        ) || id,
+    );
+}
+function syncComponentStats(section) {
+  if (!section) return;
+  const old = JSON.parse(section.dataset.componentBonus || "{}"),
+    next = componentBonuses(selectedComponents(section));
+  for (const input of $$("input[data-stat]", section))
+    input.value =
+      Number(input.value) +
+      (next[input.dataset.stat] || 0) -
+      (old[input.dataset.stat] || 0);
+  section.dataset.componentBonus = JSON.stringify(next);
+}
+function equipmentPicker(label, name, kind, ids, allowlist = false) {
+  const catalog = S.equipment?.[kind] || {};
+  const names = ids.map((id) => catalog[id]?.name || `Unknown ID ${id}`);
+  const emptyLabel = allowlist ? "All eligible items" : "None";
+  const help = allowlist
+    ? "Select the equipment participants may choose. An empty selection allows all catalog items; realistic mode also enforces the member level."
+    : "Equipment for this leek, used by both sides and fixed reference opponents. An empty selection equips none.";
+  return `<div class="field full">${fieldHeading(label, help)}<input type="hidden" name="${name}" value="${e(ids.join(", "))}"><details class="equipment-picker" data-kind="${kind}" data-name="${name}" data-empty="${emptyLabel}"><summary><span class="equipment-selection">${e(names.join(", ") || emptyLabel)}</span></summary><div class="equipment-picker-body"><label class="field">Search ${kind}<input type="search" class="equipment-search" placeholder="Name or ID"></label><div class="equipment-options">${Object.entries(
+    catalog,
+  )
+    .sort(
+      (a, b) => a[1].level - b[1].level || a[1].name.localeCompare(b[1].name),
+    )
+    .map(
+      ([id, item]) =>
+        `<article class="equipment-option" data-search="${e(`${id} ${item.name}`.toLowerCase())}"><label class="check"><input type="checkbox" class="equipment-check" value="${e(id)}" ${ids.includes(Number(id)) ? "checked" : ""}><strong>${e(item.name)}</strong><span>ID ${e(id)} · level ${e(item.level)}</span></label><small>${item.restricted_reason ? `<strong>${e(item.restricted_reason)}</strong><br>` : ""}${kind === "components" ? `${item.slots} / 8 slots · ${(item.stats || []).map(([key, value]) => `${value > 0 ? "+" : ""}${value} ${key}`).join(" · ")}</small><details><summary>Item details</summary><p>Bonuses are added after capital allocation. Each template can be equipped once. Recovery components consume three slots. Realistic mode validates component levels, slots and alteration charge against the frozen public catalog. Alteration deltas are included in the final stats.</p>${raw(item, "Component definition")}</details></article>` : `${e(item.cost)} AP · range ${e(item.min_range)}–${e(item.max_range)} · ${item.los ? "line of sight required" : "no line of sight required"}</small><details><summary>Item details</summary><p>These values come from the pinned engine catalog. Effects depend on the member stats and target rules.</p><dl><dt>Cooldown</dt><dd>${e(item.cooldown ?? "Not applicable")} turns</dd><dt>Uses per turn</dt><dd>${e(item.max_uses ?? "Not specified")}</dd><dt>Effects</dt><dd>${(item.effects || []).map((effect) => `${e(S.equipment.effects[String(effect.type)] || `Effect ${effect.type}`)}: base ${e(effect.value1)} + random component ${e(effect.value2)}; duration ${e(effect.turns)} turns`).join("<br>") || "None"}</dd></dl>${raw(item, "Full pinned item definition")}</details></article>`}`,
+    )
+    .join(
+      "",
+    )}</div><small class="equipment-level-status" role="status"></small><small>${kind === "components" ? `Public component catalog · game data ${e(S.equipment?.component_snapshot?.master_version)}` : `Player equipment catalog · pinned engine ${e(S.equipment?.snapshot?.slice(0, 12))}`}. <a href="#view=help" target="_blank" rel="noopener">Equipment and API guide</a></small></div></details></div>`;
+}
+function updateEquipmentLevels() {
+  const form = $("#competition-form");
+  if (!form || form.elements.team_mode.value === "participant") return;
+  const limited = form.elements.realistic_stats.checked,
+    level = Number(form.elements.entity_level.value);
+  if (!Number.isInteger(level) || level < 1 || (limited && level > 301)) return;
+  const allRemoved = [];
+  for (const picker of $$(".equipment-picker", form)) {
+    const removed = [];
+    const memberLevel = Number(
+      picker
+        .closest("[data-member-build]")
+        ?.querySelector("[data-member-level]")?.value || level,
+    );
+    for (const input of $$(".equipment-check", picker)) {
+      const item = S.equipment[picker.dataset.kind][input.value],
+        locked =
+          limited &&
+          (item.level > memberLevel ||
+            !!item.restricted_reason ||
+            (picker.dataset.kind === "components" && item.level == null));
+      input.disabled = locked;
+      input
+        .closest(".equipment-option")
+        .classList.toggle("equipment-locked", locked);
+      input.title = locked
+        ? item.restricted_reason ||
+          `Requires level ${item.level}; leek level is ${level}`
+        : "";
+      if (locked && input.checked) {
+        input.checked = false;
+        removed.push(item.name);
+      }
+    }
+    const checked = $$(".equipment-check:checked", picker).map((input) =>
+      Number(input.value),
+    );
+    const previous = String(form.elements[picker.dataset.name].value)
+      .split(",")
+      .filter((id) => id.trim())
+      .map(Number);
+    const selected = [
+      ...previous.filter((id) => checked.includes(id)),
+      ...checked.filter((id) => !previous.includes(id)),
+    ];
+    form.elements[picker.dataset.name].value = selected.join(", ");
+    if (picker.dataset.kind === "components")
+      syncComponentStats(picker.closest("[data-member-build]"));
+    $(".equipment-selection", picker).textContent =
+      selected
+        .map((id) => S.equipment[picker.dataset.kind][id]?.name || id)
+        .join(", ") || picker.dataset.empty;
+    const status = $(".equipment-level-status", picker);
+    allRemoved.push(...removed);
+    if (removed.length)
+      status.textContent = `Removed ineligible items at level ${level}: ${removed.join(", ")}.`;
+    else if (!status.textContent.startsWith("Removed"))
+      status.textContent = limited
+        ? `Items above level ${level} are locked in realistic mode. Boss and summon-only chips are excluded in every mode.`
+        : "Free mode: all player-equipment levels are selectable. Boss and summon-only chips remain excluded.";
+  }
+  if (allRemoved.length) {
+    const warning = $("#equipment-removals", form);
+    warning.textContent = `Removed ineligible equipment at level ${level}: ${[...new Set(allRemoved)].join(", ")}.`;
+    warning.hidden = false;
+  }
+}
+function capitalTotal(level) {
+  return (
+    50 +
+    (level - 1) * 5 +
+    Math.floor(level / 100) * 45 +
+    (level === 301 ? 95 : 0)
+  );
+}
+function defaultCapital(level) {
+  let remaining = capitalTotal(level);
+  const capital = {};
+  for (const [key, target] of [
+    ["cores", 140],
+    ["tp", 65],
+    ["mp", 60],
+    ["life", 50],
+    ["strength", 50],
+  ]) {
+    capital[key] = Math.min(remaining, target);
+    remaining -= capital[key];
+  }
+  return capital;
+}
+function statsForCapital(level, capital) {
+  const rules = S.equipment.stat_rules,
+    result = {};
+  for (const [key, steps] of Object.entries(rules.costs)) {
+    let remaining = Math.max(0, Math.min(100000, Number(capital[key]) || 0)),
+      bonus = 0;
+    while (remaining > 0) {
+      const step = [...steps].reverse().find((s) => bonus >= s.step);
+      if (remaining < step.capital) break;
+      remaining -= step.capital;
+      bonus += step.sup;
+    }
+    result[key] =
+      (rules.base[key] || 0) + bonus + (key === "life" ? (level - 1) * 3 : 0);
+  }
+  return result;
+}
+function baseStat(key, level) {
+  return (
+    (S.equipment.stat_rules.base[key] || 0) +
+    (key === "life" ? (level - 1) * 3 : 0)
+  );
+}
+function statChoices(key, level) {
+  level = Math.max(1, Math.min(301, Number(level) || 1));
+  const choices = [{ value: baseStat(key, level), cost: 0 }];
+  let bonus = 0,
+    cost = 0;
+  const steps = S.equipment.stat_rules.costs[key];
+  while (cost <= capitalTotal(level)) {
+    const step = [...steps].reverse().find((s) => bonus >= s.step);
+    cost += step.capital;
+    bonus += step.sup;
+    if (cost <= capitalTotal(level))
+      choices.push({ value: baseStat(key, level) + bonus, cost });
+  }
+  return choices;
+}
+function customSliderMax(key, level, value) {
+  if (key === "ram") return 50;
+  if (key === "cores") return 100;
+  return Math.min(
+    100000,
+    Math.max(statChoices(key, level).at(-1).value, Number(value) * 2, 1),
+  );
+}
+function capitalForStat(key, value, level) {
+  const choices = statChoices(key, level);
+  return (
+    choices.find((c) => c.value >= value) || { cost: capitalTotal(level) + 1 }
+  ).cost;
+}
+function memberGearName(index, kind) {
+  return index ? `member_${index}_${kind}` : kind;
+}
+function readStatBuilds(form) {
+  const mode = $("#member-stat-builds", form).dataset.mode;
+  return $$("[data-member-build]", form).map((section, index) => {
+    const level = Number($("[data-member-level]", section).value);
+    const components = selectedComponents(section),
+      bonus = componentBonuses(components);
+    const values = Object.fromEntries(
+      $$("input[data-stat]", section).map((input) => [
+        input.dataset.stat,
+        mode === "realistic-v1"
+          ? capitalForStat(
+              input.dataset.stat,
+              Number(input.value) - (bonus[input.dataset.stat] || 0),
+              level,
+            )
+          : Number(input.value),
+      ]),
+    );
+    return {
+      level,
+      name: $("[data-member-name]", section).value,
+      components,
+      [mode === "realistic-v1" ? "capital" : "stats"]: values,
+      ...Object.fromEntries(
+        ["weapons", "chips"].map((kind) => [
+          kind,
+          String(form.elements[memberGearName(index, kind)]?.value || "")
+            .split(",")
+            .filter((s) => s.trim())
+            .map(Number),
+        ]),
+      ),
+    };
+  });
+}
+function memberBuildsMarkup(scenario) {
+  const realistic = scenario.stats_mode === "realistic-v1";
+  const groups = [
+    ["Offense", ["strength", "science", "magic"]],
+    ["Survival", ["life", "resistance", "wisdom", "agility"]],
+    ["Turn resources", ["tp", "mp", "frequency", "cores", "ram"]],
+  ];
+  return `<div id="member-stat-builds" class="character-roster" data-mode="${realistic ? "realistic-v1" : "free"}"><nav class="character-tabs" aria-label="Team members">${Array.from({ length: scenario.team_size }, (_, i) => `<button type="button" class="button ${i === 0 ? "primary" : ""}" aria-pressed="${i === 0}" data-action="character-tab" data-index="${i}">${i + 1} · ${e(scenario.member_stats?.[i]?.name || `Leek ${i + 1}`)}</button>`).join("")}</nav>${Array.from(
+    { length: scenario.team_size },
+    (_, index) => {
+      const spec = scenario.member_stats?.[index] || {},
+        level = spec.level ?? scenario.entity.level;
+      const bonus = componentBonuses(spec.components || []);
+      const values = realistic
+        ? withComponents(
+            statsForCapital(level, spec.capital || defaultCapital(level)),
+            spec.components || [],
+          )
+        : { ...scenario.entity, ...spec.stats };
+      return `<article class="character-card" data-member-build="${index}" data-component-instances="${e(JSON.stringify(spec.components || []))}" data-component-bonus="${e(JSON.stringify(bonus))}" ${index ? "hidden" : ""}><header class="character-header"><div class="character-avatar" aria-hidden="true">${index + 1}</div><div><label>Leek name<input data-member-name name="member_${index}_name" value="${e(spec.name || `Leek ${index + 1}`)}" maxlength="80"></label><label class="character-level">Level <input data-member-level name="member_${index}_level" type="number" min="1" max="${realistic ? 301 : 100000}" value="${level}" required></label></div></header><div class="character-highlights"></div><div class="member-stat-summary" role="status" aria-live="polite"></div><progress class="capital-meter" max="${capitalTotal(level)}" value="0" aria-label="Leek ${index + 1} capital spent" ${realistic ? "" : "hidden"}></progress><div class="character-stats">${groups
+        .map(
+          ([group, keys]) =>
+            `<section class="stat-group"><h4>${group}</h4>${keys
+              .map((key) => {
+                const label = ENTITY_FIELDS.find(([k]) => k === key)[1],
+                  value = values[key] ?? 0;
+                const choices = realistic ? statChoices(key, level) : null;
+                const min = realistic
+                  ? choices[0].value + (bonus[key] || 0)
+                  : ["life", "ram", "cores"].includes(key)
+                    ? 1
+                    : ["tp", "mp"].includes(key)
+                      ? 0
+                      : -100000;
+                const max = realistic
+                  ? choices.at(-1).value + (bonus[key] || 0)
+                  : customSliderMax(key, level, value);
+                const numberMax = realistic
+                  ? max
+                  : key === "ram"
+                    ? 50
+                    : key === "cores"
+                      ? 100
+                      : 100000;
+                return `<div class="stat-row" data-stat-row="${key}">${fieldHeading(label, FIELD_HELP["entity_" + key] || "", false)}<div class="stat-controls"><input type="range" data-stat-slider="${key}" aria-label="Leek ${index + 1} ${label} slider" min="${min}" max="${max}" value="${value}"><input type="number" name="member_${index}_${key}" data-stat="${key}" aria-label="Leek ${index + 1} ${label}" min="${min}" max="${numberMax}" value="${value}" required></div><small class="stat-cost"></small></div>`;
+              })
+              .join("")}</section>`,
+        )
+        .join(
+          "",
+        )}</div><section class="character-equipment"><h4>Equipment</h4><div class="equipment-capacity"></div>${["weapons", "chips", "components"].map((kind) => equipmentPicker(kind === "weapons" ? "Weapons" : kind === "chips" ? "Chips" : "Components", memberGearName(index, kind), kind, kind === "components" ? componentIds(spec.components || []) : (spec[kind] ?? scenario.entity[kind] ?? []))).join("")}</section></article>`;
+    },
+  ).join("")}</div>`;
+}
+function statsEditor(scenario) {
+  return `<section id="stats-editor"><h3>Team roster</h3><label class="check"><input type="checkbox" name="realistic_stats" ${scenario.stats_mode === "realistic-v1" ? "checked" : ""}>Realistic stats (capital, components and alterations)</label><p class="muted">Adjust final stats. Capital costs and remaining points update below. ${btn("Official rules and scope", "reference", 'data-document="stats"')}</p>${field("Level (all members)", "entity_level", scenario.entity.level, "number", "Changing this sets every member's level. Individual levels can then be adjusted on each card.", 'required min="1" max="100000"')}<p id="stats-validation" class="notice" role="status" hidden></p><p id="equipment-removals" class="notice warn" role="status" hidden></p>${memberBuildsMarkup(scenario)}</section>`;
+}
+function updateTeamMode() {
+  const form = $("#competition-form");
+  if (!form) return;
+  const participant = form.elements.team_mode.value === "participant";
+  $("#team-selection-rules", form).hidden = !participant;
+  const roster = $("#fixed-roster", form);
+  roster.hidden = participant;
+  roster.disabled = participant;
+  const size = form.elements.team_size;
+  size.closest(".field").hidden = participant;
+  size.disabled = participant;
+}
+function updateStatPreviews(refreshEquipment = true) {
+  const form = $("#competition-form");
+  if (!form) return;
+  updateTeamMode();
+  if (refreshEquipment) updateEquipmentLevels();
+  const realistic = $("#member-stat-builds").dataset.mode === "realistic-v1",
+    builds = readStatBuilds(form);
+  $$("[data-member-build]", form).forEach((section, index) => {
+    const build = builds[index],
+      level = build.level,
+      total = capitalTotal(level);
+    const used = realistic
+      ? Object.values(build.capital).reduce((a, b) => a + b, 0)
+      : null;
+    const values = realistic
+      ? withComponents(statsForCapital(level, build.capital), build.components)
+      : build.stats;
+    $(".character-highlights", section).innerHTML = [
+      "life",
+      "strength",
+      "tp",
+      "mp",
+    ]
+      .map(
+        (key) =>
+          `<span><strong>${fmt(values[key])}</strong>${e(ENTITY_FIELDS.find(([k]) => k === key)[1])}</span>`,
+      )
+      .join("");
+    const node = $(".member-stat-summary", section);
+    node.className =
+      "member-stat-summary" +
+      (realistic && (used > total || level > 301 || level < 1) ? " error" : "");
+    node.textContent = realistic
+      ? `${fmt(total - used)} capital remaining · ${fmt(used)} / ${fmt(total)} spent`
+      : "Published / custom final stats · no capital allocation";
+    $(".capital-meter", section).value = used || 0;
+    $(".capital-meter", section).max = total;
+    const componentSlots = componentIds(build.components).reduce(
+      (sum, id) => sum + (S.equipment.components[id]?.slots || 0),
+      0,
+    );
+    $(".equipment-capacity", section).classList.toggle(
+      "error",
+      componentSlots > 8,
+    );
+    $(".equipment-capacity", section).textContent =
+      `${componentSlots} / 8 component slots · ` +
+      (realistic
+        ? `${level < 100 ? 2 : level < 200 ? 3 : 4} weapon slots · ${values.ram} chip slots`
+        : "Custom loadout · boss and summon-only chips excluded");
+    $$("[data-stat-row]", section).forEach((row) => {
+      const key = row.dataset.statRow,
+        number = $("[data-stat]", row),
+        slider = $("[data-stat-slider]", row);
+      slider.value = number.value;
+      if (!realistic) {
+        slider.max = customSliderMax(key, level, number.value);
+        slider.value = number.value;
+        $(".stat-cost", row).textContent = "Final stat";
+        return;
+      }
+      const choices = statChoices(key, level),
+        selected = choices.find((c) => c.cost === build.capital[key]),
+        next = choices.find((c) => c.cost > build.capital[key]);
+      slider.min =
+        choices[0].value + (componentBonuses(build.components)[key] || 0);
+      slider.max =
+        choices.at(-1).value + (componentBonuses(build.components)[key] || 0);
+      number.min = slider.min;
+      number.max = slider.max;
+      slider.value = number.value;
+      const cost =
+        next && selected
+          ? `Next +${next.value - selected.value}: ${next.cost - selected.cost} capital`
+          : "Level maximum";
+      $(".stat-cost", row).textContent =
+        `${build.capital[key]} capital spent${componentBonuses(build.components)[key] ? ` · components ${componentBonuses(build.components)[key] > 0 ? "+" : ""}${componentBonuses(build.components)[key]}` : ""}`;
+      const bubble = $(".help-bubble", row);
+      if (bubble)
+        bubble.textContent = `${FIELD_HELP["entity_" + key] || ""} ${cost}.`;
+    });
+  });
+}
+async function rebuildStatFields() {
+  const form = $("#competition-form"),
+    oldMode = $("#member-stat-builds").dataset.mode;
+  const mode = form.elements.realistic_stats.checked ? "realistic-v1" : "free",
+    level = Number(form.elements.entity_level.value);
+  const builds = readStatBuilds(form),
+    count = Number(form.elements.team_size.value);
+  let scenario = {
+    team_size: count,
+    max_turns: Number(form.elements.max_turns.value),
+    stats_mode: mode,
+    entity: {
+      level,
+      weapons: builds[0]?.weapons || [],
+      chips: builds[0]?.chips || [],
+    },
+    member_stats: Array.from({ length: count }, (_, i) => {
+      const build = builds[i] || { ...builds[0], name: `Leek ${i + 1}` };
+      return {
+        ...build,
+        ...(mode === oldMode
+          ? {}
+          : mode === "realistic-v1"
+            ? {}
+            : {
+                stats: withComponents(
+                  statsForCapital(build.level || level, build.capital),
+                  build.components,
+                ),
+              }),
+      };
+    }),
+  };
+  const message = $("#stats-validation", form);
+  if (mode === "realistic-v1" && oldMode === "free") {
+    form.inert = true;
+    try {
+      // Validate the current final values, without substituting a default build.
+      scenario.stats_mode = "free";
+      const first = scenario.member_stats[0];
+      Object.assign(scenario.entity, first.stats, {
+        level: first.level,
+        weapons: first.weapons,
+        chips: first.chips,
+      });
+      ({ scenario } = await api("/api/stats/realistic", { scenario }, true));
+      message.textContent =
+        "Validated: capital, component alterations and equipment. All final stats preserved.";
+      message.className = "notice";
+      message.hidden = false;
+    } catch (error) {
+      form.elements.realistic_stats.checked = false;
+      message.textContent = `Realistic validation failed: ${error.message}. Your final stats and equipment have been kept.`;
+      message.className = "notice warn";
+      message.hidden = false;
+      return;
+    } finally {
+      form.inert = false;
+    }
+  } else {
+    message.hidden = true;
+  }
+  if (mode === "free") scenario.member_stats.forEach((m) => delete m.capital);
+  else scenario.member_stats.forEach((m) => delete m.stats);
+  $("#member-stat-builds").outerHTML = memberBuildsMarkup(scenario);
+  updateStatPreviews();
+}
 function competitionEditor() {
   const c = S.editConfig || structuredClone(S.boot.default_config),
     b = c.budget_per_session;
@@ -436,7 +1096,8 @@ function competitionEditor() {
   return (
     head(
       S.editDraft ? "Edit competition" : "New competition",
-      "All participants share the same rules and budgets. Saving settings does not call an API.",
+      "Shared game rules; optional preparation limits. Saving settings does not call an API.",
+      btn("Settings guide", "reference", 'data-document="ui"'),
     ) +
     `<form data-form="competition" id="competition-form"><div class="grid asymmetric"><div><section class="panel"><h2>Name and participants</h2><p class="muted">Each repetition starts an independent conversation.</p><div class="form-grid">${field("Competition name", "name", c.name, "text", "", "required")}${field("Repetitions per participant", "replicates", c.replicates, "number", "", 'required min="1" max="20"')}${selectField(
       "Evaluation cycle",
@@ -447,8 +1108,16 @@ function competitionEditor() {
       ],
       String(c.generations || 1),
     )}</div><h3 class="section-label">Selected participants</h3>${S.choiceModels.map((m) => `<label class="choice"><input type="checkbox" name="participant" value="${e(m.id)}" ${c.models.some((v) => v.id === m.id) ? "checked" : ""}><span><strong>${e(m.id)}</strong><small>${e(m.provider)} · ${e(m.model || m.profile)}</small></span></label>`).join("")}${btn("Manage profiles", "go", 'data-view="participants"')}</section>
- <section class="panel"><h2>Match rules</h2><p class="muted">Both teams use the same stats and equipment. Matches alternate sides.</p><div class="form-grid">${field("Entities per team", "team_size", c.scenario.team_size, "number", "", 'required min="1" max="8"')}${field("Maximum turns", "max_turns", c.scenario.max_turns, "number", "", 'required min="1" max="64"')}${field("Initial / feedback seeds", "seeds", c.seeds.join(", "), "text", "Map generation seeds, for example 101, 202.", "required")}${field("Final evaluation seeds", "final_seeds", (c.final_seeds || []).join(", "), "text", "Separate from initial strategy seeds and training seed 17.")}</div><label class="check" style="margin-top:15px"><input type="checkbox" name="include_mirrors" ${c.include_mirrors ? "checked" : ""}>Include mirror matches (excluded from score)</label><details><summary>Stats, equipment and custom map</summary><div class="form-grid three" style="margin-top:15px">${ENTITY_FIELDS.map(([key, label, def]) => field(label, "entity_" + key, c.scenario.entity[key] ?? def, "number", "", 'required min="0"')).join("")}</div><div class="form-grid" style="margin-top:15px">${field("Weapon IDs", "weapons", c.scenario.entity.weapons.join(", "), "text", "The demo uses weapon 37.")}${field("Chip IDs", "chips", c.scenario.entity.chips.join(", "), "text", "Leave blank for no chips.")}<label class="field full">Custom map (JSON, optional)<textarea name="map" class="mono">${c.scenario.map ? e(pretty(c.scenario.map)) : ""}</textarea><small>Without a custom map, the seed determines the map and starting positions.</small></label></div></details></section>
- <section class="panel"><h2>Budgets per conversation</h2><p class="muted">Both improvement branches receive the same additional budgets.</p><div class="form-grid">${field("Model calls", "max_calls", b.max_calls, "number", "", 'required min="1"')}${field("Tool calls", "max_agent_steps", b.max_agent_steps, "number", "", 'required min="1"')}${field("Preparation matches", "max_test_matches", b.max_test_matches, "number", "One test runs two matches, one per side.", 'required min="0"')}${field("Preparation time (seconds)", "max_wall_seconds", b.max_wall_seconds, "number", "", 'required min="1"')}${field("Total input tokens", "max_input_tokens", b.max_input_tokens || 1000000, "number", "For real APIs.", 'required min="1"')}${field("Total output tokens", "max_output_tokens", b.max_output_tokens || 100000, "number", "", 'required min="1"')}${field("API spending limit per conversation ($)", "max_cost_usd", b.max_cost_usd ?? "1", "number", "", 'required min="0" step="any"')}${field("API spending limit for the experiment ($)", "max_total_usd", c.spending.max_total_usd || "5", "number", "Includes initial strategy and all improvement branches.", 'required min="0" step="any"')}</div><label class="check" style="margin-top:15px"><input type="checkbox" name="allow_paid_calls" ${c.spending.allow_paid_calls ? "checked" : ""}>Allow paid APIs for this configuration</label><small>Mock runs have no API cost. Paid runs require confirmation of the spending limit.</small></section>
+ <section class="panel"><h2>Scenario</h2><div class="scenario-presets">${btn("Simple duel · level 300", "preset-simple")}${btn("Dream team · saved preset", "preset-dream")}${btn("LLM builds its team", "preset-llm")}</div><p id="preset-status" role="status" class="muted">${c.scenario.source ? `Based on public team · original snapshot ${e(c.scenario.source.snapshot_sha256.slice(0, 12))}. The roster below can be edited. Published final stats include component bonuses; component selections and alteration deltas are preserved without adding bonuses twice.` : c.scenario.preset === "llm-team" ? "Each LLM freely chooses 1–4 leeks, their levels (1–301), stats, scripts, equipment and component alterations. preview_build and validate_team check official game rules. No character stats or equipment lists are imposed." : "Starting preset: one level-300 gunner per team, direct-damage weapons, no chips. Edit each character independently below."}</p>${c.scenario.source ? raw(c.scenario.source, "Public source and frozen snapshot") : ""}<details><summary>Refresh or replace the saved Dream team</summary>${btn("Refetch current top farmer", "preset-dream-refresh")}<p class="muted">Only this button reads the current farmer ranking and fetches four leeks of its first player. The saved preset is reused until an explicit refresh; existing competitions keep their frozen roster.</p><p class="muted">Use scripts/import_dream_team.py on a machine with access to leekwars.com, then paste its snapshot JSON here.</p><textarea id="dream-snapshot" class="mono" aria-label="Public team snapshot JSON" rows="4"></textarea>${btn("Import snapshot", "preset-dream-json")}</details></section><section class="panel"><h2>Match rules</h2><p class="muted">Matches alternate sides. Use a shared roster or let each LLM build its own team under official game rules.</p><div class="form-grid">${selectField(
+   "Team setup",
+   "team_mode",
+   [
+     ["fixed", "Same roster for every participant"],
+     ["participant", "Participants choose teams and equipment"],
+   ],
+   c.scenario.team_selection ? "participant" : "fixed",
+ )}${field("Team size", "team_size", c.scenario.team_size, "number", "Exact size in shared mode; maximum size when participants choose.", 'required min="1" max="8"')}${field("Maximum turns", "max_turns", c.scenario.max_turns, "number", "", 'required min="1" max="1000"')}${field("Initial / feedback seeds", "seeds", c.seeds.join(", "), "text", "Map generation seeds, for example 101, 202.", "required")}${field("Final evaluation seeds", "final_seeds", (c.final_seeds || []).join(", "), "text", "Separate from initial strategy seeds and training seed 17.")}</div><div id="team-selection-rules" ${c.scenario.team_selection ? "" : "hidden"}><p class="muted">Each LLM freely chooses 1–4 leeks: levels from 1 to 301, names, scripts, capital allocations, weapons, chips, components and alterations. Only official game rules apply. Character stats below are not imposed on its team. Preparation tests use a separate fixed reference team.</p></div><label class="check" style="margin-top:15px"><input type="checkbox" name="include_mirrors" ${c.include_mirrors ? "checked" : ""}>Include mirror matches (excluded from score)</label><fieldset id="fixed-roster" style="border:0;padding:0;margin-top:15px" ${c.scenario.team_selection ? "hidden disabled" : ""}>${statsEditor(c.scenario)}</fieldset><details><summary>Custom map</summary><div class="form-grid" style="margin-top:15px"><label class="field full">Custom map (JSON, optional)<textarea name="map" class="mono">${c.scenario.map ? e(pretty(c.scenario.map)) : ""}</textarea><small>Without a custom map, the seed determines the map and starting positions.</small></label></div></details></section>
+ <section class="panel"><h2>Optional limits</h2><p class="muted">Leave blank to let each model work until submission. Calls, tools, matches, tokens, elapsed time and costs are recorded regardless. Improvement branches use the same optional limits.</p><div class="form-grid">${field("Model calls", "max_calls", b.max_calls ?? "", "number", "Maximum API responses, including responses after tool results. Blank means unlimited.", 'min="1"')}${field("Tool calls", "max_agent_steps", b.max_agent_steps ?? "", "number", "Maximum tool invocations. Blank means unlimited.", 'min="1"')}${field("Preparation matches", "max_test_matches", b.max_test_matches ?? "", "number", "One test runs two matches, one per side. Blank means unlimited.", 'min="0"')}${field("Preparation time (seconds)", "max_wall_seconds", b.max_wall_seconds ?? "", "number", "Blank means no session time limit.", 'min="1"')}${field("Total input tokens", "max_input_tokens", b.max_input_tokens ?? "", "number", "Optional. Blank means no conversation token limit.", 'min="1"')}${field("Total output tokens", "max_output_tokens", b.max_output_tokens ?? "", "number", "Optional. Blank means no conversation token limit.", 'min="1"')}${field("API spending limit per conversation ($)", "max_cost_usd", b.max_cost_usd ?? "", "number", "Blank means no financial limit.", 'min="0" step="any"')}${field("API spending limit for the experiment ($)", "max_total_usd", c.models.every((m) => m.provider === "mock") ? "" : (c.spending.max_total_usd ?? ""), "number", "Includes all branches. Blank means no financial limit.", 'min="0" step="any"')}</div><label class="check" style="margin-top:15px"><input type="checkbox" name="allow_paid_calls" ${c.spending.allow_paid_calls ? "checked" : ""}>Authorize API calls for this configuration</label><small>Mock runs have no API cost. API runs require this authorization even when an API key is saved; when unchecked, the configuration is rejected before any API call. Optional financial limits are checked between calls. Without an output cap, a call can exceed a configured financial limit.</small></section>
  <section class="panel"><details><summary>Import a JSON configuration</summary><textarea id="import-config" class="mono" style="width:100%;margin-top:12px" placeholder="Paste an experiment manifest"></textarea><div style="margin-top:10px">${btn("Apply configuration", "import-config")}</div></details></section></div>
  <aside class="panel sticky"><div class="eyebrow">Before launching</div><h2>Schedule</h2><p class="muted">Review the schedule and spending limit before launching.</p><div id="plan-preview">${notice("Both improvement branches start from the same initial history. One receives match feedback.")}</div>${btn("Calculate schedule", "preview-plan")}<div class="divider"></div><button type="submit" class="button primary" style="width:100%">Save configuration</button><p class="muted" style="font-size:10px;margin-top:12px">Saving does not start a run.</p></aside></div></form>`
   );
@@ -471,37 +1140,68 @@ function readCompetition(form) {
   base.generations = n("generations");
   base.schema_version = 2;
   base.improvement_conditions = ["control", "feedback"];
-  base.prompt_language = "fr";
+  base.prompt_language = "en";
   base.seeds = array("seeds");
   base.final_seeds = base.generations === 2 ? array("final_seeds") : [];
   base.include_mirrors = f.has("include_mirrors");
   base.scenario.team_size = n("team_size");
   base.scenario.max_turns = n("max_turns");
-  ENTITY_FIELDS.forEach(
-    ([key]) => (base.scenario.entity[key] = n("entity_" + key)),
-  );
-  base.scenario.entity.weapons = array("weapons");
-  base.scenario.entity.chips = array("chips");
+  const participantTeams = f.get("team_mode") === "participant";
+  if (participantTeams) {
+    // Reference opponents are separate from each LLM's independently chosen build.
+    base.scenario = structuredClone(S.boot.participant_scenario);
+    base.scenario.max_turns = n("max_turns");
+    base.scenario.team_selection = {
+      mode: "participant",
+      require_capital: true,
+      independent_builds: true,
+      max_weapons: 4,
+      max_chips: 50,
+    };
+  } else {
+    delete base.scenario.team_selection;
+    if (base.scenario.preset === "llm-team") base.scenario.preset = "custom";
+  }
+  if (!participantTeams) {
+    base.scenario.stats_mode = f.has("realistic_stats")
+      ? "realistic-v1"
+      : "free";
+    base.scenario.member_stats = readStatBuilds(form);
+    base.scenario.entity.level = base.scenario.member_stats[0].level;
+    Object.assign(
+      base.scenario.entity,
+      base.scenario.stats_mode === "realistic-v1"
+        ? withComponents(
+            statsForCapital(
+              base.scenario.member_stats[0].level,
+              base.scenario.member_stats[0].capital,
+            ),
+            base.scenario.member_stats[0].components,
+          )
+        : base.scenario.member_stats[0].stats,
+    );
+    base.scenario.entity.weapons = base.scenario.member_stats[0].weapons;
+    base.scenario.entity.chips = base.scenario.member_stats[0].chips;
+  }
   if (String(f.get("map")).trim()) base.scenario.map = JSON.parse(f.get("map"));
   else delete base.scenario.map;
-  base.budget_per_session = {
-    max_calls: n("max_calls"),
-    max_agent_steps: n("max_agent_steps"),
-    max_test_matches: n("max_test_matches"),
-    max_wall_seconds: n("max_wall_seconds"),
-  };
-  if (real)
-    Object.assign(base.budget_per_session, {
-      max_input_tokens: n("max_input_tokens"),
-      max_output_tokens: n("max_output_tokens"),
-      max_cost_usd: f.get("max_cost_usd"),
-    });
+  base.budget_per_session = {};
+  for (const key of [
+    "max_calls",
+    "max_agent_steps",
+    "max_test_matches",
+    "max_wall_seconds",
+    ...(real ? ["max_input_tokens", "max_output_tokens"] : []),
+  ]) {
+    if (String(f.get(key) || "").trim()) base.budget_per_session[key] = n(key);
+  }
+  if (real && String(f.get("max_cost_usd") || "").trim())
+    base.budget_per_session.max_cost_usd = f.get("max_cost_usd");
   base.spending = real
-    ? {
-        allow_paid_calls: f.has("allow_paid_calls"),
-        max_total_usd: f.get("max_total_usd"),
-      }
+    ? { allow_paid_calls: f.has("allow_paid_calls") }
     : { allow_paid_calls: false, max_total_usd: 0 };
+  if (real && String(f.get("max_total_usd") || "").trim())
+    base.spending.max_total_usd = f.get("max_total_usd");
   return base;
 }
 function planMarkup(p) {
@@ -510,7 +1210,7 @@ function planMarkup(p) {
     p.mirrors_if_all_submit +
     p.g1_contemporary_matches +
     p.common_reference_matches;
-  return `<div class="info-row"><span>Conversations</span><strong>${fmt(p.sessions)}</strong></div><div class="info-row"><span>Evaluation matches</span><strong>${fmt(total)}</strong></div><div class="info-row"><span>Maximum preparation matches</span><strong>${fmt(p.max_preparation_matches)}</strong></div><div class="info-row"><span>Total API spending limit</span><strong>${money(p.max_cost_usd)}</strong></div><p class="muted" style="font-size:10px;margin-top:12px">Schedule assuming every participant submits a strategy. ${p.simulated ? "Mock run with no API calls." : "Reservations estimate cost; they do not confirm provider billing."}</p>`;
+  return `<div class="info-row"><span>Conversations</span><strong>${fmt(p.sessions)}</strong></div><div class="info-row"><span>Evaluation matches</span><strong>${fmt(total)}</strong></div><div class="info-row"><span>Maximum preparation matches</span><strong>${p.max_preparation_matches == null ? "Unlimited" : fmt(p.max_preparation_matches)}</strong></div><div class="info-row"><span>Total API spending limit</span><strong>${p.simulated ? "$0 (mock)" : p.max_cost_usd == null ? "No limit" : money(p.max_cost_usd)}</strong></div><p class="muted" style="font-size:10px;margin-top:12px">Schedule assuming every participant submits a strategy. ${p.simulated ? "Mock run with no API calls." : "Reservations estimate cost; they do not confirm provider billing."}</p>`;
 }
 async function launchDialog(draftId = null, runId = null) {
   const config = draftId
@@ -521,7 +1221,7 @@ async function launchDialog(draftId = null, runId = null) {
   openDialog(
     runId ? "Resume competition" : "Launch competition",
     config.name,
-    `<form data-form="launch">${planMarkup(p)}${p.simulated ? notice("Mock participants, real matches. No LLM calls or API charges.") : notice("Calls use the configured keys and prices. Calculated costs are not confirmed provider bills.", "warn")}<div>${config.models.map((m) => `<div class="info-row"><span>${e(m.id)}${m.provider !== "mock" ? `<small>${e(m.endpoint || (m.provider === "anthropic" ? "https://api.anthropic.com/v1/messages" : m.provider === "gemini" ? "https://generativelanguage.googleapis.com/v1beta" : "https://api.openai.com/v1/chat/completions"))}<br>Key: ${e(m.api_key_env)}</small>` : ""}</span><strong>${e(m.model || m.profile)}${m.provider !== "mock" ? `<small>Seed: ${m.parameters?.seed ?? (m.provider === "anthropic" ? "not available" : "not set")}</small>` : ""}</strong></div>`).join("")}</div>${!p.simulated ? `<label class="check" style="margin-top:20px"><input type="checkbox" name="confirm_paid" required>I authorize API calls up to the total spending limit of ${money(config.spending.max_total_usd)}.</label>` : ""}<div class="form-footer">${btn("Cancel", "close-dialog")}<button type="submit" class="button primary">${runId ? "Resume" : "Start competition"}</button></div></form>`,
+    `<form data-form="launch">${planMarkup(p)}${p.simulated ? notice("Mock participants, real matches. No LLM calls or API charges.") : notice("Calls use the configured keys and prices. Calculated costs are not confirmed provider bills.", "warn")}<div>${config.models.map((m) => `<div class="info-row"><span>${e(m.id)}${m.provider !== "mock" ? `<small>${e(m.endpoint || (m.provider === "anthropic" ? "https://api.anthropic.com/v1/messages" : m.provider === "gemini" ? "https://generativelanguage.googleapis.com/v1beta" : "https://api.openai.com/v1/chat/completions"))}<br>Key: ${e(m.api_key_env)}</small>` : ""}</span><strong>${e(m.model || m.profile)}${m.provider !== "mock" ? `<small>Seed: ${m.parameters?.seed ?? (m.provider === "anthropic" ? "not available" : "not set")}</small>` : ""}</strong></div>`).join("")}</div>${!p.simulated ? `<label class="check" style="margin-top:20px"><input type="checkbox" name="confirm_paid" required>I authorize API calls ${config.spending.max_total_usd == null ? "without an arena spending limit" : "with a configured total spending limit of " + money(config.spending.max_total_usd)}.</label>` : ""}<div class="form-footer">${btn("Cancel", "close-dialog")}<button type="submit" class="button primary">${runId ? "Resume" : "Start competition"}</button></div></form>`,
   );
 }
 const TABS = [
@@ -545,7 +1245,7 @@ function runHeader(d) {
       "Results, conversations and files.",
       `${active ? btn("■ Stop", "stop-job", `data-id="${e(job.id)}"`) : experiment && !d.archived ? btn("Resume", "resume") : ""}${experiment ? btn("Clone configuration", "clone-run") : ""}${experiment ? btn("Export", "export-run") : ""}`,
     ) +
-    `<div class="toolbar">${config.models ? (config.models.every((m) => m.provider === "mock") ? badge("MOCK RUN (no LLM calls)", "blue") : badge("REAL API CALLS", "orange")) : badge("Provided strategies")}${d.archived ? badge("Exported copy", "orange") : ""}${job ? status(job.status) : ""}<span class="mono muted" style="font-size:10px">${e(S.run)}</span><span class="spacer"></span>${job ? btn("Run log", "job-log", `data-id="${e(job.id)}"`) : ""}</div><div class="tabs">${TABS.map(([key, label]) => `<button class="tab ${S.tab === key ? "active" : ""}" data-action="tab" data-tab="${key}">${label}</button>`).join("")}</div>`
+    `<div class="toolbar">${config.models ? (config.models.every((m) => m.provider === "mock") ? badge("MOCK RUN (no LLM calls)", "blue") : badge("REAL API CALLS", "orange")) : badge("Provided strategies")}${d.archived ? badge("Exported copy", "orange") : ""}${job ? status(job.status === "failed" && d.report?.incomplete ? "incomplete" : job.status) : ""}<span class="mono muted" style="font-size:10px">${e(S.run)}</span><span class="spacer"></span>${job ? btn("Run log", "job-log", `data-id="${e(job.id)}"`) : ""}</div><div class="tabs">${TABS.map(([key, label]) => `<button class="tab ${S.tab === key ? "active" : ""}" data-action="tab" data-tab="${key}">${label}</button>`).join("")}</div>`
   );
 }
 function sessionChooser(d) {
@@ -634,6 +1334,25 @@ function summary(d, statistics = null) {
     rows = (a?.rows || []).filter((v) => v.panel === S.panel),
     done = d.sessions.filter((s) => s.status !== "running").length;
   return (
+    (r.incomplete
+      ? notice(
+          `<strong>Competition incomplete</strong><p>Some conversations did not produce an evaluable submission. Completed fights remain available.</p>${d.sessions
+            .filter((s) =>
+              [
+                "provider_unavailable",
+                "needs_reconciliation",
+                "generation_failed",
+                "no_submission",
+              ].includes(s.status),
+            )
+            .map(
+              (s) =>
+                `<p>${e(s.id)} · ${e(text(s.status))} ${btn("Show conversation", "session-conversation", `data-session="${e(s.id)}"`)}</p>`,
+            )
+            .join("")}`,
+          "warn",
+        )
+      : "") +
     (r.simulated
       ? notice(
           "<strong>Mock participants.</strong> Predefined strategies, real matches, no API calls.",
@@ -645,7 +1364,7 @@ function summary(d, statistics = null) {
           "warn",
         )
       : "") +
-    `<div class="metrics">${metric("Finished sessions", `${done} / ${d.sessions.length}`, `${r.valid_submissions ?? 0} valid submissions`)}${metric("Completed matches", fmt(completed(r)), "Evaluation only; preparation listed separately", "⚔")}${metric("API cost", r.cost_usd === undefined ? "N/A" : money(r.cost_usd), r.reserved_usd && Number(r.reserved_usd) > 0 ? `${money(r.reserved_usd)} reserved` : "Mock run or cost calculated from usage", "↗")}${metric("Input / output tokens", r.input_tokens == null ? "Not measured" : `${fmt(r.input_tokens)} / ${fmt(r.output_tokens)}`, r.simulated ? "No LLM tokens in mock runs" : "Unavailable values stay unknown", "≋")}</div>` +
+    `<div class="metrics">${metric("Finished sessions", `${done} / ${d.sessions.length}`, `${r.valid_submissions ?? 0} valid submissions`)}${metric("Completed matches", fmt(completed(r)), "Evaluation only; preparation listed separately", "⚔")}${metric("API cost", r.cost_usd === undefined ? "N/A" : money(r.cost_usd), r.reserved_usd === null ? "Pending call cost unknown" : r.reserved_usd && Number(r.reserved_usd) > 0 ? `${money(r.reserved_usd)} reserved` : "Mock run or cost calculated from usage", "↗")}${metric("Input / output tokens", r.input_tokens == null ? "Not measured" : `${fmt(r.input_tokens)} / ${fmt(r.output_tokens)}`, r.simulated ? "No LLM tokens in mock runs" : "Unavailable values stay unknown", "≋")}</div>` +
     (statistics ? competitionStatistics(statistics) : "") +
     (a
       ? `<section class="panel"><div class="panel-title"><div><h2>Strategy performance</h2><small>Initial and improved strategies evaluated against the same panel on final seeds.</small></div><select id="panel-choice" aria-label="Evaluation panel">${["all", "controls", "g0"].map((p) => `<option value="${p}" ${S.panel === p ? "selected" : ""}>${text(p)}</option>`).join("")}</select></div>${bars(rows.map((v) => ({ label: v.session, score: v.score })))}<p class="muted" style="font-size:11px;margin:13px 0 0">Score = (wins + 0.5 × draws) / completed matches. Mirrors are excluded. The full panel includes frozen initial strategies and handwritten controls.</p></section>
@@ -695,38 +1414,99 @@ function summary(d, statistics = null) {
     `<section class="panel">${raw(r, "Full summary and raw metrics")}${d.g0 ? raw(d.g0, "Initial strategy tournament: standings and mirrors") : ""}${d.g1 ? raw(d.g1, "Improved strategy tournament: standings and mirrors") : ""}${a ? raw(a, "Full analysis, missing results, aggregates and cost/performance frontier") : ""}</section>`
   );
 }
+let conversationValues = [];
+function conversationData(value, title) {
+  const index = conversationValues.push(value) - 1;
+  return `<details class="conversation-data" data-conversation-value="${index}"><summary>${e(title)}</summary><pre></pre></details>`;
+}
 function conversation(data) {
+  conversationValues = [];
+  const failure = data.failure;
   return (
-    notice(
-      "Recorded prompts, responses, tool calls and results. Internal reasoning is shown only when returned by the provider.",
-    ) +
-    `<div class="pager"><span>${fmt(data.total)} messages · ${status(data.status)}</span><div class="actions">${btn("← Previous", "conversation-page", `data-offset="${Math.max(0, S.offset - 25)}" ${S.offset === 0 ? "disabled" : ""}`)}<span>${S.offset + 1}-${Math.min(data.total, S.offset + 25)}</span>${btn("Next →", "conversation-page", `data-offset="${S.offset + 25}" ${S.offset + 25 >= data.total ? "disabled" : ""}`)}</div></div>` +
+    (failure
+      ? notice(
+          `<strong>${e(text(data.status))}</strong><p>${e(failure.message)}</p><small>${e(failure.phase)} · ${date(failure.at)}${failure.retryable ? " · Retryable API error" : ""}${failure.uncertain ? " · Check billing before resuming" : ""}</small>`,
+          "error",
+        )
+      : "") +
+    `<div class="pager"><span>${fmt(data.total)} messages · ${status(data.status)}</span><div class="actions">${btn("← Previous", "conversation-page", `data-offset="${Math.max(0, S.offset - 25)}" ${S.offset === 0 ? "disabled" : ""}`)}<span>${data.total ? S.offset + 1 : 0}-${Math.min(data.total, S.offset + 25)}</span>${btn("Next →", "conversation-page", `data-offset="${S.offset + 25}" ${S.offset + 25 >= data.total ? "disabled" : ""}`)}</div></div>` +
     data.messages
       .map((m, index) => {
-        const native = m.native,
-          content =
-            m.role === "user"
-              ? m.content
-              : m.role === "tool"
-                ? pretty(m.result)
-                : typeof native?.content === "string"
+        const absolute = S.offset + index,
+          native = m.native;
+        const content =
+          m.role === "user"
+            ? m.content
+            : m.role === "tool"
+              ? pretty(m.result)
+              : typeof native?.content === "string"
+                ? native.content
+                : Array.isArray(native?.content)
                   ? native.content
-                  : Array.isArray(native?.content)
-                    ? native.content
-                        .filter((v) => v.type === "text")
+                      .filter((v) => v.type === "text")
+                      .map((v) => v.text)
+                      .join("\n")
+                  : native?.parts
+                    ? native.parts
+                        .filter((v) => v.text && !v.thought)
                         .map((v) => v.text)
                         .join("\n")
-                    : native?.parts
-                      ? native.parts
-                          .filter((p) => p.text)
-                          .map((p) => p.text)
-                          .join("\n")
-                      : m.content || "";
-        return `<article class="chat-message ${e(m.role)}" id="message-${S.offset + index}"><div class="message-head"><strong>${m.role === "user" ? "PROMPT" : m.role === "assistant" ? "MODEL RESPONSE" : "TOOL RESULT"} ${m.name ? "· " + e(m.name) : ""}</strong><span>Message ${S.offset + index + 1}${m.generation != null ? " · " + generationLabel(m.generation) : ""}${m.simulated ? " · mock" : ""}</span></div>${content ? `<div class="message-content">${e(content)}</div>` : ""}${(m.tool_calls || []).map((c) => `<div class="tool-call"><strong>↳ ${e(c.name)}</strong><pre>${e(pretty(c.arguments))}</pre></div>`).join("")}${m.role === "user" && m.budgets ? raw({ budgets: m.budgets, scenario: m.scenario, feedback: m.feedback }, "Budgets, scenario and feedback in this message") : ""}${m.usage ? `<div style="margin-top:12px"><small>Input ${fmt(m.usage.input_tokens)} · Output ${fmt(m.usage.output_tokens)} · Cost ${money(m.cost_usd)} · ${fmt(m.elapsed_seconds, 3)} s</small></div>` : ""}${m.sent_parameters ? `<div class="request-meta"><small>Sent seed: ${e(m.sent_parameters.seed ?? m.sent_parameters.generationConfig?.seed ?? (m.provider === "anthropic" ? "not available" : m.simulated ? "not applicable" : "not set"))}${m.model_version ? ` · Returned model: ${e(m.model_version)}` : ""}${m.system_fingerprint ? ` · Backend: ${e(m.system_fingerprint)}` : ""}</small>${m.request_sha256 ? `<small class="mono">Request SHA-256 (canonical JSON): ${e(m.request_sha256)}</small>` : ""}${raw(m.sent_parameters, "Sent request: prompts, history, tools and parameters")}</div>` : ""}${raw(m, "Full record: native response, request, tools and metadata")}</article>`;
+                    : m.content || "";
+        const direction =
+          m.role === "user"
+            ? "Arena → Model"
+            : m.role === "tool"
+              ? `Tool → Model · ${m.name}`
+              : `${data.model || "Model"} → Arena`;
+        const resultError =
+          m.role === "tool" && (m.result?.error || m.result?.valid === false);
+        const display = data.timeline?.[index] || {};
+        const calls = (m.tool_calls || [])
+          .map(
+            (call, n) =>
+              `<section class="tool-call" id="call-${absolute}-${n}"><strong>Model → Tool · ${e(call.name)}</strong><small>Call ${n + 1} in this response${call.id ? " · " + e(call.id) : ""}</small>${conversationData(call.arguments, "Tool arguments")}</section>`,
+          )
+          .join("");
+        const snippet = String(content || "").slice(0, 1800);
+        return `<article class="chat-message ${e(m.role)} ${resultError ? "tool-error" : ""}" id="message-${absolute}"><div class="message-head"><strong>${e(direction)}${m.simulated ? " · predefined strategy" : ""}</strong><span>Message ${absolute + 1} · ${data.times?.[index] ? date(data.times[index]) : "Time not recorded"}</span></div>${display.reply_to != null ? `<p class="message-reply">Result of tool request in message ${display.reply_to + 1}${display.reply_to >= S.offset && display.reply_to < S.offset + 25 ? ` · <a href="#message-${display.reply_to}" data-action="message-anchor" data-index="${display.reply_to}">Go to request</a>` : ""}${m.call_id ? " · " + e(m.call_id) : ""}</p>` : ""}${resultError ? badge("Tool error", "red") : ""}${snippet ? `<div class="message-content">${e(snippet)}${content.length > 1800 ? "\n[Preview truncated; open the full record below.]" : ""}</div>` : m.role === "assistant" && calls ? '<p class="muted">The model requested tools without a text response.</p>' : ""}${m.briefing ? `<div class="game-brief"><strong>Game briefing sent to the model</strong><p>${e(m.briefing.game)}</p><p>${e(m.briefing.objective)}</p><p>${e(m.briefing.team_mode)}</p></div>` : ""}${calls}${m.role === "user" ? conversationData(Object.fromEntries(Object.entries(m).filter(([key]) => !["role", "content", "request_recorded", "request_seed"].includes(key))), "Scenario, roster, ID guide and preparation rules sent to the model") : ""}${m.usage ? `<small>Input ${fmt(m.usage.input_tokens)} · Output ${fmt(m.usage.output_tokens)} · Cost ${money(m.cost_usd)} · Response took ${fmt(m.elapsed_seconds, 3)} s</small>` : ""}${m.request_recorded ? `<p class="muted">Sent seed: ${e(m.request_seed ?? "not set")}${m.stop_reason ? " · Stop reason: " + e(m.stop_reason) : ""}</p>` : ""}<details data-message-record="${absolute}" data-record-run="${e(S.run)}" data-record-session="${e(S.session)}"><summary>Full record: exact request, native response and metadata</summary><pre></pre></details></article>`;
       })
       .join("")
   );
 }
+document.addEventListener(
+  "toggle",
+  async (event) => {
+    const node = event.target;
+    if (
+      !node.open ||
+      node.dataset.loaded ||
+      !node.matches(
+        "details[data-conversation-value], details[data-message-record]",
+      )
+    )
+      return;
+    node.dataset.loaded = "true";
+    const output = $("pre", node);
+    try {
+      if (node.dataset.messageRecord != null) {
+        output.textContent = "Loading exact record...";
+        const record = await api("/api/message", {
+          run: node.dataset.recordRun,
+          session: node.dataset.recordSession,
+          index: node.dataset.messageRecord,
+        });
+        output.textContent = pretty(record.message);
+      } else
+        output.textContent = pretty(
+          conversationValues[Number(node.dataset.conversationValue)],
+        );
+    } catch (error) {
+      output.textContent = error.message;
+      delete node.dataset.loaded;
+    }
+  },
+  true,
+);
 function codePage(data) {
   if (!data.versions.length)
     return empty(
@@ -741,7 +1521,7 @@ function codePage(data) {
   S.file = current.files.includes(S.file) ? S.file : current.files[0];
   return (
     notice(
-      "Each successful file write creates a version in the journal. Improved versions include inherited initial history. Git is not required in participant folders.",
+      "Each successful source write or team configuration creates a version in the journal. Improved versions include inherited initial history. Git is not required in participant folders.",
     ) +
     `<div class="code-grid"><section class="panel"><h3>File write history</h3><div class="version-list">${data.versions.map((v) => `<button class="version-button ${v.index === S.version ? "active" : ""}" data-action="version" data-version="${v.index}"><strong>Version ${v.index + 1} <span class="timeline-tag">${generationLabel(v.generation)}</span></strong>${e(v.path)}<small>After message ${v.message + 1} · ${v.files.length} files</small></button>`).join("")}</div></section><section class="panel"><div class="toolbar"><select id="source-file" aria-label="File">${current.files.map((f) => `<option ${f === S.file ? "selected" : ""}>${e(f)}</option>`).join("")}</select><span class="spacer"></span>${btn("Open conversation", "version-message", `data-message="${current.message}"`)}</div><div class="toolbar"><label for="source-previous">Compare with</label><select id="source-previous"><option value="-1">Empty state</option>${data.versions
       .slice(0, S.version)
@@ -936,7 +1716,7 @@ async function loadMatch() {
       entities: Object.fromEntries(
         R.fight.leeks.map((l) => [
           l.id,
-          { ...l, maxLife: l.life, alive: !l.summon },
+          { ...l, maxLife: l.life, born: !l.summon, alive: !l.summon },
         ]),
       ),
       actor: null,
@@ -983,6 +1763,8 @@ function replayState(index) {
     if (code === 9 && entity(a[2]) && a[4] === 1) {
       entity(a[2]).cellPos = a[3];
       entity(a[2]).alive = true;
+      entity(a[2]).born = true;
+      entity(a[2]).summoner = a[1];
     }
     if (code === 105 && entity(a[2]))
       Object.assign(entity(a[2]), {
@@ -990,6 +1772,7 @@ function replayState(index) {
         life: a[4],
         maxLife: a[5],
         alive: true,
+        born: true,
       });
     if ((i + 1) % 100 === 0) R.cache.set(i + 1, structuredClone(state));
   }
@@ -1018,19 +1801,19 @@ function renderReplay(index) {
     R.cells
       .map(
         (c) =>
-          `<polygon class="tile ${obstacles[c.id] ? "obstacle" : ""}" points="${c.x - 12},${c.y} ${c.x},${c.y - 6} ${c.x + 12},${c.y} ${c.x},${c.y + 6}"><title>Case ${c.id}${obstacles[c.id] ? " · obstacle" : ""}</title></polygon>`,
+          `<polygon class="tile ${obstacles[c.id] ? "obstacle" : ""}" points="${c.x - 12},${c.y} ${c.x},${c.y - 6} ${c.x + 12},${c.y} ${c.x},${c.y + 6}"><title>Cell ${c.id}${obstacles[c.id] ? " · obstacle" : ""}</title></polygon>`,
       )
       .join("") +
     (shot && origin
       ? `<line x1="${origin.x}" y1="${origin.y}" x2="${shot.x}" y2="${shot.y}" stroke="#df8f45" stroke-width="2" stroke-dasharray="3 2"/>`
       : "") +
     entities
-      .filter((v) => !v.summon || v.alive)
+      .filter((v) => v.born)
       .map((v) => {
         const c = R.cellsById.get(v.cellPos);
         if (!c) return "";
         const color = v.team === 1 ? "#5278e5" : "#c77749";
-        return `<g class="${v.alive ? "" : "dead"}"><ellipse cx="${c.x}" cy="${c.y + 2}" rx="10" ry="5" fill="${color}" opacity=".18"/>${state.actor === v.id ? `<circle cx="${c.x}" cy="${c.y - 5}" r="10" fill="none" stroke="${color}" stroke-width="1"/>` : ""}<circle cx="${c.x}" cy="${c.y - 5}" r="7" fill="${color}"/><text class="entity-label" x="${c.x}" y="${c.y - 5}">${v.id}</text><rect x="${c.x - 9}" y="${c.y - 16}" width="18" height="2" rx="1" fill="#cdd6e7"/><rect x="${c.x - 9}" y="${c.y - 16}" width="${18 * Math.max(0, Math.min(1, v.life / (v.maxLife || 1)))}" height="2" rx="1" fill="${color}"/><title>${e(v.name)} · ${v.life}/${v.maxLife} HP · cell ${v.cellPos}</title></g>`;
+        return `<g data-entity="${v.id}" data-summon="${!!v.summon}" class="${v.alive ? "" : "dead"}"><ellipse cx="${c.x}" cy="${c.y + 2}" rx="10" ry="5" fill="${color}" opacity=".18"/>${state.actor === v.id ? `<circle cx="${c.x}" cy="${c.y - 5}" r="10" fill="none" stroke="${color}" stroke-width="1"/>` : ""}${v.summon ? `<rect x="${c.x - 6}" y="${c.y - 11}" width="12" height="12" rx="2" fill="${color}"/>` : `<circle cx="${c.x}" cy="${c.y - 5}" r="7" fill="${color}"/>`}<text class="entity-label" x="${c.x}" y="${c.y - 5}">${v.id}</text><rect x="${c.x - 9}" y="${c.y - 16}" width="18" height="2" rx="1" fill="#cdd6e7"/><rect x="${c.x - 9}" y="${c.y - 16}" width="${18 * Math.max(0, Math.min(1, v.life / (v.maxLife || 1)))}" height="2" rx="1" fill="${color}"/><title>${e(v.name)} · ${v.life}/${v.maxLife} HP · cell ${v.cellPos}</title></g>`;
       })
       .join("");
   $("#replay-range").value = index;
@@ -1039,9 +1822,10 @@ function renderReplay(index) {
     : "Initial positions";
   $("#replay-count").textContent = `Action ${index} / ${R.events.length}`;
   $("#replay-entities").innerHTML = entities
+    .filter((v) => v.born)
     .map(
       (v) =>
-        `<div class="entity-card"><strong style="color:${v.team === 1 ? "#5278e5" : "#c77749"}">● ${e(v.name)} (#${v.id})</strong><span style="float:right">${v.life} / ${v.maxLife} HP</span><div class="hp-track"><div class="hp-fill" style="width:${Math.max(0, Math.min(100, (100 * v.life) / (v.maxLife || 1)))}%;background:${v.team === 1 ? "#5278e5" : "#c77749"}"></div></div></div>`,
+        `<div class="entity-card"><strong style="color:${v.team === 1 ? "#5278e5" : "#c77749"}">${v.summon ? "◆ Summon · " : "● "}${e(v.name)} (#${v.id})</strong><span style="float:right">${v.life} / ${v.maxLife} HP</span><div class="hp-track"><div class="hp-fill" style="width:${Math.max(0, Math.min(100, (100 * v.life) / (v.maxLife || 1)))}%;background:${v.team === 1 ? "#5278e5" : "#c77749"}"></div></div></div>`,
     )
     .join("");
   $("#replay-events").innerHTML = R.events
@@ -1155,8 +1939,8 @@ function comparisonResult(data) {
           `<section class="panel"><div class="panel-title"><div><h2>Comparison group ${i + 1}</h2><small>${g.runs.length} competitions; same rules, seeds and fixed opponents</small></div>${badge(g.protocol.simulated ? "Simulation" : "Real API calls", g.protocol.simulated ? "blue" : "orange")}</div>${lineChart(g)}<div style="margin-top:22px">${table(
             [
               "Model / condition",
-              "Score moyen",
-              "Conversations retenues",
+              "Mean score",
+              "Included conversations",
               "Incomplete",
               "Competitions",
               "API cost",
@@ -1184,6 +1968,7 @@ function comparisonResult(data) {
 function helpPage() {
   return (
     head("Help", "Experiment design, scoring and recorded data.") +
+    `<section class="panel"><h2>Documentation</h2><div class="actions">${btn("Interface guide", "reference", 'data-document="ui"')}${btn("API providers and pricing", "reference", 'data-document="providers"')}${btn("Strategy authoring", "reference", 'data-document="authoring"')}${btn("Game rules", "reference", 'data-document="rules"')}${btn("Realistic stats", "reference", 'data-document="stats"')}${btn("API usage guide", "reference", 'data-document="api-guide"')}${btn("LeekScript API reference", "reference", 'data-document="api"')}</div></section>` +
     `<div class="help-grid">${[
       [
         "Participants and conversations",
@@ -1200,6 +1985,14 @@ function helpPage() {
       [
         "Mock participants",
         "Mocks follow predefined scripts. Compilation, diagnostics and Java matches are real, but the generated strategies do not measure LLM performance.",
+      ],
+      [
+        "Preparation limits and quality benchmarks",
+        "A model call is one API response; tool calls are the requested actions such as writing code or testing a team. New competitions have no arena preparation limits. Leave optional limits blank to compare final strategy quality and measure the resources each model actually uses. Existing configurations and demos retain their limits.",
+      ],
+      [
+        "Team building and equipment",
+        "Shared mode fixes the team and equipment for all participants. Participant mode lets each model choose up to the maximum team size, a script per member, weapons and chips. Members can have different stats; realistic mode validates each capital allocation. Allowlists, slots and member level restrict equipment. In realistic mode, RAM also sets chip capacity; weapon capacity is 2 below level 100, 3 below 200, then 4. Competition caps can only reduce these capacities. Successful configure_team calls create team.json versions, inherited by improvement branches. The item selector shows the pinned player equipment catalog; items above the leek level are locked in realistic mode. Weapon IDs use the catalog item field; chip IDs use catalog keys. Replay events use template IDs.",
       ],
       [
         "Costs and tokens",
@@ -1248,7 +2041,25 @@ document.addEventListener("click", async (event) => {
   const a = node.dataset.action;
   try {
     if (a === "go") navigate(node.dataset.view);
-    else if (a === "refresh") {
+    else if (a === "character-tab") {
+      $$("[data-member-build]").forEach((card) => {
+        card.hidden = card.dataset.memberBuild !== node.dataset.index;
+      });
+      $$(".character-tabs button").forEach((button) => {
+        const selected = button === node;
+        button.setAttribute("aria-pressed", String(selected));
+        button.classList.toggle("primary", selected);
+      });
+    } else if (a === "reference") {
+      const document = await api("/api/reference", {
+        document: node.dataset.document,
+      });
+      openDialog(
+        document.title,
+        "Repository documentation",
+        `<div class="markdown">${markdownView(document.content)}</div>`,
+      );
+    } else if (a === "refresh") {
       await refreshBoot();
       await renderRoute();
       toast("Data refreshed.");
@@ -1269,16 +2080,18 @@ document.addEventListener("click", async (event) => {
           true,
         );
         if (!form.isConnected) return;
-        $("#available-models").innerHTML =
-          `<option value="">Select a model...</option>` +
-          data.models
-            .map(
-              (m) =>
-                `<option value="${e(m.id)}">${e(m.name)} · ${e(m.id)}</option>`,
-            )
-            .join("");
+        S.catalogModels = data.models;
+        $("#available-models").hidden = false;
+        $("#model-search-field").hidden = false;
+        $("#model-search").value = "";
+        renderModelCatalog();
+        const excluded = data.excluded || [];
+        $("#excluded-models").hidden = !excluded.length;
+        $("#excluded-model-list").innerHTML = excluded
+          .map((m) => `<p><code>${e(m.id)}</code><br>${e(m.reason)}</p>`)
+          .join("");
         $("#model-list-status").textContent =
-          `${data.models.length} models${data.truncated ? " · partial list" : ""}. Chat and tool support depend on the model.`;
+          `${data.models.length} candidate models listed by this API key · ${excluded.length} incompatible models excluded${data.truncated ? " · partial catalog" : ""}. Catalog visibility does not guarantee chat/tool access; no generation request was made.`;
       } catch (error) {
         if (form.isConnected)
           $("#model-list-status").textContent =
@@ -1286,6 +2099,10 @@ document.addEventListener("click", async (event) => {
       } finally {
         node.disabled = false;
       }
+    } else if (a === "select-model") {
+      node.closest("form").elements.model.value = node.dataset.model;
+      $("#model-search").value = node.dataset.model;
+      renderModelCatalog();
     } else if (a === "edit-participant") participantDialog(node.dataset.id);
     else if (a === "delete-participant") {
       await api("/api/participant/delete", { id: node.dataset.id }, true);
@@ -1298,11 +2115,45 @@ document.addEventListener("click", async (event) => {
     } else if (a === "new-competition" || a === "new-demo") {
       S.editDraft = null;
       S.editConfig =
-        a === "new-demo"
-          ? structuredClone(S.boot.default_config)
-          : freshConfig();
+        a === "new-demo" ? structuredClone(S.boot.demo_config) : freshConfig();
       navigate("editor");
       if (S.view === "editor") await renderRoute();
+    } else if (
+      a === "preset-simple" ||
+      a === "preset-dream" ||
+      a === "preset-dream-json" ||
+      a === "preset-dream-refresh" ||
+      a === "preset-llm"
+    ) {
+      const config = readCompetition($("#competition-form"));
+      node.disabled = true;
+      try {
+        if (a === "preset-simple")
+          config.scenario = structuredClone(S.boot.default_config.scenario);
+        else if (a === "preset-llm")
+          config.scenario = structuredClone(S.boot.participant_scenario);
+        else {
+          $("#preset-status").textContent =
+            a === "preset-dream-refresh"
+              ? "Refreshing the saved public team…"
+              : "Loading the saved Dream team preset…";
+          const args =
+            a === "preset-dream-json"
+              ? { snapshot: JSON.parse($("#dream-snapshot").value) }
+              : a === "preset-dream-refresh"
+                ? { refresh: true }
+                : {};
+          config.scenario = (await api("/api/dream-team", args, true)).scenario;
+        }
+        S.editConfig = config;
+        await renderRoute();
+      } catch (error) {
+        $("#preset-status").textContent =
+          error.message + ". The current roster was kept.";
+        throw error;
+      } finally {
+        node.disabled = false;
+      }
     } else if (a === "edit-draft") {
       const d = S.boot.drafts.find((d) => d.id === node.dataset.id);
       S.editDraft = d.id;
@@ -1327,6 +2178,7 @@ document.addEventListener("click", async (event) => {
       await api("/api/plan", { config }, true);
       S.editConfig = config;
       $("#main").innerHTML = competitionEditor();
+      updateStatPreviews();
       toast("Configuration imported. Review before saving.");
     } else if (a === "launch") await launchDialog(node.dataset.id);
     else if (a === "resume") await launchDialog(null, S.run);
@@ -1393,13 +2245,36 @@ document.addEventListener("click", async (event) => {
     } else if (a === "stop-job") {
       await api("/api/stop", { id: node.dataset.id }, true);
       toast("Stop requested. Checkpoints are kept.");
+    } else if (a === "copy-log") {
+      const content = $("#job-log-live").textContent;
+      if (navigator.clipboard?.writeText)
+        await navigator.clipboard.writeText(content);
+      else {
+        const input = document.createElement("textarea");
+        input.value = content;
+        $("#dialog").append(input);
+        input.select();
+        const copied = document.execCommand("copy");
+        input.remove();
+        if (!copied)
+          throw new Error(
+            "Clipboard unavailable; select and copy the log text.",
+          );
+      }
+      toast("Log copied");
+    } else if (a === "message-anchor") {
+      event.preventDefault();
+      $("#message-" + node.dataset.index)?.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+      });
     } else if (a === "job-log") {
       S.logJob = node.dataset.id;
       const data = await api("/api/job", { id: S.logJob });
       openDialog(
         "Run log",
         `${data.job.name} · ${text(data.job.status)}`,
-        `<pre id="job-log-live" class="run-log">${e(data.content || "Initialization...")}</pre><small>Last 128 KB of the log.</small>`,
+        `${btn("Copy log", "copy-log")}<pre id="job-log-live" class="run-log">${e(data.content || "Initialization...")}</pre><small>Last 128 KB of the log.</small>`,
       );
     }
   } catch (error) {
@@ -1425,8 +2300,6 @@ document.addEventListener("submit", async (event) => {
         Object.assign(spec, {
           model: f.get("model"),
           api_key_env: f.get("api_key_env"),
-          max_input_tokens_per_call: Number(f.get("max_input_tokens_per_call")),
-          max_output_tokens: Number(f.get("max_output_tokens")),
           timeout_seconds: Number(f.get("timeout_seconds")),
           max_retries: Number(f.get("max_retries")),
           parameters: JSON.parse(f.get("parameters") || "{}"),
@@ -1437,6 +2310,9 @@ document.addEventListener("submit", async (event) => {
             output_per_million: f.get("output_price"),
           },
         });
+        for (const key of ["max_input_tokens_per_call", "max_output_tokens"]) {
+          if (String(f.get(key) || "").trim()) spec[key] = Number(f.get(key));
+        }
         if (f.has("model_seed")) {
           if (f.get("model_seed") !== "")
             spec.parameters.seed = Number(f.get("model_seed"));
@@ -1507,8 +2383,54 @@ document.addEventListener("change", async (event) => {
             : provider === "gemini"
               ? "ARENA_GEMINI_KEY"
               : "ARENA_OPENAI_KEY";
-    } else if (n.id === "available-models") {
-      if (n.value) n.form.elements.model.value = n.value;
+    } else if (n.matches(".equipment-check")) {
+      const picker = n.closest(".equipment-picker");
+      const checked = $$(".equipment-check:checked", picker).map((el) =>
+        Number(el.value),
+      );
+      const previous = String(n.form.elements[picker.dataset.name].value)
+        .split(",")
+        .filter((id) => id.trim())
+        .map(Number);
+      const ids = [
+        ...previous.filter((id) => checked.includes(id)),
+        ...checked.filter((id) => !previous.includes(id)),
+      ];
+      n.form.elements[picker.dataset.name].value = ids.join(", ");
+      $(".equipment-selection", picker).textContent =
+        ids
+          .map((id) => S.equipment[picker.dataset.kind][id]?.name || id)
+          .join(", ") || picker.dataset.empty;
+      if (picker.dataset.kind === "components")
+        syncComponentStats(picker.closest("[data-member-build]"));
+      updateStatPreviews(false);
+    } else if (n.name === "realistic_stats" || n.name === "team_size") {
+      await rebuildStatFields();
+    } else if (n.name === "entity_level") {
+      $$("[data-member-level]", n.form).forEach((input) => {
+        input.value = n.value;
+      });
+      updateStatPreviews();
+    } else if (n.matches("input[data-stat]")) {
+      if ($("#member-stat-builds").dataset.mode === "realistic-v1") {
+        const level = Number(
+          $("[data-member-level]", n.closest("[data-member-build]")).value,
+        );
+        const bonus =
+          componentBonuses(
+            selectedComponents(n.closest("[data-member-build]")),
+          )[n.dataset.stat] || 0;
+        const current = Number(n.value) - bonus;
+        const choice = statChoices(n.dataset.stat, level).find(
+          (c) => c.value >= current,
+        );
+        if (choice) n.value = choice.value + bonus;
+      }
+      updateStatPreviews(false);
+    } else if (n.matches("[data-member-level]")) {
+      updateStatPreviews();
+    } else if (n.name === "team_mode") {
+      updateTeamMode();
     } else if (n.id === "metric-set") {
       S.metricSet = n.value;
       if (S.tab === "summary")
@@ -1572,10 +2494,37 @@ document.addEventListener("input", (event) => {
         f.path.toLowerCase().includes(n.value.toLowerCase()),
       ),
     );
+  if (n.matches("[data-stat-slider]")) {
+    const section = n.closest("[data-member-build]"),
+      key = n.dataset.statSlider;
+    const level = Number($("[data-member-level]", section).value);
+    const components = selectedComponents(section),
+      bonus = componentBonuses(components);
+    let value = Number(n.value);
+    if ($("#member-stat-builds").dataset.mode === "realistic-v1")
+      value =
+        statChoices(key, level).reduce((best, c) =>
+          Math.abs(c.value + (bonus[key] || 0) - value) <
+          Math.abs(best.value + (bonus[key] || 0) - value)
+            ? c
+            : best,
+        ).value + (bonus[key] || 0);
+    $(`[data-stat="${key}"]`, section).value = value;
+    updateStatPreviews(false);
+  }
+  if (n.matches("input[data-stat]") || n.matches("[data-member-level]"))
+    updateStatPreviews(false);
+  if (n.matches(".equipment-search")) {
+    for (const item of $$(".equipment-option", n.closest(".equipment-picker")))
+      item.hidden = !item.dataset.search.includes(n.value.toLowerCase());
+  }
+  if (n.id === "model-search") renderModelCatalog();
   if (n.id === "match-search") filterMatches().catch(showError);
   if (n.id === "replay-range") renderReplay(Number(n.value));
 });
 $("#dialog").addEventListener("close", () => {
+  hideHelp();
+  document.body.appendChild($("#toast"));
   S.logJob = null;
 });
 window.addEventListener("hashchange", route);
@@ -1596,6 +2545,7 @@ setInterval(async () => {
       S.view === "run" &&
       !$("#dialog").open &&
       (S.tab === "summary" || S.follow) &&
+      !(S.tab === "conversation" && $(".chat-message details[open]")) &&
       (activeJobs().some((j) => j.run === S.run) ||
         S.boot.runs.some(
           (r) =>
@@ -1642,7 +2592,7 @@ refreshBoot()
   .then(route)
   .catch((error) => {
     $("#main").innerHTML = empty(
-      "Connexion impossible",
+      "Connection failed",
       error.message,
       btn("Retry", "refresh"),
     );
@@ -1842,24 +2792,26 @@ function combatTable(rows, perTurn = false) {
       ? COMBAT_COLUMNS
       : COMBAT_COLUMNS.filter(([key]) => METRIC_SETS[selection].includes(key));
   const mean = columns.some(([key]) => key === "operations");
+  const showLimit = rows.some((row) => row.operations_limit_per_turn != null);
   return table(
     [
       ...(perTurn ? ["Turn"] : []),
       "Leek / strategy",
       ...columns.map(([, label]) => label),
       ...(mean ? ["Ops / played turn"] : []),
+      ...(showLimit ? ["Ops limit / turn"] : []),
     ],
     rows.map(
       (row) =>
-        `<tr>${perTurn ? `<td>${e(row.turn)}</td>` : ""}<td>${e(row.name || row.id)}${row.side != null ? `<small>Side ${row.side + 1} · #${row.entity}</small>` : ""}</td>${columns.map(([key]) => `<td>${fmt(row[key])}</td>`).join("")}${mean ? `<td>${fmt(row.operations != null && row.ai_turns ? row.operations / row.ai_turns : null, 1)}</td>` : ""}</tr>`,
+        `<tr>${perTurn ? `<td>${e(row.turn)}</td>` : ""}<td>${e(row.name || row.id)}${row.side != null ? `<small>Side ${row.side + 1} · #${row.entity}</small>` : ""}</td>${columns.map(([key]) => `<td>${fmt(row[key])}</td>`).join("")}${mean ? `<td>${fmt(row.operations != null && row.ai_turns ? row.operations / row.ai_turns : null, 1)}</td>` : ""}${showLimit ? `<td>${fmt(row.operations_limit_per_turn)}</td>` : ""}</tr>`,
     ),
   );
 }
 function combatStatistics(data) {
-  return `<section class="combat-statistics"><h3>Match statistics</h3>${metricSetPicker()}<p class="muted">Limit: ${fmt(data.operations_limit_per_turn)} operations per played turn and leek (${e(data.limit_source)}). ${e(data.action_definition)}</p>${data.missing.map((m) => notice(e(m))).join("")}<h3>Match and team totals</h3>${combatTable([data.total, ...data.sides])}<h3>Totals by leek</h3>${combatTable(data.entities)}<details><summary>Totals by turn</summary>${combatTable(data.rounds, true)}</details><details><summary>Details by turn and leek</summary>${combatTable(data.turns, true)}</details></section>`;
+  return `<section class="combat-statistics"><h3>Match statistics</h3>${metricSetPicker()}<p class="muted">Limit: ${data.operation_limits?.length > 1 ? "varies by leek; see the per-leek rows" : fmt(data.operations_limit_per_turn) + " operations per played turn and leek"} (${e(data.limit_source)}). ${e(data.action_definition)}</p>${data.missing.map((m) => notice(e(m))).join("")}<h3>Match and team totals</h3>${combatTable([data.total, ...data.sides])}<h3>Totals by leek</h3>${combatTable(data.entities)}<details><summary>Totals by turn</summary>${combatTable(data.rounds, true)}</details><details><summary>Details by turn and leek</summary>${combatTable(data.turns, true)}</details></section>`;
 }
 function competitionStatistics(data) {
-  return `<section class="panel"><h2>Match statistics</h2><p class="muted">Limit: ${fmt(data.operations_limit_per_turn)} operations per played turn and leek. Actions count moves, weapon changes, shots and chips. Totals include mirrors; matrices exclude them.</p><div class="form-grid">${metricSetPicker()}<label class="field">Stage<select id="statistics-stage">${data.stages.map((g, i) => `<option value="${i}">${e(stageText(g.stage))}</option>`).join("")}</select></label></div><div id="statistics-stage-detail">${statisticsStage(data.stages[0])}</div></section>`;
+  return `<section class="panel"><h2>Match statistics</h2><p class="muted">Limit: ${data.operation_limits?.length > 1 ? "varies by leek: " + data.operation_limits.map((v) => fmt(v)).join(", ") : fmt(data.operations_limit_per_turn)} operations per played turn and leek. Actions count moves, weapon changes, shots and chips. Totals include mirrors; matrices exclude them.</p><div class="form-grid">${metricSetPicker()}<label class="field">Stage<select id="statistics-stage">${data.stages.map((g, i) => `<option value="${i}">${e(stageText(g.stage))}</option>`).join("")}</select></label></div><div id="statistics-stage-detail">${statisticsStage(data.stages[0])}</div></section>`;
 }
 function statisticsStage(group) {
   if (!group) return empty("No recorded matches", "");

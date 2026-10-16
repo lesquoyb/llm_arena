@@ -67,17 +67,20 @@ def cost(usage, pricing):
 def reservation(model, history, tools, remaining_output):
     # Configured upper bounds, not a tokenizer-independent claim of strict billing.
     import json
-    input_bound = model["max_input_tokens_per_call"]
-    output_bound = min(model["max_output_tokens"], remaining_output)
-    if output_bound <= 0:
+    limits = [v for v in (model.get("max_output_tokens"), remaining_output) if v is not None]
+    output_bound = min(limits) if limits else None
+    if output_bound is not None and output_bound <= 0:
         raise ArenaError("Output token budget exhausted")
     from .api_providers import APIProvider
     payload = APIProvider(model).payload(history, tools, output_bound)
-    if len(json.dumps(payload, ensure_ascii=False).encode()) > input_bound:
+    request_bytes = len(json.dumps(payload, ensure_ascii=False).encode())
+    input_bound = model.get("max_input_tokens_per_call", request_bytes)
+    if "max_input_tokens_per_call" in model and request_bytes > input_bound:
         raise ArenaError("Request exceeds conservative UTF-8 input admission bound")
     p = model["pricing"]
     input_rate = max(amount(p.get(key, p["input_per_million"])) for key in
                      ("input_per_million", "cached_input_per_million", "cache_creation_per_million"))
-    bound = (input_bound * input_rate + output_bound * amount(p["output_per_million"])) / Decimal(1_000_000)
-    return {"input_bound": input_bound, "output_bound": output_bound, "cost_bound": str(bound),
-            "strict": False, "basis": "configured input bound; provider billing not independently confirmed"}
+    bound = ((input_bound * input_rate + output_bound * amount(p["output_per_million"])) / Decimal(1_000_000)
+             if output_bound is not None else None)
+    return {"input_bound": input_bound, "output_bound": output_bound, "cost_bound": str(bound) if bound is not None else None,
+            "strict": False, "basis": "configured input bound or serialized UTF-8 bytes; unlimited output reserves remaining funds; provider billing not independently confirmed"}

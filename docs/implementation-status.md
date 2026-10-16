@@ -9,7 +9,7 @@ and [interface guide](ui.md).
 | Installation | Linux and native Windows bootstrap, pinned toolchains, checksum verification, CI, paths with spaces, stable build archives and strict runtime identity. |
 | Storage | Validated manifests, SQLite schema migration 1 to 2, transactional checkpoints, lineage, hashed artifacts, single-writer lock and standalone exports. |
 | Tools and MCP | Eight shared tools, pinned MCP SDK, stdio client tests, quotas, path isolation and Java workers without provider keys. |
-| Documentation | Corpus index, rules, syntax and example API behavior; pinned signatures and equipment data. Three versioned French experiment prompts remain under `prompts/fr`. |
+| Documentation | Corpus index, rules, syntax and example API behavior; pinned signatures and equipment data. English experiment prompts and a gameplay-only briefing explain the scenario and runtime IDs; original imported profiles remain in provenance. |
 | Sessions | Mock participants, repair after real diagnostics, preparation tests and replays, missing/invalid submissions, failure profiles and resume. |
 | Providers and costs | OpenAI, compatible endpoints, Anthropic and native Gemini; model catalogs, supported seeds, native history, usage/cache accounting, Decimal costs, reservations and uncertain-call handling. |
 | initial/improved strategies | Paired control/feedback branches from the same initial strategy checkpoint; separate seeds; contemporary and common-panel evaluation. |
@@ -32,3 +32,17 @@ distributed execution, advanced batch scheduling and opponent-source disclosure
 conditions. The optional polyglot runtime is not validated. Check GitHub workflow
 results for the commit being used. A saved cloud configuration must be published
 through environment settings before it is available to a new environment.
+
+Participant team mode supports 1..maximum team size, per-member code and equipment,
+per-member stats, level/slot/allowlist validation, journaled `configure_team`, hashed
+`team.json`, per-member analysis and inherited improvement checkpoints. Shared
+team mode remains the default. New UI competitions leave all preparation limits
+blank; calls, tools, tests, tokens, time and cost remain recorded. Equipment
+selectors show the complete pinned catalog and item definitions; field tips and
+in-app document readers explain settings. Existing configurations keep their limits.
+
+New competitions default to realistic-v1 stat builds: official base stats and
+capital tiers pinned to the official client source. Per-leek components add bonuses after capital allocation, with level, duplicate,
+eight-slot and alteration charge/capacity validation. Current component stats and
+alteration parameters are frozen together in corpus/component-rules.json. Free mode and legacy scenarios retain raw stat values.
+RAM help distinguishes tracked combat-script memory from LLM context and Java heap.

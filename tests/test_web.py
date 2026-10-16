@@ -67,6 +67,19 @@ class WebContractTests(unittest.TestCase):
         self.addCleanup(self.tmp.__exit__, None, None, None)
         self.store = Store(self.root / "runs", self.root / "ui")
 
+    def test_pinned_equipment_catalog_and_reference_documents(self):
+        from arena_web.server import Application
+        app = Application(self.store)
+        catalog = app.get("/api/equipment", {})
+        self.assertEqual(catalog["weapons"]["37"]["name"], "pistol")
+        self.assertEqual(catalog["weapons"]["408"]["name"], "odachi")
+        self.assertEqual(catalog["effects"]["1"], "Damage")
+        self.assertGreater(len(catalog["chips"]), 100)
+        document = app.get("/api/reference", {"document": ["api"]})
+        self.assertIn("LeekScript", document["content"])
+        with self.assertRaises(ArenaError):
+            app.get("/api/reference", {"document": ["../engine.lock.json"]})
+
     def test_live_reader_tolerates_journal_before_schema_initialization(self):
         root = self.store.runs / "starting"
         root.mkdir()

@@ -178,9 +178,20 @@ public final class ArenaMain {
                 if (outcome.exception != null) throw outcome.exception;
                 if (outcome.fight == null) throw new IllegalStateException("No fight outcome");
                 result = outcome.toJson();
+                result.put("duration", Math.min(outcome.duration, scenario.maxTurns));
                 result.set("team_metrics", metrics.teams);
                 result.set("turn_metrics", metrics.exportTurns());
-                result.put("operations_limit_per_turn", Math.min(Integer.MAX_VALUE, (long) scenario.entities.get(0).get(0).cores * 1_000_000));
+                long commonLimit = -1;
+                boolean differentLimits = false;
+                for (var team : scenario.entities) {
+                    for (var entity : team) {
+                        long limit = Math.min(Integer.MAX_VALUE, (long) entity.cores * 1_000_000);
+                        if (commonLimit < 0) commonLimit = limit;
+                        else if (commonLimit != limit) differentLimits = true;
+                    }
+                }
+                if (differentLimits) result.putNull("operations_limit_per_turn");
+                else result.put("operations_limit_per_turn", commonLimit);
                 result.put("operations_limit_basis", "entity.cores");
                 result.put("success", true);
             } else throw new IllegalArgumentException("Unknown command");

@@ -19,7 +19,7 @@ from .usage import amount, reservation
 from .tournament import run_tournament
 
 PROMPT = (ROOT / "prompts/g0.md").read_text(encoding="utf-8") if (ROOT / "prompts/g0.md").exists() else (
-          "Écris une stratégie LeekScript 4. Consulte authoring.md. Soumets main.leek.")
+          "Write a LeekScript 4 strategy. Read authoring.md and submit main.leek.")
 TERMINAL = {"submitted", "budget_exhausted", "no_submission", "generation_failed",
             "provider_unavailable", "needs_reconciliation"}
 
@@ -36,13 +36,14 @@ def validate_config(value: dict) -> dict:
             type(value["schema_version"]) is not int or value["schema_version"] not in (1, 2)):
         raise ArenaError("Unsupported offline experiment schema")
     spending = value["spending"]
-    if not isinstance(spending, dict) or set(spending) != {"allow_paid_calls", "max_total_usd"}:
+    if not isinstance(spending, dict) or "allow_paid_calls" not in spending or set(spending) - {"allow_paid_calls", "max_total_usd"}:
         raise ArenaError("Invalid spending policy")
     if type(spending["allow_paid_calls"]) is not bool:
         raise ArenaError("allow_paid_calls must be explicit boolean")
-    amount(spending["max_total_usd"])
-    if value.get("prompt_language", "fr") != "fr":
-        raise ArenaError("The versioned prompts are French")
+    if "max_total_usd" in spending:
+        amount(spending["max_total_usd"])
+    if value.get("prompt_language", "en") not in {"en", "fr"}:
+        raise ArenaError("Unsupported prompt language; current prompts are English (legacy fr configs remain loadable)")
     integer(value.get("generations", 1), 1, 2, "generations")
     if value.get("improvement_conditions", ["control", "feedback"]) != ["control", "feedback"]:
         raise ArenaError("G1 requires the paired control and feedback conditions")
@@ -66,26 +67,25 @@ def validate_config(value: dict) -> dict:
             if set(model) != {"id", "provider", "profile"} or model["profile"] not in PROFILES:
                 raise ArenaError("Invalid mock profile")
         else:
-            fields = {"id", "provider", "model", "api_key_env", "pricing",
-                      "max_input_tokens_per_call", "max_output_tokens"}
+            fields = {"id", "provider", "model", "api_key_env", "pricing"}
             if (model["provider"] not in {"openai", "openai-compatible", "anthropic", "gemini"} or not fields <= set(model)
-                    or set(model) - fields - {"endpoint", "parameters", "timeout_seconds", "max_retries"}):
+                    or set(model) - fields - {"endpoint", "parameters", "timeout_seconds", "max_retries", "max_input_tokens_per_call", "max_output_tokens"}):
                 raise ArenaError("Invalid API model configuration")
-            if not spending["allow_paid_calls"] or amount(spending["max_total_usd"]) == 0:
-                raise ArenaError("Real providers require explicit paid activation and financial ceiling")
+            if not spending["allow_paid_calls"] or ("max_total_usd" in spending and amount(spending["max_total_usd"]) == 0):
+                raise ArenaError("Real providers require explicit paid activation and a positive ceiling if configured")
             if not isinstance(model["model"], str) or not model["model"]:
                 raise ArenaError("An exact model identifier is required")
             if not isinstance(model["api_key_env"], str) or not re.fullmatch(r"[A-Za-z_][A-Za-z_0-9]*", model["api_key_env"]):
                 raise ArenaError("Invalid credential variable name")
-            from urllib.parse import urlsplit
-            endpoint = urlsplit(model.get("endpoint", "https://api.example.com"))
-            if (endpoint.scheme != "https" or not endpoint.hostname or endpoint.username or endpoint.password
-                    or endpoint.query or endpoint.fragment):
-                raise ArenaError("HTTPS endpoint without embedded credentials required")
+            from .endpoints import validate_endpoint
+            validate_endpoint(model.get("endpoint", "https://api.example.com"))
             if model["provider"] == "openai-compatible" and "endpoint" not in model:
                 raise ArenaError("Compatible endpoints must be explicit")
             for key in ("max_input_tokens_per_call", "max_output_tokens"):
-                integer(model[key], 1, 10_000_000, key)
+                if key in model:
+                    integer(model[key], 1, 10_000_000, key)
+            if model["provider"] == "anthropic" and "max_output_tokens" not in model:
+                raise ArenaError("Anthropic requires an explicit maximum output per call (max_tokens)")
             integer(model.get("timeout_seconds", 60), 1, 300, "timeout_seconds")
             integer(model.get("max_retries", 0), 0, 3, "max_retries")
             params = model.get("parameters", {})
@@ -113,16 +113,13 @@ def validate_config(value: dict) -> dict:
             for key in set(pricing) - {"date", "currency"}:
                 amount(pricing[key])
     budget = value["budget_per_session"]
-    if (not isinstance(budget, dict) or not {"max_calls", "max_agent_steps", "max_test_matches", "max_wall_seconds"} <= set(budget)
-            or set(budget) - {"max_calls", "max_agent_steps", "max_test_matches", "max_wall_seconds",
+    if (not isinstance(budget, dict) or set(budget) - {"max_calls", "max_agent_steps", "max_test_matches", "max_wall_seconds",
                              "max_input_tokens", "max_output_tokens", "max_cost_usd"}):
         raise ArenaError("Invalid budgets; token budgets are unavailable for simulated usage")
     for key in set(budget) - {"max_cost_usd"}:
         integer(budget[key], 0 if key == "max_test_matches" else 1, 100_000_000, key)
     if "max_cost_usd" in budget:
         amount(budget["max_cost_usd"])
-    if any(m["provider"] != "mock" for m in models) and not {"max_input_tokens", "max_output_tokens", "max_cost_usd"} <= set(budget):
-        raise ArenaError("API sessions require input, output and financial budgets")
     seeds = value["seeds"]
     if not isinstance(seeds, list) or not seeds or len(seeds) > 100 or len(seeds) != len(set(seeds)):
         raise ArenaError("Invalid evaluation seeds")
@@ -156,9 +153,9 @@ def plan(config: dict) -> dict:
             "g1_contemporary_matches": (2*n*(2*n-1) + (2*n if config["include_mirrors"] else 0)) *
                                       len(config.get("final_seeds", [])) if evolved else 0,
             "common_reference_matches": 3*n*(n+3)*2*len(config.get("final_seeds", [])) if evolved else 0,
-            "max_preparation_matches": n * (3 if evolved else 1) * config["budget_per_session"]["max_test_matches"],
-            "max_cost_usd": config["spending"]["max_total_usd"],
-            "financial_ceiling": "best_effort_with_reservations" if paid else "no_paid_calls",
+            "max_preparation_matches": (n * (3 if evolved else 1) * config["budget_per_session"]["max_test_matches"]) if "max_test_matches" in config["budget_per_session"] else None,
+            "max_cost_usd": config["spending"].get("max_total_usd"),
+            "financial_ceiling": ("best_effort_with_reservations" if "max_total_usd" in config["spending"] else "unlimited") if paid else "no_paid_calls",
             "required_keys": sorted({m["api_key_env"] for m in paid})}
 
 
@@ -189,6 +186,10 @@ class Journal:
         return json.loads(row[0]) if row else None
 
     def save(self, sid, state, kind, payload=None):
+        times = state.setdefault("message_times", [None] * len(state.get("history", [])))
+        times.extend([time.time()] * (len(state.get("history", [])) - len(times)))
+        if kind == "session_created" and times:
+            times[0] = time.time()
         artifact = self.out / "artifacts" / (digest(payload) + ".json")
         if artifact.exists():
             if read_json(artifact) != payload:
@@ -259,19 +260,29 @@ def provider_response(sid, state, model, config, journal):
         budget = config["budget_per_session"]
         try:
             bound = reservation(model, state["history"], TOOLS,
-                                budget["max_output_tokens"] - state.get("output_tokens", 0))
+                                (budget["max_output_tokens"] - state.get("output_tokens", 0)) if "max_output_tokens" in budget else None)
         except ArenaError:
             state["status"] = "budget_exhausted"
             return None
         spent = amount(state.get("cost_spent", "0"))
         total = sum(amount(s.get("cost_spent", "0")) + amount(s.get("money_reserved", "0"))
                     for s in journal.states().values())
-        if (state.get("input_tokens", 0) + bound["input_bound"] > budget["max_input_tokens"]
-                or spent + amount(bound["cost_bound"]) > amount(budget["max_cost_usd"])
-                or total + amount(bound["cost_bound"]) > amount(config["spending"]["max_total_usd"])):
+        remaining = []
+        if "max_cost_usd" in budget:
+            remaining.append(amount(budget["max_cost_usd"]) - spent)
+        if "max_total_usd" in config["spending"]:
+            remaining.append(amount(config["spending"]["max_total_usd"]) - total)
+        if any(value <= 0 for value in remaining):
             state["status"] = "budget_exhausted"
             return None
-        state["money_reserved"] = bound["cost_bound"]
+        state["reservation_unbounded"] = bound["cost_bound"] is None and not remaining
+        if bound["cost_bound"] is None and remaining:
+            bound["cost_bound"] = str(min(remaining))
+        if (("max_input_tokens" in budget and state.get("input_tokens", 0) + bound["input_bound"] > budget["max_input_tokens"])
+                or (bound["cost_bound"] is not None and any(amount(bound["cost_bound"]) > value for value in remaining))):
+            state["status"] = "budget_exhausted"
+            return None
+        state["money_reserved"] = bound["cost_bound"] or "0"
     else:
         bound = None
     state["calls"] += 1
@@ -290,12 +301,15 @@ def provider_response(sid, state, model, config, journal):
         state["in_flight"] = error.uncertain
         if not error.uncertain:
             state["money_reserved"] = "0"
+            state["reservation_unbounded"] = False
+        state["failure"] = {"message": str(error), "phase": "provider request", "at": time.time(), "uncertain": error.uncertain, "retryable": error.retryable}
         journal.save(sid, state, "provider_failure", {"error": str(error),
                                                     "uncertain": error.uncertain, "retryable": error.retryable})
         return None
     except (KeyError, ValueError, TypeError, ArenaError) as error:
         state["status"] = "needs_reconciliation" if paid else "generation_failed"
         state["in_flight"] = paid
+        state["failure"] = {"message": "The provider returned an unreadable response (" + type(error).__name__ + "). Inspect the recorded response in the journal; billing may need reconciliation.", "phase": "provider response", "at": time.time()}
         journal.save(sid, state, "malformed_provider_response", {"error_type": type(error).__name__,
                                                                "response": getattr(provider, "last_response", None)})
         return None
@@ -311,13 +325,15 @@ def provider_response(sid, state, model, config, journal):
             state["output_tokens"] = state.get("output_tokens", 0) + usage["output_tokens"]
             state["cost_spent"] = str(amount(state.get("cost_spent", "0")) + amount(response["cost_usd"]))
             state["money_reserved"] = "0"
-            if (state["input_tokens"] > config["budget_per_session"]["max_input_tokens"]
-                    or state["output_tokens"] > config["budget_per_session"]["max_output_tokens"]
-                    or amount(state["cost_spent"]) > amount(config["budget_per_session"]["max_cost_usd"])):
+            state["reservation_unbounded"] = False
+            if (("max_input_tokens" in budget and state["input_tokens"] > budget["max_input_tokens"])
+                    or ("max_output_tokens" in budget and state["output_tokens"] > budget["max_output_tokens"])
+                    or ("max_cost_usd" in budget and amount(state["cost_spent"]) > amount(budget["max_cost_usd"]))):
                 state["status"] = "budget_exhausted"
         else:
             state["token_usage_known"] = False
             state["status"] = "needs_reconciliation"
+    state.pop("failure", None)
     state["history"].append(response)
     state["pending"], state["cursor"] = response, 0
     # Receipt, conversation, usage counters and released reservation commit together.
@@ -332,8 +348,8 @@ def execute_tool(sid, state, tools, journal, call, call_id, budget):
     if state["status"] != "running":
         raise ArenaError("Session is closed")
     if (state.get("reserved") != call_id and
-            (state["steps"] >= budget["max_agent_steps"] or
-             (call["name"] == "test" and state["test_matches"] + 2 > budget["max_test_matches"]))):
+            (state["steps"] >= budget.get("max_agent_steps", float("inf")) or
+             (call["name"] == "test" and state["test_matches"] + 2 > budget.get("max_test_matches", float("inf"))))):
         raise ArenaError("Tool budget exhausted")
     if state.get("reserved") != call_id:
         state["steps"] += 1
@@ -357,10 +373,16 @@ def execute_tool(sid, state, tools, journal, call, call_id, budget):
 
 
 def initial_state(sid, model, config):
+    from .briefing import briefing, participant_scenario
     return {"model": model["id"], "replicate": int(sid.split("-r")[-1].split("-")[0]),
             "generation": 0, "condition": "initial", "status": "running",
             "history": [{"role": "user", "content": PROMPT, "budgets": config["budget_per_session"],
-                         "scenario": config["scenario"]}],
+                         "scenario": participant_scenario(config["scenario"]), "briefing": briefing(config["scenario"]), "equipment_ids": {"weapons": "Use the item field in leekscript-v1/weapons.json (for example pistol = 37), not its object key or template", "chips": "Use the object key/id in leekscript-v1/chips.json (for example shock = 1); replay chip actions use template IDs"}, **({"team_instructions":
+                         "Choose 1..scenario.team_size members using configure_team after writing their sources. "
+                         "Each member can use a different entrypoint and equipment. When independent_builds is true, freely choose each member level (1–301), capital and components; supply level and capital explicitly. Reference member stats and components are not imposed on your team; omitted components mean none. Use preview_build to calculate final stats and costs, then validate_team to check the complete draft without changing files. Read the pinned equipment catalogs; "
+                         "respect slot limits and allowlists; realistic mode also enforces equipment level. Stats follow scenario.stats_mode: per-member capital in realistic-v1 plus optional components (item-template IDs or {template, stats} alteration instances; eight slots, recovery components cost three; no duplicates; alteration charge must fit capacity), or raw stats in free mode. When require_capital is true you must explicitly allocate capital for every member; raw stats and inherited allocations are not accepted. Otherwise omit to inherit default member builds. Read corpus/stat-rules.json and corpus/component-rules.json (current public stats, levels, capacities and alteration weights). Configure the team before test or submit. "
+                         "Improvements inherit team.json and may revise it with the same tool."}
+                         if config["scenario"].get("team_selection") else {})}],
             "calls": 0, "steps": 0, "test_matches": 0, "wall_seconds": 0,
             "pending": None, "cursor": 0, "workspace_files": {}}
 
@@ -372,7 +394,7 @@ def workspace_files(directory):
     for path in sorted(directory.rglob("*")):
         if is_link(path):
             raise ArenaError("Working source links are not allowed")
-        if path.is_file() and path.suffix == ".leek":
+        if path.is_file() and (path.suffix == ".leek" or path == directory / "team.json"):
             files[path.relative_to(directory).as_posix()] = file_hash(path)
     return files
 
@@ -391,6 +413,9 @@ def verify_workspace(state, tools):
             from .preparation import local_path
             name = local_path(tools.workspace, args["path"]).relative_to(tools.workspace).as_posix()
             candidate[name] = hashlib.sha256(args["content"].encode()).hexdigest()
+        if call.get("name") == "configure_team" and isinstance(args, dict):
+            content = json.dumps(args, ensure_ascii=False, indent=2) + "\n"
+            candidate["team.json"] = hashlib.sha256(content.encode()).hexdigest()
         if actual != candidate:
             raise ArenaError("Working sources changed outside the recorded tools")
     state["workspace_files"] = actual
@@ -412,11 +437,11 @@ def run_session(sid, model, config, out, journal, engine, interrupt=None):
     try:
         while state["status"] == "running":
             state["wall_seconds"] = previous + time.monotonic() - started
-            if state["wall_seconds"] >= budget["max_wall_seconds"]:
+            if state["wall_seconds"] >= budget.get("max_wall_seconds", float("inf")):
                 _finish(sid, state, tools, journal, "budget_exhausted")
                 break
             if state["pending"] is None:
-                if state["calls"] >= budget["max_calls"]:
+                if state["calls"] >= budget.get("max_calls", float("inf")):
                     _finish(sid, state, tools, journal, "budget_exhausted")
                     break
                 response = provider_response(sid, state, model, config, journal)
@@ -433,14 +458,14 @@ def run_session(sid, model, config, out, journal, engine, interrupt=None):
             calls = state["pending"]["tool_calls"]
             while state["cursor"] < len(calls) and state["status"] == "running":
                 state["wall_seconds"] = previous + time.monotonic() - started
-                if state["wall_seconds"] >= budget["max_wall_seconds"]:
+                if state["wall_seconds"] >= budget.get("max_wall_seconds", float("inf")):
                     _finish(sid, state, tools, journal, "budget_exhausted")
                     break
                 call = calls[state["cursor"]]
                 call_id = f"call-{state['calls']}-tool-{state['cursor']}"
                 if state.get("reserved") != call_id and (
-                        state["steps"] >= budget["max_agent_steps"] or
-                        (call["name"] == "test" and state["test_matches"] + 2 > budget["max_test_matches"])):
+                        state["steps"] >= budget.get("max_agent_steps", float("inf")) or
+                        (call["name"] == "test" and state["test_matches"] + 2 > budget.get("max_test_matches", float("inf")))):
                     _finish(sid, state, tools, journal, "budget_exhausted")
                     break
                 execute_tool(sid, state, tools, journal, call, call_id, budget)
@@ -579,7 +604,7 @@ def run(config: dict, out: Path, resume=False, interrupt=None, prepare_only=Fals
                        "tool_calls": sum(s["steps"] for s in states.values()),
                        "preparation_matches_reserved": sum(s["test_matches"] for s in states.values()),
                        "known_cost_subtotal_usd": str(sum(amount(s.get("cost_spent", "0")) for s in states.values())),
-                       "reserved_usd": str(sum(amount(s.get("money_reserved", "0")) for s in states.values())),
+                       "reserved_usd": None if any(s.get("reservation_unbounded") for s in states.values()) else str(sum(amount(s.get("money_reserved", "0")) for s in states.values())),
                        "cost_usd": None if any(s["status"] == "needs_reconciliation" or amount(s.get("money_reserved", "0")) > 0
                                               for s in states.values()) else str(sum(amount(s.get("cost_spent", "0")) for s in states.values())),
                        "cost_status": "simulation" if simulated else "calculated_or_reserved",
@@ -614,6 +639,8 @@ def run(config: dict, out: Path, resume=False, interrupt=None, prepare_only=Fals
                 for key in ("input_tokens", "output_tokens"):
                     summary[key] = None if simulated or any(s["calls"] and not s.get("token_usage_known")
                                                            for s in final_states.values()) else sum(s.get(key, 0) for s in final_states.values())
+            summary["session_failures"] = [{"session": sid, "status": state["status"], **state["failure"]}
+                                            for sid, state in journal.states().items() if state.get("failure")]
             write_json(out / "report.json", summary)
             rows = ["| Session | Status | Validity | Calls | Tools |",
                     "|---|---|---|---:|---:|"]

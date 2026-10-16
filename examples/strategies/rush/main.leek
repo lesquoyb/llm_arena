@@ -1,9 +1,13 @@
-// Simple aggressive baseline: move into range, then spend available TP.
+// Aggressive weapon baseline. Supports any roster and equipped player weapons.
 var enemy = getNearestEnemy()
-if (enemy != null) {
-    setWeapon(getWeapons()[0])
+if (enemy >= 0 && isAlive(enemy)) {
     moveToward(enemy)
-    while (getTP() >= getWeaponCost() && isAlive(enemy)) {
-        if (useWeapon(enemy) != USE_SUCCESS) break
+    for (var weapon in getWeapons()) {
+        if (!isAlive(enemy)) break
+        if (getTP() < getWeaponCost(weapon) || !canUseWeapon(weapon, enemy)) continue
+        setWeapon(weapon)
+        while (isAlive(enemy) && getTP() >= getWeaponCost() && canUseWeapon(enemy)) {
+            if (useWeapon(enemy) != USE_SUCCESS) break
+        }
     }
 }
