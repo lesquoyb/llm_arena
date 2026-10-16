@@ -33,7 +33,7 @@ compiler, prompts and documents by version and hash.
 Declare the team-building mode: shared teams/equipment or participant-selected
 team size, per-member code and equipment under common level/slot/allowlist rules.
 Per-member builds may differ. Realistic mode uses pinned official capital
-allocation rules with base components; free mode permits raw experimental stats. Initial demos use symmetric 2-vs-2 teams sharing an
+allocation rules with components and alteration charge validation; free mode permits raw experimental stats. Initial demos use symmetric 2-vs-2 teams sharing an
 entry point; a script can choose different roles through the API. Additional
 scenarios should be reported separately. Deliverables are source folders with
 a declared entry point, frozen and hashed on submission or at an explicitly configured deadline. Do not manually select

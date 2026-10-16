@@ -265,7 +265,7 @@ async function main() {
     await page.getByLabel("Repetitions per participant").fill("2");
     await page.getByLabel("Evaluation cycle").selectOption("1");
     const realisticStats = page.getByLabel(
-      "Realistic stats (capital and base components)",
+      "Realistic stats (capital, components and alterations)",
     );
     assert(await realisticStats.isChecked());
     assert.equal(await page.getByLabel("Maximum turns").inputValue(), "1000");
@@ -359,8 +359,10 @@ async function main() {
           .filter(
             ([key, value]) => key !== "level" && typeof value === "number",
           )
-          .map(([key, value]) => ["total_" + key, value]),
+          .map(([key, value]) => ["total_" + key,
+            value + (key === "life" ? (i === 0 ? -1 : -4) : key === "ram" ? 5 : 0)]),
       ),
+      components: [{ template: 313, stats: { ram: 1, life: -4 } }],
       weapons: [{ template: i === 1 ? 45 : 37 }],
       chips: i === 1 ? [{ template: 3 }] : [],
     }));
@@ -408,6 +410,19 @@ async function main() {
       "3",
     );
     assert(!(await realisticStats.isChecked()));
+    const publishedStats = await page.locator("input[data-stat]").evaluateAll(
+      (inputs) => inputs.map((input) => input.value),
+    );
+    const conversionResponse = page.waitForResponse((response) => response.url().endsWith('/api/stats/realistic'));
+    await realisticStats.check();
+    const conversionResult = await conversionResponse;
+    assert(conversionResult.ok(), JSON.stringify(await conversionResult.json()));
+    await page.locator('#member-stat-builds[data-mode="realistic-v1"]').waitFor();
+    assert.deepEqual(await page.locator("input[data-stat]").evaluateAll(
+      (inputs) => inputs.map((input) => input.value),
+    ), publishedStats, "Public totals and altered instances must survive realistic validation");
+    assert((await page.locator("#stats-validation").innerText()).includes("All final stats preserved"));
+    await realisticStats.uncheck();
     assert(
       Number(
         await page
@@ -462,6 +477,13 @@ async function main() {
       .locator("#plan-preview")
       .getByText("Conversations", { exact: true })
       .waitFor();
+    await page.getByLabel("Team setup").selectOption("fixed");
+    assert(await page.locator("#fixed-roster").isVisible());
+    const fixedRequest = page.waitForRequest((request) => request.url().endsWith('/api/plan'));
+    await page.getByRole("button", { name: "Calculate schedule" }).click();
+    const fixedScenario = (await fixedRequest).postDataJSON().config.scenario;
+    assert.equal(fixedScenario.preset, "custom");
+    assert.equal(fixedScenario.team_selection, undefined);
     await page
       .getByRole("button", { name: "Simple duel · level 300", exact: true })
       .click();
@@ -485,6 +507,21 @@ async function main() {
     assert(await highLevelChip.isEnabled());
     await page.locator('[name="member_0_strength"]').fill("100000");
     await realisticStats.check();
+    await page.waitForFunction(() => document.querySelector("#stats-validation")?.textContent.includes("validation failed"));
+    assert(!(await realisticStats.isChecked()));
+    assert(await highLevelWeapon.isEnabled());
+    assert.equal(await page.locator('[name="member_0_strength"]').inputValue(), "100000");
+    // A failed validation preserves the build. Supply a valid level-100 build explicitly.
+    const validLevel100 = { life: 597, strength: 100, wisdom: 0, agility: 0,
+      resistance: 0, science: 0, magic: 0, frequency: 100, cores: 5, ram: 6, tp: 12, mp: 5 };
+    for (const i of [0, 1]) {
+      await page.locator(`[data-action="character-tab"][data-index="${i}"]`).click();
+      for (const [key, value] of Object.entries(validLevel100))
+        await page.locator(`[name="member_${i}_${key}"]`).fill(String(value));
+    }
+    await page.locator('[data-action="character-tab"][data-index="0"]').click();
+    await realisticStats.check();
+    await page.locator('#member-stat-builds[data-mode="realistic-v1"]').waitFor();
     assert(await highLevelWeapon.isDisabled());
     assert(await highLevelChip.isDisabled());
     assert.equal(
@@ -599,30 +636,20 @@ async function main() {
       0,
       "Boss chips must be absent from selectors",
     );
-    await page.getByLabel("Competition weapon cap per member").fill("1");
-    await page.getByLabel("Competition chip cap per member").fill("0");
-    const weaponPicker = page.locator(
-      '.equipment-picker[data-name="team_allowed_weapons"]',
-    );
-    await weaponPicker.locator(":scope > summary").click();
-    assert.equal(await weaponPicker.locator(".equipment-option").count(), 39);
-    await weaponPicker.getByLabel("Search weapons").fill("pistol");
-    const pistol = weaponPicker
-      .locator(".equipment-option")
-      .filter({ hasText: "pistol" })
-      .first();
-    await pistol.locator('input[type="checkbox"]').check();
-    await pistol.getByText("Item details", { exact: true }).click();
-    await pistol.getByText("Effects", { exact: true }).waitFor();
-    assert.equal(
-      await page.locator('[name="team_allowed_weapons"]').inputValue(),
-      "37",
-    );
-    await page.screenshot({
-      path: path.join(artifacts, "equipment-selector.png"),
-      fullPage: true,
-    });
-    await weaponPicker.locator(":scope > summary").click();
+    assert(await page.locator("#fixed-roster").isHidden());
+    assert.equal(await page.getByLabel("Competition weapon cap per member").count(), 0);
+    assert.equal(await page.locator('[name="team_allowed_chips"]').count(), 0);
+    const independentRequest = page.waitForRequest((request) => request.url().endsWith('/api/plan'));
+    await page.getByRole("button", { name: "Calculate schedule" }).click();
+    const independent = (await independentRequest).postDataJSON().config.scenario;
+    assert.equal(independent.team_selection.independent_builds, true);
+    assert.equal(independent.team_selection.require_capital, true);
+    assert.equal(independent.team_selection.max_weapons, 4);
+    assert.equal(independent.team_selection.max_chips, 50);
+    assert.equal(independent.team_size, 4);
+    assert.equal(independent.team_selection.allowed_weapons, undefined);
+    await page.getByLabel("Team setup").selectOption("fixed");
+    assert(await page.locator("#fixed-roster").isVisible());
     assert((await page.locator(".help-tip").count()) > 10);
     await page.locator(".help-tip").first().focus();
     await page
@@ -679,8 +706,7 @@ async function main() {
     assert.equal(configured.scenario.member_stats[0].capital.ram, 0);
     assert.deepEqual(configured.scenario.member_stats[0].chips, []);
     assert.deepEqual(configured.scenario.member_stats[1].chips, [3]);
-    assert.deepEqual(configured.scenario.team_selection.allowed_weapons, [37]);
-    assert.equal(configured.scenario.team_selection.max_chips, 0);
+    assert.equal(configured.scenario.team_selection, undefined);
 
     await configRow.getByRole("button", { name: "Launch" }).click();
     assert(
@@ -730,7 +756,7 @@ async function main() {
     await page.locator("[name=participant][value=mock-repair]").uncheck();
     await page.locator("[name=participant][value=mock-single]").uncheck();
     await page.locator("[name=participant][value=browser-api]").check();
-    await page.getByLabel("Allow paid APIs").check();
+    await page.getByLabel("Authorize API calls").check();
     await page.getByRole("button", { name: "Save configuration" }).click();
     await page
       .locator("tr")

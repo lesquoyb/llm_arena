@@ -1,6 +1,6 @@
 {
   "version": "realistic-v1",
-  "scope": "Capital conversion rules only. Final builds may add base component bonuses after conversion; see components.md.",
+  "scope": "Capital conversion rules only. Final builds add component and alteration bonuses after conversion; see components.md.",
   "source_commit": "2d1969d3339d0ac1dc0ba6bc239b66ec2691f6e9",
   "sources": [
     {

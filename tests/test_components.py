@@ -13,7 +13,9 @@ from arena.public_teams import scenario_from_snapshot
 class ComponentTests(unittest.TestCase):
     def test_public_levels_match_every_pinned_template(self):
         data = catalog()
-        self.assertEqual(len(data), 52)
+        pinned = read_json(ROOT/'docs/leekscript-v1/components.json')
+        self.assertTrue({str(row['template']) for row in pinned.values()} <= set(data))
+        self.assertEqual(len(data), 57)
         self.assertTrue(all(type(row['level']) is int and 1 <= row['level'] <= 301 for row in data.values()))
         self.assertEqual(data['313']['level'], 11)
         self.assertEqual(data['406']['slots'], 3)
@@ -22,7 +24,7 @@ class ComponentTests(unittest.TestCase):
     def test_duplicates_slots_levels_and_penalties(self):
         for pieces, level, message in [([290,290],300,'twice'), ([1],300,'Unknown'),
             ([290],40,'requires level 41'), ([406,407,290,313,321],300,'capacity'),
-            ([True],300,'integer'), ([{'template':290}],300,'base component IDs')]:
+            ([True],300,'integer')]:
             with self.subTest(pieces=pieces), self.assertRaisesRegex(ArenaError, message):
                 describe(pieces, level)
         self.assertEqual(describe([406,407,290,313],300)['slots_used'],8)
@@ -36,18 +38,18 @@ class ComponentTests(unittest.TestCase):
 
     def test_preview_capital_chip_capacity_and_frozen_team(self):
         scenario = participant_scenario()
-        plain = build_preview(scenario, 0, {'strength':700})
-        boosted = build_preview(scenario, 0, {'strength':700}, [313,290,317])
+        plain = build_preview(scenario, 0, {'strength':700}, level=300)
+        boosted = build_preview(scenario, 0, {'strength':700}, [313,290,317], level=300)
         self.assertEqual(boosted['remaining'],plain['remaining'])
         self.assertEqual(boosted['next_increases'],plain['next_increases'])
         self.assertEqual(boosted['chip_slots'],10)
         self.assertEqual(boosted['stats']['cores'],plain['stats']['cores']+4)
-        team = {'members':[{'entrypoint':'main.leek','capital':{'strength':700},
+        team = {'members':[{'entrypoint':'main.leek','level':300,'capital':{'strength':700},
             'weapons':[], 'chips':[1,2,3,4,5,6,7], 'components':[313,290,317]}]}
         # Check both readonly tool validation and the saved source/receipt path.
         with scratch_directory() as tmp:
             tools=Preparation(tmp/'session',ROOT/'docs',None,scenario)
-            preview=tools.call('preview_build',{'capital':{'strength':700},'components':[313,290,317]},'1')
+            preview=tools.call('preview_build',{'capital':{'strength':700},'components':[313,290,317], 'level':300},'1')
             self.assertEqual(preview['stats'],boosted['stats'])
             report=tools.call('validate_team',team,'2')
             self.assertTrue(report['valid'],report)

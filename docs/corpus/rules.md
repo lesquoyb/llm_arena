@@ -7,7 +7,7 @@ and equipment under `scenario.member_stats`. With participant selection enabled,
 each model chooses 1..scenario.team_size members,
 per-member entry points, equipment and stat builds using `configure_team`.
 In realistic-v1 mode, allocate per-member capital under corpus/stat-rules.json
-(level base stats plus capital, with base components). In free mode, provide raw
+(level base stats plus capital, with components and alterations). In free mode, provide raw
 per-member stats. Omitted overrides inherit the default member build. Write the source
 files first. Equipment must satisfy slot limits and any allowlists. Realistic mode rejects
 weapons and chips above the leek level, including default equipment; explicit
@@ -75,7 +75,7 @@ The `llm-team` preset permits 1–4 leeks at level 300, with 1,680 capital per l
 `scenario.team_selection.require_capital` requires an explicit `capital` object
 for every member; omitted allocations and raw `stats` are rejected. Names are
 optional, scripts and equipment are selected individually. These builds use
-base stats plus capital, with base components; alterations are not validated.
+base stats plus capital, with components and validated alteration charge/capacity.
 
 Use `preview_build` to calculate final stats, equipment slots and remaining
 capital before writing code. Use `validate_team` to check a full proposed team

@@ -79,8 +79,10 @@ class MockProvider:
                 for index, member in enumerate(members):
                     spec = scenario["member_stats"][index]
                     member["capital"] = spec.get("capital", default_capital(300))
+                    if rules.get('independent_builds'):
+                        member['level'] = spec.get('level', scenario['entity']['level'])
             if rules.get("require_capital"):
-                calls = [*calls, ("preview_build", {"capital": members[0]["capital"]}),
+                calls = [*calls, ("preview_build", {"capital": members[0]["capital"], **({'level': members[0]['level']} if 'level' in members[0] else {})}),
                          ("validate_team", {"members": members})]
             calls = [*calls, ("configure_team", {"members": members})]
         return {"role": "assistant", "provider": "mock", "simulated": True, "sent_parameters": request, "request_sha256": digest(request),

@@ -53,19 +53,69 @@ def free_stats(values, baseline):
     return result
 
 
+def capital_for_stats(level, values, components):
+    """Invert final stats exactly, rejecting unattainable values instead of rounding."""
+    from .components import describe, add_bonuses
+    bonuses = describe(components, level)['bonuses']
+    baseline = realistic_stats(level, {})
+    values = free_stats(values, baseline)
+    capital = {}
+    for key in STATS:
+        target = values[key] - bonuses.get(key, 0) - baseline[key]
+        cost, bonus = 0, 0
+        while bonus < target and cost <= total_capital(level):
+            step = next(s for s in reversed(RULES['costs'][key]) if bonus >= s['step'])
+            cost += step['capital']
+            bonus += step['sup']
+        if bonus != target:
+            raise ArenaError(f'{key}: final value {values[key]} cannot be obtained at level {level} '
+                             f'with component bonus {bonuses.get(key, 0)}')
+        capital[key] = cost
+    if add_bonuses(realistic_stats(level, capital), bonuses) != values:
+        raise ArenaError('Recalculated stats differ from the supplied final stats')
+    return capital
+
+
+def to_realistic(scenario):
+    """Validate and convert a complete roster without changing any final stat."""
+    from copy import deepcopy
+    from .core import validate_scenario
+    validate_scenario(scenario)
+    result = deepcopy(scenario)
+    if scenario.get('stats_mode') == 'realistic-v1':
+        return result
+    specs = result.get('member_stats') or [{} for _ in range(result['team_size'])]
+    for index, spec in enumerate(specs):
+        try:
+            values = member_stats(scenario, index)
+            level = spec.get('level', scenario['entity']['level'])
+            spec['capital'] = capital_for_stats(level, values, spec.get('components', []))
+            spec.pop('stats', None)
+        except ArenaError as error:
+            raise ArenaError(f'{spec.get("name", f"Leek {index + 1}")}: {error}') from error
+    result['member_stats'] = specs
+    result['stats_mode'] = 'realistic-v1'
+    result['entity'].update(member_stats(result, 0))
+    validate_scenario(result)
+    return result
+
+
 def member_stats(scenario, index, member=None):
     mode = scenario.get('stats_mode', 'free')
     specs = scenario.get('member_stats')
     default = specs[index] if specs else {}
     member = member or {}
-    level = default.get('level', scenario['entity']['level'])
+    # Native fixed opponents pass entrypoint/equipment overrides, but no capital.
+    # Only an explicitly allocated participant build opts out of inheritance.
+    independent = 'capital' in member and (scenario.get('team_selection') or {}).get('independent_builds')
+    level = member.get('level', default.get('level', scenario['entity']['level']))
     integer(level, 1, 301 if mode == 'realistic-v1' else 100000, 'member level')
     if mode == 'realistic-v1':
         if 'stats' in member or set(default) - {'capital', 'weapons', 'chips', 'name', 'level', 'components'}:
             raise ArenaError('Realistic mode accepts capital allocations, not raw stats')
         capital = member.get('capital', default.get('capital', default_capital(level)))
         from .components import describe, add_bonuses
-        components = member.get('components', default.get('components', []))
+        components = member.get('components', [] if independent else default.get('components', []))
         return add_bonuses(realistic_stats(level, capital), describe(components, level)['bonuses'])
     if 'capital' in member or set(default) - {'stats', 'weapons', 'chips', 'name', 'level', 'components'}:
         raise ArenaError('Free mode accepts raw stats; switch to realistic mode for capital allocations')
@@ -92,7 +142,7 @@ def validate_stats(scenario):
             raise ArenaError('Member name must contain 1 to 80 characters')
         gear = {kind: spec.get(kind, scenario['entity'].get(kind, [])) for kind in ('weapons', 'chips')}
         for kind, items in gear.items():
-            if not isinstance(items, list) or len(items) > 32 or any(type(i) is not int for i in items) or len(items) != len(set(items)):
+            if not isinstance(items, list) or len(items) > (50 if kind == 'chips' else 32) or any(type(i) is not int for i in items) or len(items) != len(set(items)):
                 raise ArenaError(f'Invalid member {index + 1} {kind}')
             if kind == 'chips':
                 validate_player_chips(items)

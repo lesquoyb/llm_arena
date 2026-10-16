@@ -6,9 +6,10 @@ and converts them to capital using the official tiers. **Free** mode accepts
 custom final stats without requiring a capital allocation.
 Capital is a game resource for building a leek, not API spending or token usage.
 
-This version supports **base stats plus capital plus base components**.
-Alterations are not supported by the realistic builder. Online account ownership,
-inventory and economy are outside this validation. See [Components](corpus/components.md).
+This version supports **base stats plus capital plus components and alterations**.
+It validates equipped alterations against the published weighted charge and
+capacity rules. Online account ownership, forge history, inventory and economy
+are outside this validation. See [Components](corpus/components.md).
 Weapons and chips still use the pinned generator catalog and the competition's
 level, slot and allowlist rules. In realistic mode, default equipment and
 participant-selected items above the leek level are rejected by validation and
@@ -27,8 +28,9 @@ The client identifies its cost table as a mirror of server constants.
 
 The snapshot, source hashes and conversion tables are in
 [corpus/stat-rules.json](corpus/stat-rules.json), supplied to every participant.
-The live website API could not be queried from the cloud; the rules above come
-from the official public source, not a live account verification.
+Component stats, levels, capacities and alteration parameters are frozen together
+from the public API in [corpus/component-rules.json](corpus/component-rules.json).
+They override the older component data shipped with the pinned generator.
 
 Levels range from 1 to 301. Available capital is
 `50 + (level - 1) * 5 + floor(level / 100) * 45`, plus 95 at level 301:
@@ -57,18 +59,22 @@ Select a character tab to edit its final stats with sliders or numeric fields.
 Its card shows HP, strength, AP, MP, remaining capital and individual equipment.
 Each stat tooltip explains its role and the cost of the next attainable increase. Saving rejects allocations above the
 level's capital and invalid levels. Team size changes add or remove member builds.
-Switching from free to realistic mode resets builds to a valid allocation;
-switching back keeps the calculated values as editable raw stats.
+Switching from free to realistic mode validates the current build and preserves
+every final stat. Values that cannot be reproduced exactly, excessive capital,
+invalid equipment or over-capacity alterations prevent the switch, with an
+explanation; the original build stays unchanged. Switching back keeps the
+calculated values as editable raw stats.
 
-Participant-selected teams can override each member's `capital` in realistic
-mode or `stats` in free mode using `configure_team`. Omitted overrides inherit
-the corresponding default member build. For example, at level 100:
+In the UI's participant-selected mode, every member declares its own `level`
+(1–301) and `capital` using `configure_team`. Reference stats are not imposed and
+omitted components mean none. The character editor is hidden in this mode.
+Legacy JSON configurations without independent_builds retain their prior inheritance behavior. For example, at level 100:
 
 ```json
 {
   "members": [
-    {"entrypoint": "attacker.leek", "weapons": [37], "chips": [], "capital": {"strength": 100, "cores": 140}},
-    {"entrypoint": "support.leek", "weapons": [], "chips": [3], "capital": {"wisdom": 100, "life": 100, "cores": 140}}
+    {"entrypoint": "attacker.leek", "level": 100, "weapons": [37], "chips": [], "capital": {"strength": 100, "cores": 140}},
+    {"entrypoint": "support.leek", "level": 100, "weapons": [], "chips": [3], "capital": {"wisdom": 100, "life": 100, "cores": 140}}
   ]
 }
 ```

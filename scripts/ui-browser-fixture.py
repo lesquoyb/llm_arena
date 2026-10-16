@@ -21,7 +21,7 @@ def main():
             write_json(root / "analysis.json", analysis)
             source = root / "sessions/mock-repair-r0/submission/main.leek"
             source.parent.mkdir(parents=True, exist_ok=True)
-            source.write_text("var a = 2\n", encoding="utf-8")
+            source.write_text("var a = 2\n", encoding="utf-8", newline="\n")
             work = root / "matches/browser-fixture/attempt-1"
             result = {"status": "completed", "winner_side": 0, "turns": 1, "elapsed_seconds": .1,
                       "team_metrics": {"0": {"operations": 100, "errors": 0}, "1": {"operations": 10, "errors": 0}}}

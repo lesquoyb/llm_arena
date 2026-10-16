@@ -1,0 +1,1790 @@
+{
+  "schema_version": 1,
+  "source_url": "https://leekwars.com/api/data/get-all",
+  "fetched_at": "2026-10-16T04:01:37.892148+00:00",
+  "master_version": "29af2c9a22e15434",
+  "payload_sha256": "10c0a2b77ae6d0b5b0116ede34cdb0327eaf2b9779cfe0c7383f2d2f7ae13205",
+  "client_commit": "2d1969d3339d0ac1dc0ba6bc239b66ec2691f6e9",
+  "source_url_rules": "https://github.com/leek-wars/leek-wars/blob/2d1969d3339d0ac1dc0ba6bc239b66ec2691f6e9/src/model/alteration.ts",
+  "deficit_refund": 0.25,
+  "components": {
+    "406": {
+      "id": 52,
+      "name": "recovery_core",
+      "stats": [
+        [
+          "cores",
+          19
+        ]
+      ],
+      "template": 406,
+      "capacity": 428,
+      "level": 1,
+      "slots": 3
+    },
+    "407": {
+      "id": 53,
+      "name": "recovery_ram",
+      "stats": [
+        [
+          "ram",
+          14
+        ]
+      ],
+      "template": 407,
+      "capacity": 420,
+      "level": 1,
+      "slots": 3
+    },
+    "321": {
+      "id": 32,
+      "name": "apple",
+      "stats": [
+        [
+          "life",
+          100
+        ]
+      ],
+      "template": 321,
+      "capacity": 55,
+      "level": 5,
+      "slots": 1
+    },
+    "297": {
+      "id": 8,
+      "name": "spring",
+      "stats": [
+        [
+          "strength",
+          20
+        ],
+        [
+          "agility",
+          40
+        ]
+      ],
+      "template": 297,
+      "capacity": 66,
+      "level": 7,
+      "slots": 1
+    },
+    "313": {
+      "id": 24,
+      "name": "ram",
+      "stats": [
+        [
+          "ram",
+          4
+        ]
+      ],
+      "template": 313,
+      "capacity": 120,
+      "level": 11,
+      "slots": 1
+    },
+    "302": {
+      "id": 13,
+      "name": "fan",
+      "stats": [
+        [
+          "frequency",
+          40
+        ]
+      ],
+      "template": 302,
+      "capacity": 58,
+      "level": 21,
+      "slots": 1
+    },
+    "304": {
+      "id": 15,
+      "name": "cd",
+      "stats": [
+        [
+          "wisdom",
+          40
+        ]
+      ],
+      "template": 304,
+      "capacity": 67,
+      "level": 33,
+      "slots": 1
+    },
+    "294": {
+      "id": 5,
+      "name": "iron_plate",
+      "stats": [
+        [
+          "life",
+          50
+        ],
+        [
+          "resistance",
+          40
+        ]
+      ],
+      "template": 294,
+      "capacity": 75,
+      "level": 37,
+      "slots": 1
+    },
+    "290": {
+      "id": 1,
+      "name": "core",
+      "stats": [
+        [
+          "cores",
+          4
+        ]
+      ],
+      "template": 290,
+      "capacity": 99,
+      "level": 41,
+      "slots": 1
+    },
+    "317": {
+      "id": 28,
+      "name": "propulsor",
+      "stats": [
+        [
+          "agility",
+          20
+        ],
+        [
+          "resistance",
+          -30
+        ],
+        [
+          "mp",
+          1
+        ]
+      ],
+      "template": 317,
+      "capacity": 100,
+      "level": 44,
+      "slots": 1
+    },
+    "319": {
+      "id": 30,
+      "name": "morus",
+      "stats": [
+        [
+          "life",
+          60
+        ],
+        [
+          "wisdom",
+          20
+        ],
+        [
+          "magic",
+          40
+        ]
+      ],
+      "template": 319,
+      "capacity": 86,
+      "level": 46,
+      "slots": 1
+    },
+    "293": {
+      "id": 4,
+      "name": "battery",
+      "stats": [
+        [
+          "resistance",
+          10
+        ],
+        [
+          "frequency",
+          10
+        ],
+        [
+          "tp",
+          1
+        ]
+      ],
+      "template": 293,
+      "capacity": 85,
+      "level": 47,
+      "slots": 1
+    },
+    "316": {
+      "id": 27,
+      "name": "motherboard",
+      "stats": [
+        [
+          "life",
+          40
+        ],
+        [
+          "science",
+          20
+        ],
+        [
+          "frequency",
+          10
+        ],
+        [
+          "cores",
+          2
+        ],
+        [
+          "ram",
+          2
+        ]
+      ],
+      "template": 316,
+      "capacity": 135,
+      "level": 49,
+      "slots": 1
+    },
+    "370": {
+      "id": 39,
+      "name": "kiwi",
+      "stats": [
+        [
+          "wisdom",
+          50
+        ],
+        [
+          "mp",
+          1
+        ],
+        [
+          "tp",
+          -1
+        ]
+      ],
+      "template": 370,
+      "capacity": 135,
+      "level": 55,
+      "slots": 1
+    },
+    "373": {
+      "id": 42,
+      "name": "orange",
+      "stats": [
+        [
+          "wisdom",
+          25
+        ],
+        [
+          "resistance",
+          25
+        ],
+        [
+          "frequency",
+          20
+        ]
+      ],
+      "template": 373,
+      "capacity": 82,
+      "level": 58,
+      "slots": 1
+    },
+    "311": {
+      "id": 22,
+      "name": "limbani",
+      "stats": [
+        [
+          "life",
+          30
+        ],
+        [
+          "strength",
+          40
+        ],
+        [
+          "wisdom",
+          10
+        ]
+      ],
+      "template": 311,
+      "capacity": 82,
+      "level": 62,
+      "slots": 1
+    },
+    "383": {
+      "id": 48,
+      "name": "switch",
+      "stats": [
+        [
+          "life",
+          -100
+        ],
+        [
+          "wisdom",
+          50
+        ],
+        [
+          "science",
+          50
+        ],
+        [
+          "magic",
+          40
+        ]
+      ],
+      "template": 383,
+      "capacity": 130,
+      "level": 66,
+      "slots": 1
+    },
+    "310": {
+      "id": 21,
+      "name": "kirabo",
+      "stats": [
+        [
+          "life",
+          100
+        ],
+        [
+          "strength",
+          20
+        ],
+        [
+          "resistance",
+          30
+        ]
+      ],
+      "template": 310,
+      "capacity": 93,
+      "level": 72,
+      "slots": 1
+    },
+    "591": {
+      "id": 54,
+      "name": "walnut",
+      "stats": [
+        [
+          "life",
+          80
+        ],
+        [
+          "wisdom",
+          30
+        ],
+        [
+          "ram",
+          1
+        ]
+      ],
+      "template": 591,
+      "capacity": 99,
+      "level": 79,
+      "slots": 1
+    },
+    "376": {
+      "id": 45,
+      "name": "pear",
+      "stats": [
+        [
+          "life",
+          -400
+        ],
+        [
+          "tp",
+          2
+        ]
+      ],
+      "template": 376,
+      "capacity": 190,
+      "level": 82,
+      "slots": 1
+    },
+    "303": {
+      "id": 14,
+      "name": "sdcard",
+      "stats": [
+        [
+          "life",
+          40
+        ],
+        [
+          "wisdom",
+          60
+        ],
+        [
+          "ram",
+          1
+        ]
+      ],
+      "template": 303,
+      "capacity": 106,
+      "level": 88,
+      "slots": 1
+    },
+    "385": {
+      "id": 50,
+      "name": "rgb",
+      "stats": [
+        [
+          "life",
+          1
+        ]
+      ],
+      "template": 385,
+      "capacity": 390,
+      "level": 93,
+      "slots": 1
+    },
+    "324": {
+      "id": 35,
+      "name": "watercooling",
+      "stats": [
+        [
+          "agility",
+          40
+        ],
+        [
+          "frequency",
+          100
+        ]
+      ],
+      "template": 324,
+      "capacity": 105,
+      "level": 97,
+      "slots": 1
+    },
+    "295": {
+      "id": 6,
+      "name": "amazonite_plate",
+      "stats": [
+        [
+          "life",
+          150
+        ],
+        [
+          "wisdom",
+          20
+        ],
+        [
+          "resistance",
+          60
+        ]
+      ],
+      "template": 295,
+      "capacity": 115,
+      "level": 103,
+      "slots": 1
+    },
+    "381": {
+      "id": 46,
+      "name": "motherboard2",
+      "stats": [
+        [
+          "life",
+          60
+        ],
+        [
+          "science",
+          20
+        ],
+        [
+          "frequency",
+          20
+        ],
+        [
+          "cores",
+          3
+        ],
+        [
+          "ram",
+          3
+        ],
+        [
+          "tp",
+          1
+        ]
+      ],
+      "template": 381,
+      "capacity": 243,
+      "level": 106,
+      "slots": 1
+    },
+    "305": {
+      "id": 16,
+      "name": "neural_core",
+      "stats": [
+        [
+          "science",
+          60
+        ],
+        [
+          "frequency",
+          20
+        ],
+        [
+          "cores",
+          2
+        ]
+      ],
+      "template": 305,
+      "capacity": 117,
+      "level": 112,
+      "slots": 1
+    },
+    "314": {
+      "id": 25,
+      "name": "ram2",
+      "stats": [
+        [
+          "life",
+          40
+        ],
+        [
+          "science",
+          20
+        ],
+        [
+          "ram",
+          6
+        ]
+      ],
+      "template": 314,
+      "capacity": 205,
+      "level": 123,
+      "slots": 1
+    },
+    "372": {
+      "id": 41,
+      "name": "onion",
+      "stats": [
+        [
+          "life",
+          60
+        ],
+        [
+          "strength",
+          60
+        ],
+        [
+          "science",
+          -60
+        ],
+        [
+          "magic",
+          60
+        ]
+      ],
+      "template": 372,
+      "capacity": 150,
+      "level": 128,
+      "slots": 1
+    },
+    "322": {
+      "id": 33,
+      "name": "nephelium",
+      "stats": [
+        [
+          "life",
+          70
+        ],
+        [
+          "strength",
+          60
+        ],
+        [
+          "agility",
+          30
+        ],
+        [
+          "science",
+          20
+        ]
+      ],
+      "template": 322,
+      "capacity": 119,
+      "level": 138,
+      "slots": 1
+    },
+    "298": {
+      "id": 9,
+      "name": "copper_spring",
+      "stats": [
+        [
+          "life",
+          50
+        ],
+        [
+          "strength",
+          40
+        ],
+        [
+          "agility",
+          60
+        ],
+        [
+          "resistance",
+          30
+        ]
+      ],
+      "template": 298,
+      "capacity": 125,
+      "level": 144,
+      "slots": 1
+    },
+    "307": {
+      "id": 18,
+      "name": "power_supply",
+      "stats": [
+        [
+          "agility",
+          40
+        ],
+        [
+          "science",
+          10
+        ],
+        [
+          "frequency",
+          20
+        ],
+        [
+          "tp",
+          2
+        ]
+      ],
+      "template": 307,
+      "capacity": 139,
+      "level": 154,
+      "slots": 1
+    },
+    "365": {
+      "id": 36,
+      "name": "strawberry",
+      "stats": [
+        [
+          "life",
+          300
+        ],
+        [
+          "wisdom",
+          50
+        ]
+      ],
+      "template": 365,
+      "capacity": 127,
+      "level": 157,
+      "slots": 1
+    },
+    "323": {
+      "id": 34,
+      "name": "blue_mango",
+      "stats": [
+        [
+          "wisdom",
+          70
+        ],
+        [
+          "agility",
+          50
+        ],
+        [
+          "science",
+          30
+        ]
+      ],
+      "template": 323,
+      "capacity": 127,
+      "level": 161,
+      "slots": 1
+    },
+    "291": {
+      "id": 2,
+      "name": "core2",
+      "stats": [
+        [
+          "frequency",
+          20
+        ],
+        [
+          "cores",
+          6
+        ]
+      ],
+      "template": 291,
+      "capacity": 145,
+      "level": 164,
+      "slots": 1
+    },
+    "371": {
+      "id": 40,
+      "name": "quince",
+      "stats": [
+        [
+          "life",
+          180
+        ],
+        [
+          "wisdom",
+          40
+        ],
+        [
+          "resistance",
+          40
+        ],
+        [
+          "mp",
+          1
+        ],
+        [
+          "tp",
+          1
+        ]
+      ],
+      "template": 371,
+      "capacity": 203,
+      "level": 173,
+      "slots": 1
+    },
+    "593": {
+      "id": 55,
+      "name": "cocoa",
+      "stats": [
+        [
+          "life",
+          -100
+        ],
+        [
+          "strength",
+          90
+        ],
+        [
+          "magic",
+          90
+        ],
+        [
+          "mp",
+          -1
+        ]
+      ],
+      "template": 593,
+      "capacity": 213,
+      "level": 185,
+      "slots": 1
+    },
+    "309": {
+      "id": 20,
+      "name": "uzoma",
+      "stats": [
+        [
+          "life",
+          100
+        ],
+        [
+          "agility",
+          40
+        ],
+        [
+          "magic",
+          60
+        ],
+        [
+          "cores",
+          2
+        ]
+      ],
+      "template": 309,
+      "capacity": 145,
+      "level": 189,
+      "slots": 1
+    },
+    "595": {
+      "id": 56,
+      "name": "amethyst_ring",
+      "stats": [
+        [
+          "life",
+          180
+        ],
+        [
+          "science",
+          40
+        ],
+        [
+          "magic",
+          60
+        ],
+        [
+          "ram",
+          2
+        ]
+      ],
+      "template": 595,
+      "capacity": 180,
+      "level": 198,
+      "slots": 1
+    },
+    "382": {
+      "id": 47,
+      "name": "motherboard3",
+      "stats": [
+        [
+          "life",
+          80
+        ],
+        [
+          "wisdom",
+          20
+        ],
+        [
+          "science",
+          20
+        ],
+        [
+          "frequency",
+          30
+        ],
+        [
+          "cores",
+          4
+        ],
+        [
+          "ram",
+          4
+        ],
+        [
+          "tp",
+          1
+        ]
+      ],
+      "template": 382,
+      "capacity": 320,
+      "level": 202,
+      "slots": 1
+    },
+    "366": {
+      "id": 37,
+      "name": "chestnut",
+      "stats": [
+        [
+          "life",
+          240
+        ],
+        [
+          "strength",
+          80
+        ],
+        [
+          "resistance",
+          40
+        ],
+        [
+          "tp",
+          1
+        ]
+      ],
+      "template": 366,
+      "capacity": 195,
+      "level": 206,
+      "slots": 1
+    },
+    "374": {
+      "id": 43,
+      "name": "soursop",
+      "stats": [
+        [
+          "life",
+          120
+        ],
+        [
+          "strength",
+          50
+        ],
+        [
+          "wisdom",
+          50
+        ],
+        [
+          "frequency",
+          20
+        ],
+        [
+          "mp",
+          1
+        ]
+      ],
+      "template": 374,
+      "capacity": 168,
+      "level": 213,
+      "slots": 1
+    },
+    "318": {
+      "id": 29,
+      "name": "propulsor2",
+      "stats": [
+        [
+          "agility",
+          40
+        ],
+        [
+          "resistance",
+          -40
+        ],
+        [
+          "cores",
+          1
+        ],
+        [
+          "mp",
+          2
+        ]
+      ],
+      "template": 318,
+      "capacity": 188,
+      "level": 216,
+      "slots": 1
+    },
+    "300": {
+      "id": 11,
+      "name": "ssd",
+      "stats": [
+        [
+          "life",
+          80
+        ],
+        [
+          "wisdom",
+          80
+        ],
+        [
+          "science",
+          30
+        ],
+        [
+          "ram",
+          2
+        ],
+        [
+          "tp",
+          1
+        ]
+      ],
+      "template": 300,
+      "capacity": 208,
+      "level": 218,
+      "slots": 1
+    },
+    "308": {
+      "id": 19,
+      "name": "chiyembekezo",
+      "stats": [
+        [
+          "life",
+          260
+        ],
+        [
+          "agility",
+          30
+        ],
+        [
+          "magic",
+          80
+        ],
+        [
+          "tp",
+          1
+        ]
+      ],
+      "template": 308,
+      "capacity": 193,
+      "level": 224,
+      "slots": 1
+    },
+    "292": {
+      "id": 3,
+      "name": "core3",
+      "stats": [
+        [
+          "frequency",
+          30
+        ],
+        [
+          "cores",
+          10
+        ]
+      ],
+      "template": 292,
+      "capacity": 240,
+      "level": 235,
+      "slots": 1
+    },
+    "375": {
+      "id": 44,
+      "name": "hokajin",
+      "stats": [
+        [
+          "life",
+          70
+        ],
+        [
+          "agility",
+          70
+        ],
+        [
+          "resistance",
+          70
+        ],
+        [
+          "magic",
+          70
+        ]
+      ],
+      "template": 375,
+      "capacity": 175,
+      "level": 241,
+      "slots": 1
+    },
+    "369": {
+      "id": 38,
+      "name": "blue_plum",
+      "stats": [
+        [
+          "life",
+          130
+        ],
+        [
+          "wisdom",
+          50
+        ],
+        [
+          "agility",
+          50
+        ],
+        [
+          "science",
+          50
+        ],
+        [
+          "mp",
+          1
+        ]
+      ],
+      "template": 369,
+      "capacity": 198,
+      "level": 245,
+      "slots": 1
+    },
+    "306": {
+      "id": 17,
+      "name": "neural_core_pro",
+      "stats": [
+        [
+          "science",
+          80
+        ],
+        [
+          "frequency",
+          30
+        ],
+        [
+          "cores",
+          4
+        ],
+        [
+          "tp",
+          1
+        ]
+      ],
+      "template": 306,
+      "capacity": 210,
+      "level": 253,
+      "slots": 1
+    },
+    "320": {
+      "id": 31,
+      "name": "hylocereus",
+      "stats": [
+        [
+          "life",
+          600
+        ],
+        [
+          "wisdom",
+          40
+        ],
+        [
+          "magic",
+          40
+        ]
+      ],
+      "template": 320,
+      "capacity": 210,
+      "level": 255,
+      "slots": 1
+    },
+    "597": {
+      "id": 57,
+      "name": "gyroscope",
+      "stats": [
+        [
+          "life",
+          140
+        ],
+        [
+          "strength",
+          60
+        ],
+        [
+          "resistance",
+          40
+        ],
+        [
+          "science",
+          60
+        ],
+        [
+          "mp",
+          1
+        ]
+      ],
+      "template": 597,
+      "capacity": 208,
+      "level": 259,
+      "slots": 1
+    },
+    "296": {
+      "id": 7,
+      "name": "obsidian_plate",
+      "stats": [
+        [
+          "life",
+          300
+        ],
+        [
+          "strength",
+          20
+        ],
+        [
+          "resistance",
+          80
+        ],
+        [
+          "tp",
+          1
+        ]
+      ],
+      "template": 296,
+      "capacity": 195,
+      "level": 263,
+      "slots": 1
+    },
+    "384": {
+      "id": 49,
+      "name": "switch2",
+      "stats": [
+        [
+          "life",
+          -300
+        ],
+        [
+          "wisdom",
+          80
+        ],
+        [
+          "science",
+          80
+        ],
+        [
+          "tp",
+          1
+        ]
+      ],
+      "template": 384,
+      "capacity": 240,
+      "level": 268,
+      "slots": 1
+    },
+    "315": {
+      "id": 26,
+      "name": "ram3",
+      "stats": [
+        [
+          "life",
+          80
+        ],
+        [
+          "ram",
+          8
+        ]
+      ],
+      "template": 315,
+      "capacity": 260,
+      "level": 274,
+      "slots": 1
+    },
+    "301": {
+      "id": 12,
+      "name": "nuclear_core",
+      "stats": [
+        [
+          "life",
+          -200
+        ],
+        [
+          "science",
+          40
+        ],
+        [
+          "frequency",
+          40
+        ],
+        [
+          "tp",
+          3
+        ]
+      ],
+      "template": 301,
+      "capacity": 235,
+      "level": 283,
+      "slots": 1
+    },
+    "599": {
+      "id": 58,
+      "name": "levitator",
+      "stats": [
+        [
+          "wisdom",
+          50
+        ],
+        [
+          "agility",
+          90
+        ],
+        [
+          "resistance",
+          -40
+        ],
+        [
+          "magic",
+          80
+        ],
+        [
+          "frequency",
+          40
+        ],
+        [
+          "cores",
+          2
+        ],
+        [
+          "mp",
+          -1
+        ]
+      ],
+      "template": 599,
+      "capacity": 200,
+      "level": 287,
+      "slots": 1
+    },
+    "299": {
+      "id": 10,
+      "name": "elinvar_spring",
+      "stats": [
+        [
+          "life",
+          180
+        ],
+        [
+          "strength",
+          30
+        ],
+        [
+          "agility",
+          80
+        ],
+        [
+          "resistance",
+          20
+        ],
+        [
+          "mp",
+          1
+        ]
+      ],
+      "template": 299,
+      "capacity": 195,
+      "level": 293,
+      "slots": 1
+    },
+    "312": {
+      "id": 23,
+      "name": "thokozani",
+      "stats": [
+        [
+          "strength",
+          50
+        ],
+        [
+          "wisdom",
+          50
+        ],
+        [
+          "agility",
+          50
+        ],
+        [
+          "resistance",
+          50
+        ],
+        [
+          "science",
+          50
+        ],
+        [
+          "magic",
+          50
+        ]
+      ],
+      "template": 312,
+      "capacity": 225,
+      "level": 295,
+      "slots": 1
+    }
+  },
+  "alterations": {
+    "alterations": {
+      "1": {
+        "id": 1,
+        "name": "vitamin_d",
+        "carac": "life",
+        "family": 1,
+        "number": 20,
+        "template": 530
+      },
+      "2": {
+        "id": 2,
+        "name": "vitamin_b2",
+        "carac": "strength",
+        "family": 1,
+        "number": 3,
+        "template": 531
+      },
+      "3": {
+        "id": 3,
+        "name": "vitamin_a",
+        "carac": "agility",
+        "family": 1,
+        "number": 21,
+        "template": 532
+      },
+      "4": {
+        "id": 4,
+        "name": "vitamin_c",
+        "carac": "wisdom",
+        "family": 1,
+        "number": 35,
+        "template": 533
+      },
+      "5": {
+        "id": 5,
+        "name": "vitamin_e",
+        "carac": "resistance",
+        "family": 1,
+        "number": 29,
+        "template": 534
+      },
+      "6": {
+        "id": 6,
+        "name": "vitamin_b6",
+        "carac": "science",
+        "family": 1,
+        "number": 51,
+        "template": 535
+      },
+      "7": {
+        "id": 7,
+        "name": "vitamin_k",
+        "carac": "magic",
+        "family": 1,
+        "number": 37,
+        "template": 536
+      },
+      "8": {
+        "id": 8,
+        "name": "vitamin_b1",
+        "carac": "frequency",
+        "family": 1,
+        "number": 6,
+        "template": 537
+      },
+      "9": {
+        "id": 9,
+        "name": "vitamin_pp",
+        "carac": "tp",
+        "family": 1,
+        "number": 10,
+        "template": 538
+      },
+      "10": {
+        "id": 10,
+        "name": "vitamin_b5",
+        "carac": "mp",
+        "family": 1,
+        "number": 46,
+        "template": 539
+      },
+      "11": {
+        "id": 11,
+        "name": "vitamin_b9",
+        "carac": "cores",
+        "family": 1,
+        "number": 44,
+        "template": 540
+      },
+      "12": {
+        "id": 12,
+        "name": "vitamin_b12",
+        "carac": "ram",
+        "family": 1,
+        "number": 39,
+        "template": 541
+      },
+      "13": {
+        "id": 13,
+        "name": "cast_iron",
+        "carac": "life",
+        "family": 2,
+        "number": 8,
+        "template": 542
+      },
+      "14": {
+        "id": 14,
+        "name": "steel",
+        "carac": "strength",
+        "family": 2,
+        "number": 54,
+        "template": 543
+      },
+      "15": {
+        "id": 15,
+        "name": "duralumin",
+        "carac": "agility",
+        "family": 2,
+        "number": 58,
+        "template": 544
+      },
+      "16": {
+        "id": 16,
+        "name": "amalgam",
+        "carac": "wisdom",
+        "family": 2,
+        "number": 15,
+        "template": 545
+      },
+      "17": {
+        "id": 17,
+        "name": "inconel",
+        "carac": "resistance",
+        "family": 2,
+        "number": 41,
+        "template": 546
+      },
+      "18": {
+        "id": 18,
+        "name": "constantan",
+        "carac": "science",
+        "family": 2,
+        "number": 40,
+        "template": 547
+      },
+      "19": {
+        "id": 19,
+        "name": "alnico",
+        "carac": "magic",
+        "family": 2,
+        "number": 22,
+        "template": 548
+      },
+      "20": {
+        "id": 20,
+        "name": "nitinol",
+        "carac": "frequency",
+        "family": 2,
+        "number": 16,
+        "template": 549
+      },
+      "21": {
+        "id": 21,
+        "name": "electrum",
+        "carac": "tp",
+        "family": 2,
+        "number": 26,
+        "template": 550
+      },
+      "22": {
+        "id": 22,
+        "name": "magnalium",
+        "carac": "mp",
+        "family": 2,
+        "number": 38,
+        "template": 551
+      },
+      "23": {
+        "id": 23,
+        "name": "zircaloy",
+        "carac": "cores",
+        "family": 2,
+        "number": 53,
+        "template": 552
+      },
+      "24": {
+        "id": 24,
+        "name": "invar",
+        "carac": "ram",
+        "family": 2,
+        "number": 17,
+        "template": 553
+      },
+      "25": {
+        "id": 25,
+        "name": "supercapacitor",
+        "carac": "life",
+        "family": 3,
+        "number": 12,
+        "template": 554
+      },
+      "26": {
+        "id": 26,
+        "name": "magnetron",
+        "carac": "strength",
+        "family": 3,
+        "number": 56,
+        "template": 555
+      },
+      "27": {
+        "id": 27,
+        "name": "thyristor",
+        "carac": "agility",
+        "family": 3,
+        "number": 43,
+        "template": 556
+      },
+      "28": {
+        "id": 28,
+        "name": "regulator",
+        "carac": "wisdom",
+        "family": 3,
+        "number": 27,
+        "template": 557
+      },
+      "29": {
+        "id": 29,
+        "name": "varistor",
+        "carac": "resistance",
+        "family": 3,
+        "number": 19,
+        "template": 558
+      },
+      "30": {
+        "id": 30,
+        "name": "amplifier",
+        "carac": "science",
+        "family": 3,
+        "number": 52,
+        "template": 559
+      },
+      "31": {
+        "id": 31,
+        "name": "inductor",
+        "carac": "magic",
+        "family": 3,
+        "number": 55,
+        "template": 560
+      },
+      "32": {
+        "id": 32,
+        "name": "oscillator",
+        "carac": "frequency",
+        "family": 3,
+        "number": 25,
+        "template": 561
+      },
+      "33": {
+        "id": 33,
+        "name": "clock",
+        "carac": "tp",
+        "family": 3,
+        "number": 57,
+        "template": 562
+      },
+      "34": {
+        "id": 34,
+        "name": "servomotor",
+        "carac": "mp",
+        "family": 3,
+        "number": 31,
+        "template": 563
+      },
+      "35": {
+        "id": 35,
+        "name": "coprocessor",
+        "carac": "cores",
+        "family": 3,
+        "number": 5,
+        "template": 564
+      },
+      "36": {
+        "id": 36,
+        "name": "register",
+        "carac": "ram",
+        "family": 3,
+        "number": 23,
+        "template": 565
+      }
+    },
+    "component_families": {
+      "19": 1,
+      "20": 1,
+      "21": 1,
+      "22": 1,
+      "23": 1,
+      "30": 1,
+      "31": 1,
+      "32": 1,
+      "33": 1,
+      "34": 1,
+      "36": 1,
+      "37": 1,
+      "38": 1,
+      "39": 1,
+      "40": 1,
+      "41": 1,
+      "42": 1,
+      "43": 1,
+      "44": 1,
+      "45": 1,
+      "54": 1,
+      "55": 1,
+      "5": 2,
+      "6": 2,
+      "7": 2,
+      "8": 2,
+      "9": 2,
+      "10": 2,
+      "13": 2,
+      "28": 2,
+      "29": 2,
+      "35": 2,
+      "56": 2,
+      "1": 3,
+      "2": 3,
+      "3": 3,
+      "4": 3,
+      "11": 3,
+      "12": 3,
+      "14": 3,
+      "15": 3,
+      "16": 3,
+      "17": 3,
+      "18": 3,
+      "24": 3,
+      "25": 3,
+      "26": 3,
+      "27": 3,
+      "46": 3,
+      "47": 3,
+      "48": 3,
+      "49": 3,
+      "50": 3,
+      "57": 3,
+      "58": 3
+    },
+    "efficiency": {
+      "1": {
+        "1": 1,
+        "2": 0.2,
+        "3": 0.04
+      },
+      "2": {
+        "1": 0.04,
+        "2": 1,
+        "3": 0.2
+      },
+      "3": {
+        "1": 0.2,
+        "2": 0.04,
+        "3": 1
+      }
+    },
+    "weights": {
+      "life": 1,
+      "strength": 3,
+      "agility": 3,
+      "wisdom": 3,
+      "resistance": 3,
+      "science": 3,
+      "magic": 3,
+      "frequency": 2,
+      "tp": 180,
+      "mp": 210,
+      "cores": 90,
+      "ram": 120
+    },
+    "gains": {
+      "life": [
+        50,
+        10,
+        2
+      ],
+      "strength": [
+        12,
+        3,
+        1
+      ],
+      "agility": [
+        12,
+        3,
+        1
+      ],
+      "wisdom": [
+        12,
+        3,
+        1
+      ],
+      "resistance": [
+        12,
+        3,
+        1
+      ],
+      "science": [
+        12,
+        3,
+        1
+      ],
+      "magic": [
+        12,
+        3,
+        1
+      ],
+      "frequency": [
+        25,
+        5,
+        1
+      ],
+      "tp": [
+        1,
+        1,
+        1
+      ],
+      "mp": [
+        1,
+        1,
+        1
+      ],
+      "cores": [
+        1,
+        1,
+        1
+      ],
+      "ram": [
+        1,
+        1,
+        1
+      ]
+    },
+    "well_coefficient": 0.25,
+    "max_items": 8
+  }
+}

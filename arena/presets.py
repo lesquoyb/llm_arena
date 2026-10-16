@@ -21,8 +21,8 @@ def participant_scenario():
     scenario['member_stats'] = [copy.deepcopy(scenario['member_stats'][0]) for _ in range(4)]
     for i, member in enumerate(scenario['member_stats'], 1):
         member['name'] = f'Reference {i}'
-    scenario['team_selection'] = {'mode': 'participant', 'max_weapons': 4, 'max_chips': 32,
-                                  'require_capital': True}
+    scenario['team_selection'] = {'mode': 'participant', 'max_weapons': 4, 'max_chips': 50,
+                                  'require_capital': True, 'independent_builds': True}
     return scenario
 
 
@@ -33,6 +33,16 @@ def dream_team_scenario(path=None):
     if data.get('status') != 'ready':
         raise ArenaError('The fixed Dream team preset needs a real public snapshot. Import one or explicitly refresh it; selecting this preset never fetches the ranking.')
     scenario = data['scenario']
+    # Older cached imports retained totals but omitted the component instances.
+    # Recover them from the existing snapshot, without fetching or altering totals.
+    from .components import public_components
+    from .stats import STATS
+    leeks = scenario.get('source', {}).get('snapshot', {}).get('leeks', [])
+    for member, leek in zip(scenario.get('member_stats', []), leeks):
+        if ('components' not in member and 'components' in leek
+                and member.get('stats') == {key: leek.get('total_' + key) for key in STATS}
+                and member.get('level') == leek.get('level')):
+            member['components'] = public_components(leek)
     validate_scenario(scenario)
     if scenario.get('preset') != 'dream-team' or scenario['team_size'] != 4 or scenario.get('team_selection'):
         raise ArenaError('Invalid fixed Dream team preset')

@@ -90,7 +90,8 @@ def read_json(path: Path):
 def write_json(path: Path, value):
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(path.suffix + ".tmp")
-    temporary.write_text(json.dumps(value, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    # Receipts and crash recovery hash canonical UTF-8/LF bytes on every host.
+    temporary.write_text(json.dumps(value, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n")
     temporary.replace(path)
 
 
@@ -174,8 +175,9 @@ def validate_scenario(config: dict):
             raise ArenaError(f"Missing entity.{key}")
     for key, value in entity.items():
         if key in {"weapons", "chips"}:
-            if not isinstance(value, list) or len(value) > 32:
-                raise ArenaError(f"entity.{key} must be a list of up to 32 IDs")
+            maximum = 50 if key == 'chips' else 32
+            if not isinstance(value, list) or len(value) > maximum:
+                raise ArenaError(f"entity.{key} must be a list of up to {maximum} IDs")
             for item in value:
                 integer(item, 1, 100000, key)
         else:
@@ -189,10 +191,8 @@ def validate_scenario(config: dict):
     if config.get("preset") == "llm-team":
         rules = config.get("team_selection") or {}
         if (config.get("stats_mode") != "realistic-v1" or config["team_size"] > 4
-                or config.get("entity", {}).get("level") != 300
-                or any(m.get("level", 300) != 300 for m in config.get("member_stats", []))
                 or not rules.get("require_capital") or rules.get("mode") != "participant"):
-            raise ArenaError("LLM team preset requires 1–4 members at level 300, realistic stats and explicit per-member capital")
+            raise ArenaError("LLM team preset requires 1–4 members, realistic stats and explicit per-member capital")
     if config.get("map") is not None:
         m = config["map"]
         if not isinstance(m, dict) or set(m) - {"obstacles", "team1", "team2"}:
@@ -241,8 +241,8 @@ def make_scenario(config: dict, entries: list[str], seed: int, teams=None) -> di
                    for i in range(config["team_size"])]
         result["entities"].append([
             {**config["entity"], **member_stats(config, i, member),
-             "level": defaults[i].get("level", config["entity"]["level"]),
-             "components": member.get("components", defaults[i].get("components", [])), "weapons": member["weapons"], "chips": member["chips"],
+             "level": member.get('level', defaults[i].get("level", config["entity"]["level"])),
+             "components": member.get("components", [] if team and config.get('team_selection', {}).get('independent_builds') else defaults[i].get("components", [])), "weapons": member["weapons"], "chips": member["chips"],
              "id": side * config["team_size"] + i + 1,
              "name": f"Side {owner} / {i + 1}" + (f" · {member.get('name', defaults[i].get('name'))}" if member.get('name', defaults[i].get('name')) else ""), "type": 1, "farmer": owner,
              "team": owner, "ai": member["entrypoint"], "ai_version": 4}

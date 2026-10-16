@@ -99,15 +99,15 @@ and demos retain their limits. Paid launches require API authorization and show
 whether a financial limit is configured. One response can exceed a configured
 financial limit; accounting reservations are not provider billing guarantees.
 
-**Team setup** switches between shared teams/equipment and participant-selected
-teams. In participant mode, **Team size** is the maximum, not the exact size.
-Each model chooses 1 to that many members, equipment and a script and stat allocation per member using
-`configure_team`. Each member can have a different stat build. New competitions enable realistic
-capital rules by default, with base components; alterations are not validated. Free mode accepts
-raw stats. See [realistic stats](realistic-stats.md) for rules and sources. Weapons/chips must
-exist in the pinned catalog, meet the corresponding member level in realistic mode, respect slot limits
-and appear in any selected allowlists. Empty allowlists mean all eligible items.
-Fixed reference opponents keep the default team and equipment.
+**Team setup** switches between shared rosters and independently built teams.
+Shared mode exposes the character editor. Participant mode hides it and lets
+each LLM choose 1–4 members, individual levels (1–301), capital allocations,
+equipment, components and alterations. Only official game rules apply; no
+additional equipment limits or allowlists are offered in this UI. Explicit
+level and capital are required for each submitted member, and omitted components
+mean none. The internal reference roster is used for preparation opponents.
+Free stats remain available for shared experimental rosters. See
+[realistic stats](realistic-stats.md) for validation rules and sources.
 
 Equipment selectors list the pinned player-equipment catalog. In realistic mode, items
 above the leek level are locked and cannot be selected, including by models.
@@ -319,8 +319,10 @@ The farmer endpoint wraps its profile in `farmer`; the importer unwraps it.
 The snapshot preserves real levels (including 301), published final stats, item
 IDs and item order. Imports use free stats because public totals can include
 components. Published final totals are preserved unchanged. Public component
-templates and alteration deltas are retained as metadata, without applying
-bonuses a second time. Alteration legality is not validated by the free importer. These
+templates and alteration deltas are retained without applying bonuses a second
+time. Checking Realistic stats validates exact capital, component charge/capacity,
+levels and equipment while keeping all final totals. A failed validation keeps
+the free build unchanged and explains the mismatch. These
 are public builds, not private combat scripts. Missing stats, private loadouts,
 non-player chips or unsupported equipment abort the import and retain the old preset.
 The original payload, date, ranking entry, selected IDs and hash are saved.
@@ -340,19 +342,29 @@ python scripts/import_dream_team.py --snapshot dream-team-public.json --save-pre
 
 Commit the resulting data file. **Refresh or replace the saved Dream team** in
 the UI permits an explicit refresh or a pasted JSON snapshot for a local override.
-Until a real snapshot is supplied, the bundled file records the missing data and
-source policy; it does not contain an invented team.
+The bundled file now contains a frozen public snapshot of Pink, CoLeek, Veggy
+and Zombizou, including component instances and alteration deltas. It works
+offline and passes realistic validation without changing the published totals.
+
+When **Participants choose teams and equipment** is selected, the character
+editor and competition equipment restrictions disappear. Every LLM chooses
+1–4 members, individual levels (1–301), names, scripts, capital, equipment and
+component alterations under official game rules. There is no imposed character
+stat allocation or equipment allowlist. Every submitted member must declare
+its own level and capital; omitted components mean none. The internal fixed
+reference roster is used only as the preparation opponent, not as the build
+for submitted teams.
 
 **LLM builds its team** is the third preset. Each participant chooses 1–4 leeks,
-all level 300, with an explicit capital allocation for each member. It chooses
-names, scripts, weapons and chips. Each member has 1,680 capital; RAM controls
-chip slots, the level permits four weapons, and non-player items remain forbidden.
-This realistic builder supports base stats plus capital, with base components; alterations are not validated. The visible default roster supplies fixed reference opponents; it
+with independently chosen levels from 1 to 301 and an explicit capital allocation for each member. It chooses
+names, scripts, weapons and chips. Capital follows each chosen level (1,780 at level 301); RAM controls
+chip slots and level controls weapon slots. Non-player items remain forbidden.
+This realistic builder supports base stats plus capital, with components and validated alteration charge/capacity. The visible default roster supplies fixed reference opponents; it
 is not forced onto participant submissions.
 
 The LLM receives two read-only tools, available through native APIs and MCP:
 
-- `preview_build({capital, member_index?})` returns final stats, remaining
+- `preview_build({level, capital, components?, member_index?})` returns final stats, remaining
   capital, equipment slots and the cost of the next stat increases.
 - `validate_team({members})` checks the complete draft and reports errors.
   Scripts need not exist yet; missing entrypoints are reported separately.

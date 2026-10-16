@@ -170,6 +170,8 @@ class Engine:
                                                for p in sorted((ROOT / directory).rglob("*"))
                                                if p.is_file() and "__pycache__" not in p.parts and p.suffix != ".pyc"})
         self.identity["python_version"] = platform.python_version()
+        self.identity["build_rules_sha256"] = digest({name: file_hash(ROOT / 'docs/corpus' / name)
+            for name in ('stat-rules.json', 'component-rules.json')})
         self.identity["platform"] = platform.platform()
         profile = os.environ.get("ARENA_JVM_PROFILE", "startup")
         if profile not in {"startup", "full"}:

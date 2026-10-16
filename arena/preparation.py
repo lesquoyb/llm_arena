@@ -73,9 +73,9 @@ class Preparation:
             return {"sha256": file_hash(path)}
         if name == "preview_build":
             from .teams import build_preview
-            self._fields(arguments, {"capital", "member_index", "components"})
+            self._fields(arguments, {"capital", "member_index", "components", "level"})
             try:
-                return {"valid": True, **build_preview(self.scenario, arguments.get("member_index", 0), arguments.get("capital"), arguments.get("components"))}
+                return {"valid": True, **build_preview(self.scenario, arguments.get("member_index", 0), arguments.get("capital"), arguments.get("components"), arguments.get('level'))}
             except ArenaError as error:
                 return {"valid": False, "errors": [str(error)]}
         if name == "validate_team":

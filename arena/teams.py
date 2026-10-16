@@ -10,13 +10,16 @@ def validate_rules(scenario):
     if rules is None:
         return
     if (not isinstance(rules, dict) or rules.get("mode") != "participant"
-            or set(rules) - {"mode", "max_weapons", "max_chips", "allowed_weapons", "allowed_chips", "require_capital"}):
+            or set(rules) - {"mode", "max_weapons", "max_chips", "allowed_weapons", "allowed_chips", "require_capital", "independent_builds"}):
         raise ArenaError("Invalid participant team rules")
     if "require_capital" in rules and (type(rules["require_capital"]) is not bool or
                                         (rules["require_capital"] and scenario.get("stats_mode") != "realistic-v1")):
         raise ArenaError("Explicit capital requires realistic stats")
+    if 'independent_builds' in rules and (type(rules['independent_builds']) is not bool or
+            (rules['independent_builds'] and not rules.get('require_capital'))):
+        raise ArenaError('Independent builds require explicit per-member capital')
     for kind, default in (("weapons", 3), ("chips", 12)):
-        integer(rules.get("max_" + kind, default), 0, 32, "max_" + kind)
+        integer(rules.get("max_" + kind, default), 0, 50 if kind == 'chips' else 32, "max_" + kind)
         allowed = rules.get("allowed_" + kind)
         if allowed is not None:
             if not isinstance(allowed, list) or any(type(i) is not int for i in allowed) or len(allowed) != len(set(allowed)):
@@ -37,10 +40,14 @@ def validate_team(team, scenario=None, files=None, data=None):
         raise ArenaError(f"Team must contain 1 to {maximum} members")
     rules = (scenario or {}).get("team_selection") or {}
     for index, member in enumerate(members):
-        if not isinstance(member, dict) or not {"entrypoint", "weapons", "chips"} <= set(member) or set(member) - {"entrypoint", "weapons", "chips", "capital", "stats", "name", "components"}:
+        if not isinstance(member, dict) or not {"entrypoint", "weapons", "chips"} <= set(member) or set(member) - {"entrypoint", "weapons", "chips", "capital", "stats", "name", "components", "level"}:
             raise ArenaError("Each member needs entrypoint, weapons and chips")
         if rules.get("require_capital") and "capital" not in member:
             raise ArenaError("Choose an explicit capital allocation for every member")
+        if rules.get('independent_builds') and 'level' not in member:
+            raise ArenaError('Choose an explicit level for every member (1–301)')
+        if 'level' in member:
+            integer(member['level'], 1, 301, 'member level')
         if "name" in member and (not isinstance(member["name"], str) or not 1 <= len(member["name"]) <= 80):
             raise ArenaError("Member name must contain 1 to 80 characters")
         from .stats import member_stats, STATS
@@ -53,7 +60,7 @@ def validate_team(team, scenario=None, files=None, data=None):
             describe(member["components"], 300, realistic=False)
         if scenario:
             values = member_stats(scenario, index, member)
-            level = (scenario.get("member_stats") or [{}] * scenario["team_size"])[index].get("level", scenario["entity"]["level"])
+            level = member.get('level', (scenario.get("member_stats") or [{}] * scenario["team_size"])[index].get("level", scenario["entity"]["level"]))
         entry = member["entrypoint"]
         if (not isinstance(entry, str) or not entry.endswith(".leek") or "\\" in entry
                 or ":" in entry or PurePosixPath(entry).is_absolute() or ".." in PurePosixPath(entry).parts
@@ -85,15 +92,16 @@ def validate_team(team, scenario=None, files=None, data=None):
     return team
 
 
-def build_preview(scenario, index, capital, components=None):
+def build_preview(scenario, index, capital, components=None, level=None):
     from .stats import realistic_stats, total_capital, RULES
     integer(index, 0, scenario['team_size'] - 1, 'member index')
     if scenario.get('stats_mode') != 'realistic-v1':
         raise ArenaError('Capital previews require realistic stats')
     spec = (scenario.get('member_stats') or [{}] * scenario['team_size'])[index]
-    level = spec.get('level', scenario['entity']['level'])
+    independent = (scenario.get('team_selection') or {}).get('independent_builds')
+    level = level if level is not None else 301 if independent else spec.get('level', scenario['entity']['level'])
     from .components import describe, add_bonuses
-    components = spec.get('components', []) if components is None else components
+    components = ([] if independent else spec.get('components', [])) if components is None else components
     component_info = describe(components, level)
     base_stats = realistic_stats(level, capital)
     stats = add_bonuses(base_stats, component_info['bonuses'])
@@ -113,7 +121,7 @@ def build_preview(scenario, index, capital, components=None):
             'available': total_capital(level), 'remaining': total_capital(level) - sum(capital.values()),
             'weapon_slots': 2 if level < 100 else 3 if level < 200 else 4,
             'chip_slots': stats['ram'], 'next_increases': next_costs,
-            'scope': 'Base stats plus capital plus unaltered components; no alterations.'}
+            'scope': 'Base stats plus capital and component bonuses, including alteration charge validation.'}
 
 
 def team_preview(team, scenario, files, check_sources=False):
@@ -121,8 +129,9 @@ def team_preview(team, scenario, files, check_sources=False):
     members = []
     for index, member in enumerate(team['members']):
         spec = (scenario.get('member_stats') or [{}] * scenario['team_size'])[index]
-        level = spec.get('level', scenario['entity']['level'])
-        report = (build_preview(scenario, index, member.get('capital', spec.get('capital', default_capital(level))), member.get('components', spec.get('components', [])))
+        level = member.get('level', spec.get('level', scenario['entity']['level']))
+        fallback_components = [] if (scenario.get('team_selection') or {}).get('independent_builds') else spec.get('components', [])
+        report = (build_preview(scenario, index, member.get('capital', spec.get('capital', default_capital(level))), member.get('components', fallback_components), level)
                   if scenario.get('stats_mode') == 'realistic-v1' else
                   {'level': level, 'stats': member_stats(scenario, index, member)})
         members.append({**report, 'entrypoint': member['entrypoint'], 'weapons': member['weapons'],

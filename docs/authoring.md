@@ -5,10 +5,14 @@ Game functions are available globally without imports. In shared-team mode, all 
 equipment. Participant-team mode lets you choose the
 team size, equipment, stat builds and per-member entry points under `scenario.team_selection`.
 Write the sources first, then call `configure_team` with `members`, each containing
-`entrypoint`, `weapons` and `chips`. Optionally set `capital` per member in
-realistic-v1 mode (official level/capital rules plus base components), or `stats` in
-free mode. Read corpus/stat-rules.json. Omitted stat overrides inherit the
-corresponding default member build. Use weapons.json `item` values as weapon IDs (pistol: 37), and chips.json keys as chip IDs (shock: 1). Weapon catalog keys and replay template IDs are different identifiers. Read
+`entrypoint`, `weapons` and `chips`. With `independent_builds`, freely choose each
+member's `level` (1–301) and `capital`, and provide both explicitly. Choose
+components and alterations as well; omitted components mean none. Reference
+stats are for test opponents and are not imposed on your team. `preview_build`
+accepts `level`, `capital` and `components` to calculate a candidate build.
+Read corpus/stat-rules.json and corpus/component-rules.json for current values.
+Legacy configurations without independent_builds retain default stat inheritance;
+free mode accepts raw `stats`. Use weapons.json `item` values as weapon IDs (pistol: 37), and chips.json keys as chip IDs (shock: 1). Weapon catalog keys and replay template IDs are different identifiers. Read
 slot limits and allowlists in the initial message. In realistic mode, items cannot exceed member level; free mode permits higher-level items.
 Call `test` to evaluate your current team and `submit` to freeze code and `team.json`.
 Do not write team.json directly; the tool validates and records each change.

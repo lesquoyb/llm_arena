@@ -93,17 +93,12 @@ def scenario_from_snapshot(snapshot):
                 raise ArenaError(f'Public leek {leek.get("id")} uses unsupported or non-player {kind}; import aborted')
             member[kind] = ids
         if 'components' in leek:
-            if (not isinstance(leek['components'], list)
-                    or any(isinstance(piece, dict) and 'template' not in piece for piece in leek['components'])):
-                raise ArenaError('Public components must be a list')
-            member['components'] = [
-                ({'template': piece['template'], **({'stats': piece['stats']} if piece.get('stats') else {})}
-                 if isinstance(piece, dict) else piece)
-                for piece in leek['components'] if piece is not None]
+            from .components import public_components
+            member['components'] = public_components(leek)
         members.append(member)
     first = members[0]
-    # Published totals include components: preserve totals, never pretend they are
-    # achievable without validated alteration rules or apply bonuses twice.
+    # Import final totals verbatim. Switching to realistic mode validates the
+    # component instances and recovers capital without adding bonuses twice.
     scenario = {'preset': 'dream-team', 'team_size': 4, 'max_turns': 1000,
                 'stats_mode': 'free', 'entity': {'level': first['level'], **first['stats'],
                     'weapons': first['weapons'], 'chips': first['chips']}, 'member_stats': members,

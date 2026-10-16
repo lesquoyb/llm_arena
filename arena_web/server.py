@@ -12,7 +12,7 @@ import threading
 from urllib.parse import parse_qs, urlsplit, quote
 import webbrowser
 
-from arena.core import ArenaError, ROOT, file_lock
+from arena.core import ArenaError, ROOT, file_lock, read_json
 from arena.experiment import plan, validate_config
 from .data import Store, safe_path
 from .jobs import Jobs
@@ -65,7 +65,9 @@ class Application:
             from arena.stats import RULES
             from arena.components import catalog as component_catalog
             from arena.equipment import catalog
+            component_rules = read_json(ROOT/'docs/corpus/component-rules.json')
             return {"components": component_catalog(), "stat_rules": RULES, "weapons": catalog(data, "weapons"), "chips": catalog(data, "chips"),
+                    "component_snapshot": {key: component_rules[key] for key in ('source_url', 'master_version', 'fetched_at')},
                     "effects": effects, "snapshot": store.json(data / "snapshot.json")["engine"]["lock"]["commit"]}
         if route == "/api/runs":
             return {"runs": store.listing(), "jobs": self.jobs.listing()}
@@ -128,6 +130,9 @@ class Application:
                     scenario = save_dream_team(snapshot, cache)
                 return {"scenario": scenario}
             return {"scenario": dream_team_scenario(cache if cache.exists() else None)}
+        if route == "/api/stats/realistic":
+            from arena.stats import to_realistic
+            return {"scenario": to_realistic(data['scenario'])}
         if route == "/api/participant":
             return self.store.save_participant(data["spec"], data.get("secret"))
         if route == "/api/participant/delete":

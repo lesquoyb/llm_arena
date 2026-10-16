@@ -12,11 +12,52 @@ from test_presets import public_snapshot
 
 
 def member():
-    return {'name': 'Attacker', 'entrypoint': 'main.leek', 'capital': {'strength': 700, 'life': 570, 'cores': 140, 'tp': 150, 'mp': 120},
+    return {'name': 'Attacker', 'level': 300, 'entrypoint': 'main.leek', 'capital': {'strength': 700, 'life': 570, 'cores': 140, 'tp': 150, 'mp': 120},
             'weapons': [37, 45, 151, 153], 'chips': []}
 
 
 class TeamBuilderTests(unittest.TestCase):
+    def test_independent_teams_choose_levels_stats_and_do_not_inherit_components(self):
+        from arena.stats import member_stats
+        from arena.core import make_scenario
+        scenario = participant_scenario()
+        scenario['member_stats'][0]['components'] = [290, 313]
+        scenario['entity'].update(member_stats(scenario, 0))
+        team = {'members': [
+            {'entrypoint': 'main.leek', 'level': 301, 'capital': {'strength': 100},
+             'components': [{'template': 313, 'stats': {'ram': 1}}], 'weapons': [37], 'chips': []},
+            {'entrypoint': 'main.leek', 'level': 11, 'capital': {}, 'weapons': [], 'chips': []},
+        ]}
+        from arena.teams import validate_team
+        validate_team(team, scenario, {'main.leek': ''}, ROOT/'docs/leekscript-v1')
+        native = make_scenario(scenario, ['main.leek']*2, 101, [team, None])
+        chosen = native['entities'][0]
+        self.assertEqual([m['level'] for m in chosen], [301, 11])
+        self.assertEqual(chosen[0]['strength'], 200)
+        self.assertEqual(chosen[0]['ram'], 11)
+        self.assertEqual(chosen[1]['strength'], 0)
+        self.assertEqual(chosen[1]['life'], 130)
+        self.assertEqual(chosen[1]['ram'], 6)
+        self.assertEqual(chosen[1]['components'], [])
+        self.assertEqual(native['entities'][1][0]['level'], 300)
+        self.assertEqual(native['entities'][1][0]['ram'], 10)
+        for missing in ('capital', 'level'):
+            bad = copy.deepcopy(team)
+            del bad['members'][0][missing]
+            with self.subTest(missing=missing), self.assertRaisesRegex(ArenaError, 'explicit'):
+                validate_team(bad, scenario, {'main.leek': ''}, ROOT/'docs/leekscript-v1')
+        with scratch_directory() as tmp:
+            tools = Preparation(tmp, ROOT/'docs', Engine(), scenario)
+            tools.call('write_file', {'path': 'main.leek', 'content': '// passive'}, '1')
+            preview = tools.call('preview_build', {'level': 301, 'capital': {'strength': 100},
+                'components': team['members'][0]['components']}, '2')
+            self.assertTrue(preview['valid'], preview)
+            self.assertEqual(preview['stats']['ram'], 11)
+            tools.call('configure_team', team, '3')
+            tools.scenario['max_turns'] = 1
+            result = tools.call('test', {}, 'call-4-tool-1')
+            self.assertTrue(all(m['status'] == 'completed' for m in result['matches']))
+
     def test_preset_is_strict_and_tools_validate_without_mutation(self):
         scenario = participant_scenario()
         validate_scenario(scenario)
@@ -26,13 +67,13 @@ class TeamBuilderTests(unittest.TestCase):
                 validate_scenario({**scenario, **bad})
         with scratch_directory() as tmp:
             tools = Preparation(tmp, ROOT/'docs', None, scenario)
-            receipt = tools.call('preview_build', {'capital': member()['capital']}, '1')
+            receipt = tools.call('preview_build', {'capital': member()['capital'], 'level': 300}, '1')
             self.assertTrue(receipt['valid'])
             self.assertEqual(receipt['remaining'], 0)
             self.assertEqual(receipt['stats']['life'], 2957)
             self.assertEqual(receipt['stats']['strength'], 600)
             self.assertEqual(receipt['chip_slots'], 6)
-            preview = tools.call('preview_build', {'capital': {'tp': 165}}, '2')
+            preview = tools.call('preview_build', {'capital': {'tp': 165}, 'level': 300}, '2')
             self.assertEqual(preview['next_increases']['tp']['capital_cost'], 35)
             valid = tools.call('validate_team', {'members': [member()]}, '3')
             self.assertTrue(valid['valid'])

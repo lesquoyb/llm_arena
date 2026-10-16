@@ -42,6 +42,7 @@ selectors show the complete pinned catalog and item definitions; field tips and
 in-app document readers explain settings. Existing configurations keep their limits.
 
 New competitions default to realistic-v1 stat builds: official base stats and
-capital tiers pinned to the official client source. Per-leek base components add bonuses after capital allocation, with level, duplicate
-and eight-slot validation. Realistic alteration rules are not modeled. Free mode and legacy scenarios retain raw stat values.
+capital tiers pinned to the official client source. Per-leek components add bonuses after capital allocation, with level, duplicate,
+eight-slot and alteration charge/capacity validation. Current component stats and
+alteration parameters are frozen together in corpus/component-rules.json. Free mode and legacy scenarios retain raw stat values.
 RAM help distinguishes tracked combat-script memory from LLM context and Java heap.
