@@ -13,6 +13,19 @@ from arena.preparation import Preparation, local_path
 
 
 class ContractTests(unittest.TestCase):
+    def test_token_totals_ignore_mocks_and_preserve_unknown_provider_usage(self):
+        from arena.experiment import token_totals
+        config = {"models": [{"id": "mock", "provider": "mock"},
+                             {"id": "local", "provider": "openai-compatible"}]}
+        states = {"mock": {"model": "mock", "calls": 4},
+                  "local": {"model": "local", "calls": 2, "token_usage_known": True,
+                            "input_tokens": 1500, "output_tokens": 300, "cost_spent": "0"}}
+        self.assertEqual(token_totals(config, states), {"input_tokens": 1500, "output_tokens": 300})
+        states["local"]["token_usage_known"] = False
+        self.assertEqual(token_totals(config, states), {"input_tokens": None, "output_tokens": None})
+        self.assertEqual(token_totals(config, {"mock": states["mock"]}),
+                         {"input_tokens": None, "output_tokens": None})
+
     def test_legacy_journal_migration_preserves_session(self):
         import json
         import sqlite3

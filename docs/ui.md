@@ -218,13 +218,18 @@ new per-entity telemetry separates them.
 
 The initial strategy produces two improvements: **Improved without feedback**
 and **Improved with feedback**. Only the latter receives match results. Both branches inherit the same initial strategy code and history.
-Score is `(wins + 0.5 * draws) / completed matches`, excluding mirrors. A score
+Round 1 is the initial submission; Round 2 has two alternative improvement branches, not two successive rounds. The Summary stage filter selects either branch or the complete history. The evolution chart averages scores across repetitions per model, and the ranked bars compare individual strategy versions.
+
+Score is `(wins + 0.5 * draws) / completed matches`. Tournament mirrors are excluded from tournament scores; reference evaluation can include a candidate against its own frozen initial version. A score
 of 70% is not necessarily a 70% win rate. A score difference of 0.4 is 40 percentage points.
 
-Panels distinguish all reference opponents, frozen initial strategies and fixed
-handwritten controls. Compare versions against the same panel. Contemporary
+The opponent selector distinguishes all reference opponents, Round 1 submissions as opponents, and built-in scripts as opponents. Compare versions against the same panel. Contemporary
 initial and improved strategy standings remain separate. Mock cost zero means no API calls; machine
 cost is not included. Operations are not tokens. Missing costs stay unknown.
+
+The completed-match total adds both tournaments (including diagnostic mirrors) and reference evaluations. Detailed version rows count reference evaluations only. For example, 153 fights can mean 9 initial tournament fights + 36 improved tournament fights + 108 reference evaluations. Nine conversation versions can come from three models with an initial submission and two improvement branches each. Preparation fights are separate.
+
+Click numeric table headings to sort ascending or descending. Replay legends identify each model by side and color. Input and output usage from local providers is counted even at zero token prices and with no budget limits. Mock participants have no LLM tokens. Partial known usage is marked as partial when another provider has not reported usage.
 
 **Compare results** averages fixed-opponent scores with equal weight per complete
 conversation. Incomplete conversations are counted separately. Runs group only

@@ -15,6 +15,10 @@ def score(records):
                  int(r["result"]["winner_side"] == r["side"]) for r in completed)
     return {"score": points / len(completed) if completed else None,
             "completed": len(completed), "failed": len(records) - len(completed),
+            "wins": sum(r["result"]["winner_side"] == r["side"] for r in completed),
+            "draws": sum(r["result"]["winner_side"] == -1 for r in completed),
+            "losses": sum(r["result"]["winner_side"] not in {-1, r["side"]} for r in completed),
+            "points": points,
             "operations": sum(r["result"]["team_metrics"][str(r["side"])]["operations"] for r in completed),
             "errors": sum(r["result"]["team_metrics"][str(r["side"])]["errors"] for r in completed),
             "operation_limit_hits": sum(r["result"]["team_metrics"][str(r["side"])]["operation_limit_hits"] for r in completed)}

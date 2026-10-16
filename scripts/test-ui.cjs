@@ -918,6 +918,60 @@ async function main() {
     await page.getByText("No recorded conversation", { exact: true }).waitFor();
     await page.goto(url + "/#view=run&run=one");
     await page.getByRole("heading", { name: "Strategy performance" }).waitFor();
+    await page
+      .getByRole("heading", { name: "Match counts", exact: true })
+      .waitFor();
+    await page
+      .getByRole("img", { name: "Model scores across strategy rounds" })
+      .waitFor();
+    await page
+      .getByLabel("Strategy stage", { exact: true })
+      .selectOption("feedback");
+    assert.equal(
+      await page.locator("#performance-stage").inputValue(),
+      "feedback",
+    );
+    await page.getByLabel("Strategy stage", { exact: true }).selectOption("");
+    assert.equal(
+      await page.evaluate(() =>
+        tokenDisplay({
+          metadata: {
+            config: {
+              models: [
+                { id: "mock", provider: "mock" },
+                { id: "local", provider: "openai-compatible" },
+              ],
+            },
+          },
+          report: { simulated: false },
+          sessions: [
+            { model: "mock", calls: 2 },
+            {
+              model: "local",
+              calls: 3,
+              token_usage_known: true,
+              input_tokens: 1234,
+              output_tokens: 456,
+            },
+          ],
+        }),
+      ),
+      "1,234 / 456",
+    );
+    const sortButton = page
+      .getByRole("button", { name: "Score ↕", exact: true })
+      .first();
+    await sortButton.click();
+    assert.equal(
+      await sortButton.locator("..").getAttribute("aria-sort"),
+      "descending",
+    );
+    await sortButton.click();
+    assert.equal(
+      await sortButton.locator("..").getAttribute("aria-sort"),
+      "ascending",
+    );
+
     await page.getByRole("heading", { name: "Match matrix" }).waitFor();
     await page.getByLabel("Metrics", { exact: false }).selectOption("damage");
     await page
@@ -999,6 +1053,16 @@ async function main() {
     );
     await page.getByRole("button", { name: "Matches", exact: true }).click();
     await page.locator("#replay-board circle").first().waitFor();
+    assert(
+      (await page.locator(".replay-legend").innerText()).includes(
+        "Side 1 · Blue",
+      ),
+    );
+    assert(
+      (await page.locator(".replay-legend").innerText()).includes(
+        "Side 2 · Orange",
+      ),
+    );
     assert.equal(await page.locator('[data-summon="true"]').count(), 0);
     assert(
       !(await page.locator("#replay-entities").innerText()).includes(

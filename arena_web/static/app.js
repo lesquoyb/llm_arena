@@ -50,14 +50,16 @@ const LABELS = {
   initial: "Initial version",
   control: "Without feedback",
   feedback: "With feedback",
-  all: "Full panel",
-  g0: "Frozen initial strategies",
-  controls: "Fixed strategies",
+  all: "All reference opponents",
+  g0: "Round 1 submissions as opponents",
+  controls: "Built-in scripts as opponents",
   timeout: "Timeout",
   engine_error: "Engine error",
 };
 const generationLabel = (value) =>
-  Number(value || 0) === 0 ? "Initial strategy" : "Improved strategy";
+  Number(value || 0) === 0
+    ? "Round 1: initial strategy"
+    : `Round ${Number(value) + 1}: improved strategy`;
 const text = (v) => LABELS[v] || v || "N/A";
 const badge = (label, color = "") =>
   `<span class="badge ${color}">${e(label)}</span>`;
@@ -1341,7 +1343,7 @@ function strategyName(id) {
     repetition = Number(session?.replicate ?? match?.[2] ?? 0) + 1;
   const improved = session?.generation || match?.[3];
   const condition = session?.condition || match?.[3];
-  return `${model} · repetition ${repetition} · ${improved ? `improved ${condition === "feedback" ? "with" : "without"} feedback` : "initial strategy"}`;
+  return `Round ${improved ? 2 : 1} · ${model} · repetition ${repetition} · ${improved ? `improved ${condition === "feedback" ? "with" : "without"} feedback` : "initial strategy"}`;
 }
 function sessionLabel(session) {
   return `Repetition ${Number(session.replicate || 0) + 1} · ${generationLabel(session.generation)}${session.generation ? " · " + text(session.condition) : ""} · ${text(session.status)}`;
@@ -1443,16 +1445,65 @@ async function renderRun(epoch) {
     );
 }
 function bars(rows) {
+  rows = [...rows].sort((a, b) => (b.score ?? -1) - (a.score ?? -1));
   if (!rows.length)
     return empty("No scores yet", "Results appear after matches finish.");
   const width = 650,
     height = rows.length * 38 + 22;
   return `<svg class="chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="Strategy scores">${rows.map((r, i) => `<text x="0" y="${i * 38 + 18}" class="chart-label">${e(r.label.length > 32 ? r.label.slice(0, 31) + "..." : r.label)}</text><rect x="258" y="${i * 38 + 5}" width="310" height="17" rx="4" fill="#f0f3fa"/><rect x="258" y="${i * 38 + 5}" width="${r.score == null ? 0 : 310 * r.score}" height="17" rx="4" fill="${COLORS[i % COLORS.length]}"/><text x="588" y="${i * 38 + 18}">${e(pct(r.score))}</text><title>${e(r.label)} : ${e(pct(r.score))}</title>`).join("")}</svg>`;
 }
+function tokenDisplay(d) {
+  const models = new Map(
+    (d.metadata?.config?.models || []).map((m) => [m.id, m.provider]),
+  );
+  const real = d.sessions.filter(
+    (s) => models.get(s.model) !== "mock" && (s.calls || s.token_usage_known),
+  );
+  if (d.report.simulated) return "N/A";
+  if (!real.length)
+    return d.report.input_tokens == null
+      ? "Unavailable"
+      : `${fmt(d.report.input_tokens)} / ${fmt(d.report.output_tokens)}`;
+  const known = real.filter((s) => s.token_usage_known);
+  if (!known.length) return "Unavailable from provider";
+  return `${fmt(known.reduce((n, s) => n + (s.input_tokens || 0), 0))} / ${fmt(known.reduce((n, s) => n + (s.output_tokens || 0), 0))}${known.length < real.length ? " (partial)" : ""}`;
+}
+function matchBreakdown(r) {
+  const initial = r.tournament?.completed || r.completed || 0;
+  const improved = r.evolution?.contemporaries?.completed || 0;
+  const reference = (r.evolution?.rows || [])
+    .filter((v) => v.panel === "all")
+    .reduce((n, v) => n + (v.completed || 0), 0);
+  return `<section class="panel"><h2>Match counts</h2><p>${fmt(completed(r))} completed = ${fmt(initial)} Round 1 tournament + ${fmt(improved)} Round 2 tournament + ${fmt(reference)} reference evaluations.</p><p class="muted">Tournament counts include diagnostic mirrors. Detailed strategy results below count only reference evaluations: each submitted version plays the frozen reference opponents on both sides. Preparation tests are separate. A match in a tournament contributes to both participants' records; a reference evaluation belongs to its candidate strategy.</p></section>`;
+}
+function evolutionChart(rows) {
+  const models = [...new Set(rows.map((r) => r.model))];
+  if (!models.length) return "";
+  const conditions = ["initial", "control", "feedback"],
+    labels = ["Round 1: initial", "Round 2: no feedback", "Round 2: feedback"];
+  return `<h3>Model evolution</h3><p class="muted">Mean score across repetitions for each model, against the selected reference opponents. Round 2 branches are alternatives from the same initial strategy. Missing scores are omitted.</p><svg class="chart" viewBox="0 0 760 ${250 + models.length * 22}" role="img" aria-label="Model scores across strategy rounds">${[0, 0.25, 0.5, 0.75, 1].map((v) => `<line x1="50" x2="700" y1="${205 - v * 180}" y2="${205 - v * 180}" stroke="#dce1ea"/><text x="0" y="${210 - v * 180}">${pct(v)}</text>`).join("")}${labels.map((l, i) => `<text x="${70 + i * 240}" y="235">${l}</text>`).join("")}${models
+    .map((model, i) => {
+      const color = COLORS[i % COLORS.length];
+      const values = conditions.map((c) => {
+        const group = rows.filter(
+          (r) => r.model === model && r.condition === c && r.score != null,
+        );
+        return group.length
+          ? group.reduce((n, r) => n + r.score, 0) / group.length
+          : null;
+      });
+      return `${[1, 2].map((j) => (values[0] != null && values[j] != null ? `<line x1="100" y1="${205 - values[0] * 180}" x2="${100 + j * 240}" y2="${205 - values[j] * 180}" stroke="${color}" ${j === 1 ? 'stroke-dasharray="5 4"' : ""}/>` : "")).join("")}${values.map((v, j) => (v != null ? `<circle cx="${100 + j * 240}" cy="${205 - v * 180}" r="5" fill="${color}"><title>${e(model)} · ${labels[j]}: ${pct(v)}</title></circle>` : "")).join("")}<text x="50" y="${265 + i * 22}" fill="${color}">● ${e(model)}</text>`;
+    })
+    .join("")}</svg>`;
+}
 function summary(d, statistics = null) {
   const r = d.report,
     a = d.analysis,
-    rows = (a?.rows || []).filter((v) => v.panel === S.panel),
+    rows = (a?.rows || []).filter(
+      (v) =>
+        v.panel === S.panel &&
+        (!S.performanceStage || v.condition === S.performanceStage),
+    ),
     done = d.sessions.filter((s) => s.status !== "running").length;
   return (
     (r.incomplete
@@ -1485,24 +1536,38 @@ function summary(d, statistics = null) {
           "warn",
         )
       : "") +
-    `<div class="metrics">${metric("Finished sessions", `${done} / ${d.sessions.length}`, `${r.valid_submissions ?? 0} valid submissions`)}${metric("Completed matches", fmt(completed(r)), "Evaluation only; preparation listed separately", "⚔")}${metric("API cost", r.cost_usd === undefined ? "N/A" : money(r.cost_usd), r.reserved_usd === null ? "Pending call cost unknown" : r.reserved_usd && Number(r.reserved_usd) > 0 ? `${money(r.reserved_usd)} reserved` : "Mock run or cost calculated from usage", "↗")}${metric("Input / output tokens", r.input_tokens == null ? "Not measured" : `${fmt(r.input_tokens)} / ${fmt(r.output_tokens)}`, r.simulated ? "No LLM tokens in mock runs" : "Unavailable values stay unknown", "≋")}</div>` +
+    `<div class="metrics">${metric("Finished sessions", `${done} / ${d.sessions.length}`, `${new Set(d.sessions.map((s) => s.model)).size} models; ${r.valid_submissions ?? 0} valid strategy versions`)}${metric("Completed matches", fmt(completed(r)), "Tournaments + reference evaluations; breakdown below", "⚔")}${metric("API cost", r.cost_usd === undefined ? "N/A" : money(r.cost_usd), r.reserved_usd === null ? "Pending call cost unknown" : r.reserved_usd && Number(r.reserved_usd) > 0 ? `${money(r.reserved_usd)} reserved` : "Mock run or cost calculated from usage", "↗")}${metric("Input / output tokens", tokenDisplay(d), r.simulated ? "No LLM tokens in mock runs" : "Measured usage, independent of pricing and optional limits", "≋")}</div>` +
+    matchBreakdown(r) +
     (statistics ? competitionStatistics(statistics) : "") +
     (a
-      ? `<section class="panel"><div class="panel-title"><div><h2>Strategy performance</h2><small>Initial and improved strategies evaluated against the same panel on final seeds.</small></div><select id="panel-choice" aria-label="Evaluation panel">${["all", "controls", "g0"].map((p) => `<option value="${p}" ${S.panel === p ? "selected" : ""}>${text(p)}</option>`).join("")}</select></div>${bars(rows.map((v) => ({ label: strategyName(v.session), score: v.score })))}<p class="muted" style="font-size:11px;margin:13px 0 0">Score = (wins + 0.5 × draws) / completed matches. Mirrors are excluded. The full panel includes frozen initial strategies and handwritten controls.</p></section>
- <section class="panel flush"><div class="panel-head"><div><h2>Detailed results</h2><p>Operations measure LeekScript computation. They are separate from tokens and API cost.</p></div></div>${table(
+      ? `<section class="panel"><div class="panel-title"><div><h2>Strategy performance</h2><small>Each row is a strategy version. Scores use reference opponents, not the tournament standings.</small></div><label>Strategy stage<select id="performance-stage" aria-label="Strategy stage">${[
+          ["", "All rounds"],
+          ["initial", "Round 1: initial"],
+          ["control", "Round 2: without feedback"],
+          ["feedback", "Round 2: with feedback"],
+        ]
+          .map(
+            ([v, l]) =>
+              `<option value="${v}" ${v === (S.performanceStage || "") ? "selected" : ""}>${l}</option>`,
+          )
+          .join(
+            "",
+          )}</select></label><label>Opponents<select id="panel-choice" aria-label="Evaluation panel">${["all", "controls", "g0"].map((p) => `<option value="${p}" ${S.panel === p ? "selected" : ""}>${text(p)}</option>`).join("")}</select></label></div>${evolutionChart((a.rows || []).filter((v) => v.panel === S.panel))}${bars(rows.map((v) => ({ label: strategyName(v.session), score: v.score })))}<p class="muted" style="font-size:11px;margin:13px 0 0">Score = (wins + 0.5 × draws) / completed matches. A win earns 1 point, a draw 0.5, a loss 0. Reference evaluation can include a strategy against its own frozen initial version. Tournament mirrors are separate and excluded from tournament scores. The opponent selector changes which reference fights contribute to the score.</p></section>
+ <section class="panel flush"><div class="panel-head"><div><h2>Detailed results</h2><p>Click a numeric column heading to sort, then click again to reverse. One row per strategy version. Operations measure LeekScript computation. They are separate from tokens and API cost.</p></div></div>${table(
    [
      "Strategy",
      "Version",
      "Score",
+     "Wins / draws / losses",
      "Matches / failures",
      "Operations",
      "Errors / limit",
      "Input / output",
-     "API cost / trajectoire",
+     "API cost / total path",
    ],
    rows.map(
      (v) =>
-       `<tr><td><button class="table-button" data-action="session-conversation" data-session="${e(v.session)}">${e(strategyName(v.session))}</button><small>${e(v.model)} · repetition ${v.replicate + 1}</small></td><td>${generationLabel(v.generation)}<small>${text(v.condition)}</small></td><td class="score numeric">${pct(v.score)}</td><td class="numeric">${fmt(v.completed)} / ${fmt(v.failed)}</td><td class="numeric">${fmt(v.operations)}</td><td class="numeric">${fmt(v.errors)} / ${fmt(v.operation_limit_hits)}</td><td class="numeric">${fmt(v.input_tokens)} / ${fmt(v.output_tokens)}</td><td class="numeric">${money(v.cost_usd)}<small>including initial strategy: ${money(v.trajectory_cost_usd)}</small></td></tr>`,
+       `<tr><td><button class="table-button" data-action="session-conversation" data-session="${e(v.session)}">${e(strategyName(v.session))}</button><small>${e(v.model)} · repetition ${v.replicate + 1}</small></td><td>${generationLabel(v.generation)}<small>${text(v.condition)}</small></td><td class="score numeric">${pct(v.score)}</td><td class="numeric">${fmt(v.wins)} / ${fmt(v.draws)} / ${fmt(v.losses)}</td><td class="numeric">${fmt(v.completed)} / ${fmt(v.failed)}</td><td class="numeric">${fmt(v.operations)}</td><td class="numeric">${fmt(v.errors)} / ${fmt(v.operation_limit_hits)}</td><td class="numeric">${fmt(v.input_tokens)} / ${fmt(v.output_tokens)}</td><td class="numeric">${money(v.cost_usd)}<small>including initial strategy: ${money(v.trajectory_cost_usd)}</small></td></tr>`,
    ),
  )}</section>
  <div class="grid two"><section class="panel"><h2>Feedback effect</h2><p class="muted">Improved with feedback minus improved without feedback, starting from the same initial strategy conversation.</p>${(a.paired || []).map((p) => `<div class="info-row"><span>${e(strategyName(p.parent))}</span><strong>${p.feedback_minus_control == null ? "Unavailable" : (p.feedback_minus_control >= 0 ? "+" : "") + fmt(p.feedback_minus_control * 100, 1) + " points"}</strong></div>`).join("")}<p class="muted" style="font-size:10px;margin-top:12px">${a.interval_95_exploratory ? `Exploratory interval: ${e(pretty(a.interval_95_exploratory))}` : "Not enough complete conversations to estimate an interval."} Mock demos do not measure real model performance.</p></section><section class="panel"><h2>Versions and conditions</h2><div class="info-row"><span>Initial strategy</span><strong>Before improvement</strong></div><div class="info-row"><span>Improved without feedback</span><strong>Improvement without match results</strong></div><div class="info-row"><span>Improved with feedback</span><strong>Improvement with match results</strong></div><p class="muted" style="font-size:11px;margin-top:13px">Both branches inherit the same code and history and are evaluated against the same opponents.</p></section></div>`
@@ -1742,10 +1807,10 @@ function stageText(stage) {
   return (
     {
       ".": "Tournament",
-      tournament: "Initial strategy tournament",
-      "g1-tournament": "Improved strategy tournament",
-      "evaluations/g0-panel": "Initial strategy reference panel",
-      "evaluations/g1-panel": "Improved strategy reference panel",
+      tournament: "Round 1: tournament",
+      "g1-tournament": "Round 2: tournament",
+      "evaluations/g0-panel": "Round 1: reference evaluation",
+      "evaluations/g1-panel": "Round 2: reference evaluation",
       préparation: "Preparation tests (unscored)",
       training: "Preparation tests (unscored)",
     }[stage] || stage
@@ -1859,7 +1924,21 @@ async function loadMatch() {
   const row = S.matches.find((m) => m.path === path),
     result = data.result;
   $("#match-detail").innerHTML =
-    `<div class="panel-title"><div><h2>${result.status === "completed" ? (result.winner_side === -1 ? "Draw" : "Winner: " + e(strategyName(row.sides[result.winner_side]))) : e(text(result.status))}</h2><small>Seed ${e(row.seed)} · ${result.turns == null ? "N/A turns" : countLabel(result.turns, "turn")} · ${fmt(result.elapsed_seconds, 2)} s</small></div>${status(result.status)}</div>${row.kind === "training" ? notice("Preparation test requested by the model. Editable scripts; excluded from competition standings and matrices.", "warn") : notice("Frozen strategies: these scripts cannot change during this round.")}${row.mirror ? notice("Mirror match: excluded from the standings.") : ""}${data.replay ? `<svg id="replay-board" class="board" role="img" aria-label="Match map and entity positions"></svg><div class="replay-controls">${btn("▷", "replay-play", 'id="replay-play" aria-label="Play or pause"')}${btn("←", "replay-prev", 'aria-label="Previous action"')}<input id="replay-range" type="range" min="0" max="${data.replay.events.length}" value="0" aria-label="Replay position">${btn("→", "replay-next", 'aria-label="Next action"')}<select id="replay-speed" aria-label="Playback speed"><option value="400">× 1</option><option value="150">× 2</option><option value="50">× 4</option></select></div><div class="toolbar"><strong id="replay-label" style="font-size:11px"></strong><span class="spacer"></span><span id="replay-count" class="muted" style="font-size:10px"></span></div><div id="replay-entities" class="entity-list"></div><div id="replay-events" class="event-list"></div><p class="muted" style="font-size:10px;margin-top:13px">${e(data.replay.note)}${data.replay.unknown_codes.length ? " Actions not visualized: " + e(data.replay.unknown_codes.join(", ")) + "." : ""}</p>` : notice(e(result.error || "No replay is available for this match."), "warn")}${data.statistics ? combatStatistics(data.statistics) : ""}${raw(result, "Full metrics: computation, errors and result")}${data.scenario ? raw(data.scenario, "Exact match scenario") : ""}${raw(data.provenance, "Strategies, hashes and provenance")}${data.outcome ? raw(data.outcome, "Full raw replay, actions and logs") : ""}`;
+    `<div class="panel-title"><div><h2>${result.status === "completed" ? (result.winner_side === -1 ? "Draw" : "Winner: " + e(strategyName(row.sides[result.winner_side]))) : e(text(result.status))}</h2><small>Seed ${e(row.seed)} · ${result.turns == null ? "N/A turns" : countLabel(result.turns, "turn")} · ${fmt(result.elapsed_seconds, 2)} s</small></div>${status(result.status)}</div>${row.kind === "training" ? notice("Preparation test requested by the model. Editable scripts; excluded from competition standings and matrices.", "warn") : notice("Frozen strategies: these scripts cannot change during this round.")}${row.mirror ? notice("Mirror match: excluded from the standings.") : ""}${
+      data.replay
+        ? `<div class="replay-legend">${Object.entries(row.sides)
+            .map(
+              ([side, id]) =>
+                `<p style="border-left:6px solid ${Number(side) === 0 ? "#5278e5" : "#c77749"};padding-left:10px"><strong>Side ${Number(side) + 1} · ${Number(side) === 0 ? "Blue" : "Orange"}</strong>: ${e(strategyName(id))}</p>`,
+            )
+            .join(
+              "",
+            )}</div><svg id="replay-board" class="board" role="img" aria-label="Match map and entity positions"></svg><div class="replay-controls">${btn("▷", "replay-play", 'id="replay-play" aria-label="Play or pause"')}${btn("←", "replay-prev", 'aria-label="Previous action"')}<input id="replay-range" type="range" min="0" max="${data.replay.events.length}" value="0" aria-label="Replay position">${btn("→", "replay-next", 'aria-label="Next action"')}<select id="replay-speed" aria-label="Playback speed"><option value="400">× 1</option><option value="150">× 2</option><option value="50">× 4</option></select></div><div class="toolbar"><strong id="replay-label" style="font-size:11px"></strong><span class="spacer"></span><span id="replay-count" class="muted" style="font-size:10px"></span></div><div id="replay-entities" class="entity-list"></div><div id="replay-events" class="event-list"></div><p class="muted" style="font-size:10px;margin-top:13px">${e(data.replay.note)}${data.replay.unknown_codes.length ? " Actions not visualized: " + e(data.replay.unknown_codes.join(", ")) + "." : ""}</p>`
+        : notice(
+            e(result.error || "No replay is available for this match."),
+            "warn",
+          )
+    }${data.statistics ? combatStatistics(data.statistics) : ""}${raw(result, "Full metrics: computation, errors and result")}${data.scenario ? raw(data.scenario, "Exact match scenario") : ""}${raw(data.provenance, "Strategies, hashes and provenance")}${data.outcome ? raw(data.outcome, "Full raw replay, actions and logs") : ""}`;
   S.combatStatistics = data.statistics;
   $$(".match-card").forEach((n) =>
     n.classList.toggle("active", n.dataset.path === path),
@@ -2642,7 +2721,10 @@ document.addEventListener("change", async (event) => {
         model: S.modelFilter,
         session: n.value,
       });
-    else if (n.id === "panel-choice") {
+    else if (n.id === "performance-stage") {
+      S.performanceStage = n.value;
+      await renderRun(S.epoch);
+    } else if (n.id === "panel-choice") {
       S.panel = n.value;
       await renderRun(S.epoch);
     } else if (n.id === "source-file") {
@@ -3130,3 +3212,78 @@ function matrixLink(stage, entrant, opponent, outcome, value, description) {
     });
   return `<a href="${e(href)}" aria-label="${e(`${strategyName(entrant)} vs ${strategyName(opponent)}: ${description}`)}">${e(value)}</a>`;
 }
+
+// Numeric column sorting also works for live-generated statistics tables.
+document.addEventListener("click", (event) => {
+  const header = event.target.closest("th");
+  if (!header) return;
+  const table = header.closest("table"),
+    index = header.cellIndex;
+  const body = table.tBodies[0];
+  if (!body || !body.rows.length) return;
+  const value = (row) => {
+    const cell = row.cells[index];
+    const raw =
+      cell?.dataset.sortValue ??
+      (cell?.firstChild?.textContent || cell?.textContent || "")
+        .trim()
+        .split(/\s*\/\s*|\n/)[0];
+    return raw && /^[+$−-]?[\d,.]+%?$/.test(raw)
+      ? Number(raw.replace(/[$,%+]/g, ""))
+      : null;
+  };
+  if (![...body.rows].some((row) => value(row) != null)) return;
+  const direction = header.dataset.sortDirection === "desc" ? "asc" : "desc";
+  for (const th of table.querySelectorAll("th"))
+    th.removeAttribute("aria-sort");
+  header.dataset.sortDirection = direction;
+  header.setAttribute(
+    "aria-sort",
+    direction === "desc" ? "descending" : "ascending",
+  );
+  const rows = [...body.rows].sort((a, b) => {
+    const x = value(a),
+      y = value(b);
+    return x == null
+      ? y == null
+        ? 0
+        : 1
+      : y == null
+        ? -1
+        : direction === "desc"
+          ? y - x
+          : x - y;
+  });
+  body.append(...rows);
+});
+
+const sortableObserver = new MutationObserver(() => {
+  for (const table of document.querySelectorAll("#main table")) {
+    const rows = [...(table.tBodies[0]?.rows || [])];
+    for (const header of table.querySelectorAll("thead th")) {
+      if (
+        header.dataset.sortReady ||
+        !rows.some((row) =>
+          /^[+$-]?[\d,.]+%?(?:\s|$)/.test(
+            (
+              row.cells[header.cellIndex]?.firstChild?.textContent ||
+              row.cells[header.cellIndex]?.textContent ||
+              ""
+            ).trim(),
+          ),
+        )
+      )
+        continue;
+      header.dataset.sortReady = "true";
+      const button = document.createElement("button");
+      button.className = "table-button";
+      button.textContent = header.textContent + " ↕";
+      button.title = "Sort by " + header.textContent;
+      header.replaceChildren(button);
+    }
+  }
+});
+sortableObserver.observe(document.querySelector("#main"), {
+  childList: true,
+  subtree: true,
+});

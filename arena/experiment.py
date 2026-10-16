@@ -24,6 +24,15 @@ TERMINAL = {"submitted", "budget_exhausted", "no_submission", "generation_failed
             "provider_unavailable", "needs_reconciliation"}
 
 
+def token_totals(config, states):
+    """Only actual provider calls contribute tokens; mock responses have no usage."""
+    providers = {m["id"]: m["provider"] for m in config["models"]}
+    real = [s for s in states.values() if providers[s["model"]] != "mock"]
+    known = real and not any(s["calls"] and not s.get("token_usage_known") for s in real)
+    return {key: sum(s.get(key, 0) for s in real) if known else None
+            for key in ("input_tokens", "output_tokens")}
+
+
 def load_config(path: Path) -> dict:
     return validate_config(read_json(path))
 
@@ -615,10 +624,7 @@ def run(config: dict, out: Path, resume=False, interrupt=None, prepare_only=Fals
                        "cost_usd": None if any(s["status"] == "needs_reconciliation" or amount(s.get("money_reserved", "0")) > 0
                                               for s in states.values()) else str(sum(amount(s.get("cost_spent", "0")) for s in states.values())),
                        "cost_status": "simulation" if simulated else "calculated_or_reserved",
-                       "input_tokens": None if simulated or any(s["calls"] and not s.get("token_usage_known") for s in states.values())
-                                       else sum(s.get("input_tokens", 0) for s in states.values()),
-                       "output_tokens": None if simulated or any(s["calls"] and not s.get("token_usage_known") for s in states.values())
-                                        else sum(s.get("output_tokens", 0) for s in states.values()),
+                       **token_totals(config, states),
                        "tournament": tournament,
                        "incomplete": any("submission" not in s for s in states.values()),
                        "unresolved_sessions": [sid for sid,s in states.items() if s["status"] == "needs_reconciliation"]}
@@ -643,9 +649,7 @@ def run(config: dict, out: Path, resume=False, interrupt=None, prepare_only=Fals
                 summary["incomplete"] = summary["evolution"]["incomplete"]
                 summary["known_cost_subtotal_usd"] = summary["evolution"]["known_cost_subtotal_usd"]
                 summary["reserved_usd"] = summary["evolution"]["reserved_usd"]
-                for key in ("input_tokens", "output_tokens"):
-                    summary[key] = None if simulated or any(s["calls"] and not s.get("token_usage_known")
-                                                           for s in final_states.values()) else sum(s.get(key, 0) for s in final_states.values())
+                summary.update(token_totals(config, final_states))
             summary["session_failures"] = [{"session": sid, "status": state["status"], **state["failure"]}
                                             for sid, state in journal.states().items() if state.get("failure")]
             write_json(out / "report.json", summary)
