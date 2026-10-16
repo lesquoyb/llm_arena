@@ -102,6 +102,26 @@ class WebContractTests(unittest.TestCase):
         self.assertEqual(self.store.conversation("example", "mock-repair-r0", 0, 1)["messages"][0]["content"],
                          "PROMPT INITIAL <script>not executable</script>")
 
+    def test_journal_filters_models_before_counting_and_pagination(self):
+        root = fixture(self.store)
+        journal = Journal(root)
+        base = journal.state("mock-repair-r0")
+        try:
+            for sid, model in (("other-r0", "other"), ("other-r1", "other"), ("repair-r1", "mock-repair")):
+                journal.save(sid, {**base, "model": model}, "model_response", {"session": sid})
+        finally:
+            journal.db.close()
+        before = (root / "journal.sqlite").read_bytes()
+        first = self.store.events("example", model="mock-repair", limit=1)
+        second = self.store.events("example", model="mock-repair", offset=1, limit=1)
+        self.assertEqual(first["total"], 2)
+        self.assertEqual(first["events"][0]["session"], "mock-repair-r0")
+        self.assertEqual(second["events"][0]["session"], "repair-r1")
+        self.assertEqual(self.store.events("example", "other-r0", model="mock-repair")["total"], 0)
+        self.assertEqual(self.store.events("example", model="unknown' OR 1=1 --")["total"], 0)
+        self.assertEqual(self.store.events("example")["total"], 4)
+        self.assertEqual((root / "journal.sqlite").read_bytes(), before)
+
     def test_viewing_events_is_read_only_and_detects_modified_artifact(self):
         root = fixture(self.store)
         before = (root / "journal.sqlite").read_bytes()

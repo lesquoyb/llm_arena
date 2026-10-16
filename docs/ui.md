@@ -407,3 +407,14 @@ teams. Mock profiles configure a team through the same tools as API models; fixe
 reference strategies use the scenario roster. They now handle empty weapon lists
 and inspect all equipped weapons. They remain simple weapon baselines, not optimal
 chip/summon strategies; feature-showcase demonstrates those APIs separately.
+
+## Conversations and journal by model
+
+Choose a **Model** in Conversations or Code & versions, then a conversation by
+repetition and initial/improved strategy. Only that model's conversations appear
+in the selector. **Conversation journal** opens the events for that exact thread.
+The Journal also lets you select a model across all its conversations, or select
+**All models** for the complete competition log. Events are filtered before
+pagination and show their model and conversation; **Open conversation** returns
+to the corresponding thread. Model/session filters are kept in the URL for
+refresh, navigation and links, and changing a filter resets pagination.

@@ -307,6 +307,7 @@ function route() {
   S.run = q.get("run");
   S.tab = q.get("tab") || "summary";
   S.session = q.get("session");
+  S.modelFilter = q.get("model");
   S.offset = Number(q.get("offset") || 0);
   S.matchFilters = Object.fromEntries(
     ["stage", "entrant", "opponent", "outcome", "search"].map((k) => [
@@ -1248,12 +1249,45 @@ function runHeader(d) {
     `<div class="toolbar">${config.models ? (config.models.every((m) => m.provider === "mock") ? badge("MOCK RUN (no LLM calls)", "blue") : badge("REAL API CALLS", "orange")) : badge("Provided strategies")}${d.archived ? badge("Exported copy", "orange") : ""}${job ? status(job.status === "failed" && d.report?.incomplete ? "incomplete" : job.status) : ""}<span class="mono muted" style="font-size:10px">${e(S.run)}</span><span class="spacer"></span>${job ? btn("Run log", "job-log", `data-id="${e(job.id)}"`) : ""}</div><div class="tabs">${TABS.map(([key, label]) => `<button class="tab ${S.tab === key ? "active" : ""}" data-action="tab" data-tab="${key}">${label}</button>`).join("")}</div>`
   );
 }
+function runModels(d) {
+  const configured = d.metadata?.config?.models || [];
+  return [
+    ...new Set([
+      ...configured.map((m) => m.id),
+      ...d.sessions.map((s) => s.model),
+    ]),
+  ]
+    .filter(Boolean)
+    .map((id) => {
+      const spec = configured.find((m) => m.id === id);
+      const exact = spec?.model || spec?.profile;
+      return { id, label: exact && exact !== id ? `${id} · ${exact}` : id };
+    });
+}
+function modelPicker(d, journal = false) {
+  return `<label for="conversation-model">Model</label><select id="conversation-model">${journal ? '<option value="">All models</option>' : ""}${runModels(
+    d,
+  )
+    .map(
+      (m) =>
+        `<option value="${e(m.id)}" ${m.id === S.modelFilter ? "selected" : ""}>${e(m.label)}</option>`,
+    )
+    .join("")}</select>`;
+}
+function sessionLabel(session) {
+  return `Repetition ${Number(session.replicate || 0) + 1} · ${generationLabel(session.generation)}${session.generation ? " · " + text(session.condition) : ""} · ${text(session.status)}`;
+}
 function sessionChooser(d) {
-  if (!d.sessions.length) return "";
-  S.session = d.sessions.some((s) => s.id === S.session)
-    ? S.session
-    : d.sessions[0].id;
-  return `<div class="toolbar"><label for="session-choice">Conversation</label><select id="session-choice">${d.sessions.map((s) => `<option value="${e(s.id)}" ${s.id === S.session ? "selected" : ""}>${e(s.id)} · ${text(s.condition)} · ${text(s.status)}</option>`).join("")}</select><span class="spacer"></span><label class="check"><input id="follow-live" type="checkbox" ${S.follow ? "checked" : ""}>Follow live</label></div>`;
+  const selected = d.sessions.find((s) => s.id === S.session);
+  const models = runModels(d);
+  if (!models.some((m) => m.id === S.modelFilter))
+    S.modelFilter = selected?.model || models[0]?.id || null;
+  const sessions = d.sessions.filter((s) => s.model === S.modelFilter);
+  if (!sessions.some((s) => s.id === S.session)) {
+    S.session = sessions[0]?.id || null;
+    S.offset = 0;
+  }
+  return `<div class="toolbar">${modelPicker(d)}<label for="session-choice">Conversation</label><select id="session-choice" ${sessions.length ? "" : "disabled"}>${sessions.map((s) => `<option value="${e(s.id)}" ${s.id === S.session ? "selected" : ""}>${e(sessionLabel(s))}</option>`).join("") || "<option>No conversations yet</option>"}</select>${S.session ? btn("Conversation journal", "conversation-journal") : ""}<span class="spacer"></span><label class="check"><input id="follow-live" type="checkbox" ${S.follow ? "checked" : ""}>Follow live</label></div>`;
 }
 async function renderRun(epoch) {
   const d = S.detail;
@@ -1267,7 +1301,14 @@ async function renderRun(epoch) {
     body = `<section class="panel"><h2>Frozen configuration and provenance</h2><p class="muted">These settings are frozen. Clone the configuration to run a different experiment.</p><pre>${e(pretty(d.metadata))}</pre></section>`;
   else if (S.tab === "conversation" || S.tab === "code") {
     const chooser = sessionChooser(d);
-    if (!d.sessions.length && S.tab === "code") {
+    if (d.sessions.length && !S.session)
+      body =
+        chooser +
+        empty(
+          "No conversations for this model",
+          "Conversations appear when this participant starts.",
+        );
+    else if (!d.sessions.length && S.tab === "code") {
       S.files = (await api("/api/files", { run: S.run })).files.filter((f) =>
         f.path.endsWith(".leek"),
       );
@@ -1284,6 +1325,7 @@ async function renderRun(epoch) {
       const data = await api("/api/conversation", {
         run: S.run,
         session: S.session,
+        model: S.modelFilter,
         offset: S.offset,
       });
       body = chooser + conversation(data);
@@ -1291,6 +1333,7 @@ async function renderRun(epoch) {
       S.versions = await api("/api/versions", {
         run: S.run,
         session: S.session,
+        model: S.modelFilter,
       });
       body = chooser + codePage(S.versions);
     }
@@ -1301,9 +1344,16 @@ async function renderRun(epoch) {
     S.files = (await api("/api/files", { run: S.run })).files;
     body = filesPage();
   } else if (S.tab === "events") {
+    const chosen = d.sessions.find((s) => s.id === S.session);
+    if (chosen && !S.modelFilter) S.modelFilter = chosen.model;
+    if (chosen && S.modelFilter && chosen.model !== S.modelFilter) {
+      S.session = null;
+      S.offset = 0;
+    }
     S.events = await api("/api/events", {
       run: S.run,
       session: S.session || undefined,
+      model: S.modelFilter || undefined,
       offset: S.offset,
     });
     body = eventsPage(S.events);
@@ -1601,13 +1651,21 @@ async function loadFile(path) {
   );
 }
 function eventsPage(data) {
-  return `<section class="panel"><h2>Event log</h2><p class="muted">Calls, responses, reservations, tools and evaluations. Opening an event checks its artifact hash.</p><div class="toolbar"><select id="event-session" aria-label="Filter events by session"><option value="">All sessions</option>${S.detail.sessions.map((s) => `<option value="${e(s.id)}" ${S.session === s.id ? "selected" : ""}>${e(s.id)}</option>`).join("")}</select><span class="muted">${fmt(data.total)} events</span></div>${table(
-    ["N°", "Timestamp", "Session", "Type", ""],
+  return `<section class="panel"><h2>Event log</h2><p class="muted">Calls, responses, reservations, tools and evaluations. Opening an event checks its artifact hash.</p><div class="toolbar">${modelPicker(S.detail, true)}<label for="event-session">Conversation</label><select id="event-session"><option value="">All conversations</option>${S.detail.sessions
+    .filter((s) => !S.modelFilter || s.model === S.modelFilter)
+    .map(
+      (s) =>
+        `<option value="${e(s.id)}" ${S.session === s.id ? "selected" : ""}>${e(s.model)} · ${e(sessionLabel(s))}</option>`,
+    )
+    .join(
+      "",
+    )}</select><span class="muted">${fmt(data.total)} events</span></div>${table(
+    ["N°", "Timestamp", "Model / conversation", "Type", ""],
     data.events.map(
       (v) =>
-        `<tr><td>${v.id}</td><td>${date(v.at)}</td><td>${e(v.session)}</td><td><code>${e(v.kind)}</code></td><td>${btn("View artifact", "event", `data-id="${v.id}"`)}</td></tr>`,
+        `<tr><td>${v.id}</td><td>${date(v.at)}</td><td>${e(S.detail.sessions.find((s) => s.id === v.session)?.model || "Competition")}<small>${e(v.session)}</small></td><td><code>${e(v.kind)}</code></td><td>${btn("View artifact", "event", `data-id="${v.id}"`)}${S.detail.sessions.some((s) => s.id === v.session) ? btn("Open conversation", "session-conversation", `data-session="${e(v.session)}"`) : ""}</td></tr>`,
     ),
-  )}<div class="pager"><span>Events ${S.offset + 1}-${Math.min(data.total, S.offset + 100)}</span><div class="actions">${btn("← Previous", "event-page", `data-offset="${Math.max(0, S.offset - 100)}" ${S.offset === 0 ? "disabled" : ""}`)}${btn("Next →", "event-page", `data-offset="${S.offset + 100}" ${S.offset + 100 >= data.total ? "disabled" : ""}`)}</div></div></section>`;
+  )}<div class="pager"><span>Events ${data.total ? S.offset + 1 : 0}-${Math.min(data.total, S.offset + 100)}</span><div class="actions">${btn("← Previous", "event-page", `data-offset="${Math.max(0, S.offset - 100)}" ${S.offset === 0 ? "disabled" : ""}`)}${btn("Next →", "event-page", `data-offset="${S.offset + 100}" ${S.offset + 100 >= data.total ? "disabled" : ""}`)}</div></div></section>`;
 }
 function stageText(stage) {
   return (
@@ -2188,6 +2246,14 @@ document.addEventListener("click", async (event) => {
         run: S.run,
         tab: node.dataset.tab,
         session: S.session,
+        model: S.modelFilter,
+      });
+    else if (a === "conversation-journal")
+      navigate("run", {
+        run: S.run,
+        tab: "events",
+        model: S.modelFilter,
+        session: S.session,
       });
     else if (a === "session-conversation")
       navigate("run", {
@@ -2200,6 +2266,7 @@ document.addEventListener("click", async (event) => {
         run: S.run,
         tab: S.tab,
         session: S.session,
+        model: S.modelFilter,
         offset: node.dataset.offset,
       });
     else if (a === "version") {
@@ -2211,6 +2278,7 @@ document.addEventListener("click", async (event) => {
         run: S.run,
         tab: "conversation",
         session: S.session,
+        model: S.modelFilter,
         offset: Math.floor(Number(node.dataset.message) / 25) * 25,
       });
     else if (a === "file-mode") {
@@ -2447,8 +2515,15 @@ document.addEventListener("change", async (event) => {
       );
     } else if (n.id === "engine-files") {
       $("#file-list").innerHTML = fileButtons(S.files);
-    } else if (n.id === "session-choice")
-      navigate("run", { run: S.run, tab: S.tab, session: n.value });
+    } else if (n.id === "conversation-model")
+      navigate("run", { run: S.run, tab: S.tab, model: n.value });
+    else if (n.id === "session-choice")
+      navigate("run", {
+        run: S.run,
+        tab: S.tab,
+        model: S.modelFilter,
+        session: n.value,
+      });
     else if (n.id === "panel-choice") {
       S.panel = n.value;
       await renderRun(S.epoch);
@@ -2459,7 +2534,12 @@ document.addEventListener("change", async (event) => {
       S.previous = Number(n.value);
       await loadSource();
     } else if (n.id === "event-session")
-      navigate("run", { run: S.run, tab: "events", session: n.value });
+      navigate("run", {
+        run: S.run,
+        tab: "events",
+        model: S.modelFilter,
+        session: n.value,
+      });
     else if (n.id === "follow-live") {
       S.follow = n.checked;
     } else if (

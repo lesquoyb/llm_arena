@@ -285,7 +285,7 @@ class Store:
                 "times": times[offset:offset + limit], "timeline": timeline[offset:offset + limit], "model": state.get("model"),
                 "status": state["status"], "failure": failure}
 
-    def events(self, identifier, sid=None, offset=0, limit=100):
+    def events(self, identifier, sid=None, offset=0, limit=100, model=None):
         root = self.run_path(identifier)
         path = root / "journal.sqlite"
         if not path.exists():
@@ -293,7 +293,14 @@ class Store:
         with closing(sqlite3.connect(path.as_uri() + "?mode=ro", uri=True, timeout=2)) as connection:
             if not connection.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='events'").fetchone():
                 return {"total": 0, "events": []}
-            clause, args = (" WHERE session=?", [sid]) if sid else ("", [])
+            conditions, args = [], []
+            if sid:
+                conditions.append("session=?")
+                args.append(sid)
+            if model:
+                conditions.append("session IN (SELECT id FROM sessions WHERE json_extract(state,'$.model')=?)")
+                args.append(model)
+            clause = " WHERE " + " AND ".join(conditions) if conditions else ""
             total = connection.execute("SELECT count(*) FROM events" + clause, args).fetchone()[0]
             rows = connection.execute("SELECT id,session,kind,payload FROM events" + clause +
                                       " ORDER BY id LIMIT ? OFFSET ?", [*args, limit, offset]).fetchall()

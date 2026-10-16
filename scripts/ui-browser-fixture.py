@@ -6,6 +6,7 @@ import sys
 ROOT = Path(__file__).resolve().parent.parent
 sys.path[:0] = [str(ROOT), str(ROOT / "tests")]
 from arena.core import scratch_directory, write_json
+from arena.experiment import Journal
 from arena_web.data import Store
 from arena_web.server import Application, Server
 from test_web import fixture
@@ -37,6 +38,18 @@ def main():
                        "seed": 301, "mirror": False}, "directory": work.relative_to(root).as_posix(), "result": result})
             (root / "report.md").write_text("# Rapport navigateur\n\n**Résultat** : terminé.\n\n<img src=x onerror=window.__arenaUnexpectedScript=1>\n\n| Stat | Valeur |\n| --- | --- |\n| Score | 50 % |\n", encoding="utf-8")
             write_json(root / "example.json", {"result": {"score": .5}, "literal":"<script>window.__arenaUnexpectedScript=1</script>"})
+        threads = fixture(store, "threads")
+        journal = Journal(threads)
+        try:
+            base = journal.state("mock-repair-r0")
+            journal.save("mock-repair-r1", {**base, "replicate":1,
+                "history":[{"role":"user","content":"Second repair conversation"}]},
+                "session_created", {"test":"repair repetition"})
+            journal.save("mock-single-r0", {**base, "model":"mock-single",
+                "history":[{"role":"user","content":"Single model conversation"}]},
+                "session_created", {"test":"single model"})
+        finally:
+            journal.db.close()
         legacy = store.runs / "legacy"
         write_json(legacy / "experiment.json", {"manifest":{"name":"Tournoi sans génération", "strategies":[]}})
         write_json(legacy / "report.json", {"completed":0})
