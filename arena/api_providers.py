@@ -27,8 +27,20 @@ def http_json(url, payload, headers, timeout):
                 raise ProviderFailure("Provider response exceeded quota", uncertain=True)
             return json.loads(body), response.headers.get("x-request-id") or response.headers.get("request-id")
     except error.HTTPError as exc:
-        # Do not store or print headers, request bodies or credential-bearing error bodies.
-        raise ProviderFailure(f"Provider HTTP {exc.code}", uncertain=exc.code >= 500,
+        # Keep only the structured public error fields, never the raw error body.
+        detail = ""
+        try:
+            problem = json.loads(exc.read(16000)).get("error", {})
+            if isinstance(problem, dict):
+                detail = " · ".join(str(problem[k]) for k in ("status", "type", "message")
+                                    if isinstance(problem.get(k), (str, int)))[:2000]
+                for header, value in headers.items():
+                    if header.lower() in {"authorization", "x-api-key", "x-goog-api-key"}:
+                        detail = detail.replace(value, "[REDACTED]").replace(value.removeprefix("Bearer "), "[REDACTED]")
+                detail = re.sub(r"(?i)(key|api_key|token)=([^\s&]+)", r"\1=[REDACTED]", detail)
+        except (ValueError, OSError, AttributeError):
+            pass
+        raise ProviderFailure(f"Provider HTTP {exc.code}" + (": " + detail if detail else ""), uncertain=exc.code >= 500,
                               retryable=exc.code == 429) from None
     except (error.URLError, TimeoutError, OSError, ValueError) as exc:
         raise ProviderFailure(f"Provider response unavailable ({type(exc).__name__})", uncertain=True) from None

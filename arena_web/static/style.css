@@ -1574,3 +1574,13 @@ dialog::backdrop {
 .character-card[hidden] {
   display: none;
 }
+
+/* Conversation directions remain readable without relying on color. */
+.chat-message .message-head { flex-wrap: wrap; gap: 8px; font-size: 12px; }
+.chat-message .message-head strong { color: var(--text); }
+.chat-message .message-reply, .tool-call small { display: block; color: var(--muted); font-size: 11px; margin: 6px 0; }
+.chat-message.tool { margin-left: 24px; }
+.chat-message.tool-error { border-left-color: #c54141; }
+.chat-message pre { max-height: 65vh; overflow: auto; }
+.game-brief { padding: 12px; background: #eef3ff; margin: 12px 0; font-size: 12px; }
+@media (max-width: 600px) { .chat-message.tool { margin-left: 8px; } }

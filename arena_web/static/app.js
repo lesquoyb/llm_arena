@@ -38,6 +38,7 @@ const LABELS = {
   stopped: "Stopped",
   completed: "Completed",
   failed: "Failed",
+  incomplete: "Incomplete",
   interrupted: "Interrupted",
   needs_reconciliation: "Billing reconciliation needed",
   budget_exhausted: "Budget exhausted",
@@ -418,7 +419,7 @@ function completed(report) {
 function runRows(runs) {
   return runs.map((r) => {
     const job = S.boot.jobs.find((j) => j.run === r.id);
-    return `<tr><td><button class="table-button" data-action="open-run" data-run="${e(r.id)}">${e(r.name)}</button><small>${e(r.id)}</small></td><td>${job && ["running", "stopping"].includes(job.status) ? status(job.status) : r.error ? status("failed") : r.complete ? status("completed") : badge("Review needed", "orange")}</td><td>${r.simulated === true ? badge("Simulation", "blue") : r.simulated === false ? badge("Real API calls", "orange") : badge("Strategies")}</td><td class="numeric">${fmt(r.report?.sessions ?? r.models)}</td><td class="numeric">${fmt(completed(r.report))}</td><td class="numeric">${r.report?.cost_usd === undefined ? "N/A" : money(r.report.cost_usd)}</td><td>${date(r.created_at)}</td></tr>`;
+    return `<tr><td><button class="table-button" data-action="open-run" data-run="${e(r.id)}">${e(r.name)}</button><small>${e(r.id)}</small></td><td>${job && ["running", "stopping"].includes(job.status) ? status(job.status === "failed" && r.report?.incomplete ? "incomplete" : job.status) : r.error ? status("failed") : r.complete ? status("completed") : badge("Review needed", "orange")}</td><td>${r.simulated === true ? badge("Simulation", "blue") : r.simulated === false ? badge("Real API calls", "orange") : badge("Strategies")}</td><td class="numeric">${fmt(r.report?.sessions ?? r.models)}</td><td class="numeric">${fmt(completed(r.report))}</td><td class="numeric">${r.report?.cost_usd === undefined ? "N/A" : money(r.report.cost_usd)}</td><td>${date(r.created_at)}</td></tr>`;
   });
 }
 function runTable(runs) {
@@ -1136,7 +1137,7 @@ function readCompetition(form) {
   base.generations = n("generations");
   base.schema_version = 2;
   base.improvement_conditions = ["control", "feedback"];
-  base.prompt_language = "fr";
+  base.prompt_language = "en";
   base.seeds = array("seeds");
   base.final_seeds = base.generations === 2 ? array("final_seeds") : [];
   base.include_mirrors = f.has("include_mirrors");
@@ -1234,7 +1235,7 @@ function runHeader(d) {
       "Results, conversations and files.",
       `${active ? btn("■ Stop", "stop-job", `data-id="${e(job.id)}"`) : experiment && !d.archived ? btn("Resume", "resume") : ""}${experiment ? btn("Clone configuration", "clone-run") : ""}${experiment ? btn("Export", "export-run") : ""}`,
     ) +
-    `<div class="toolbar">${config.models ? (config.models.every((m) => m.provider === "mock") ? badge("MOCK RUN (no LLM calls)", "blue") : badge("REAL API CALLS", "orange")) : badge("Provided strategies")}${d.archived ? badge("Exported copy", "orange") : ""}${job ? status(job.status) : ""}<span class="mono muted" style="font-size:10px">${e(S.run)}</span><span class="spacer"></span>${job ? btn("Run log", "job-log", `data-id="${e(job.id)}"`) : ""}</div><div class="tabs">${TABS.map(([key, label]) => `<button class="tab ${S.tab === key ? "active" : ""}" data-action="tab" data-tab="${key}">${label}</button>`).join("")}</div>`
+    `<div class="toolbar">${config.models ? (config.models.every((m) => m.provider === "mock") ? badge("MOCK RUN (no LLM calls)", "blue") : badge("REAL API CALLS", "orange")) : badge("Provided strategies")}${d.archived ? badge("Exported copy", "orange") : ""}${job ? status(job.status === "failed" && d.report?.incomplete ? "incomplete" : job.status) : ""}<span class="mono muted" style="font-size:10px">${e(S.run)}</span><span class="spacer"></span>${job ? btn("Run log", "job-log", `data-id="${e(job.id)}"`) : ""}</div><div class="tabs">${TABS.map(([key, label]) => `<button class="tab ${S.tab === key ? "active" : ""}" data-action="tab" data-tab="${key}">${label}</button>`).join("")}</div>`
   );
 }
 function sessionChooser(d) {
@@ -1323,6 +1324,25 @@ function summary(d, statistics = null) {
     rows = (a?.rows || []).filter((v) => v.panel === S.panel),
     done = d.sessions.filter((s) => s.status !== "running").length;
   return (
+    (r.incomplete
+      ? notice(
+          `<strong>Competition incomplete</strong><p>Some conversations did not produce an evaluable submission. Completed fights remain available.</p>${d.sessions
+            .filter((s) =>
+              [
+                "provider_unavailable",
+                "needs_reconciliation",
+                "generation_failed",
+                "no_submission",
+              ].includes(s.status),
+            )
+            .map(
+              (s) =>
+                `<p>${e(s.id)} · ${e(text(s.status))} ${btn("Show conversation", "session-conversation", `data-session="${e(s.id)}"`)}</p>`,
+            )
+            .join("")}`,
+          "warn",
+        )
+      : "") +
     (r.simulated
       ? notice(
           "<strong>Mock participants.</strong> Predefined strategies, real matches, no API calls.",
@@ -1384,38 +1404,99 @@ function summary(d, statistics = null) {
     `<section class="panel">${raw(r, "Full summary and raw metrics")}${d.g0 ? raw(d.g0, "Initial strategy tournament: standings and mirrors") : ""}${d.g1 ? raw(d.g1, "Improved strategy tournament: standings and mirrors") : ""}${a ? raw(a, "Full analysis, missing results, aggregates and cost/performance frontier") : ""}</section>`
   );
 }
+let conversationValues = [];
+function conversationData(value, title) {
+  const index = conversationValues.push(value) - 1;
+  return `<details class="conversation-data" data-conversation-value="${index}"><summary>${e(title)}</summary><pre></pre></details>`;
+}
 function conversation(data) {
+  conversationValues = [];
+  const failure = data.failure;
   return (
-    notice(
-      "Recorded prompts, responses, tool calls and results. Internal reasoning is shown only when returned by the provider.",
-    ) +
-    `<div class="pager"><span>${fmt(data.total)} messages · ${status(data.status)}</span><div class="actions">${btn("← Previous", "conversation-page", `data-offset="${Math.max(0, S.offset - 25)}" ${S.offset === 0 ? "disabled" : ""}`)}<span>${S.offset + 1}-${Math.min(data.total, S.offset + 25)}</span>${btn("Next →", "conversation-page", `data-offset="${S.offset + 25}" ${S.offset + 25 >= data.total ? "disabled" : ""}`)}</div></div>` +
+    (failure
+      ? notice(
+          `<strong>${e(text(data.status))}</strong><p>${e(failure.message)}</p><small>${e(failure.phase)} · ${date(failure.at)}${failure.retryable ? " · Retryable API error" : ""}${failure.uncertain ? " · Check billing before resuming" : ""}</small>`,
+          "error",
+        )
+      : "") +
+    `<div class="pager"><span>${fmt(data.total)} messages · ${status(data.status)}</span><div class="actions">${btn("← Previous", "conversation-page", `data-offset="${Math.max(0, S.offset - 25)}" ${S.offset === 0 ? "disabled" : ""}`)}<span>${data.total ? S.offset + 1 : 0}-${Math.min(data.total, S.offset + 25)}</span>${btn("Next →", "conversation-page", `data-offset="${S.offset + 25}" ${S.offset + 25 >= data.total ? "disabled" : ""}`)}</div></div>` +
     data.messages
       .map((m, index) => {
-        const native = m.native,
-          content =
-            m.role === "user"
-              ? m.content
-              : m.role === "tool"
-                ? pretty(m.result)
-                : typeof native?.content === "string"
+        const absolute = S.offset + index,
+          native = m.native;
+        const content =
+          m.role === "user"
+            ? m.content
+            : m.role === "tool"
+              ? pretty(m.result)
+              : typeof native?.content === "string"
+                ? native.content
+                : Array.isArray(native?.content)
                   ? native.content
-                  : Array.isArray(native?.content)
-                    ? native.content
-                        .filter((v) => v.type === "text")
+                      .filter((v) => v.type === "text")
+                      .map((v) => v.text)
+                      .join("\n")
+                  : native?.parts
+                    ? native.parts
+                        .filter((v) => v.text && !v.thought)
                         .map((v) => v.text)
                         .join("\n")
-                    : native?.parts
-                      ? native.parts
-                          .filter((p) => p.text)
-                          .map((p) => p.text)
-                          .join("\n")
-                      : m.content || "";
-        return `<article class="chat-message ${e(m.role)}" id="message-${S.offset + index}"><div class="message-head"><strong>${m.role === "user" ? "PROMPT" : m.role === "assistant" ? "MODEL RESPONSE" : "TOOL RESULT"} ${m.name ? "· " + e(m.name) : ""}</strong><span>Message ${S.offset + index + 1}${m.generation != null ? " · " + generationLabel(m.generation) : ""}${m.simulated ? " · mock" : ""}</span></div>${content ? `<div class="message-content">${e(content)}</div>` : ""}${(m.tool_calls || []).map((c) => `<div class="tool-call"><strong>↳ ${e(c.name)}</strong><pre>${e(pretty(c.arguments))}</pre></div>`).join("")}${m.role === "user" && m.budgets ? raw({ budgets: m.budgets, scenario: m.scenario, feedback: m.feedback }, "Budgets, scenario and feedback in this message") : ""}${m.usage ? `<div style="margin-top:12px"><small>Input ${fmt(m.usage.input_tokens)} · Output ${fmt(m.usage.output_tokens)} · Cost ${money(m.cost_usd)} · ${fmt(m.elapsed_seconds, 3)} s</small></div>` : ""}${m.sent_parameters ? `<div class="request-meta"><small>Sent seed: ${e(m.sent_parameters.seed ?? m.sent_parameters.generationConfig?.seed ?? (m.provider === "anthropic" ? "not available" : m.simulated ? "not applicable" : "not set"))}${m.model_version ? ` · Returned model: ${e(m.model_version)}` : ""}${m.system_fingerprint ? ` · Backend: ${e(m.system_fingerprint)}` : ""}</small>${m.request_sha256 ? `<small class="mono">Request SHA-256 (canonical JSON): ${e(m.request_sha256)}</small>` : ""}${raw(m.sent_parameters, "Sent request: prompts, history, tools and parameters")}</div>` : ""}${raw(m, "Full record: native response, request, tools and metadata")}</article>`;
+                    : m.content || "";
+        const direction =
+          m.role === "user"
+            ? "Arena → Model"
+            : m.role === "tool"
+              ? `Tool → Model · ${m.name}`
+              : `${data.model || "Model"} → Arena`;
+        const resultError =
+          m.role === "tool" && (m.result?.error || m.result?.valid === false);
+        const display = data.timeline?.[index] || {};
+        const calls = (m.tool_calls || [])
+          .map(
+            (call, n) =>
+              `<section class="tool-call" id="call-${absolute}-${n}"><strong>Model → Tool · ${e(call.name)}</strong><small>Call ${n + 1} in this response${call.id ? " · " + e(call.id) : ""}</small>${conversationData(call.arguments, "Tool arguments")}</section>`,
+          )
+          .join("");
+        const snippet = String(content || "").slice(0, 1800);
+        return `<article class="chat-message ${e(m.role)} ${resultError ? "tool-error" : ""}" id="message-${absolute}"><div class="message-head"><strong>${e(direction)}${m.simulated ? " · predefined strategy" : ""}</strong><span>Message ${absolute + 1} · ${data.times?.[index] ? date(data.times[index]) : "Time not recorded"}</span></div>${display.reply_to != null ? `<p class="message-reply">Result of tool request in message ${display.reply_to + 1}${display.reply_to >= S.offset && display.reply_to < S.offset + 25 ? ` · <a href="#message-${display.reply_to}" data-action="message-anchor" data-index="${display.reply_to}">Go to request</a>` : ""}${m.call_id ? " · " + e(m.call_id) : ""}</p>` : ""}${resultError ? badge("Tool error", "red") : ""}${snippet ? `<div class="message-content">${e(snippet)}${content.length > 1800 ? "\n[Preview truncated; open the full record below.]" : ""}</div>` : m.role === "assistant" && calls ? '<p class="muted">The model requested tools without a text response.</p>' : ""}${m.briefing ? `<div class="game-brief"><strong>Game briefing sent to the model</strong><p>${e(m.briefing.game)}</p><p>${e(m.briefing.objective)}</p><p>${e(m.briefing.team_mode)}</p></div>` : ""}${calls}${m.role === "user" ? conversationData(Object.fromEntries(Object.entries(m).filter(([key]) => !["role", "content", "request_recorded", "request_seed"].includes(key))), "Scenario, roster, ID guide and preparation rules sent to the model") : ""}${m.usage ? `<small>Input ${fmt(m.usage.input_tokens)} · Output ${fmt(m.usage.output_tokens)} · Cost ${money(m.cost_usd)} · Response took ${fmt(m.elapsed_seconds, 3)} s</small>` : ""}${m.request_recorded ? `<p class="muted">Sent seed: ${e(m.request_seed ?? "not set")}${m.stop_reason ? " · Stop reason: " + e(m.stop_reason) : ""}</p>` : ""}<details data-message-record="${absolute}" data-record-run="${e(S.run)}" data-record-session="${e(S.session)}"><summary>Full record: exact request, native response and metadata</summary><pre></pre></details></article>`;
       })
       .join("")
   );
 }
+document.addEventListener(
+  "toggle",
+  async (event) => {
+    const node = event.target;
+    if (
+      !node.open ||
+      node.dataset.loaded ||
+      !node.matches(
+        "details[data-conversation-value], details[data-message-record]",
+      )
+    )
+      return;
+    node.dataset.loaded = "true";
+    const output = $("pre", node);
+    try {
+      if (node.dataset.messageRecord != null) {
+        output.textContent = "Loading exact record...";
+        const record = await api("/api/message", {
+          run: node.dataset.recordRun,
+          session: node.dataset.recordSession,
+          index: node.dataset.messageRecord,
+        });
+        output.textContent = pretty(record.message);
+      } else
+        output.textContent = pretty(
+          conversationValues[Number(node.dataset.conversationValue)],
+        );
+    } catch (error) {
+      output.textContent = error.message;
+      delete node.dataset.loaded;
+    }
+  },
+  true,
+);
 function codePage(data) {
   if (!data.versions.length)
     return empty(
@@ -2154,13 +2235,36 @@ document.addEventListener("click", async (event) => {
     } else if (a === "stop-job") {
       await api("/api/stop", { id: node.dataset.id }, true);
       toast("Stop requested. Checkpoints are kept.");
+    } else if (a === "copy-log") {
+      const content = $("#job-log-live").textContent;
+      if (navigator.clipboard?.writeText)
+        await navigator.clipboard.writeText(content);
+      else {
+        const input = document.createElement("textarea");
+        input.value = content;
+        $("#dialog").append(input);
+        input.select();
+        const copied = document.execCommand("copy");
+        input.remove();
+        if (!copied)
+          throw new Error(
+            "Clipboard unavailable; select and copy the log text.",
+          );
+      }
+      toast("Log copied");
+    } else if (a === "message-anchor") {
+      event.preventDefault();
+      $("#message-" + node.dataset.index)?.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+      });
     } else if (a === "job-log") {
       S.logJob = node.dataset.id;
       const data = await api("/api/job", { id: S.logJob });
       openDialog(
         "Run log",
         `${data.job.name} · ${text(data.job.status)}`,
-        `<pre id="job-log-live" class="run-log">${e(data.content || "Initialization...")}</pre><small>Last 128 KB of the log.</small>`,
+        `${btn("Copy log", "copy-log")}<pre id="job-log-live" class="run-log">${e(data.content || "Initialization...")}</pre><small>Last 128 KB of the log.</small>`,
       );
     }
   } catch (error) {
@@ -2431,6 +2535,7 @@ setInterval(async () => {
       S.view === "run" &&
       !$("#dialog").open &&
       (S.tab === "summary" || S.follow) &&
+      !(S.tab === "conversation" && $(".chat-message details[open]")) &&
       (activeJobs().some((j) => j.run === S.run) ||
         S.boot.runs.some(
           (r) =>

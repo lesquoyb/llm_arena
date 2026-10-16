@@ -30,7 +30,7 @@ def feedback_for(sid, tournament):
             rows[-1]["replay_excerpt"] = [a for a in actions if isinstance(a, list) and
                                          all(type(v) in (int, float, bool) or v is None for v in a)][:4]
     return {"matches": rows[:16], "truncated": len(rows) > 16,
-            "note": "Les adversaires peuvent évoluer. Leur code est masqué."}
+            "note": "Opponents may improve. Their scripts remain private."}
 
 
 def references(engine, config, out, journal, entrants, label, panel):
@@ -100,6 +100,7 @@ def run_evolution(config, out, journal, engine, initial, interrupt=None):
                 state.pop("reserved", None)
                 state.pop("assessment_sha256", None)
                 state.pop("validity", None)
+                state.pop("failure", None)
                 prompt_path = ROOT / "prompts" / ("feedback.md" if condition == "feedback" else "control.md")
                 message = {"role": "user", "content": prompt_path.read_text(encoding="utf-8"), "generation": 1,
                            "condition": condition, "budgets": config["budget_per_session"]}

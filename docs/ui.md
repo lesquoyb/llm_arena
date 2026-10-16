@@ -1,8 +1,7 @@
 # Local web interface
 
-The interface and documentation are in English. Archived prompts and responses
-keep their original text; the versioned experiment prompts under `prompts/fr`
-remain in French.
+The interface, documentation and current experiment prompts are in English.
+Archived prompts and responses keep their original text.
 
 The interface configures participants and competitions and reads the same
 experiment artifacts as the CLI. It uses Python standard-library HTTP and
@@ -379,3 +378,32 @@ Matches above 64 turns use the arena's documented engine build extension:
 ceiling and finalizes draws at the requested scenario limit. The pinned upstream
 checkout stays unchanged. Rebuild the engine after updating this version; existing
 runs remain viewable but cannot be resumed under a different engine identity.
+
+
+## Conversation troubleshooting and performance
+
+Conversation cards show the sender and recipient, message order, tool request/result
+links, and recorded timestamps. Older archives may have no message timestamps.
+Provider failures appear above the conversation, including the available public
+API error and retry/billing uncertainty flags. For older runs the reader retrieves
+that error from the hash-checked journal. The run log has a **Copy log** button;
+the report also lists session failures for new runs. A failed provider session can
+leave a competition incomplete even when every available strategy fight succeeded.
+
+Collapsed exact requests are fetched only when opened. Large tool results show a
+bounded preview; their full records remain accessible. Live mode does not replace
+the conversation while a detail is open. It polls only for active work or state
+changes, and the paginated conversation no longer transfers each request's complete
+prior history on every refresh.
+
+The participant briefing contains only gameplay configuration, a named roster,
+ID conventions and tools the model can actually use. Public farmer profiles and
+fight histories remain in provenance and are excluded from new prompts. The
+current templates are English; a legacy `prompt_language: fr` field is accepted
+for configuration compatibility, but does not select old French templates.
+
+Weapon baselines work with shared Dream team rosters and participant-selected
+teams. Mock profiles configure a team through the same tools as API models; fixed
+reference strategies use the scenario roster. They now handle empty weapon lists
+and inspect all equipped weapons. They remain simple weapon baselines, not optimal
+chip/summon strategies; feature-showcase demonstrates those APIs separately.

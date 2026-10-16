@@ -741,6 +741,17 @@ async function main() {
         path: path.join(artifacts, "live-competition.png"),
         fullPage: true,
       });
+      await page.getByRole("button", { name: "Run log", exact: true }).click();
+      await page
+        .getByRole("button", { name: "Copy log", exact: true })
+        .waitFor();
+      await page.getByRole("button", { name: "Copy log", exact: true }).click();
+      assert(
+        !(await page.locator("#toast").innerText()).includes(
+          "Clipboard unavailable",
+        ),
+      );
+      await page.getByRole("button", { name: "Close", exact: true }).click();
       console.log(
         "Real engine competition launched and monitored through browser.",
       );
@@ -884,6 +895,38 @@ async function main() {
       await page.evaluate(() => window.__arenaUnexpectedScript),
       undefined,
     );
+    assert(
+      (
+        await page
+          .locator(".chat-message.user .message-head")
+          .first()
+          .innerText()
+      ).includes("Arena → Model"),
+    );
+    assert(
+      (
+        await page
+          .locator(".chat-message.tool .message-head")
+          .first()
+          .innerText()
+      ).includes("Tool → Model"),
+    );
+    assert.equal(
+      await page.locator('[data-message-record="0"] pre').innerText(),
+      "",
+    );
+    let exactRequests = 0;
+    page.on("request", (request) => {
+      if (request.url().includes("/api/message?")) exactRequests++;
+    });
+    await page.locator('[data-message-record="0"] > summary').click();
+    await page.waitForFunction(() =>
+      document
+        .querySelector('[data-message-record="0"] pre')
+        ?.textContent.includes("PROMPT INITIAL"),
+    );
+    assert.equal(exactRequests, 1);
+    await page.locator('[data-message-record="0"] > summary').click();
     await page
       .getByRole("button", { name: "Code & versions", exact: true })
       .click();

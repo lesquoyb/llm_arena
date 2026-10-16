@@ -17,15 +17,15 @@ COMPONENTS = {'type': 'array', 'maxItems': 8, 'items': {'anyOf': [
 PAGE = {"offset": {"type": "integer", "minimum": 0},
         "limit": {"type": "integer", "minimum": 1, "maximum": 16000}}
 TOOLS = [
-    {"name": "list_files", "description": "Liste tes fichiers .leek.", "input_schema": schema()},
-    {"name": "read_file", "description": "Lit une page de ton fichier.",
+    {"name": "list_files", "description": "List your .leek source files.", "input_schema": schema()},
+    {"name": "read_file", "description": "Read a page of your own source file.",
      "input_schema": schema({"path": TEXT, **PAGE}, ["path"])},
-    {"name": "write_file", "description": "Écrit ton fichier .leek (128 fichiers, 2 Mo au total).",
+    {"name": "write_file", "description": "Write your own .leek file (128 files, 2 MB total).",
      "input_schema": schema({"path": TEXT, "content": TEXT}, ["path", "content"])},
-    {"name": "read_docs", "description": "Lit une page du corpus commun figé.",
+    {"name": "read_docs", "description": "Read a page of the pinned shared documentation. Paths start at authoring.md, corpus/ or leekscript-v1/.",
      "input_schema": schema({"path": TEXT, **PAGE}, ["path"])},
-    {"name": "analyze", "description": "Analyse le point d'entrée et renvoie ses diagnostics.", "input_schema": schema(ENTRY)},
-    {"name": "test", "description": "Test de préparation contre passive, seed train-17, deux positions.",
+    {"name": "analyze", "description": "Compile/analyze your entrypoint with the native engine and return diagnostics.", "input_schema": schema(ENTRY)},
+    {"name": "test", "description": "Run two native-engine training fights against passive, one per starting side. Read the returned test ID with read_replay for actions, metrics and debug/errors.",
      "input_schema": schema({**ENTRY, "scenario_id": {"type": "string", "enum": ["training"]},
                              "seed_id": {"type": "string", "enum": ["train-17"]},
                              "opponent_id": {"type": "string", "enum": ["passive"]}})},
@@ -36,7 +36,7 @@ TOOLS = [
      "input_schema": schema({"members": {"type": "array", "minItems": 1, "maxItems": 8,
          "items": schema({"entrypoint": TEXT, "level": LEVEL, "name": {"type": "string", "minLength": 1, "maxLength": 80}, "weapons": {"type": "array", "items": {"type": "integer"}},
                           "chips": {"type": "array", "items": {"type": "integer"}}, "capital": STAT_VALUES, "stats": FINAL_STATS, "components": COMPONENTS}, ["entrypoint", "weapons", "chips"])}}, ["members"])},
-    {"name": "submit", "description": "Fige ta soumission et clôt la session.", "input_schema": schema(ENTRY)},
+    {"name": "submit", "description": "Freeze your saved sources and configured team, then end preparation.", "input_schema": schema(ENTRY)},
 ]
 
 # Identical contracts across native provider APIs and MCP.

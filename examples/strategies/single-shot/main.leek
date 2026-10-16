@@ -1,7 +1,10 @@
-// Deliberately weaker baseline: at most one shot per turn.
+// Weaker weapon baseline: at most one shot, using an eligible equipped weapon.
 var enemy = getNearestEnemy()
-if (enemy != null) {
-    setWeapon(getWeapons()[0])
+if (enemy >= 0 && isAlive(enemy)) {
     moveToward(enemy)
-    useWeapon(enemy)
+    for (var weapon in getWeapons()) {
+        if (getTP() < getWeaponCost(weapon) || !canUseWeapon(weapon, enemy)) continue
+        setWeapon(weapon)
+        if (useWeapon(enemy) == USE_SUCCESS) break
+    }
 }

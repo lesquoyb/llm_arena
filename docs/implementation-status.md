@@ -9,7 +9,7 @@ and [interface guide](ui.md).
 | Installation | Linux and native Windows bootstrap, pinned toolchains, checksum verification, CI, paths with spaces, stable build archives and strict runtime identity. |
 | Storage | Validated manifests, SQLite schema migration 1 to 2, transactional checkpoints, lineage, hashed artifacts, single-writer lock and standalone exports. |
 | Tools and MCP | Eight shared tools, pinned MCP SDK, stdio client tests, quotas, path isolation and Java workers without provider keys. |
-| Documentation | Corpus index, rules, syntax and example API behavior; pinned signatures and equipment data. Three versioned French experiment prompts remain under `prompts/`. |
+| Documentation | Corpus index, rules, syntax and example API behavior; pinned signatures and equipment data. English experiment prompts and a gameplay-only briefing explain the scenario and runtime IDs; original imported profiles remain in provenance. |
 | Sessions | Mock participants, repair after real diagnostics, preparation tests and replays, missing/invalid submissions, failure profiles and resume. |
 | Providers and costs | OpenAI, compatible endpoints, Anthropic and native Gemini; model catalogs, supported seeds, native history, usage/cache accounting, Decimal costs, reservations and uncertain-call handling. |
 | initial/improved strategies | Paired control/feedback branches from the same initial strategy checkpoint; separate seeds; contemporary and common-panel evaluation. |

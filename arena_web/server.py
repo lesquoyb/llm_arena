@@ -75,6 +75,8 @@ class Application:
             return store.detail(run)
         if route == "/api/conversation":
             return store.conversation(run, sid, number("offset", 0), min(number("limit", 25), 100))
+        if route == "/api/message":
+            return store.message(run, sid, number("index", 0))
         if route == "/api/events":
             return store.events(run, sid, number("offset", 0), min(number("limit", 100), 500))
         if route == "/api/event":

@@ -19,7 +19,7 @@ from .usage import amount, reservation
 from .tournament import run_tournament
 
 PROMPT = (ROOT / "prompts/g0.md").read_text(encoding="utf-8") if (ROOT / "prompts/g0.md").exists() else (
-          "Écris une stratégie LeekScript 4. Consulte authoring.md. Soumets main.leek.")
+          "Write a LeekScript 4 strategy. Read authoring.md and submit main.leek.")
 TERMINAL = {"submitted", "budget_exhausted", "no_submission", "generation_failed",
             "provider_unavailable", "needs_reconciliation"}
 
@@ -42,8 +42,8 @@ def validate_config(value: dict) -> dict:
         raise ArenaError("allow_paid_calls must be explicit boolean")
     if "max_total_usd" in spending:
         amount(spending["max_total_usd"])
-    if value.get("prompt_language", "fr") != "fr":
-        raise ArenaError("The versioned prompts are French")
+    if value.get("prompt_language", "en") not in {"en", "fr"}:
+        raise ArenaError("Unsupported prompt language; current prompts are English (legacy fr configs remain loadable)")
     integer(value.get("generations", 1), 1, 2, "generations")
     if value.get("improvement_conditions", ["control", "feedback"]) != ["control", "feedback"]:
         raise ArenaError("G1 requires the paired control and feedback conditions")
@@ -189,6 +189,10 @@ class Journal:
         return json.loads(row[0]) if row else None
 
     def save(self, sid, state, kind, payload=None):
+        times = state.setdefault("message_times", [None] * len(state.get("history", [])))
+        times.extend([time.time()] * (len(state.get("history", [])) - len(times)))
+        if kind == "session_created" and times:
+            times[0] = time.time()
         artifact = self.out / "artifacts" / (digest(payload) + ".json")
         if artifact.exists():
             if read_json(artifact) != payload:
@@ -301,12 +305,14 @@ def provider_response(sid, state, model, config, journal):
         if not error.uncertain:
             state["money_reserved"] = "0"
             state["reservation_unbounded"] = False
+        state["failure"] = {"message": str(error), "phase": "provider request", "at": time.time(), "uncertain": error.uncertain, "retryable": error.retryable}
         journal.save(sid, state, "provider_failure", {"error": str(error),
                                                     "uncertain": error.uncertain, "retryable": error.retryable})
         return None
     except (KeyError, ValueError, TypeError, ArenaError) as error:
         state["status"] = "needs_reconciliation" if paid else "generation_failed"
         state["in_flight"] = paid
+        state["failure"] = {"message": "The provider returned an unreadable response (" + type(error).__name__ + "). Inspect the recorded response in the journal; billing may need reconciliation.", "phase": "provider response", "at": time.time()}
         journal.save(sid, state, "malformed_provider_response", {"error_type": type(error).__name__,
                                                                "response": getattr(provider, "last_response", None)})
         return None
@@ -330,6 +336,7 @@ def provider_response(sid, state, model, config, journal):
         else:
             state["token_usage_known"] = False
             state["status"] = "needs_reconciliation"
+    state.pop("failure", None)
     state["history"].append(response)
     state["pending"], state["cursor"] = response, 0
     # Receipt, conversation, usage counters and released reservation commit together.
@@ -369,10 +376,11 @@ def execute_tool(sid, state, tools, journal, call, call_id, budget):
 
 
 def initial_state(sid, model, config):
+    from .briefing import briefing, participant_scenario
     return {"model": model["id"], "replicate": int(sid.split("-r")[-1].split("-")[0]),
             "generation": 0, "condition": "initial", "status": "running",
             "history": [{"role": "user", "content": PROMPT, "budgets": config["budget_per_session"],
-                         "scenario": config["scenario"], "equipment_ids": {"weapons": "Use the item field in leekscript-v1/weapons.json (for example pistol = 37), not its object key or template", "chips": "Use the object key/id in leekscript-v1/chips.json (for example shock = 1); replay chip actions use template IDs"}, **({"team_instructions":
+                         "scenario": participant_scenario(config["scenario"]), "briefing": briefing(config["scenario"]), "equipment_ids": {"weapons": "Use the item field in leekscript-v1/weapons.json (for example pistol = 37), not its object key or template", "chips": "Use the object key/id in leekscript-v1/chips.json (for example shock = 1); replay chip actions use template IDs"}, **({"team_instructions":
                          "Choose 1..scenario.team_size members using configure_team after writing their sources. "
                          "Each member can use a different entrypoint and equipment. When independent_builds is true, freely choose each member level (1–301), capital and components; supply level and capital explicitly. Reference member stats and components are not imposed on your team; omitted components mean none. Use preview_build to calculate final stats and costs, then validate_team to check the complete draft without changing files. Read the pinned equipment catalogs; "
                          "respect slot limits and allowlists; realistic mode also enforces equipment level. Stats follow scenario.stats_mode: per-member capital in realistic-v1 plus optional components (item-template IDs or {template, stats} alteration instances; eight slots, recovery components cost three; no duplicates; alteration charge must fit capacity), or raw stats in free mode. When require_capital is true you must explicitly allocate capital for every member; raw stats and inherited allocations are not accepted. Otherwise omit to inherit default member builds. Read corpus/stat-rules.json and corpus/component-rules.json (current public stats, levels, capacities and alteration weights). Configure the team before test or submit. "
@@ -634,6 +642,8 @@ def run(config: dict, out: Path, resume=False, interrupt=None, prepare_only=Fals
                 for key in ("input_tokens", "output_tokens"):
                     summary[key] = None if simulated or any(s["calls"] and not s.get("token_usage_known")
                                                            for s in final_states.values()) else sum(s.get(key, 0) for s in final_states.values())
+            summary["session_failures"] = [{"session": sid, "status": state["status"], **state["failure"]}
+                                            for sid, state in journal.states().items() if state.get("failure")]
             write_json(out / "report.json", summary)
             rows = ["| Session | Status | Validity | Calls | Tools |",
                     "|---|---|---|---:|---:|"]
