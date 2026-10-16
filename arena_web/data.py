@@ -96,7 +96,8 @@ class Store:
             return value
 
     def participants(self):
-        return [{"spec": m, "key_configured": bool(self.secrets.get(m.get("api_key_env")) or
+        from arena.endpoints import optional_local_key
+        return [{"spec": m, "key_optional": optional_local_key(m), "key_configured": bool(self.secrets.get(m.get("api_key_env")) or
                                                     os.environ.get(m.get("api_key_env", "")))}
                 for m in self.catalog()]
 

@@ -1,7 +1,7 @@
 # Providers and spending limits
 
 Supported protocols: OpenAI Chat Completions, Anthropic Messages, native Google
-Gemini `generateContent` and explicit OpenAI-compatible HTTPS endpoints.
+Gemini `generateContent` and explicit OpenAI-compatible endpoints (HTTPS remotely; HTTP on loopback).
 The mock provider makes no network requests. CI and demos do not make paid calls.
 API contracts are tested using offline fixtures.
 
@@ -148,3 +148,28 @@ incompatible endpoints and image/audio/video/embedding models. Excluded IDs and
 reasons remain visible. Unknown model IDs are retained; being listed does not
 prove tool support or generation access. Loading the catalog makes no generation
 request. The searchable list wraps long names and exact IDs.
+
+## Local Ollama
+
+Start Ollama on the same machine as the arena server (`ollama serve` if it is
+not already running), and download a model that supports tool calls with
+`ollama pull <model>`.
+
+In **Participants**, select **openai-compatible** and enter:
+
+- Full API endpoint: `http://localhost:11434/v1/chat/completions`
+- API key: leave blank. The environment-variable name may keep its default.
+- Model: click **Load models** or enter the exact installed model name.
+- Input/output prices: `0` for local inference.
+- Output cap: optional; start with it blank. Increase the timeout if loading or
+  running your local model takes longer than 60 seconds (up to 300 seconds).
+
+Save the participant and add it to a competition. The launch confirmation still
+asks you to authorize API calls, including local inference. Tool support depends
+on the installed model; listing a model does not guarantee it supports tools.
+
+HTTP is accepted only on loopback (`localhost`, `127.0.0.1`, `[::1]`); remote
+addresses require HTTPS. Local OpenAI-compatible servers may run without a key.
+Other APIs still require their credential binding. Localhost refers to the machine
+running the arena Python server; a cloud/container server does not reach your host
+Ollama through its own localhost.

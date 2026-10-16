@@ -479,8 +479,8 @@ function participants() {
         "",
       ],
       S.boot.participants.map(
-        ({ spec: m, key_configured }) =>
-          `<tr><td><strong>${e(m.id)}</strong><small>${m.provider === "mock" ? "Mock participant" : "Configured model"}</small></td><td>${e(m.provider)}<small>${e(m.model || m.profile)}</small></td><td>${m.pricing ? `${e(m.pricing.input_per_million)} / ${e(m.pricing.output_per_million)} $<small>Per million tokens · ${e(m.pricing.date)}</small>` : "No API calls"}</td><td>${m.provider === "mock" ? "N/A" : badge(key_configured ? "Configured" : "Missing", key_configured ? "green" : "orange")}</td><td><div class="actions">${btn("Edit", "edit-participant", `data-id="${e(m.id)}"`)}<button class="icon-button" data-action="delete-participant" data-id="${e(m.id)}" title="Remove this profile" aria-label="Remove ${e(m.id)}">×</button></div></td></tr>`,
+        ({ spec: m, key_configured, key_optional }) =>
+          `<tr><td><strong>${e(m.id)}</strong><small>${m.provider === "mock" ? "Mock participant" : "Configured model"}</small></td><td>${e(m.provider)}<small>${e(m.model || m.profile)}</small></td><td>${m.pricing ? `${e(m.pricing.input_per_million)} / ${e(m.pricing.output_per_million)} $<small>Per million tokens · ${e(m.pricing.date)}</small>` : "No API calls"}</td><td>${m.provider === "mock" ? "N/A" : badge(key_optional && !key_configured ? "Not required (local)" : key_configured ? "Configured" : "Missing", key_configured || key_optional ? "green" : "orange")}</td><td><div class="actions">${btn("Edit", "edit-participant", `data-id="${e(m.id)}"`)}<button class="icon-button" data-action="delete-participant" data-id="${e(m.id)}" title="Remove this profile" aria-label="Remove ${e(m.id)}">×</button></div></td></tr>`,
       ),
     )}</section>` +
     notice(
@@ -587,7 +587,7 @@ function participantDialog(identifier = null, provider = null) {
          m.profile || "single-shot",
          "single-shot submits a simple strategy; repair-and-submit fixes a script and submits rush.",
        )
-     : `<h3 class="field full">API connection</h3>${field("API key environment variable", "api_key_env", m.api_key_env || (p === "anthropic" ? "ARENA_ANTHROPIC_KEY" : p === "gemini" ? "ARENA_GEMINI_KEY" : "ARENA_OPENAI_KEY"), "text", "Name of the server environment variable containing the key, or the name under which to store a session key entered below.", "required")}<label class="field full">API key (this server session only)<input name="secret" type="password" autocomplete="new-password" placeholder="Leave blank to keep the available key"><small>Not returned to the browser or written to configuration files.</small></label>${p === "openai-compatible" ? field("Full HTTPS endpoint", "endpoint", m.endpoint || "", "url", "Include the API path. Do not put keys or query parameters in the URL.", "required") : m.endpoint ? field("HTTPS endpoint", "endpoint", m.endpoint, "url") : ""}<h3 class="field full">Model</h3><div class="field full">${btn("Load models", "list-models")}<label class="field" hidden id="model-search-field">Search models<input type="search" id="model-search" placeholder="Filter by model name or ID"></label><div id="available-models" class="model-catalog" role="group" aria-label="Available models" hidden></div><small id="model-list-status">Load models available to the configured API key. You can also enter an ID manually.</small><details id="excluded-models" hidden><summary>Excluded models</summary><div id="excluded-model-list"></div></details></div>${field("Exact model ID", "model", m.model || "", "text", "The exact ID accepted by the API.", "required")}${field("Input price / million tokens ($)", "input_price", pricing.input_per_million ?? "", "number", "", 'required min="0" step="any"')}${field("Output price / million tokens ($)", "output_price", pricing.output_per_million ?? "", "number", "", 'required min="0" step="any"')}${field("Price date", "pricing_date", pricing.date || new Date().toISOString().slice(0, 10), "date", "", "required")}${field("Cache read price / million ($), optional", "cached_price", pricing.cached_input_per_million ?? "", "number", "Blank uses the standard input price.", 'min="0" step="any"')}${field("Cache write price / million ($), optional", "creation_price", pricing.cache_creation_per_million ?? "", "number", "", 'min="0" step="any"')}${field("Maximum input per call (tokens)", "max_input_tokens_per_call", m.max_input_tokens_per_call ?? "", "number", "Optional. Blank disables local input admission limits.", 'min="1"')}${field("Maximum output per call (tokens)", "max_output_tokens", m.max_output_tokens ?? "", "number", p === "anthropic" ? "Required by Anthropic (max_tokens)." : "Optional. Blank uses the API default; one call may exceed the remaining financial budget.", p === "anthropic" ? 'required min="1"' : 'min="1"')}${field("Call timeout (seconds)", "timeout_seconds", m.timeout_seconds || 60, "number", "", 'required min="1" max="300"')}${field("Retries on HTTP 429", "max_retries", m.max_retries ?? 1, "number", "Calls with unknown outcomes are not retried automatically.", 'required min="0" max="3"')}${p === "anthropic" ? `<p class="muted">Seed: not available in the Anthropic API.</p>` : field("Model seed", "model_seed", m.parameters?.seed ?? (identifier ? "" : 0), "number", p === "openai-compatible" ? "Server support varies. Identical output is not guaranteed." : "Sent with every call when supported by the model. Identical output is not guaranteed.", 'min="0" max="2147483647"')}<label class="field full">Model parameters (JSON)<textarea name="parameters" class="mono">${e(pretty(m.parameters || {}))}</textarea><small>API-specific options such as temperature and top_p. Set the seed above.</small></label>`
+     : `<h3 class="field full">API connection</h3>${field("API key environment variable", "api_key_env", m.api_key_env || (p === "anthropic" ? "ARENA_ANTHROPIC_KEY" : p === "gemini" ? "ARENA_GEMINI_KEY" : "ARENA_OPENAI_KEY"), "text", "Name of the server environment variable containing the key, or the name under which to store a session key entered below.", "required")}<label class="field full">API key (this server session only)<input name="secret" type="password" autocomplete="new-password" placeholder="Optional for local compatible servers; otherwise leave blank to keep the key"><small>Not returned to the browser or written to configuration files.</small></label>${p === "openai-compatible" ? field("Full API endpoint", "endpoint", m.endpoint || "", "url", "Ollama: http://localhost:11434/v1/chat/completions. HTTP is allowed on loopback; remote servers require HTTPS. API keys are optional for local compatible servers.", "required") : m.endpoint ? field("HTTPS endpoint", "endpoint", m.endpoint, "url") : ""}<h3 class="field full">Model</h3><div class="field full">${btn("Load models", "list-models")}<label class="field" hidden id="model-search-field">Search models<input type="search" id="model-search" placeholder="Filter by model name or ID"></label><div id="available-models" class="model-catalog" role="group" aria-label="Available models" hidden></div><small id="model-list-status">Load models available to the configured API key. You can also enter an ID manually.</small><details id="excluded-models" hidden><summary>Excluded models</summary><div id="excluded-model-list"></div></details></div>${field("Exact model ID", "model", m.model || "", "text", "The exact ID accepted by the API.", "required")}${field("Input price / million tokens ($)", "input_price", pricing.input_per_million ?? "", "number", "", 'required min="0" step="any"')}${field("Output price / million tokens ($)", "output_price", pricing.output_per_million ?? "", "number", "", 'required min="0" step="any"')}${field("Price date", "pricing_date", pricing.date || new Date().toISOString().slice(0, 10), "date", "", "required")}${field("Cache read price / million ($), optional", "cached_price", pricing.cached_input_per_million ?? "", "number", "Blank uses the standard input price.", 'min="0" step="any"')}${field("Cache write price / million ($), optional", "creation_price", pricing.cache_creation_per_million ?? "", "number", "", 'min="0" step="any"')}${field("Maximum input per call (tokens)", "max_input_tokens_per_call", m.max_input_tokens_per_call ?? "", "number", "Optional. Blank disables local input admission limits.", 'min="1"')}${field("Maximum output per call (tokens)", "max_output_tokens", m.max_output_tokens ?? "", "number", p === "anthropic" ? "Required by Anthropic (max_tokens)." : "Optional. Blank uses the API default; one call may exceed the remaining financial budget.", p === "anthropic" ? 'required min="1"' : 'min="1"')}${field("Call timeout (seconds)", "timeout_seconds", m.timeout_seconds || 60, "number", "", 'required min="1" max="300"')}${field("Retries on HTTP 429", "max_retries", m.max_retries ?? 1, "number", "Calls with unknown outcomes are not retried automatically.", 'required min="0" max="3"')}${p === "anthropic" ? `<p class="muted">Seed: not available in the Anthropic API.</p>` : field("Model seed", "model_seed", m.parameters?.seed ?? (identifier ? "" : 0), "number", p === "openai-compatible" ? "Server support varies. Identical output is not guaranteed." : "Sent with every call when supported by the model. Identical output is not guaranteed.", 'min="0" max="2147483647"')}<label class="field full">Model parameters (JSON)<textarea name="parameters" class="mono">${e(pretty(m.parameters || {}))}</textarea><small>API-specific options such as temperature and top_p. Set the seed above.</small></label>`
  }</div><div class="form-footer">${btn("Cancel", "close-dialog")}<button type="submit" class="button primary">Save participant</button></div></form>`,
   );
 }
@@ -1059,10 +1059,13 @@ async function rebuildStatFields() {
       scenario.stats_mode = "free";
       const first = scenario.member_stats[0];
       Object.assign(scenario.entity, first.stats, {
-        level: first.level, weapons: first.weapons, chips: first.chips,
+        level: first.level,
+        weapons: first.weapons,
+        chips: first.chips,
       });
       ({ scenario } = await api("/api/stats/realistic", { scenario }, true));
-      message.textContent = "Validated: capital, component alterations and equipment. All final stats preserved.";
+      message.textContent =
+        "Validated: capital, component alterations and equipment. All final stats preserved.";
       message.className = "notice";
       message.hidden = false;
     } catch (error) {
@@ -1148,14 +1151,21 @@ function readCompetition(form) {
     // Reference opponents are separate from each LLM's independently chosen build.
     base.scenario = structuredClone(S.boot.participant_scenario);
     base.scenario.max_turns = n("max_turns");
-    base.scenario.team_selection = { mode: "participant", require_capital: true,
-      independent_builds: true, max_weapons: 4, max_chips: 50 };
+    base.scenario.team_selection = {
+      mode: "participant",
+      require_capital: true,
+      independent_builds: true,
+      max_weapons: 4,
+      max_chips: 50,
+    };
   } else {
     delete base.scenario.team_selection;
     if (base.scenario.preset === "llm-team") base.scenario.preset = "custom";
   }
   if (!participantTeams) {
-    base.scenario.stats_mode = f.has("realistic_stats") ? "realistic-v1" : "free";
+    base.scenario.stats_mode = f.has("realistic_stats")
+      ? "realistic-v1"
+      : "free";
     base.scenario.member_stats = readStatBuilds(form);
     base.scenario.entity.level = base.scenario.member_stats[0].level;
     Object.assign(

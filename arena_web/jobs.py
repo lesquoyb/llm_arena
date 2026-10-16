@@ -65,9 +65,11 @@ class Jobs:
                     continue
                 name = model["api_key_env"]
                 secret = self.store.secrets.get(name) or os.environ.get(name)
-                if not secret:
+                from arena.endpoints import optional_local_key
+                if not secret and not optional_local_key(model):
                     raise ArenaError(f"Missing API key: {name}")
-                env[name] = secret
+                if secret:
+                    env[name] = secret
             from arena.engine import Engine
             engine = Engine()
             if draft_id is None and metadata["engine"] != engine.identity:

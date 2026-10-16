@@ -7,6 +7,7 @@ import time
 from urllib import request, error, parse
 from .core import ArenaError, digest
 from .usage import normalize, cost
+from .endpoints import validate_endpoint, optional_local_key
 
 
 class ProviderFailure(ArenaError):
@@ -15,13 +16,24 @@ class ProviderFailure(ArenaError):
         self.uncertain, self.retryable = uncertain, retryable
 
 
+class LocalRedirectHandler(request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        validate_endpoint(newurl, allow_query=True)
+        redirected = super().redirect_request(req, fp, code, msg, headers, newurl)
+        if redirected and parse.urlsplit(newurl).netloc != parse.urlsplit(req.full_url).netloc:
+            for name in ('Authorization', 'X-api-key', 'X-goog-api-key'):
+                redirected.remove_header(name)
+        return redirected
+
+
 def http_json(url, payload, headers, timeout):
-    if parse.urlsplit(url).scheme != "https":
-        raise ArenaError("Provider endpoints must use HTTPS")
+    validate_endpoint(url, allow_query=True)
     req = request.Request(url, data=json.dumps(payload).encode() if payload is not None else None,
                           headers=headers, method="POST" if payload is not None else "GET")
     try:
-        with request.urlopen(req, timeout=timeout) as response:
+        open_url = (request.build_opener(LocalRedirectHandler()).open
+                    if parse.urlsplit(url).scheme == 'http' else request.urlopen)
+        with open_url(req, timeout=timeout) as response:
             body = response.read(8_000_001)
             if len(body) > 8_000_000:
                 raise ProviderFailure("Provider response exceeded quota", uncertain=True)
@@ -89,7 +101,7 @@ class APIProvider:
     def respond(self, history, tools, output_limit):
         m = self.model
         key = os.environ.get(m["api_key_env"])
-        if not key:
+        if not key and not optional_local_key(m):
             raise ProviderFailure(f"Missing credential binding: {m['api_key_env']}")
         anthropic = m["provider"] == "anthropic"
         endpoint, headers = connection(m, key)
@@ -158,7 +170,7 @@ def connection(model, key):
         headers["x-goog-api-key"] = key
     elif provider == "anthropic":
         headers.update({"x-api-key": key, "anthropic-version": "2023-06-01"})
-    else:
+    elif key:
         headers["Authorization"] = "Bearer " + key
     return endpoint, headers
 
@@ -201,7 +213,8 @@ def request_snapshot(model, history, tools, output_limit):
         endpoint, headers = "local:mock/" + model["profile"], {}
     else:
         body = APIProvider(model).payload(history, tools, output_limit)
-        endpoint, headers = connection(model, "[REDACTED]")
+        credential = (None if optional_local_key(model) and not os.environ.get(model.get("api_key_env", "")) else "[REDACTED]")
+        endpoint, headers = connection(model, credential)
     return {"method": "LOCAL" if model["provider"] == "mock" else "POST", "endpoint": endpoint,
             "headers": headers, "body": body, "body_sha256": digest(body),
             "credential_values_recorded": False}
@@ -230,15 +243,14 @@ def model_exclusion(provider, row, identifier):
 def list_models(provider, key, endpoint=None, transport=http_json):
     if provider not in {"openai", "openai-compatible", "anthropic", "gemini"}:
         raise ArenaError("This protocol has no model catalog")
-    if not key:
-        raise ArenaError("Configure an API key to load models")
     spec = {"provider":provider, "model":"unused"}
     if endpoint:
         spec["endpoint"] = endpoint
+    validate_endpoint(endpoint or DEFAULT_ENDPOINTS.get(provider, ""))
+    if not key and not optional_local_key(spec):
+        raise ArenaError("Configure an API key to load models")
     url, headers = connection(spec, key)
-    parsed = parse.urlsplit(url)
-    if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password or parsed.query or parsed.fragment:
-        raise ArenaError("Use an HTTPS endpoint without credentials or query parameters")
+    validate_endpoint(url)
     if provider == "gemini":
         base = url.rsplit("/models/", 1)[0] + "/models"
     else:

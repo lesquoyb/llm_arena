@@ -77,11 +77,8 @@ def validate_config(value: dict) -> dict:
                 raise ArenaError("An exact model identifier is required")
             if not isinstance(model["api_key_env"], str) or not re.fullmatch(r"[A-Za-z_][A-Za-z_0-9]*", model["api_key_env"]):
                 raise ArenaError("Invalid credential variable name")
-            from urllib.parse import urlsplit
-            endpoint = urlsplit(model.get("endpoint", "https://api.example.com"))
-            if (endpoint.scheme != "https" or not endpoint.hostname or endpoint.username or endpoint.password
-                    or endpoint.query or endpoint.fragment):
-                raise ArenaError("HTTPS endpoint without embedded credentials required")
+            from .endpoints import validate_endpoint
+            validate_endpoint(model.get("endpoint", "https://api.example.com"))
             if model["provider"] == "openai-compatible" and "endpoint" not in model:
                 raise ArenaError("Compatible endpoints must be explicit")
             for key in ("max_input_tokens_per_call", "max_output_tokens"):
