@@ -253,10 +253,12 @@ class WebContractTests(unittest.TestCase):
         write_json(work/"outcome.json",data)
         first = self.store.statistics("example")
         self.assertEqual(first["stages"][0]["strategies"]["A"]["actions"],1)
+        self.assertEqual(first["match_totals"]["matches/cached"][0]["actions"],1)
         data["fight"]["actions"].append([13,37])
         write_json(work/"outcome.json",data)
         second = self.store.statistics("example")
         self.assertEqual(second["stages"][0]["strategies"]["A"]["actions"],2)
+        self.assertEqual(second["match_totals"]["matches/cached"][0]["actions"],2)
 
     def test_paths_cannot_escape_run_directory(self):
         fixture(self.store)

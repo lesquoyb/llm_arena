@@ -254,7 +254,6 @@ let S = {
   tab: "summary",
   session: null,
   offset: 0,
-  panel: "all",
   version: null,
   file: null,
   previous: null,
@@ -312,10 +311,18 @@ function route() {
   S.modelFilter = q.get("model");
   S.offset = Number(q.get("offset") || 0);
   S.matchFilters = Object.fromEntries(
-    ["kind", "stage", "entrant", "opponent", "outcome", "search"].map((k) => [
-      k,
-      q.get(k) || "",
-    ]),
+    [
+      "kind",
+      "stage",
+      "entrant",
+      "opponent",
+      "outcome",
+      "search",
+      "entrant_model",
+      "opponent_model",
+      "round",
+      "scored",
+    ].map((k) => [k, q.get(k) || ""]),
   );
   S.version = null;
   S.versions = null;
@@ -1364,8 +1371,12 @@ async function renderRun(epoch) {
   const d = S.detail;
   let body = "";
   if (S.tab === "summary") {
-    const statistics = await api("/api/statistics", { run: S.run });
+    const [statistics, fights] = await Promise.all([
+      api("/api/statistics", { run: S.run }),
+      api("/api/matches", { run: S.run }),
+    ]);
     if (epoch !== S.epoch) return;
+    S.overviewMatches = fights.matches;
     S.statistics = statistics;
     body = summary(d, statistics);
   } else if (S.tab === "config")
@@ -1444,14 +1455,6 @@ async function renderRun(epoch) {
         S.files[0].path,
     );
 }
-function bars(rows) {
-  rows = [...rows].sort((a, b) => (b.score ?? -1) - (a.score ?? -1));
-  if (!rows.length)
-    return empty("No scores yet", "Results appear after matches finish.");
-  const width = 650,
-    height = rows.length * 38 + 22;
-  return `<svg class="chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="Strategy scores">${rows.map((r, i) => `<text x="0" y="${i * 38 + 18}" class="chart-label">${e(r.label.length > 32 ? r.label.slice(0, 31) + "..." : r.label)}</text><rect x="258" y="${i * 38 + 5}" width="310" height="17" rx="4" fill="#f0f3fa"/><rect x="258" y="${i * 38 + 5}" width="${r.score == null ? 0 : 310 * r.score}" height="17" rx="4" fill="${COLORS[i % COLORS.length]}"/><text x="588" y="${i * 38 + 18}">${e(pct(r.score))}</text><title>${e(r.label)} : ${e(pct(r.score))}</title>`).join("")}</svg>`;
-}
 function tokenDisplay(d) {
   const models = new Map(
     (d.metadata?.config?.models || []).map((m) => [m.id, m.provider]),
@@ -1468,137 +1471,386 @@ function tokenDisplay(d) {
   if (!known.length) return "Unavailable from provider";
   return `${fmt(known.reduce((n, s) => n + (s.input_tokens || 0), 0))} / ${fmt(known.reduce((n, s) => n + (s.output_tokens || 0), 0))}${known.length < real.length ? " (partial)" : ""}`;
 }
-function matchBreakdown(r) {
-  const initial = r.tournament?.completed || r.completed || 0;
-  const improved = r.evolution?.contemporaries?.completed || 0;
-  const reference = (r.evolution?.rows || [])
-    .filter((v) => v.panel === "all")
-    .reduce((n, v) => n + (v.completed || 0), 0);
-  return `<section class="panel"><h2>Match counts</h2><p>${fmt(completed(r))} completed = ${fmt(initial)} Round 1 tournament + ${fmt(improved)} Round 2 tournament + ${fmt(reference)} reference evaluations.</p><p class="muted">Tournament counts include diagnostic mirrors. Detailed strategy results below count only reference evaluations: each submitted version plays the frozen reference opponents on both sides. Preparation tests are separate. A match in a tournament contributes to both participants' records; a reference evaluation belongs to its candidate strategy.</p></section>`;
+// One scope drives every section of the competition overview.
+function overviewSettings() {
+  S.overviews ||= {};
+  return (S.overviews[S.run] ||= {
+    round: "all",
+    model: "",
+    source: "competition",
+  });
 }
-function evolutionChart(rows) {
-  const models = [...new Set(rows.map((r) => r.model))];
-  if (!models.length) return "";
+function overviewIdentity(id) {
+  const session = S.detail?.sessions.find((s) => s.id === id);
+  const parts = String(id || "").match(
+    /^(.*)-r(\d+)(?:-g(\d+)-(control|feedback))?$/,
+  );
+  return {
+    id,
+    model: session?.model || parts?.[1] || id,
+    condition: session?.condition || parts?.[4] || "initial",
+    replicate: Number(session?.replicate ?? parts?.[2] ?? 0),
+  };
+}
+const overviewRound = (condition) =>
+  condition === "initial"
+    ? "R1 · Initial"
+    : condition === "control"
+      ? "R2 · No feedback"
+      : "R2 · Feedback";
+function overviewEntries(match) {
+  const candidateSide =
+    match.candidate_side ??
+    (match.candidate ? match.sides.indexOf(match.candidate) : -1);
+  return match.sides
+    .map((id, side) => ({ ...overviewIdentity(id), side }))
+    .filter(
+      (item) =>
+        match.kind !== "evaluation" ||
+        candidateSide < 0 ||
+        item.side === candidateSide,
+    );
+}
+function overviewAccept(item, scope) {
+  return (
+    (!scope.model || item.model === scope.model) &&
+    (scope.round === "all" ||
+      scope.round?.startsWith("stage:") ||
+      item.condition === scope.round)
+  );
+}
+function overviewData(d) {
+  const scope = overviewSettings(),
+    all = (S.overviewMatches || []).filter(
+      (m) =>
+        !m.mirror &&
+        m.kind === scope.source &&
+        (!scope.round.startsWith("stage:") || m.stage === scope.round.slice(6)),
+    );
+  const selected = all
+    .map((match) => ({
+      match,
+      entries: overviewEntries(match).filter((item) =>
+        overviewAccept(item, scope),
+      ),
+    }))
+    .filter((v) => v.entries.length);
+  const models = new Map(),
+    matrix = new Map(),
+    history = new Map();
+  const add = (row, match, side) => {
+    const result = match.result;
+    if (result.status !== "completed") row.failures++;
+    else {
+      const outcome =
+        result.winner_side === -1
+          ? "draws"
+          : result.winner_side === side
+            ? "wins"
+            : "losses";
+      row[outcome]++;
+    }
+  };
+  const blank = () => ({ wins: 0, draws: 0, losses: 0, failures: 0 });
+  for (const { match, entries } of selected)
+    for (const item of entries) {
+      if (!models.has(item.model))
+        models.set(item.model, { model: item.model, ...blank() });
+      add(models.get(item.model), match, item.side);
+      const key = JSON.stringify([item.model, item.condition]);
+      if (!history.has(key))
+        history.set(key, {
+          model: item.model,
+          condition: item.condition,
+          ...blank(),
+        });
+      add(history.get(key), match, item.side);
+      const other = overviewIdentity(match.sides[1 - item.side]).model;
+      if (scope.source === "competition" && other === item.model) continue;
+      const pair = JSON.stringify([item.model, other]);
+      if (!matrix.has(pair))
+        matrix.set(pair, {
+          who: item.model,
+          other,
+          entrants: new Set(),
+          opponents: new Set(),
+          stages: new Set(),
+          ...blank(),
+        });
+      const cell = matrix.get(pair);
+      cell.entrants.add(item.id);
+      cell.opponents.add(match.sides[1 - item.side]);
+      cell.stages.add(match.stage);
+      add(cell, match, item.side);
+    }
+  const finish = (row) => {
+    row.completed = row.wins + row.draws + row.losses;
+    row.score = row.completed
+      ? (row.wins + 0.5 * row.draws) / row.completed
+      : null;
+    return row;
+  };
+  const sessions = d.sessions.filter((v) =>
+    overviewAccept(overviewIdentity(v.id), scope),
+  );
+  return {
+    scope,
+    selected,
+    sessions,
+    models: [...models.values()]
+      .map(finish)
+      .sort((a, b) => (b.score ?? -1) - (a.score ?? -1)),
+    matrix: [...matrix.values()].map(finish),
+    history: [...history.values()].map(finish),
+  };
+}
+function overviewFilters(d, data) {
+  const options = (values, value) =>
+    values
+      .map(
+        ([id, label]) =>
+          `<option value="${e(id)}" ${id === value ? "selected" : ""}>${e(label)}</option>`,
+      )
+      .join("");
+  const models = d.sessions.length
+    ? runModels(d).map((m) => m.id)
+    : [
+        ...new Set(
+          (S.overviewMatches || []).flatMap((m) =>
+            m.sides.map((id) => overviewIdentity(id).model),
+          ),
+        ),
+      ];
+  const hasImprovement =
+    d.sessions.some((s) => s.generation > 0) ||
+    (S.overviewMatches || []).some((m) => m.stage.includes("g1"));
+  return `<div class="overview-filters" role="group" aria-label="Overview filters"><label>Round<select data-overview-filter="round" aria-label="Overview round">${options(
+    [
+      ["all", "All rounds"],
+      ["initial", "Round 1 · Initial"],
+      ...(!d.sessions.length
+        ? [...new Set((S.overviewMatches || []).map((m) => m.stage))].map(
+            (stage) => ["stage:" + stage, stageText(stage)],
+          )
+        : []),
+      ...(hasImprovement
+        ? [
+            ["control", "Round 2 · No feedback"],
+            ["feedback", "Round 2 · Feedback"],
+          ]
+        : []),
+    ],
+    data.scope.round,
+  )}</select></label><label>Model<select data-overview-filter="model" aria-label="Overview model">${options([["", "All models"], ...models.map((m) => [m, m])], data.scope.model)}</select></label><label>Matches<select data-overview-filter="source" aria-label="Overview matches">${options(
+    [
+      ["competition", "Tournament"],
+      ["evaluation", "Reference tests"],
+    ],
+    data.scope.source,
+  )}</select></label><span class="overview-scope">${data.selected.length} fights · ${data.models.length} models</span></div>`;
+}
+function overviewRanking(data) {
+  if (!data.models.length)
+    return '<div class="overview-empty">No scored matches in this selection.</div>';
+  return `<ol class="overview-ranking">${data.models.map((r, i) => `<li><span class="overview-rank">${i + 1}</span><div class="overview-rank-body"><div><strong>${e(r.model)}</strong><span>${pct(r.score)}</span></div><div class="overview-bar"><span style="width:${100 * (r.score || 0)}%;background:${overviewColor(r.model)}"></span></div><small>${r.wins}W · ${r.draws}D · ${r.losses}L${r.failures ? ` · ${r.failures} failed` : ""}</small></div></li>`).join("")}</ol>`;
+}
+function overviewColor(model) {
+  const names = [
+    ...new Set(
+      (S.overviewMatches || []).flatMap((m) =>
+        m.sides.map((id) => overviewIdentity(id).model),
+      ),
+    ),
+  ].sort();
+  return COLORS[Math.max(0, names.indexOf(model)) % COLORS.length];
+}
+function overviewEvolution(data) {
+  if (!data.history.length)
+    return '<div class="overview-empty">Evolution appears as rounds finish.</div>';
   const conditions = ["initial", "control", "feedback"],
-    labels = ["Round 1: initial", "Round 2: no feedback", "Round 2: feedback"];
-  return `<h3>Model evolution</h3><p class="muted">Mean score across repetitions for each model, against the selected reference opponents. Round 2 branches are alternatives from the same initial strategy. Missing scores are omitted.</p><svg class="chart" viewBox="0 0 760 ${250 + models.length * 22}" role="img" aria-label="Model scores across strategy rounds">${[0, 0.25, 0.5, 0.75, 1].map((v) => `<line x1="50" x2="700" y1="${205 - v * 180}" y2="${205 - v * 180}" stroke="#dce1ea"/><text x="0" y="${210 - v * 180}">${pct(v)}</text>`).join("")}${labels.map((l, i) => `<text x="${70 + i * 240}" y="235">${l}</text>`).join("")}${models
-    .map((model, i) => {
-      const color = COLORS[i % COLORS.length];
-      const values = conditions.map((c) => {
-        const group = rows.filter(
-          (r) => r.model === model && r.condition === c && r.score != null,
-        );
-        return group.length
-          ? group.reduce((n, r) => n + r.score, 0) / group.length
-          : null;
-      });
-      return `${[1, 2].map((j) => (values[0] != null && values[j] != null ? `<line x1="100" y1="${205 - values[0] * 180}" x2="${100 + j * 240}" y2="${205 - values[j] * 180}" stroke="${color}" ${j === 1 ? 'stroke-dasharray="5 4"' : ""}/>` : "")).join("")}${values.map((v, j) => (v != null ? `<circle cx="${100 + j * 240}" cy="${205 - v * 180}" r="5" fill="${color}"><title>${e(model)} · ${labels[j]}: ${pct(v)}</title></circle>` : "")).join("")}<text x="50" y="${265 + i * 22}" fill="${color}">● ${e(model)}</text>`;
+    models = [...new Set(data.history.map((r) => r.model))];
+  const mobile = innerWidth < 600;
+  const chartWidth = mobile ? 420 : 560;
+  const height = 210,
+    y = (v) => 165 - v * 140,
+    xs = mobile ? [40, 210, 380] : [52, 278, 504];
+  return `<svg class="overview-evolution" viewBox="0 0 ${chartWidth} ${height}" role="img" aria-label="Model scores across strategy rounds">${[0, 0.5, 1].map((v) => `<line x1="38" x2="${chartWidth - 25}" y1="${y(v)}" y2="${y(v)}" stroke="#e7ebf2"/><text x="0" y="${y(v) + 4}">${v * 100}%</text>`).join("")}${["R1 · Initial", "R2 · No feedback", "R2 · Feedback"].map((label, i) => `<text x="${xs[i]}" y="195" text-anchor="${i === 0 ? "start" : i === 2 ? "end" : "middle"}">${label}</text>`).join("")}${models
+    .map((model) => {
+      const rows = conditions.map((condition) =>
+          data.history.find(
+            (r) => r.model === model && r.condition === condition,
+          ),
+        ),
+        color = overviewColor(model);
+      return `${[1, 2].map((j) => (rows[0]?.score != null && rows[j]?.score != null ? `<path d="M${xs[0]},${y(rows[0].score)} L${xs[j]},${y(rows[j].score)}" fill="none" stroke="${color}" stroke-width="2" ${j === 1 ? 'stroke-dasharray="4 4"' : ""}/>` : "")).join("")}${rows.map((r, j) => (r?.score != null ? `<circle cx="${xs[j]}" cy="${y(r.score)}" r="5" stroke="white" stroke-width="2" fill="${color}" tabindex="0"><title>${e(model)} · ${overviewRound(r.condition)}: ${pct(r.score)} (${r.completed} appearances)</title></circle>` : "")).join("")}`;
     })
-    .join("")}</svg>`;
+    .join(
+      "",
+    )}</svg><div class="overview-legend">${models.map((model) => `<span><i style="background:${overviewColor(model)}"></i>${e(model)}</span>`).join("")}</div>`;
+}
+function overviewMatchLink(data, who, other, outcome, value, description) {
+  const cell = data.matrix.find(
+    (row) => row.who === who && row.other === other,
+  );
+  const ids = [...cell.entrants],
+    opponents = [...cell.opponents],
+    stages = [...cell.stages];
+  // Keep compact, exact legacy links for individual strategies; grouped links retain model and round scope.
+  if (
+    ids.length === 1 &&
+    opponents.length === 1 &&
+    stages.length === 1 &&
+    ids[0] !== opponents[0]
+  )
+    return matrixLink(
+      stages[0],
+      ids[0],
+      opponents[0],
+      outcome,
+      value,
+      description,
+    );
+  const href =
+    "#" +
+    query({
+      view: "run",
+      run: S.run,
+      tab: "matches",
+      kind: data.scope.source,
+      entrant_model: who,
+      opponent_model: other,
+      round: data.scope.round,
+      outcome,
+      scored: "1",
+    });
+  return `<a href="${e(href)}" aria-label="${e(`${who} vs ${other}: ${description}`)}">${e(value)}</a>`;
+}
+function overviewMatrix(data) {
+  if (!data.matrix.length)
+    return '<div class="overview-empty">Head-to-head results appear after opponents meet.</div>';
+  const names = [...new Set(data.matrix.map((r) => r.other))].sort();
+  const rows = data.models
+    .map((r) => r.model)
+    .filter((who) => data.matrix.some((r) => r.who === who))
+    .sort();
+  const short = (name) => (name.length > 18 ? name.slice(0, 16) + "…" : name);
+  const label = (name) =>
+    `<abbr title="${e(name)}" tabindex="0">${e(short(name))}</abbr>`;
+  return `<div class="overview-matrix-wrap"><table class="overview-matrix" style="min-width:${names.length > 5 ? (names.length + 1) * 96 : 0}px" aria-label="Model head-to-head results"><thead><tr><th scope="col">vs</th>${names.map((name) => `<th scope="col">${label(name)}</th>`).join("")}</tr></thead><tbody>${rows
+    .map(
+      (who) =>
+        `<tr><th scope="row">${label(who)}</th>${names
+          .map((other) => {
+            const r = data.matrix.find(
+              (row) => row.who === who && row.other === other,
+            );
+            if (!r) return '<td class="overview-no-match">·</td>';
+            return `<td style="background:rgba(82,120,229,${r.score == null ? 0 : 0.04 + r.score * 0.16})"><div class="overview-cell-score">${overviewMatchLink(data, who, other, "completed", pct(r.score), countLabel(r.completed, "completed match", "completed matches"))}</div><div class="overview-cell-results">${overviewMatchLink(data, who, other, "win", r.wins, countLabel(r.wins, "win"))}<span> / </span>${overviewMatchLink(data, who, other, "draw", r.draws, countLabel(r.draws, "draw"))}<span> / </span>${overviewMatchLink(data, who, other, "loss", r.losses, countLabel(r.losses, "loss", "losses"))}</div>${r.failures ? `<small>${overviewMatchLink(data, who, other, "failure", r.failures + " failed", countLabel(r.failures, "failure"))}</small>` : ""}</td>`;
+          })
+          .join("")}</tr>`,
+    )
+    .join(
+      "",
+    )}</tbody></table></div><div class="overview-caption">Row vs column · score and wins / draws / losses</div>`;
+}
+function overviewDetails(d, data, statistics) {
+  const recorded = (S.overviewMatches || []).filter(
+    (m) => m.result.status === "completed",
+  );
+  const count = (predicate) => recorded.filter(predicate).length;
+
+  const totals = new Map();
+  for (const { match, entries } of data.selected)
+    for (const item of entries) {
+      const row = statistics?.match_totals?.[match.path]?.[item.side];
+      if (!row) continue;
+      if (!totals.has(item.model)) totals.set(item.model, { id: item.model });
+      const total = totals.get(item.model);
+      for (const key of [
+        "actions",
+        "cells_moved",
+        "damage_dealt",
+        "damage_taken",
+        "operations",
+        "errors",
+      ])
+        total[key] =
+          row[key] == null || total[key] === null
+            ? null
+            : (total[key] || 0) + row[key];
+    }
+  return `<details class="overview-details"><summary>Detailed metrics</summary><div class="overview-detail-body">${table(
+    ["Model", "Score", "Wins", "Draws", "Losses", "Appearances", "Failures"],
+    data.models.map(
+      (r) =>
+        `<tr><td>${e(r.model)}</td><td>${pct(r.score)}</td><td>${r.wins}</td><td>${r.draws}</td><td>${r.losses}</td><td>${r.completed}</td><td>${r.failures}</td></tr>`,
+    ),
+  )}${
+    totals.size
+      ? `<h3>Combat totals</h3><p class="muted">Selected scored fights only. Per-turn details are available in Matches.</p>${table(
+          [
+            "Model",
+            "Actions",
+            "Movement",
+            "Damage dealt",
+            "Damage taken",
+            "Operations",
+            "Errors",
+          ],
+          [...totals.values()].map(
+            (r) =>
+              `<tr><td>${e(r.id)}</td>${["actions", "cells_moved", "damage_dealt", "damage_taken", "operations", "errors"].map((k) => `<td>${fmt(r[k])}</td>`).join("")}</tr>`,
+          ),
+        )}`
+      : ""
+  }</div></details>
+  <details class="overview-details" id="overview-conversations"><summary>Conversations <span>${data.sessions.length}</span></summary><div class="overview-detail-body">${
+    data.sessions.length
+      ? table(
+          ["Model", "Version", "Status", "Calls", "Cost", ""],
+          data.sessions.map(
+            (s) =>
+              `<tr><td>${e(s.model)}</td><td>${overviewRound(overviewIdentity(s.id).condition)}<small>Repetition ${s.replicate + 1}</small></td><td>${status(s.status)} ${s.validity === "invalid" ? status("invalid") : ""}</td><td>${fmt(s.calls)}</td><td>${money(s.cost_spent)}</td><td>${btn("Open", "session-conversation", `data-session="${e(s.id)}"`)}${retryButton(s)}</td></tr>`,
+          ),
+        )
+      : "<p>No conversations recorded.</p>"
+  }</div></details>
+  <details class="overview-details"><summary>Usage & match accounting</summary><div class="overview-detail-body"><h3>Selected versions</h3><p>Tokens: ${e(tokenDisplay({ ...d, sessions: data.sessions }))} · ${fmt(data.sessions.reduce((n, s) => n + (s.calls || 0), 0))} model calls · ${fmt(data.sessions.reduce((n, s) => n + (s.steps || 0), 0))} tool calls</p><h3>Whole competition</h3><dl class="overview-accounting"><div><dt>All completed fights</dt><dd>${fmt(count((m) => m.kind !== "training"))}</dd></div><div><dt>Round 1 tournament</dt><dd>${fmt(count((m) => m.kind === "competition" && m.stage !== "g1-tournament"))}</dd></div><div><dt>Round 2 tournament</dt><dd>${fmt(count((m) => m.stage === "g1-tournament"))}</dd></div><div><dt>Reference evaluations</dt><dd>${fmt(count((m) => m.kind === "evaluation"))}</dd></div><div><dt>Preparation tests (unscored)</dt><dd>${fmt(statistics?.training_matches || 0)}</dd></div><div><dt>Diagnostic mirrors (included above)</dt><dd>${fmt(count((m) => m.mirror))}</dd></div></dl>${btn("View preparation tests", "show-training")}</div></details>
+  <details class="overview-details"><summary>How to read these results</summary><div class="overview-detail-body"><p>Score = (wins + 0.5 × draws) / completed appearances. 50% can mean all draws. Failures do not earn points and remain visible separately.</p><p>Round 2 branches start from the same Round 1 submission. They are alternatives, not successive rounds. Tournament opponents change between rounds. Reference tests use the frozen Round 1 strategies and built-in scripts for a common comparison.</p><p>Filters apply to all charts, the matrix and details. The model filter selects the candidate; opponents remain visible. Tournament mirrors and preparation tests are excluded from scored results. Multiple versions of the same model are grouped; appearances can exceed the number of unique fights. Tournament diagonals are omitted.</p><p>Cost and tokens measure preparation of selected versions, independently of the match category. Unknown provider usage stays unknown. Zero configured prices still allow token measurement.</p></div></details>`;
 }
 function summary(d, statistics = null) {
-  const r = d.report,
-    a = d.analysis,
-    rows = (a?.rows || []).filter(
-      (v) =>
-        v.panel === S.panel &&
-        (!S.performanceStage || v.condition === S.performanceStage),
-    ),
-    done = d.sessions.filter((s) => s.status !== "running").length;
-  return (
-    (r.incomplete
-      ? notice(
-          `<strong>Competition incomplete</strong><p>Some conversations did not produce an evaluable submission. Completed fights remain available.</p>${d.sessions
-            .filter((s) =>
-              [
-                "provider_unavailable",
-                "needs_reconciliation",
-                "generation_failed",
-                "no_submission",
-              ].includes(s.status),
-            )
-            .map(
-              (s) =>
-                `<p>${e(strategyName(s.id))} · ${e(text(s.status))} ${btn("Show conversation", "session-conversation", `data-session="${e(s.id)}"`)}</p>`,
-            )
-            .join("")}`,
-          "warn",
-        )
-      : "") +
-    (r.simulated
-      ? notice(
-          "<strong>Mock participants.</strong> Predefined strategies, real matches, no API calls.",
-        )
-      : "") +
-    (d.sessions.some((s) => s.status === "needs_reconciliation")
-      ? notice(
-          "An API call has an unknown outcome. Check its request ID and provider billing before resuming. It will not be retried automatically.",
-          "warn",
-        )
-      : "") +
-    `<div class="metrics">${metric("Finished sessions", `${done} / ${d.sessions.length}`, `${new Set(d.sessions.map((s) => s.model)).size} models; ${r.valid_submissions ?? 0} valid strategy versions`)}${metric("Completed matches", fmt(completed(r)), "Tournaments + reference evaluations; breakdown below", "⚔")}${metric("API cost", r.cost_usd === undefined ? "N/A" : money(r.cost_usd), r.reserved_usd === null ? "Pending call cost unknown" : r.reserved_usd && Number(r.reserved_usd) > 0 ? `${money(r.reserved_usd)} reserved` : "Mock run or cost calculated from usage", "↗")}${metric("Input / output tokens", tokenDisplay(d), r.simulated ? "No LLM tokens in mock runs" : "Measured usage, independent of pricing and optional limits", "≋")}</div>` +
-    matchBreakdown(r) +
-    (statistics ? competitionStatistics(statistics) : "") +
-    (a
-      ? `<section class="panel"><div class="panel-title"><div><h2>Strategy performance</h2><small>Each row is a strategy version. Scores use reference opponents, not the tournament standings.</small></div><label>Strategy stage<select id="performance-stage" aria-label="Strategy stage">${[
-          ["", "All rounds"],
-          ["initial", "Round 1: initial"],
-          ["control", "Round 2: without feedback"],
-          ["feedback", "Round 2: with feedback"],
-        ]
-          .map(
-            ([v, l]) =>
-              `<option value="${v}" ${v === (S.performanceStage || "") ? "selected" : ""}>${l}</option>`,
-          )
-          .join(
-            "",
-          )}</select></label><label>Opponents<select id="panel-choice" aria-label="Evaluation panel">${["all", "controls", "g0"].map((p) => `<option value="${p}" ${S.panel === p ? "selected" : ""}>${text(p)}</option>`).join("")}</select></label></div>${evolutionChart((a.rows || []).filter((v) => v.panel === S.panel))}${bars(rows.map((v) => ({ label: strategyName(v.session), score: v.score })))}<p class="muted" style="font-size:11px;margin:13px 0 0">Score = (wins + 0.5 × draws) / completed matches. A win earns 1 point, a draw 0.5, a loss 0. Reference evaluation can include a strategy against its own frozen initial version. Tournament mirrors are separate and excluded from tournament scores. The opponent selector changes which reference fights contribute to the score.</p></section>
- <section class="panel flush"><div class="panel-head"><div><h2>Detailed results</h2><p>Click a numeric column heading to sort, then click again to reverse. One row per strategy version. Operations measure LeekScript computation. They are separate from tokens and API cost.</p></div></div>${table(
-   [
-     "Strategy",
-     "Version",
-     "Score",
-     "Wins / draws / losses",
-     "Matches / failures",
-     "Operations",
-     "Errors / limit",
-     "Input / output",
-     "API cost / total path",
-   ],
-   rows.map(
-     (v) =>
-       `<tr><td><button class="table-button" data-action="session-conversation" data-session="${e(v.session)}">${e(strategyName(v.session))}</button><small>${e(v.model)} · repetition ${v.replicate + 1}</small></td><td>${generationLabel(v.generation)}<small>${text(v.condition)}</small></td><td class="score numeric">${pct(v.score)}</td><td class="numeric">${fmt(v.wins)} / ${fmt(v.draws)} / ${fmt(v.losses)}</td><td class="numeric">${fmt(v.completed)} / ${fmt(v.failed)}</td><td class="numeric">${fmt(v.operations)}</td><td class="numeric">${fmt(v.errors)} / ${fmt(v.operation_limit_hits)}</td><td class="numeric">${fmt(v.input_tokens)} / ${fmt(v.output_tokens)}</td><td class="numeric">${money(v.cost_usd)}<small>including initial strategy: ${money(v.trajectory_cost_usd)}</small></td></tr>`,
-   ),
- )}</section>
- <div class="grid two"><section class="panel"><h2>Feedback effect</h2><p class="muted">Improved with feedback minus improved without feedback, starting from the same initial strategy conversation.</p>${(a.paired || []).map((p) => `<div class="info-row"><span>${e(strategyName(p.parent))}</span><strong>${p.feedback_minus_control == null ? "Unavailable" : (p.feedback_minus_control >= 0 ? "+" : "") + fmt(p.feedback_minus_control * 100, 1) + " points"}</strong></div>`).join("")}<p class="muted" style="font-size:10px;margin-top:12px">${a.interval_95_exploratory ? `Exploratory interval: ${e(pretty(a.interval_95_exploratory))}` : "Not enough complete conversations to estimate an interval."} Mock demos do not measure real model performance.</p></section><section class="panel"><h2>Versions and conditions</h2><div class="info-row"><span>Initial strategy</span><strong>Before improvement</strong></div><div class="info-row"><span>Improved without feedback</span><strong>Improvement without match results</strong></div><div class="info-row"><span>Improved with feedback</span><strong>Improvement with match results</strong></div><p class="muted" style="font-size:11px;margin-top:13px">Both branches inherit the same code and history and are evaluated against the same opponents.</p></section></div>`
-      : "") +
-    (d.standings
-      ? `<section class="panel"><h2>Tournament standings</h2>${bars(d.standings.map((v) => ({ label: strategyName(v.strategy || v.id), score: v.score })))}${raw(d.standings, "Full standings statistics")}</section>`
-      : "") +
-    `<section class="panel flush"><div class="panel-head"><h2>Conversation status</h2></div>${
-      d.sessions.length
-        ? table(
-            [
-              "Session",
-              "Condition",
-              "Status",
-              "Calls / tools",
-              "Preparation",
-              "Time",
-              "",
-            ],
-            d.sessions.map(
-              (s) =>
-                `<tr><td><strong>${e(strategyName(s.id))}</strong><small>${s.messages} messages</small></td><td>${generationLabel(s.generation || 0)} · ${text(s.condition)}</td><td>${status(s.status)} ${s.validity ? status(s.validity) : ""}</td><td>${s.calls} / ${s.steps}</td><td>${s.test_matches} matches</td><td>${fmt(s.wall_seconds, 1)} s</td><td>${btn("Explore", "session-conversation", `data-session="${e(s.id)}"`)}${retryButton(s)}</td></tr>`,
-            ),
-          )
-        : empty(
-            "Sessions not started",
-            "Session states appear during execution.",
-          )
-    }</section>` +
-    `<section class="panel">${raw(r, "Full summary and raw metrics")}${d.g0 ? raw(d.g0, "Initial strategy tournament: standings and mirrors") : ""}${d.g1 ? raw(d.g1, "Improved strategy tournament: standings and mirrors") : ""}${a ? raw(a, "Full analysis, missing results, aggregates and cost/performance frontier") : ""}</section>`
+  const data = overviewData(d),
+    sessions = data.sessions;
+  const failures = sessions.filter(
+    (s) =>
+      [
+        "provider_unavailable",
+        "needs_reconciliation",
+        "generation_failed",
+        "no_submission",
+        "budget_exhausted",
+      ].includes(s.status) || s.validity === "invalid",
   );
+  const known = sessions.filter((s) => s.token_usage_known),
+    tokens = known.reduce(
+      (n, s) => n + (s.input_tokens || 0) + (s.output_tokens || 0),
+      0,
+    );
+  const real = sessions.filter(
+    (s) =>
+      d.metadata.config?.models.find((m) => m.id === s.model)?.provider !==
+        "mock" && s.calls,
+  );
+  const costUnknown = sessions.some(
+      (s) =>
+        s.status === "needs_reconciliation" ||
+        Number(s.money_reserved || 0) > 0,
+    ),
+    cost = sessions.reduce((n, s) => n + Number(s.cost_spent || 0), 0);
+  return `<div class="competition-overview">${overviewFilters(d, data)}${failures.length ? `<div class="overview-alert">${failures.length} conversation${failures.length === 1 ? "" : "s"} need attention. <button class="table-button" data-action="overview-failures">Review & retry</button></div>` : ""}<div class="overview-kpis"><div><span>Completed fights</span><strong>${fmt(data.selected.filter((v) => v.match.result.status === "completed").length)}</strong><small>${data.selected.filter((v) => v.match.result.status !== "completed").length} failed</small></div><div><span>Submitted strategies</span><strong>${sessions.length ? sessions.filter((s) => s.submission || s.status === "submitted").length : data.models.length}${sessions.length ? `<small> / ${sessions.length}</small>` : ""}</strong><small>${new Set(sessions.map((s) => s.model)).size || data.models.length} models</small></div><div><span>API cost</span><strong>${sessions.length ? (costUnknown ? "Unknown" : money(cost)) : "N/A"}</strong><small>Selected versions</small></div><div><span>Tokens</span><strong>${known.length ? fmt(tokens) : real.length ? "Unknown" : "N/A"}</strong><small>${known.length ? (known.length < real.length ? "Partial reported usage" : "Input + output") : real.length ? "Not reported by provider" : "No measured LLM usage"}</small></div></div>
+  <div class="overview-charts"><section class="overview-card"><div class="overview-section-head"><h2>Model ranking</h2><span>Score</span></div>${overviewRanking(data)}</section><section class="overview-card"><div class="overview-section-head"><h2>Evolution</h2><span>Score by version</span></div>${overviewEvolution(data)}</section></div>
+  ${data.matrix.length ? `<section class="overview-card overview-head-to-head"><div class="overview-section-head"><h2>Match matrix</h2><span>Click a result to see fights</span></div>${overviewMatrix(data)}</section>` : `<div class="overview-empty">${data.selected.length ? "No head-to-head pairs in this selection." : `No ${data.scope.source === "competition" ? "tournament" : "reference"} matches yet.`}${statistics?.training_matches ? ` ${statistics.training_matches} preparation tests recorded; excluded from standings. ${btn("View preparation tests", "show-training")}` : ""}</div>`}
+  ${overviewDetails(d, data, statistics)}</div>`;
 }
 let conversationValues = [];
 function conversationData(value, title) {
@@ -1828,6 +2080,22 @@ function matchSubset() {
           : "competition");
     if (f.kind !== "all" && kind !== (f.kind || "competition")) return false;
     if (f.stage && m.stage !== f.stage) return false;
+    if (f.scored && m.mirror) return false;
+    let scopedSide = null;
+    if (f.entrant_model || f.round) {
+      const candidates = overviewEntries(m).filter(
+        (item) =>
+          overviewAccept(item, {
+            model: f.entrant_model,
+            round: f.round || "all",
+          }) &&
+          (!f.opponent_model ||
+            overviewIdentity(m.sides[1 - item.side]).model ===
+              f.opponent_model),
+      );
+      if (!candidates.length) return false;
+      scopedSide = candidates[0].side;
+    }
     if (f.entrant && !m.sides.includes(f.entrant)) return false;
     if (
       f.opponent &&
@@ -1845,7 +2113,7 @@ function matchSubset() {
     )
       return false;
     const completed = m.result.status === "completed",
-      side = f.entrant ? m.sides.indexOf(f.entrant) : 0;
+      side = scopedSide ?? (f.entrant ? m.sides.indexOf(f.entrant) : 0);
     if (f.outcome === "failure") return !completed;
     if (f.outcome === "completed") return completed;
     if (f.outcome === "draw") return completed && m.result.winner_side === -1;
@@ -1888,7 +2156,7 @@ function matchesPage() {
       ["all", "All fights"],
     ],
     f.kind || "competition",
-  )}<div class="match-filters">${field("Search", "match-search", f.search || "", "search", "", 'id="match-search"')}${selectField("Stage", "match-stage", [["", "All stages"], ...stages.map((s) => [s, stageText(s)])], f.stage || "")}${selectField("Participant", "match-entrant", [["", "All participants"], ...participants.map((p) => [p, strategyName(p)])], f.entrant || "")}${selectField("Opponent", "match-opponent", [["", "All opponents"], ...participants.map((p) => [p, strategyName(p)])], f.opponent || "")}${selectField(
+  )}${f.entrant_model ? notice(`Filtered from overview: ${e(f.entrant_model)} vs ${e(f.opponent_model || "all opponents")} · ${e(f.round === "all" ? "All rounds" : overviewRound(f.round))}`) : ""}<div class="match-filters">${field("Search", "match-search", f.search || "", "search", "", 'id="match-search"')}${selectField("Stage", "match-stage", [["", "All stages"], ...stages.map((s) => [s, stageText(s)])], f.stage || "")}${selectField("Participant", "match-entrant", [["", "All participants"], ...participants.map((p) => [p, strategyName(p)])], f.entrant || "")}${selectField("Opponent", "match-opponent", [["", "All opponents"], ...participants.map((p) => [p, strategyName(p)])], f.opponent || "")}${selectField(
     "Outcome for participant (or side 1)",
     "match-outcome",
     [
@@ -2471,7 +2739,11 @@ document.addEventListener("click", async (event) => {
     } else if (a === "file") await loadFile(node.dataset.path);
     else if (a === "clear-match-filters")
       navigate("run", { run: S.run, tab: "matches" });
-    else if (a === "match") {
+    else if (a === "overview-failures") {
+      const detail = $("#overview-conversations");
+      detail.open = true;
+      detail.scrollIntoView({ behavior: "smooth", block: "start" });
+    } else if (a === "match") {
       S.matchPath = node.dataset.path;
       await loadMatch();
     } else if (a === "replay-play") playReplay();
@@ -2697,19 +2969,10 @@ document.addEventListener("change", async (event) => {
       updateTeamMode();
     } else if (n.id === "metric-set") {
       S.metricSet = n.value;
-      if (S.tab === "summary")
-        $("#statistics-stage-detail").innerHTML = statisticsStage(
-          S.statistics.stages[Number($("#statistics-stage").value)],
-        );
-      else if (S.combatStatistics)
+      if (S.combatStatistics)
         $(".combat-statistics").outerHTML = combatStatistics(
           S.combatStatistics,
         );
-    } else if (n.id === "statistics-stage") {
-      S.statisticsStage = S.statistics.stages[Number(n.value)]?.stage;
-      $("#statistics-stage-detail").innerHTML = statisticsStage(
-        S.statistics.stages[Number(n.value)],
-      );
     } else if (n.id === "engine-files") {
       $("#file-list").innerHTML = fileButtons(S.files);
     } else if (n.id === "conversation-model")
@@ -2721,12 +2984,13 @@ document.addEventListener("change", async (event) => {
         model: S.modelFilter,
         session: n.value,
       });
-    else if (n.id === "performance-stage") {
-      S.performanceStage = n.value;
-      await renderRun(S.epoch);
-    } else if (n.id === "panel-choice") {
-      S.panel = n.value;
-      await renderRun(S.epoch);
+    else if (n.matches("[data-overview-filter]")) {
+      overviewSettings()[n.dataset.overviewFilter] = n.value;
+      $("#main").innerHTML =
+        runHeader(S.detail) + summary(S.detail, S.statistics);
+      $(`[data-overview-filter="${n.dataset.overviewFilter}"]`)?.focus({
+        preventScroll: true,
+      });
     } else if (n.id === "source-file") {
       S.file = n.value;
       await loadSource();
@@ -2833,6 +3097,7 @@ setInterval(async () => {
       !$("#dialog").open &&
       S.follow &&
       !(S.tab === "conversation" && $(".chat-message details[open]")) &&
+      !(S.tab === "summary" && $(".overview-details[open]")) &&
       !(S.tab === "matches" && replayTimer) &&
       (activeJobs().some((j) => j.run === S.run) ||
         S.boot.runs.some(
@@ -3114,41 +3379,6 @@ function combatTable(rows, perTurn = false) {
 function combatStatistics(data) {
   return `<section class="combat-statistics"><h3>Match statistics</h3>${metricSetPicker()}<p class="muted">Limit: ${data.operation_limits?.length > 1 ? "varies by leek; see the per-leek rows" : fmt(data.operations_limit_per_turn) + " operations per played turn and leek"} (${e(data.limit_source)}). ${e(data.action_definition)}</p>${data.missing.map((m) => notice(e(m))).join("")}<h3>Match and team totals</h3>${combatTable([data.total, ...data.sides])}<h3>Totals by leek</h3>${combatTable(data.entities)}<details><summary>Totals by turn</summary>${combatTable(data.rounds, true)}</details><details><summary>Details by turn and leek</summary>${combatTable(data.turns, true)}</details></section>`;
 }
-function competitionStatistics(data) {
-  const selectedStage = Math.max(
-    0,
-    data.stages.findIndex((group) => group.stage === S.statisticsStage),
-  );
-  if (!data.stages.length)
-    return `<section class="panel"><h2>Match statistics</h2><p>No competition matches yet. ${data.training_matches || 0} preparation tests recorded; excluded from standings.</p>${btn("View preparation tests", "show-training")}</section>`;
-  return `<section class="panel"><h2>Match statistics</h2><p class="muted">Limit: ${data.operation_limits?.length > 1 ? "varies by leek: " + data.operation_limits.map((v) => fmt(v)).join(", ") : fmt(data.operations_limit_per_turn)} operations per played turn and leek. Actions count moves, weapon changes, shots and chips. Totals include mirrors; matrices exclude them. Preparation tests are excluded from these statistics.</p>${data.training_matches ? `<p>${data.training_matches} preparation tests recorded separately. ${btn("View preparation tests", "show-training")}</p>` : ""}<div class="form-grid">${metricSetPicker()}<label class="field">Stage<select id="statistics-stage">${data.stages.map((g, i) => `<option value="${i}" ${i === selectedStage ? "selected" : ""}>${e(stageText(g.stage))}</option>`).join("")}</select></label></div><div id="statistics-stage-detail">${statisticsStage(data.stages[selectedStage])}</div></section>`;
-}
-function statisticsStage(group) {
-  if (!group) return empty("No recorded matches", "");
-  const names = [
-    ...new Set(
-      Object.entries(group.matrix).flatMap(([who, others]) => [
-        who,
-        ...Object.keys(others),
-      ]),
-    ),
-  ].sort();
-  return `<p class="muted">${group.matches} matches · ${group.with_replay} replays available. N/A = data missing from this archive. Per-turn and per-leek details are under Matches.</p>${combatTable(Object.values(group.strategies))}<h3>Match matrix</h3><p class="muted">Row vs column: wins / draws / losses. Failures are listed separately. Click a number to open matching fights.</p><div class="matrix">${table(
-    ["Strategy", ...names.map((name) => e(strategyName(name)))],
-    names.map(
-      (who) =>
-        `<tr><th>${e(strategyName(who))}</th>${names
-          .map((other) => {
-            const r = group.matrix[who]?.[other];
-            if (!r) return '<td><span aria-label="No matches">N/A</span></td>';
-            const n = r.wins + r.draws + r.losses;
-            return `<td style="background:${n ? `rgba(82,120,229,${((r.wins + 0.5 * r.draws) / n) * 0.18})` : "transparent"}">${matrixLink(group.stage, who, other, "win", r.wins, countLabel(r.wins, "win"))} / ${matrixLink(group.stage, who, other, "draw", r.draws, countLabel(r.draws, "draw"))} / ${matrixLink(group.stage, who, other, "loss", r.losses, countLabel(r.losses, "loss", "losses"))}<small>${n ? matrixLink(group.stage, who, other, "completed", pct((r.wins + 0.5 * r.draws) / n), `${n} completed matches`) : "N/A"}${r.failures ? ` · ${matrixLink(group.stage, who, other, "failure", countLabel(r.failures, "failure"), countLabel(r.failures, "failure"))}` : ""}</small></td>`;
-          })
-          .join("")}</tr>`,
-    ),
-  )}</div>`;
-}
-
 async function filterMatches(clear = false) {
   const form = $(".match-filters");
   if (!form) return;
@@ -3158,6 +3388,7 @@ async function filterMatches(clear = false) {
     $("[name=match-kind]").value = "competition";
   } else
     S.matchFilters = {
+      ...S.matchFilters,
       search: $("#match-search").value,
       kind: $("[name=match-kind]")?.value || "competition",
       stage: $("[name=match-stage]", form).value,
@@ -3258,7 +3489,9 @@ document.addEventListener("click", (event) => {
 });
 
 const sortableObserver = new MutationObserver(() => {
-  for (const table of document.querySelectorAll("#main table")) {
+  for (const table of document.querySelectorAll(
+    "#main table:not(.overview-matrix)",
+  )) {
     const rows = [...(table.tBodies[0]?.rows || [])];
     for (const header of table.querySelectorAll("thead th")) {
       if (

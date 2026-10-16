@@ -76,6 +76,48 @@ def main():
                 write_json(work/"outcome.json", {"fight":fight,"winner":winner,"success":True})
             write_json(base/"records"/(label+".json"), {"match":{"sides":sides,"seed":301,"mirror":label=="mirror"},
                        "directory":work.relative_to(base).as_posix(),"result":result})
+        # Nine submitted versions, three models, 153 fights. No external APIs.
+        overview = store.runs / "overview"
+        model_ids = ["Qwen3-30B-A3B-Instruct-2507-local", "Gemini-2.5-Flash-Lite-latest", "Claude-Sonnet-4.5"]
+        config = read_json(ROOT / "configs/offline-complete.json")
+        config["models"] = [{"id": name, "provider": "mock", "profile": "repair-and-submit"} for name in model_ids]
+        write_json(overview / "experiment.json", {"config": config})
+        versions = [(name + "-r0" + suffix, name, condition, generation)
+                    for condition, suffix, generation in [("initial", "", 0), ("control", "-g1-control", 1), ("feedback", "-g1-feedback", 1)]
+                    for name in model_ids]
+        journal = Journal(overview)
+        for sid, name, condition, generation in versions:
+            journal.save(sid, {"model": name, "replicate": 0, "generation": generation, "condition": condition,
+                         "history": [], "status": "submitted", "calls": 2, "steps": 3, "wall_seconds": 1,
+                         "test_matches": 0, "cost_spent": "0"}, "session_created")
+        journal.db.close()
+        index = 0
+        def overview_match(stage, sides, mirror=False, candidate=None, side=None):
+            nonlocal index
+            index += 1
+            base = overview / stage
+            work = base / "matches" / str(index) / "attempt-1"
+            result = {"status": "completed", "winner_side": -1 if index % 3 == 0 else index % 2,
+                      "turns": 12, "elapsed_seconds": .1}
+            write_json(work / "result.json", result)
+            write_json(base / "records" / (str(index) + ".json"), {
+                "match": {"sides": sides, "seed": 301, "mirror": mirror}, "session": candidate, "side": side,
+                "directory": work.relative_to(base).as_posix(), "result": result})
+        initial = versions[:3]
+        improved = versions[3:]
+        for stage, group in [("tournament", initial), ("g1-tournament", improved)]:
+            for left, *_ in group:
+                for right, *_ in group:
+                    overview_match(stage, [left, right], mirror=left == right)
+        for sid, _, _, generation in versions:
+            for opponent in [v[0] for v in initial] + ["passive", "rush", "single-shot"]:
+                for side in [0, 1]:
+                    sides = [sid, opponent] if side == 0 else [opponent, sid]
+                    overview_match("evaluations/g1-panel" if generation else "evaluations/g0-panel", sides, candidate=sid, side=side)
+        rows = [{"session": sid, "model": name, "generation": generation, "condition": condition,
+                 "panel": "all", "completed": 12} for sid, name, condition, generation in versions]
+        write_json(overview / "report.json", {"simulated": True, "sessions": 9, "cost_usd": "0", "tournament": {"completed": 9},
+                   "evolution": {"rows": rows, "contemporaries": {"completed": 36}}})
         class FixtureApplication(Application):
             def post(self, route, data):
                 if route != '/api/fixture-live':

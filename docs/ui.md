@@ -199,7 +199,7 @@ Statistics include computation, actions, shots, chips, weapon changes, movement,
 cells moved, damage, healing, erosion, deaths, errors and operation-limit hits.
 Use **Metrics** to switch between overview, computation, actions, damage and all
 columns. Match views show totals for the match, teams and leeks, plus per-turn
-and per-leek details. Summary totals and matrices are separated by stage.
+and per-leek details. Summary uses shared filters for rounds, models and match category.
 Actions count moves, weapon changes, shots and chips; automatic effects are not
 counted as decisions. AP/MP removed refers to replay events, not all resource spending.
 
@@ -218,18 +218,17 @@ new per-entity telemetry separates them.
 
 The initial strategy produces two improvements: **Improved without feedback**
 and **Improved with feedback**. Only the latter receives match results. Both branches inherit the same initial strategy code and history.
-Round 1 is the initial submission; Round 2 has two alternative improvement branches, not two successive rounds. The Summary stage filter selects either branch or the complete history. The evolution chart averages scores across repetitions per model, and the ranked bars compare individual strategy versions.
+The competition Summary uses one shared filter bar: **Round**, **Model** and **Matches** (Tournament or Reference tests). Filters apply to the ranking, evolution chart, matrix, usage and conversation details. The model filter selects the candidate; its opponents stay visible. Versions and repetitions are grouped by model.
 
-Score is `(wins + 0.5 * draws) / completed matches`. Tournament mirrors are excluded from tournament scores; reference evaluation can include a candidate against its own frozen initial version. A score
-of 70% is not necessarily a 70% win rate. A score difference of 0.4 is 40 percentage points.
+The default view shows four indicators, a model ranking, evolution by version and a head-to-head matrix. Detailed metrics, conversations, accounting and methodology expand on demand. Numeric columns in detail tables can be sorted. Small matrices fit the available width; large matrices scroll within their own container. Full model names are available from abbreviated headers.
 
-The opponent selector distinguishes all reference opponents, Round 1 submissions as opponents, and built-in scripts as opponents. Compare versions against the same panel. Contemporary
-initial and improved strategy standings remain separate. Mock cost zero means no API calls; machine
-cost is not included. Operations are not tokens. Missing costs stay unknown.
+Score is `(wins + 0.5 * draws) / completed appearances`. The ranking pools the selected appearances for each model; a 50% score can mean all draws. Failures are displayed separately. A tournament fight contributes an appearance to each model, so appearance counts can exceed unique fight counts. The completed-fight indicator counts each selected fight once. Tournament mirrors and preparation tests do not enter the scores.
 
-The completed-match total adds both tournaments (including diagnostic mirrors) and reference evaluations. Detailed version rows count reference evaluations only. For example, 153 fights can mean 9 initial tournament fights + 36 improved tournament fights + 108 reference evaluations. Nine conversation versions can come from three models with an initial submission and two improvement branches each. Preparation fights are separate.
+Round 1 is the initial submission. Round 2 has two alternative branches, with and without feedback. Tournament opponents may change between rounds; use Reference tests to compare against frozen initial submissions and built-in scripts. Reference tests count only the candidate side, including tests against its own initial strategy. The evolution chart uses the same selected matches and rounds as the ranking.
 
-Click numeric table headings to sort ascending or descending. Replay legends identify each model by side and color. Input and output usage from local providers is counted even at zero token prices and with no budget limits. Mock participants have no LLM tokens. Partial known usage is marked as partial when another provider has not reported usage.
+Matrix cells show score and wins / draws / losses from the row model's perspective. Click a result to open the relevant fights. Tournament diagonals are omitted because versions of the same model are grouped. The accounting section reconciles tournament, reference and diagnostic mirror counts for the whole competition; preparation tests are listed separately.
+
+Cost and tokens describe preparation of the selected versions regardless of match category. Reported tokens are counted even at zero prices and without limits; missing usage remains unknown or is marked partial. Mock participants have no LLM tokens. Replay legends identify the models by side and color.
 
 **Compare results** averages fixed-opponent scores with equal weight per complete
 conversation. Incomplete conversations are counted separately. Runs group only

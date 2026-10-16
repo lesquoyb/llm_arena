@@ -784,7 +784,8 @@ async function main() {
       );
       await page.waitForFunction(
         () =>
-          document.querySelectorAll(".metrics .value")[1]?.textContent === "2",
+          document.querySelector(".overview-kpis > div:first-child strong")
+            ?.textContent === "2",
       );
       await page.screenshot({
         path: path.join(artifacts, "live-competition.png"),
@@ -836,6 +837,9 @@ async function main() {
         .evaluateAll((nodes) => nodes.map((n) => n.dataset.path).sort());
     async function openMatrix(label, expected) {
       await page.goto(matrixSummary);
+      await page
+        .getByLabel("Overview round", { exact: true })
+        .selectOption("stage:.");
       await page.getByRole("link", { name: label, exact: true }).click();
       await page.waitForFunction(
         (n) => document.querySelectorAll(".match-card").length === n,
@@ -916,48 +920,122 @@ async function main() {
       .getByRole("button", { name: "Conversations", exact: true })
       .click();
     await page.getByText("No recorded conversation", { exact: true }).waitFor();
-    await page.goto(url + "/#view=run&run=one");
-    await page.getByRole("heading", { name: "Strategy performance" }).waitFor();
+    await page.goto(url + "/#view=run&run=overview");
+    await page.getByRole("heading", { name: "Model ranking" }).waitFor();
+    assert.equal(await page.locator(".overview-ranking li").count(), 3);
+    assert.equal(await page.locator(".overview-matrix tbody tr").count(), 3);
+    assert.equal(
+      await page.evaluate(() => overviewData(S.detail).selected.length),
+      36,
+    );
+    assert.equal(
+      await page.evaluate(() => overviewData(S.detail).sessions.length),
+      9,
+    );
     await page
-      .getByRole("heading", { name: "Match counts", exact: true })
-      .waitFor();
+      .getByLabel("Overview round", { exact: true })
+      .selectOption("feedback");
+    assert.equal(
+      await page.evaluate(() => overviewData(S.detail).sessions.length),
+      3,
+    );
+    assert(
+      (await page.locator(".overview-detail-body").allTextContents()).every(
+        (text) => !text.includes("NaN"),
+      ),
+    );
+    await page
+      .getByLabel("Overview model", { exact: true })
+      .selectOption("Qwen3-30B-A3B-Instruct-2507-local");
+    assert.equal(await page.locator(".overview-ranking li").count(), 1);
+    assert.equal(await page.locator(".overview-matrix tbody tr").count(), 1);
+    assert.equal(await page.locator(".overview-legend > span").count(), 1);
+    await page
+      .getByLabel("Overview matches", { exact: true })
+      .selectOption("evaluation");
+    assert.equal(
+      await page.evaluate(() => overviewData(S.detail).selected.length),
+      12,
+    );
+    assert.equal(
+      await page.evaluate(() => overviewData(S.detail).models[0].completed),
+      12,
+    );
+    await page
+      .getByLabel("Overview round", { exact: true })
+      .selectOption("initial");
+    assert.equal(
+      await page.evaluate(() => overviewData(S.detail).models[0].completed),
+      12,
+    ); // self-reference counts once
+    await page.getByLabel("Overview model", { exact: true }).selectOption("");
+    await page
+      .getByLabel("Overview round", { exact: true })
+      .selectOption("all");
+    assert.equal(
+      await page.evaluate(() => overviewData(S.detail).selected.length),
+      108,
+    );
+    await page
+      .getByLabel("Overview matches", { exact: true })
+      .selectOption("competition");
+    for (const width of [1440, 1024, 390]) {
+      await page.setViewportSize({ width, height: 900 });
+      assert(
+        await page
+          .locator(".overview-matrix-wrap")
+          .evaluate((n) => n.scrollWidth <= n.clientWidth + 1),
+      );
+      assert(
+        await page
+          .locator(".competition-overview")
+          .evaluate((n) => n.getBoundingClientRect().right <= innerWidth),
+      );
+      await page.screenshot({
+        path: path.join(artifacts, `overview-${width}.png`),
+        fullPage: true,
+      });
+    }
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    const groupedLink = page
+      .locator('.overview-matrix a[href*="entrant_model"]')
+      .first();
+    const groupQuery = new URLSearchParams(
+      (await groupedLink.getAttribute("href")).slice(1),
+    );
+    const expectedGroupCount = await page.evaluate(
+      ({ who, other }) =>
+        overviewData(S.detail).matrix.find(
+          (r) => r.who === who && r.other === other,
+        ).completed,
+      {
+        who: groupQuery.get("entrant_model"),
+        other: groupQuery.get("opponent_model"),
+      },
+    );
+    await groupedLink.click();
+    await page.waitForFunction(
+      (n) => document.querySelectorAll(".match-card").length === n,
+      expectedGroupCount,
+    );
+    assert(
+      new URLSearchParams(new URL(page.url()).hash.slice(1)).get(
+        "entrant_model",
+      ),
+    );
+    assert.equal(await page.locator(".match-card").count(), expectedGroupCount);
+    await page.reload();
+    await page.locator(".match-card").first().waitFor();
+    await page.goBack();
+    await page.getByRole("heading", { name: "Model ranking" }).waitFor();
+    await page.goto(url + "/#view=run&run=one");
+    await page.getByRole("heading", { name: "Model ranking" }).waitFor();
+    assert.equal(await page.locator(".overview-filters select").count(), 3);
+    assert.equal(await page.locator(".overview-details[open]").count(), 0);
     await page
       .getByRole("img", { name: "Model scores across strategy rounds" })
       .waitFor();
-    await page
-      .getByLabel("Strategy stage", { exact: true })
-      .selectOption("feedback");
-    assert.equal(
-      await page.locator("#performance-stage").inputValue(),
-      "feedback",
-    );
-    await page.getByLabel("Strategy stage", { exact: true }).selectOption("");
-    assert.equal(
-      await page.evaluate(() =>
-        tokenDisplay({
-          metadata: {
-            config: {
-              models: [
-                { id: "mock", provider: "mock" },
-                { id: "local", provider: "openai-compatible" },
-              ],
-            },
-          },
-          report: { simulated: false },
-          sessions: [
-            { model: "mock", calls: 2 },
-            {
-              model: "local",
-              calls: 3,
-              token_usage_known: true,
-              input_tokens: 1234,
-              output_tokens: 456,
-            },
-          ],
-        }),
-      ),
-      "1,234 / 456",
-    );
+    await page.getByText("Detailed metrics", { exact: true }).click();
     const sortButton = page
       .getByRole("button", { name: "Score ↕", exact: true })
       .first();
@@ -971,16 +1049,13 @@ async function main() {
       await sortButton.locator("..").getAttribute("aria-sort"),
       "ascending",
     );
-
+    await page.getByText("Detailed metrics", { exact: true }).click();
     await page.getByRole("heading", { name: "Match matrix" }).waitFor();
-    await page.getByLabel("Metrics", { exact: false }).selectOption("damage");
-    await page
-      .locator("#statistics-stage-detail th")
-      .filter({ hasText: "Damage dealt" })
-      .waitFor();
-    await page.getByLabel("Metrics", { exact: false }).selectOption("overview");
-    await page.getByText("10,000,000", { exact: false }).first().waitFor();
-    assert((await page.locator(".matrix").innerText()).includes("1 / 0 / 0"));
+    assert(
+      (await page.locator(".overview-matrix").innerText()).includes(
+        "1 / 0 / 0",
+      ),
+    );
     await page.screenshot({
       path: path.join(artifacts, "summary.png"),
       fullPage: true,

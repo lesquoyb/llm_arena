@@ -420,7 +420,7 @@ class Store:
                 work = base / record["directory"] if "directory" in record else safe_path(root, record["artifact_dir"])
                 safe_path(root, work.relative_to(root).as_posix())
                 rows.append({"path": work.relative_to(root).as_posix(), "stage": relative,
-                             "sides": sides, "seed": match.get("seed", record.get("seed")),
+                             "sides": sides, "candidate": record.get("session"), "candidate_side": record.get("side"), "seed": match.get("seed", record.get("seed")),
                              "mirror": match.get("mirror", False), "result": record["result"]})
         for path in sorted((root / "sessions").glob("*/tools/**/result.json")):
             if (path.parent / "scenario.json").is_file():
