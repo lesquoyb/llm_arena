@@ -871,6 +871,18 @@ async function main() {
         .count(),
       0,
     );
+    await page.goto(url + "/#view=run&run=diagnostics&tab=conversation");
+    await page
+      .locator("[data-session-diagnostics]")
+      .getByText("Strategy submitted", { exact: true })
+      .waitFor();
+    await page
+      .getByText("The submitted strategy does not compile.", { exact: true })
+      .waitFor();
+    await page
+      .getByText("Submission validation report", { exact: true })
+      .click();
+    await page.getByText(/Unknown function DIAGNOSTIC_FIXTURE/).waitFor();
     await page.goto(url + "/#view=run&run=outputs&tab=conversation");
     await page.getByText("Visible answer", { exact: true }).waitFor();
     assert.equal(await page.locator(".provider-output[open]").count(), 0);
@@ -906,13 +918,11 @@ async function main() {
     await reasoning.locator("summary").click();
     await reasoning.locator("summary").click();
     assert.equal(outputRequests, 1);
-    const remote = page
-      .locator(".provider-output")
-      .filter({
-        has: page.getByText("Provider-reported tool activity · remote_search", {
-          exact: true,
-        }),
-      });
+    const remote = page.locator(".provider-output").filter({
+      has: page.getByText("Provider-reported tool activity · remote_search", {
+        exact: true,
+      }),
+    });
     await remote.locator("summary").click();
     await page.waitForFunction(() =>
       [...document.querySelectorAll(".provider-output pre")].some((n) =>

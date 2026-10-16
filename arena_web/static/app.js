@@ -1824,7 +1824,7 @@ function overviewDetails(d, data, statistics) {
           ["Model", "Version", "Status", "Calls", "Cost", ""],
           data.sessions.map(
             (s) =>
-              `<tr><td>${e(s.model)}</td><td>${overviewRound(overviewIdentity(s.id).condition)}<small>Repetition ${s.replicate + 1}</small></td><td>${status(s.status)} ${s.validity === "invalid" ? status("invalid") : ""}</td><td>${fmt(s.calls)}</td><td>${money(s.cost_spent)}</td><td>${btn("Open", "session-conversation", `data-session="${e(s.id)}"`)}${retryButton(s)}</td></tr>`,
+              `<tr><td>${e(s.model)}</td><td>${overviewRound(overviewIdentity(s.id).condition)}<small>Repetition ${s.replicate + 1}</small></td><td>${status(s.status)} ${s.validation_status && !["valid", "not_submitted"].includes(s.validation_status) ? badge(s.validation_status === "pending" ? "Validation pending" : "Validation: " + text(s.validation_status), s.validation_status === "pending" ? "blue" : "orange") : ""}</td><td>${fmt(s.calls)}</td><td>${money(s.cost_spent)}</td><td>${btn("Open", "session-conversation", `data-session="${e(s.id)}"`)}${btn("Diagnostics", "session-diagnostics", `data-session="${e(s.id)}"`)}${retryButton(s)}</td></tr>`,
           ),
         )
       : "<p>No conversations recorded.</p>"
@@ -1843,7 +1843,9 @@ function summary(d, statistics = null) {
         "generation_failed",
         "no_submission",
         "budget_exhausted",
-      ].includes(s.status) || s.validity === "invalid",
+      ].includes(s.status) ||
+      (s.validation_status &&
+        !["valid", "pending", "not_submitted"].includes(s.validation_status)),
   );
   const known = sessions.filter((s) => s.token_usage_known),
     tokens = known.reduce(
@@ -1895,6 +1897,19 @@ function providerOutput(message, index) {
       : "")
   );
 }
+function sessionDiagnostics(data, full = false) {
+  if (!data) return "";
+  const problems = data.problems || [];
+  const validation =
+    data.validation_status === "pending"
+      ? "Validation pending"
+      : data.validation_status === "not_submitted"
+        ? "No submitted strategy"
+        : data.validation_status === "valid"
+          ? "Compilation passed"
+          : "Validation: " + text(data.validation_status);
+  return `<div class="notice ${problems.length ? "error" : ""}" data-session-diagnostics><strong>${data.has_submission ? "Strategy submitted" : e(text(data.generation_status))}</strong> · ${e(validation)}<p>${fmt(data.matches.completed)} completed evaluation fights · ${fmt(data.matches.failed)} failed · ${fmt(data.matches.preparation_completed)} preparation fights</p>${problems.map((p) => `<div><strong>${e(p.phase)} · ${e(text(p.status))}</strong><p>${e(p.message)}</p>${p.sides ? `<small>${e(p.sides.map(strategyName).join(" vs "))} · Seed ${e(p.seed)}</small>` : ""}${p.path ? `<small class="mono">${e(p.path)}</small>` : ""}</div>`).join("")}${!problems.length ? "<p>No recorded validation or fight failure for this strategy.</p>" : ""}<small>${e(data.schedule_note)}</small>${data.assessment ? `<details><summary>Submission validation report</summary><pre>${e(pretty(data.assessment))}</pre></details>` : ""}${full ? `<details><summary>Diagnostic JSON</summary><pre id="session-diagnostic-json">${e(pretty(data))}</pre></details>` : ""}</div>`;
+}
 function conversation(data) {
   conversationValues = [];
   const failure = data.failure;
@@ -1905,6 +1920,7 @@ function conversation(data) {
           "error",
         )
       : "") +
+    sessionDiagnostics(data.diagnostics) +
     (data.failure_event
       ? `<details class="provider-output" data-provider-event="${data.failure_event.id}" data-record-run="${e(S.run)}"><summary>Provider response or failure record</summary><pre></pre></details>`
       : "") +
@@ -2769,7 +2785,17 @@ document.addEventListener("click", async (event) => {
         model: S.modelFilter,
         session: S.session,
       });
-    else if (a === "session-conversation")
+    else if (a === "session-diagnostics") {
+      const data = await api("/api/session-diagnostics", {
+        run: S.run,
+        session: node.dataset.session,
+      });
+      openDialog(
+        "Strategy diagnostics",
+        strategyName(node.dataset.session),
+        sessionDiagnostics(data, true),
+      );
+    } else if (a === "session-conversation")
       navigate("run", {
         run: S.run,
         tab: "conversation",

@@ -358,3 +358,60 @@ class WebWorkerIntegrationTests(unittest.TestCase):
                     self.assertEqual((path.stat().st_mtime_ns, path.read_bytes()), before)
             finally:
                 jobs.close()
+
+
+class SubmissionDiagnosticsTests(unittest.TestCase):
+    def test_submitted_conversation_exposes_compilation_failure_and_member_diagnostics(self):
+        from arena.core import file_hash
+        with scratch_directory() as tmp:
+            store = Store(tmp/'runs',tmp/'state')
+            root = fixture(store)
+            path = root/'sessions/mock-repair-r0/assessment.json'
+            assessment = {'status':'invalid','diagnostics':[{'file':'main.leek','line':8,'message':'Unknown function'}],
+                          'member_analyses':{'support.leek':{'status':'invalid','error':'Unknown symbol'}}}
+            write_json(path,assessment)
+            journal = Journal(root)
+            try:
+                state=journal.state('mock-repair-r0')
+                state.update(validity='invalid',assessment_sha256=file_hash(path))
+                journal.save('mock-repair-r0',state,'submission_assessment',assessment)
+            finally: journal.db.close()
+            data=store.conversation('example','mock-repair-r0')
+            self.assertEqual(data['status'],'submitted')
+            self.assertIsNone(data['failure'])
+            self.assertEqual(data['diagnostics']['validation_status'],'invalid')
+            self.assertEqual(data['diagnostics']['problems'][0]['phase'],'submission validation')
+            self.assertEqual(data['diagnostics']['assessment'],assessment)
+            self.assertEqual(store.detail('example')['sessions'][0]['validation_status'],'invalid')
+            write_json(path,{'status':'valid'})
+            with self.assertRaisesRegex(ArenaError,'modified'):
+                store.session_diagnostics('example','mock-repair-r0')
+
+    def test_submitted_without_round_two_fights_is_pending_not_failed(self):
+        with scratch_directory() as tmp:
+            store=Store(tmp/'runs',tmp/'state')
+            fixture(store)
+            data=store.session_diagnostics('example','mock-repair-r0')
+            self.assertEqual(data['generation_status'],'submitted')
+            self.assertEqual(data['validation_status'],'pending')
+            self.assertEqual(data['problems'],[])
+            self.assertEqual(data['matches']['failed'],0)
+            self.assertIn('after all Round 2 preparation',data['schedule_note'])
+
+    def test_fight_engine_failure_surfaces_for_both_participants_not_unrelated_sessions(self):
+        with scratch_directory() as tmp:
+            store=Store(tmp/'runs',tmp/'state')
+            root=fixture(store)
+            write_json(root/'sessions/mock-repair-r0/assessment.json',{'status':'valid'})
+            write_json(root/'tournament/records/failed.json',{
+                'match':{'sides':['mock-repair-r0','other-r0'],'seed':101},'directory':'matches/broken',
+                'result':{'status':'engine_error','error':'Engine exited 1; see stderr.log'}})
+            write_json(root/'tournament/records/elsewhere.json',{
+                'match':{'sides':['unrelated-r0','other-r0'],'seed':101},'directory':'matches/elsewhere',
+                'result':{'status':'timeout','error':'Deadline exceeded'}})
+            data=store.conversation('example','mock-repair-r0')['diagnostics']
+            self.assertEqual(data['validation_status'],'valid')
+            self.assertEqual(data['matches']['failed'],1)
+            self.assertEqual(len(data['problems']),1)
+            self.assertEqual(data['problems'][0]['message'],'Engine exited 1; see stderr.log')
+            self.assertEqual(data['problems'][0]['path'],'tournament/matches/broken')

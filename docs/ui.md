@@ -491,3 +491,13 @@ Expanded conversation records, open dialogs and playing replays pause replacemen
 so they remain readable. Selected match/replay position, file and statistics stage
 are preserved. Human labels use initial/improved strategy and feedback condition;
 raw paths, IDs, original messages and provenance remain unchanged for auditing.
+
+A **Submitted** conversation has frozen its sources; it does not certify compilation
+or successful fights. Open **Diagnostics** in the overview's Conversations table,
+or open the conversation, to inspect generation status, submission validation and
+fight failures separately. The compilation report includes diagnostics from every
+team entrypoint. Fight failures show the engine error, seed, participants and
+artifact path. A missing validation or fight result is pending, not a failure.
+Round 2 tournament and reference evaluation fights wait until both preparation
+branches have finished, so a submitted branch can temporarily show only its
+Round 1 fights while another branch is still working.

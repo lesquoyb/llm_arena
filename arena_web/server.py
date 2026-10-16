@@ -73,6 +73,8 @@ class Application:
             return {"runs": store.listing(), "jobs": self.jobs.listing()}
         if route == "/api/run":
             return store.detail(run)
+        if route == "/api/session-diagnostics":
+            return store.session_diagnostics(run, sid)
         if route == "/api/conversation":
             return store.conversation(run, sid, number("offset", 0), min(number("limit", 25), 100))
         if route == "/api/message-output":

@@ -13,7 +13,7 @@ import threading
 import time
 from uuid import uuid4
 
-from arena.core import ArenaError, ROOT, STATE_ROOT, digest, is_link, read_json, write_json
+from arena.core import ArenaError, ROOT, STATE_ROOT, digest, file_hash, is_link, read_json, write_json
 from arena.experiment import plan, validate_config
 from arena.preparation import local_path
 
@@ -246,7 +246,9 @@ class Store:
         states = self.states(root, keys)
         for sid, state in states.items():
             reason = 'Exported archives are read-only' if (root / 'export.json').exists() else retry_reason(state, metadata.get('config', {}).get('budget_per_session'), states.get(state.get('parent')))
-            sessions.append({"id": sid, **{k: state[k] for k in keys if k in state},
+            assessment = self.json(safe_path(root, f"sessions/{sid}/assessment.json"))
+            validation = (assessment or {}).get('status') or state.get('validity')
+            sessions.append({"validation_status": validation or ('pending' if state.get('submission') or state['status'] == 'submitted' else 'not_submitted'), "id": sid, **{k: state[k] for k in keys if k in state},
                              "messages": state["messages"], "retry_allowed": reason is None, "retry_reason": reason})
         return {"id": identifier, "revision": self.revision(root), "metadata": metadata, "report": self.json(root / "report.json", {}),
                 "analysis": self.json(root / "analysis.json"), "sessions": sessions,
@@ -254,6 +256,46 @@ class Store:
                 "g1": self.json(root / "g1-tournament/report.json"),
                 "standings": self.json(root / "report.json", {}).get("standings"),
                 "archived": (root / "export.json").exists()}
+
+    def session_diagnostics(self, identifier, sid):
+        """Separate generation, compilation and fight health, including still-running runs."""
+        root = self.run_path(identifier)
+        state = self.session(identifier, sid)
+        assessment_path = safe_path(root, f"sessions/{sid}/assessment.json")
+        assessment = self.json(assessment_path)
+        if assessment is not None and state.get('assessment_sha256') and file_hash(assessment_path) != state['assessment_sha256']:
+            raise ArenaError('Submission assessment was modified')
+        validity = assessment.get('status') if assessment is not None else state.get('validity')
+        assessment_problem = validity is not None and validity != 'valid'
+        matches = [m for m in self.matches(identifier)['matches'] if sid in m['sides']]
+        failed = [m for m in matches if m['result'].get('status') != 'completed']
+        problems = []
+        if state.get('failure'):
+            problems.append({'phase': 'generation', 'status': state['status'], **state['failure']})
+        if assessment_problem:
+            problems.append({'phase': 'submission validation', 'status': validity,
+                'message': (assessment or {}).get('error') or ('The submitted strategy does not compile.' if validity == 'invalid' else 'The engine could not complete submission validation.'),
+                'path': assessment_path.relative_to(root).as_posix() if assessment is not None else None})
+        for match in failed:
+            problems.append({'phase': 'preparation fight' if match['kind'] == 'training' else 'evaluation fight' if match['kind'] == 'evaluation' else 'tournament fight',
+                'status': match['result'].get('status'), 'message': match['result'].get('error') or 'The engine did not complete this fight.',
+                'path': match['path'], 'stage': match['stage'], 'sides': match['sides'], 'seed': match['seed']})
+        for match in matches:
+            if match['result'].get('status') != 'completed':
+                continue
+            metrics = match['result'].get('team_metrics', {})
+            errors = sum((metrics.get(str(side)) or {}).get('errors', 0) for side, participant in enumerate(match['sides']) if participant == sid)
+            if errors:
+                problems.append({'phase': 'script execution', 'status': 'runtime_errors',
+                    'message': f'{errors} script errors were recorded for your side. This fight completed; inspect its replay logs for the exact messages.',
+                    'path': match['path'], 'stage': match['stage'], 'sides': match['sides'], 'seed': match['seed']})
+        return {'generation_status': state['status'], 'has_submission': bool(state.get('submission')) or state['status'] == 'submitted',
+                'validation_status': validity or ('pending' if state.get('submission') or state['status'] == 'submitted' else 'not_submitted'),
+                'assessment': assessment, 'problems': problems,
+                'matches': {'completed': sum(m['result'].get('status') == 'completed' for m in matches if m['kind'] != 'training'),
+                            'failed': sum(m['kind'] != 'training' for m in failed),
+                            'preparation_completed': sum(m['result'].get('status') == 'completed' for m in matches if m['kind'] == 'training')},
+                'schedule_note': 'A submitted strategy is frozen. Round 2 tournament and reference evaluation fights start after all Round 2 preparation conversations finish. Preparation tests are separate and unscored.'}
 
     def message(self, identifier, sid, index):
         history = self.session(identifier, sid).get("history", [])
@@ -334,7 +376,7 @@ class Store:
                 "times": times[offset:offset + limit], "timeline": timeline[offset:offset + limit], "model": state.get("model"),
                 "status": state["status"], "failure": failure, "instruction_index": start,
                 "generation": state.get("generation", 0), "condition": state.get("condition", "initial"),
-                "failure_event": failure_event}
+                "failure_event": failure_event, "diagnostics": self.session_diagnostics(identifier, sid)}
 
     def events(self, identifier, sid=None, offset=0, limit=100, model=None):
         root = self.run_path(identifier)
