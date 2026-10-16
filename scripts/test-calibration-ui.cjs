@@ -51,7 +51,7 @@ const python =
         details.open = true;
       const values = {
         name: "Browser manual",
-        rounds: 3,
+        rounds: 4,
         minimum: 3,
         patience: 2,
         replicates: 1,
@@ -69,6 +69,16 @@ const python =
       scenario.max_turns = 2;
       document.getElementById("scenario").value = JSON.stringify(scenario);
     });
+    async function waitAPI(route, predicate) {
+      const deadline = Date.now() + 180000;
+      while (Date.now() < deadline) {
+        const response = await page.request.get(url + route);
+        const value = await response.json();
+        if (predicate(value)) return value;
+        await page.waitForTimeout(250);
+      }
+      throw Error("Timed out waiting for " + route);
+    }
     async function run() {
       const started = page.waitForResponse((response) =>
         response.url().endsWith("/api/start"),
@@ -76,13 +86,9 @@ const python =
       await page.locator("#start").click();
       const result = await (await started).json();
       assert.ok(result.id, JSON.stringify(result));
-      await page.waitForFunction(
-        async (id) => {
-          const rows = await (await fetch("/api/studies")).json();
-          return rows.find((r) => r.id === id)?.status === "completed";
-        },
-        result.id,
-        { timeout: 180000 },
+      await waitAPI(
+        "/api/studies",
+        (rows) => rows.find((r) => r.id === result.id)?.status === "completed",
       );
       await page.locator("#refresh").click();
       await page.waitForFunction(() =>
@@ -98,9 +104,10 @@ const python =
         await page.locator("#error").textContent(),
       );
     }
+    await page.locator("#round-stop").selectOption("fixed");
     await run();
     assert.equal(await page.locator("#chart svg").count(), 1);
-    assert.equal(await page.locator("#rounds-table tbody tr").count(), 3);
+    assert.equal(await page.locator("#rounds-table tbody tr").count(), 4);
     await page.locator("#show-prompt").click();
     await page.locator("#dialog").waitFor({ state: "visible" });
     assert.match(
@@ -142,6 +149,32 @@ const python =
       /prompt/i,
     );
     await page.locator("#close").click();
+    await page.locator("#mode").selectOption("manual");
+    await page.locator("#round-stop").selectOption("manual");
+    assert(await page.locator("#rounds").isDisabled());
+    assert.equal(await page.locator("#replicates").inputValue(), "1");
+    const started = page.waitForResponse((response) =>
+      response.url().endsWith("/api/start"),
+    );
+    await page.locator("#start").click();
+    const endless = await (await started).json();
+    assert.ok(endless.id, JSON.stringify(endless));
+    await waitAPI("/api/study?study=" + endless.id, (study) =>
+      study.progress.some((p) => p.value.rounds.length >= 2),
+    );
+    await page.locator("#stop").click();
+    await waitAPI(
+      "/api/studies",
+      (studies) =>
+        studies.find((s) => s.id === endless.id)?.status === "stopped",
+    );
+    await page.locator("#refresh").click();
+    await page.waitForFunction(() =>
+      document
+        .querySelector("#status")
+        .textContent.toLowerCase()
+        .includes("stopped"),
+    );
     await page.setViewportSize({ width: 390, height: 844 });
     assert.equal(
       await page.evaluate(
@@ -152,7 +185,7 @@ const python =
     );
     assert.deepEqual(errors, []);
     console.log(
-      "Calibration browser checks passed: manual, automatic, history, prompt inspection, mobile.",
+      "Calibration browser checks passed: fixed rounds, manual stop, automatic, history, prompt inspection, mobile.",
     );
   } finally {
     if (browser) await browser.close();

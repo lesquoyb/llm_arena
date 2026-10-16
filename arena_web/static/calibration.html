@@ -81,23 +81,23 @@
         </details>
         <div class="fields">
           <label
-            >Maximum rounds<input
-              id="rounds"
-              type="number"
-              min="1"
-              max="100" /></label
+            >Round stopping rule<select id="round-stop">
+              <option value="plateau">
+                Stop on plateau, up to maximum rounds
+              </option>
+              <option value="fixed">Run the specified number of rounds</option>
+              <option value="manual">Continue until I press Stop</option>
+            </select></label
+          >
+          <label
+            >Maximum rounds<input id="rounds" type="number" min="1" /></label
           ><label
-            >Minimum rounds<input
-              id="minimum"
-              type="number"
-              min="1"
-              max="100" /></label
+            >Minimum rounds<input id="minimum" type="number" min="1" /></label
           ><label
             >Plateau patience<input
               id="patience"
               type="number"
-              min="1"
-              max="100" /></label
+              min="1" /></label
           ><label
             >Replicates<input
               id="replicates"
@@ -149,14 +149,12 @@
               >Maximum candidates<input
                 id="candidate-count"
                 type="number"
-                min="1"
-                max="100" /></label
+                min="1" /></label
             ><label
               >Stop after rejected candidates<input
                 id="search-patience"
                 type="number"
-                min="1"
-                max="100" /></label
+                min="1" /></label
             ><label
               >Allowed score regression per replicate<input
                 id="score-tolerance"

@@ -16,7 +16,7 @@ ACTION_GUIDE = {0: 'Fight started', 4: 'Fight ended', 5: 'Death: entity, killer'
 
 
 def allowed(state):
-    return state.get('generation') == 1 and state.get('condition') == 'feedback' and bool(state.get('parent'))
+    return state.get('generation', 0) > 0 and state.get('condition') == 'feedback' and bool(state.get('parent'))
 
 
 def access_for(out, state):
@@ -35,12 +35,16 @@ def available_tools(state):
             'read_past_fight':'Inspect a fight_id from list_past_fights: overview explains results and metrics; actions gives ordered events; turns gives per-entity metrics; logs gives your side only. Character pages use offset/limit and next_offset. Validation and audit records cannot be read.'}
         return [{**tool, 'description':descriptions.get(tool['name'],tool['description'])}
                 for tool in TOOLS if tool['name'] in names]
-    return [tool for tool in TOOLS if tool['name'] not in FEEDBACK_NAMES or allowed(state)]
+    return [{**tool, 'description':tool['description'].replace('Round 1', f"Round {state.get('generation', 0)}")}
+            if tool['name'] in FEEDBACK_NAMES and state.get('generation',0)>1 else tool
+            for tool in TOOLS if tool['name'] not in FEEDBACK_NAMES or allowed(state)]
 
 
 class PastFights:
     def __init__(self, out, parent):
-        self.root, self.parent = out / 'tournament', parent
+        import re
+        previous = re.search(r'-g(\d+)-(?:control|feedback)$', parent)
+        self.root, self.parent = out / (f'g{previous[1]}-tournament' if previous else 'tournament'), parent
 
     def records(self):
         result = {}
@@ -79,7 +83,7 @@ class PastFights:
         if name == 'list_past_fights':
             matches = [self.overview(key, row) for key, row in records.items()]
             end = min(len(matches), offset+limit)
-            return {'scope': 'Your Round 1 tournament fights; mirrors excluded. Results are from your perspective.',
+            return {'scope': 'Your previous-round tournament fights; mirrors excluded. Results are from your perspective.',
                     'total': len(matches), 'matches': matches[offset:end],
                     'next_offset': end if end < len(matches) else None}
         record = records.get(arguments.get('fight_id'))

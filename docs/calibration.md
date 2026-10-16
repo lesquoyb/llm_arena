@@ -67,7 +67,21 @@ older strategies; they do not change the fixed-panel training score.
 A plateau requires the minimum number of rounds, no improvement greater than
 `min_improvement` for `patience` rounds, and a stable recent score range within
 that threshold. A falling or oscillating score is not automatically a plateau.
-`max_rounds` is a hard stop; the interface reports **Not reached** when no plateau
+The **Round stopping rule** selects one of three modes:
+
+- **Stop on plateau**: stop when the stability condition is met, or at the maximum.
+- **Run the specified number of rounds**: ignore early plateaus and complete the
+  requested number. The maximum is not restricted to 100 rounds.
+- **Continue until I press Stop**: no round limit or plateau stop. This is available
+  for manual prompt studies with one replicate. Completed rounds remain visible
+  and can be inspected or resumed after Stop. The final audit runs when a finite
+  candidate finishes; an interrupted open-ended study has no final audit.
+
+In JSON, set `stop_on_plateau` to `false` for a fixed count, and additionally
+`max_rounds` to `null` for manual stopping. Automatic analyst/grid selection needs
+finite trials so it can compare candidates and move to the next proposal.
+
+For finite trials, `max_rounds` is a hard stop; the interface reports **Not reached** when no plateau
 was established. Convergence is the earliest round after which training scores
 stay within the threshold of the final score. A capped trial receives a
 convergence penalty rather than claiming convergence.

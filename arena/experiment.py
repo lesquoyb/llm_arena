@@ -52,7 +52,8 @@ def validate_config(value: dict) -> dict:
         amount(spending["max_total_usd"])
     if value.get("prompt_language", "en") not in {"en", "fr"}:
         raise ArenaError("Unsupported prompt language; current prompts are English (legacy fr configs remain loadable)")
-    integer(value.get("generations", 1), 1, 2, "generations")
+    if value.get("generations", 1) is not None:
+        integer(value.get("generations", 1), 1, 2**31-1, "generations")
     if value.get("improvement_conditions", ["control", "feedback"]) != ["control", "feedback"]:
         raise ArenaError("G1 requires the paired control and feedback conditions")
     if not isinstance(value["name"], str) or not value["name"]:
@@ -136,7 +137,7 @@ def validate_config(value: dict) -> dict:
         if seed == 17:
             raise ArenaError("Evaluation seeds must differ from preparation seed 17")
     final = value.get("final_seeds", [])
-    if value.get("generations", 1) == 2 and not final:
+    if value.get("generations", 1) != 1 and not final:
         raise ArenaError("G1 requires separate final seeds")
     if not isinstance(final, list) or len(final) != len(set(final)) or len(final) > 100:
         raise ArenaError("Invalid final seeds")
@@ -152,16 +153,16 @@ def validate_config(value: dict) -> dict:
 
 def plan(config: dict) -> dict:
     n = len(config["models"]) * config["replicates"]
-    evolved = config.get("generations", 1) == 2
+    evolved = config.get("generations", 1) != 1
     paid = [m for m in config["models"] if m["provider"] != "mock"]
-    return {"sessions": n * (3 if evolved else 1), "generation": config.get("generations", 1) - 1,
+    return {"sessions": None if config.get("generations", 1) is None else n * (2 * config.get("generations", 1) - 1), "generation": None if config.get("generations", 1) is None else config.get("generations", 1) - 1,
             "provider": "mixed" if paid else "mock", "simulated": not paid,
             "ranked_matches_if_all_submit": n * (n - 1) * len(config["seeds"]),
             "mirrors_if_all_submit": n * len(config["seeds"]) if config["include_mirrors"] and n >= 2 else 0,
             "g1_contemporary_matches": (2*n*(2*n-1) + (2*n if config["include_mirrors"] else 0)) *
-                                      len(config.get("final_seeds", [])) if evolved else 0,
-            "common_reference_matches": 3*n*(n+3)*2*len(config.get("final_seeds", [])) if evolved else 0,
-            "max_preparation_matches": (n * (3 if evolved else 1) * config["budget_per_session"]["max_test_matches"]) if "max_test_matches" in config["budget_per_session"] else None,
+                                      len(config.get("final_seeds", [])) * (config["generations"]-1) if evolved and config.get("generations") is not None else None if evolved else 0,
+            "common_reference_matches": (2*config["generations"]-1)*n*(n+3)*2*len(config.get("final_seeds", [])) if evolved and config.get("generations") is not None else None if evolved else 0,
+            "max_preparation_matches": (None if config.get("generations", 1) is None else n * (2 * config.get("generations", 1) - 1) * config["budget_per_session"]["max_test_matches"]) if "max_test_matches" in config["budget_per_session"] else None,
             "max_cost_usd": config["spending"].get("max_total_usd"),
             "financial_ceiling": ("best_effort_with_reservations" if "max_total_usd" in config["spending"] else "unlimited") if paid else "no_paid_calls",
             "required_keys": sorted({m["api_key_env"] for m in paid})}
@@ -656,10 +657,11 @@ def run(config: dict, out: Path, resume=False, interrupt=None, prepare_only=Fals
                        "tournament": tournament,
                        "incomplete": any("submission" not in s for s in states.values()),
                        "unresolved_sessions": [sid for sid,s in states.items() if s["status"] == "needs_reconciliation"]}
-            if config.get("generations", 1) == 2:
+            write_json(out / "report.json", summary)
+            if config.get("generations", 1) != 1:
                 from .evolution import run_evolution
                 summary["evolution"] = run_evolution(config, out, journal, engine, entrants, interrupt, retry_session=retry_session, allow_extend=allow_extend)
-                summary["generation"] = 1
+                summary["generation"] = max((s.get("generation", 0) for s in journal.states().values()), default=0)
                 summary["sessions"] = len(journal.states())
                 summary["cost_usd"] = summary["evolution"]["cost_usd"]
                 final_states = journal.states()

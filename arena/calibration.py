@@ -38,7 +38,7 @@ def experiment_config(config):
 
 
 def validate(config):
-    if not isinstance(config, dict) or set(config) - set(defaults()) - {'analyst'} or set(defaults()) - set(config):
+    if not isinstance(config, dict) or set(config) - set(defaults()) - {'analyst', 'stop_on_plateau'} or set(defaults()) - set(config):
         raise ArenaError('Invalid calibration configuration; start from the example')
     from .usage import amount
     spending=config['spending']
@@ -71,9 +71,14 @@ def validate(config):
             if seed in seen:
                 raise ArenaError('Preparation, training, validation and audit seeds must be disjoint')
             seen.add(seed)
+    if config['max_rounds'] is None and config['replicates'] != 1:
+        raise ArenaError('Manual round stopping requires one replicate; use finite rounds for multiple replicates')
+    if type(config.get('stop_on_plateau', True)) is not bool:
+        raise ArenaError('stop_on_plateau must be boolean')
     for key in ('max_rounds', 'min_rounds', 'patience'):
-        integer(config[key], 1, 100, key)
-    if config['min_rounds'] > config['max_rounds']:
+        if key == 'max_rounds' and config[key] is None: continue
+        integer(config[key], 1, 2**31-1, key)
+    if config['max_rounds'] is not None and config.get('stop_on_plateau', True) and config['min_rounds'] > config['max_rounds']:
         raise ArenaError('min_rounds must not exceed max_rounds')
     number(config['min_improvement'], 'min_improvement', 1)
     opt = config['optimizer']
@@ -200,7 +205,9 @@ def trial(config, out, resume=False, engine=None):
                 replica_model = copy.deepcopy(config['target'])
                 if 'seed' in replica_model.get('parameters',{}):
                     replica_model['parameters']['seed'] = (replica_model['parameters']['seed']+replicate) % (2**31)
-                for round_index in range(config['max_rounds']):
+                import itertools
+                indices = range(config['max_rounds']) if config['max_rounds'] is not None else itertools.count()
+                for round_index in indices:
                     sid = f"target-r{replicate}-g{round_index}"
                     if not journal.state(sid):
                         state = initial_state(sid, replica_model, exp)
@@ -272,9 +279,9 @@ def trial(config, out, resume=False, engine=None):
                     previous.append(sid)
                     write_json(out/'progress.json', {'replicate': replicate, 'rounds': rounds})
                     print(f"Replicate {replicate+1}, round {round_index+1}: training {scores['training']['score']:.3f}, validation {scores['validation']['score']:.3f}, {assessment['status']}",flush=True)
-                    if plateau([r['training']['score'] for r in rounds], config): break
+                    if config.get('stop_on_plateau', True) and plateau([r['training']['score'] for r in rounds], config): break
                 report['replicates'].append({'replicate': replicate, 'rounds': rounds,
-                    'stop_reason': 'plateau' if plateau([r['training']['score'] for r in rounds], config) else 'max_rounds'})
+                    'stop_reason': 'plateau' if config.get('stop_on_plateau', True) and plateau([r['training']['score'] for r in rounds], config) else 'max_rounds'})
                 write_json(out/'report.json', report)
             report.update(status='completed', **objective(report, config))
             write_json(out/'report.json', report)
@@ -426,6 +433,8 @@ def audit(config, winner_dir, engine):
 def _study(config, out, automatic=False):
     """Elitist (1+1) prompt search with paired evaluations, rejection and patience."""
     validate(config)
+    if automatic and config['max_rounds'] is None:
+        raise ArenaError('Automatic candidate selection requires finite rounds; manual stopping is available for manual studies')
     if automatic and not config['optimizer']['parameter_grid'] and not config.get('analyst'):
         raise ArenaError('Choose an analyst model for automatic prompt editing, or a parameter grid')
     out = Path(out).resolve()

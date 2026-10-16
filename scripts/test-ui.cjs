@@ -263,7 +263,17 @@ async function main() {
     await page.getByRole("button", { name: "New competition" }).click();
     await page.getByLabel("Competition name").fill("Configuration navigateur");
     await page.getByLabel("Repetitions per participant").fill("2");
-    await page.getByLabel("Evaluation cycle").selectOption("1");
+    await page.locator('[name="generations"]').fill("4");
+    await page
+      .getByLabel("Round stopping rule", { exact: true })
+      .selectOption("manual");
+    assert(
+      await page.locator('[name="generations"]').isDisabled(),
+    );
+    await page
+      .getByLabel("Round stopping rule", { exact: true })
+      .selectOption("fixed");
+    await page.locator('[name="generations"]').fill("1");
     const realisticStats = page.getByLabel(
       "Realistic stats (capital, components and alterations)",
     );
@@ -1110,7 +1120,7 @@ async function main() {
       .selectOption("Qwen3-30B-A3B-Instruct-2507-local");
     assert.equal(await page.locator(".overview-ranking li").count(), 1);
     assert.equal(await page.locator(".overview-matrix tbody tr").count(), 1);
-    assert.equal(await page.locator(".overview-legend > span").count(), 1);
+    assert.equal(await page.locator(".overview-legend > span i").count(), 1);
     await page
       .getByLabel("Overview matches", { exact: true })
       .selectOption("evaluation");

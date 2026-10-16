@@ -58,6 +58,8 @@ class Workshop:
     def start(self, config, automatic, identifier=None, keys=None):
         if type(automatic) is not bool: raise ArenaError("Workflow must be a boolean")
         config = validate(config)
+        if automatic and config['max_rounds'] is None:
+            raise ArenaError('Automatic candidate selection needs finite rounds; choose manual prompt editing to stop rounds manually')
         if keys is not None and (not isinstance(keys,dict) or any(not isinstance(k,str) or not isinstance(v,str) for k,v in keys.items())):
             raise ArenaError('Credentials must map model IDs to key strings')
         with self.lock:
@@ -112,7 +114,7 @@ class Workshop:
         if route == '/api/studies': return self.listing()
         directory = local_path(self.root,value('study'))
         if route == '/api/study':
-            return {'config':read_json(directory/'input.json'), 'state':read_json(directory/'study.json') if (directory/'study.json').exists() else {},
+            return {'runtime_status':next((row['status'] for row in self.listing() if row['id']==directory.name), 'stopped'), 'config':read_json(directory/'input.json'), 'state':read_json(directory/'study.json') if (directory/'study.json').exists() else {},
                     'progress': [{'trial': p.parent.name, 'value':read_json(p)} for p in directory.glob('trials/*/progress.json')],
                     'active_reports':{p.parent.relative_to(directory).as_posix():read_json(p) for p in directory.glob('trials/*/report.json')},
                     'trial_directories':[p.parent.relative_to(directory).as_posix() for p in sorted(directory.glob('trials/*/journal.sqlite'))],

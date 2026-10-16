@@ -89,6 +89,12 @@ function button(label, fn) {
 }
 function fill(config) {
   $("name").value = config.name;
+  $("round-stop").value =
+    config.max_rounds === null
+      ? "manual"
+      : config.stop_on_plateau === false
+        ? "fixed"
+        : "plateau";
   $("scenario-preset").value = config.scenario.preset || "custom";
   $("prompt").value = config.prompt;
   $("target-json").value = json(config.target);
@@ -151,6 +157,7 @@ function fill(config) {
     config.target.provider === "mock"
       ? "Mock models are offline fixtures. Their scores do not measure a real model’s learning."
       : "";
+  updateRoundStop();
 }
 function config() {
   const value = {
@@ -162,6 +169,7 @@ function config() {
       (el) => el.value,
     ),
     min_improvement: Number($("epsilon").value),
+    stop_on_plateau: $("round-stop").value === "plateau",
     evaluate_previous: $("previous-versions").checked,
   };
   for (const [id, key] of [
@@ -171,6 +179,7 @@ function config() {
     ["replicates", "replicates"],
   ])
     value[key] = Number($(id).value);
+  if ($("round-stop").value === "manual") value.max_rounds = null;
   for (const [id, key] of [
     ["training", "training_seeds"],
     ["validation", "validation_seeds"],
@@ -293,7 +302,7 @@ async function inspect(identifier, retain = false) {
   selectedState = data;
   $("study-title").textContent = data.config.name;
   $("status").textContent =
-    (data.state.status || "Starting") +
+    (data.runtime_status || data.state.status || "Starting") +
     (data.state.accounting
       ? ` · Target cost $${data.state.accounting.target_cost_usd} · Analyst cost $${data.state.accounting.analyst_cost_usd}`
       : "") +
@@ -519,7 +528,12 @@ async function loadTrial() {
   await refreshSessions();
 }
 async function refreshSessions(keepSession) {
-  sessionRows = await api(qs("/api/sessions", { trial: selectedTrial }));
+  if (!selectedTrial) return;
+  const requestedStudy = selected,
+    requestedTrial = selectedTrial;
+  const rows = await api(qs("/api/sessions", { trial: selectedTrial }));
+  if (selected !== requestedStudy || selectedTrial !== requestedTrial) return;
+  sessionRows = rows;
   sessionRows.sort(
     (a, b) =>
       (a.replicate || 0) - (b.replicate || 0) ||
@@ -955,3 +969,13 @@ guard(async () => {
     4000,
   );
 })();
+
+function updateRoundStop() {
+  const mode = $("round-stop").value;
+  $("rounds").disabled = mode === "manual";
+  for (const id of ["minimum", "patience", "epsilon"])
+    $(id).disabled = mode !== "plateau";
+  if (mode === "manual") $("replicates").value = 1;
+  $("replicates").disabled = mode === "manual";
+}
+$("round-stop").onchange = updateRoundStop;

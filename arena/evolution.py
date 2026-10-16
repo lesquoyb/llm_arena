@@ -56,7 +56,7 @@ def references(engine, config, out, journal, entrants, label, panel):
     return results
 
 
-def run_evolution(config, out, journal, engine, initial, interrupt=None, retry_session=None, allow_extend=False):
+def run_generation(config, out, journal, engine, initial, interrupt=None, retry_session=None, allow_extend=False, generation=1, roots=None):
     from .experiment import run_session, PROMPT
     from .analysis import analyze_evolution
     models = {m["id"]: m for m in config["models"]}
@@ -67,14 +67,20 @@ def run_evolution(config, out, journal, engine, initial, interrupt=None, retry_s
         if parent_state["status"] == "needs_reconciliation":
             continue
         for condition in config["improvement_conditions"]:
-            sid = parent["id"] + "-g1-" + condition
-            permitted = not retry_session or sid == retry_session or sid.startswith(retry_session + '-g1-')
+            if generation > 1 and condition != parent_state.get('condition'): continue
+            root = parent_state.get('lineage_root', parent['id'])
+            sid = root + f"-g{generation}-" + condition
+            permitted = not retry_session or sid == retry_session or parent['id'] == retry_session or root == retry_session
+            ancestor = parent['id']
+            while retry_session and not permitted and ancestor:
+                permitted = ancestor == retry_session
+                ancestor = (journal.state(ancestor) or {}).get('parent')
             existing = journal.state(sid)
             if existing is None or existing.get('retry_parent_refresh'):
                 if not permitted:
                     continue
                 state = copy.deepcopy(parent_state)
-                state.update(generation=1, condition=condition, parent=parent["id"],
+                state.update(generation=generation, condition=condition, parent=parent["id"], lineage_root=root,
                              parent_checkpoint_sha256=digest(parent_state), status="running",
                              calls=0, steps=0, test_matches=0, wall_seconds=0, pending=None, cursor=0,
                              in_flight=False, money_reserved="0", reservation_unbounded=False, cost_spent="0", input_tokens=0, output_tokens=0)
@@ -86,16 +92,17 @@ def run_evolution(config, out, journal, engine, initial, interrupt=None, retry_s
                 state.pop("failure", None)
                 state.pop("retry_parent_refresh", None)
                 state.pop("retry_count", None)
+                state.pop("submission_reminders", None)
                 prompt_path = ROOT / "prompts" / ("feedback.md" if condition == "feedback" else "control.md")
-                message = {"role": "user", "content": prompt_path.read_text(encoding="utf-8"), "generation": 1,
+                message = {"role": "user", "content": prompt_path.read_text(encoding="utf-8").replace("Round 2", f"Round {generation+1}").replace("Round 1", f"Round {generation}"), "generation": generation,
                            "condition": condition, "budgets": config["budget_per_session"]}
                 if condition == "feedback":
                     message["feedback"] = feedback_for(parent["id"], out / "tournament")
                     counts = message["feedback"]
-                    message["content"] += (f"\nYour Round 1 tournament results: {counts['wins']} wins, {counts['draws']} draws, "
+                    message["content"] += (f"\nYour Round {generation} tournament results: {counts['wins']} wins, {counts['draws']} draws, "
                                            f"{counts['losses']} losses, {counts['failures']} unscored failures across {counts['matches']} fights. "
                                            "Use list_past_fights to choose a fight, then read_past_fight to inspect its overview, actions, "
-                                           "your per-turn metrics or your debug/error logs. These tools only expose your Round 1 fights.\n")
+                                           f"your per-turn metrics or your debug/error logs. These tools only expose your Round {generation} fights.\n")
                     write_json(out / "feedback" / (sid + ".json"), message["feedback"])
                 state["history"].append(message)
                 copy_submission(Path(parent["path"]), out / "sessions" / sid / "workspace", parent["submission"])
@@ -122,24 +129,27 @@ def run_evolution(config, out, journal, engine, initial, interrupt=None, retry_s
                 journal.save(sid, state, "submission_assessment", assessment)
                 branches.append({"id": sid, "path": out / "sessions" / sid / "submission",
                                  "submission": state["submission"], "model": state["model"],
-                                 "replicate": state["replicate"], "parent": parent["id"], "condition": condition})
+                                 "replicate": state["replicate"], "parent": parent["id"], "generation": generation, "condition": condition})
     for parent_sid, parent_state in list(journal.states().items()):
-        if parent_state.get("generation", 0) != 0 or "submission" in parent_state:
+        if parent_state.get("generation", 0) != generation-1 or "submission" in parent_state:
             continue
         for condition in config["improvement_conditions"]:
-            sid = parent_sid + "-g1-" + condition
+            if generation > 1 and condition != parent_state.get('condition'): continue
+            root = parent_state.get('lineage_root', parent_sid)
+            sid = root + f"-g{generation}-" + condition
             if journal.state(sid) is None:
                 skipped = copy.deepcopy(parent_state)
-                skipped.update(parent=parent_sid, generation=1, condition=condition, status="no_submission",
+                skipped.update(parent=parent_sid, generation=generation, lineage_root=root, condition=condition, status="no_submission",
                                calls=0, steps=0, test_matches=0, cost_spent="0", money_reserved="0")
                 journal.save(sid, skipped, "branch_unavailable", {"reason": "No G0 submission"})
     contemporaries = None
     if len(branches) >= 2:
-        manifest = {"name": config["name"] + "-G1", "seeds": config["final_seeds"], "scenario": config["scenario"],
+        manifest = {"name": config["name"] + f"-round-{generation+1}", "seeds": config["final_seeds"], "scenario": config["scenario"],
                     "include_mirrors": config["include_mirrors"],
                     "strategies": [{**s, "path": str(s["path"])} for s in branches]}
-        contemporaries = run_tournament(engine, manifest, out / "g1-tournament", (out / "g1-tournament").exists(), allow_extend=allow_extend)
-    panel = [dict(s, path=s["path"]) for s in initial]
+        contemporaries = run_tournament(engine, manifest, out / f"g{generation}-tournament", (out / f"g{generation}-tournament").exists(), allow_extend=allow_extend)
+    roots = roots if roots is not None else initial
+    panel = [dict(s, path=s["path"]) for s in roots]
     for name in ("rush", "single-shot", "passive"):
         source = ROOT / "examples/strategies" / name
         target = out / "controls" / name
@@ -149,9 +159,54 @@ def run_evolution(config, out, journal, engine, initial, interrupt=None, retry_s
         elif submission(target) != info:
             raise ArenaError("Frozen control changed")
         panel.append({"id": "fixed-" + name, "path": target, "submission": info})
-    baseline = references(engine, config, out, journal, initial, "g0-panel", panel)
-    evolved = references(engine, config, out, journal, branches, "g1-panel", panel)
-    result = analyze_evolution(config, out, journal.states(), initial, branches, baseline, evolved, contemporaries)
+    baseline = references(engine, config, out, journal, roots, "g0-panel", panel)
+    evolved = references(engine, config, out, journal, branches, f"g{generation}-panel", panel)
+    result = analyze_evolution(config, out, journal.states(), roots, branches, baseline, evolved, contemporaries)
     result["contemporaries"] = contemporaries
     write_json(out / "evolution.json", result)
+    return result
+
+
+def run_evolution(config, out, journal, engine, initial, interrupt=None, retry_session=None, allow_extend=False):
+    """Two persistent improvement tracks, with a tournament barrier between rounds."""
+    import itertools
+    from .analysis import analyze_evolution
+    previous, branches, evolved, tournaments = initial, [], {}, []
+    indices = range(1, config.get('generations', 1)) if config.get('generations', 1) is not None else itertools.count(1)
+    for generation in indices:
+        generation_retry = retry_session if retry_session and generation <= (journal.state(retry_session) or {}).get('generation',0) else None
+        result = run_generation(config, out, journal, engine, previous, interrupt, generation_retry, allow_extend, generation, initial)
+        states = journal.states()
+        current = [{'id':sid,'path':out/'sessions'/sid/'submission','submission':s['submission'],
+                    'model':s['model'],'replicate':s['replicate'],'parent':s['parent'],
+                    'condition':s['condition'],'generation':generation}
+                   for sid,s in states.items() if s.get('generation')==generation and 'submission' in s]
+        branches.extend(current)
+        evolved.update(read_json(out/'evaluations'/f'g{generation}-panel/results.json'))
+        if result['contemporaries']: tournaments.append(result['contemporaries'])
+        combined = dict(result['contemporaries'] or {})
+        for key in ('completed','failed','pending'):
+            combined[key] = sum(t.get(key,0) for t in tournaments)
+        result = analyze_evolution(config,out,states,initial,branches,
+            read_json(out/'evaluations/g0-panel/results.json'), evolved, combined)
+        result.update(contemporaries=combined, completed_rounds=generation+1)
+        write_json(out/'evolution.json',result)
+        if (out/'report.json').exists():
+            from .experiment import token_totals
+            summary = read_json(out/'report.json')
+            summary.update(evolution=result, generation=generation, sessions=len(states),
+                with_submission=sum('submission' in s for s in states.values()),
+                no_submission=sum('submission' not in s for s in states.values()),
+                model_calls=sum(s['calls'] for s in states.values()),
+                tool_calls=sum(s['steps'] for s in states.values()),
+                **{key:result[key] for key in ('cost_usd','known_cost_subtotal_usd','reserved_usd','incomplete')},
+                **token_totals(config,states))
+            write_json(out/'report.json',summary)
+        # Preserve a resumable boundary if any model needs recovery. Do not silently
+        # exclude it from all future rounds or spin forever with an empty panel.
+        if (not current or len(current) != 2*len(initial)
+                or any(s.get('generation',0)<=generation and 'submission' not in s for s in states.values())
+                or any(r['failed'] for r in result['rows'])):
+            break
+        previous = current
     return result

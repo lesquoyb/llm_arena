@@ -102,7 +102,7 @@ const FIELD_HELP = {
   replicates:
     "Independent conversations per participant. Each starts with a fresh history; this measures variation between attempts.",
   generations:
-    "Evaluate the initial submission alone, or also create two improvements from the same checkpoint: with and without match feedback.",
+    "Total strategy rounds, including the initial round. Later rounds continue separate feedback and no-feedback tracks after all scheduled fights finish.",
   team_mode:
     "Shared mode fixes every member and item. Participant mode lets each AI choose its members, scripts and equipment under the same rules.",
   max_turns:
@@ -549,7 +549,7 @@ function competitions() {
             ["Configuration", "Participants", "Repetitions", "Stages", ""],
             S.boot.drafts.map(
               (d) =>
-                `<tr><td><strong>${e(d.config.name)}</strong><small>Updated ${date(d.updated_at)}</small></td><td>${d.config.models.map((m) => e(m.id)).join(", ")}</td><td>${d.config.replicates}</td><td>${d.config.generations === 2 ? "Initial strategy + two improvement branches" : "Initial strategy"}</td><td><div class="actions">${btn("Configure", "edit-draft", `data-id="${e(d.id)}"`)}${btn("▷ Launch", "launch", `data-id="${e(d.id)}"`, true)}${btn("Remove", "delete-draft", `data-id="${e(d.id)}"`)}</div></td></tr>`,
+                `<tr><td><strong>${e(d.config.name)}</strong><small>Updated ${date(d.updated_at)}</small></td><td>${d.config.models.map((m) => e(m.id)).join(", ")}</td><td>${d.config.replicates}</td><td>${d.config.generations === null ? "Until manual stop" : `${d.config.generations || 1} round(s)`}</td><td><div class="actions">${btn("Configure", "edit-draft", `data-id="${e(d.id)}"`)}${btn("▷ Launch", "launch", `data-id="${e(d.id)}"`, true)}${btn("Remove", "delete-draft", `data-id="${e(d.id)}"`)}</div></td></tr>`,
             ),
           )
         : empty(
@@ -1136,14 +1136,14 @@ function competitionEditor() {
       btn("Settings guide", "reference", 'data-document="ui"'),
     ) +
     `<form data-form="competition" id="competition-form"><div class="grid asymmetric"><div><section class="panel"><h2>Name and participants</h2><p class="muted">Each repetition starts an independent conversation.</p><div class="form-grid">${field("Competition name", "name", c.name, "text", "", "required")}${field("Repetitions per participant", "replicates", c.replicates, "number", "", 'required min="1" max="20"')}${selectField(
-      "Evaluation cycle",
-      "generations",
+      "Round stopping rule",
+      "round_stop",
       [
-        ["1", "Initial strategy only"],
-        ["2", "Initial strategy + improvements with and without feedback"],
+        ["fixed", "Fixed number of rounds"],
+        ["manual", "Continue until I press Stop"],
       ],
-      String(c.generations || 1),
-    )}</div><h3 class="section-label">Selected participants</h3>${S.choiceModels.map((m) => `<label class="choice"><input type="checkbox" name="participant" value="${e(m.id)}" ${c.models.some((v) => v.id === m.id) ? "checked" : ""}><span><strong>${e(m.id)}</strong><small>${e(m.provider)} · ${e(m.model || m.profile)}</small></span></label>`).join("")}${btn("Manage profiles", "go", 'data-view="participants"')}</section>
+      c.generations === null ? "manual" : "fixed",
+    )}${field("Number of rounds", "generations", c.generations ?? 2, "number", "Includes the initial round. Each later round continues both improvement tracks.", c.generations === null ? 'disabled min="1" step="1"' : 'min="1" step="1"')}</div><h3 class="section-label">Selected participants</h3>${S.choiceModels.map((m) => `<label class="choice"><input type="checkbox" name="participant" value="${e(m.id)}" ${c.models.some((v) => v.id === m.id) ? "checked" : ""}><span><strong>${e(m.id)}</strong><small>${e(m.provider)} · ${e(m.model || m.profile)}</small></span></label>`).join("")}${btn("Manage profiles", "go", 'data-view="participants"')}</section>
  <section class="panel"><h2>Scenario</h2><div class="scenario-presets">${btn("Simple duel · level 300", "preset-simple")}${btn("Dream team · saved preset", "preset-dream")}${btn("LLM builds its team", "preset-llm")}</div><p id="preset-status" role="status" class="muted">${c.scenario.source ? `Based on public team · original snapshot ${e(c.scenario.source.snapshot_sha256.slice(0, 12))}. The roster below can be edited. Published final stats include component bonuses; component selections and alteration deltas are preserved without adding bonuses twice.` : c.scenario.preset === "llm-team" ? "Each LLM freely chooses 1–4 leeks, their levels (1–301), stats, scripts, equipment and component alterations. preview_build and validate_team check official game rules. No character stats or equipment lists are imposed." : "Starting preset: one level-300 gunner per team, direct-damage weapons, no chips. Edit each character independently below."}</p>${c.scenario.source ? raw(c.scenario.source, "Public source and frozen snapshot") : ""}<details><summary>Refresh or replace the saved Dream team</summary>${btn("Refetch current top farmer", "preset-dream-refresh")}<p class="muted">Only this button reads the current farmer ranking and fetches four leeks of its first player. The saved preset is reused until an explicit refresh; existing competitions keep their frozen roster.</p><p class="muted">Use scripts/import_dream_team.py on a machine with access to leekwars.com, then paste its snapshot JSON here.</p><textarea id="dream-snapshot" class="mono" aria-label="Public team snapshot JSON" rows="4"></textarea>${btn("Import snapshot", "preset-dream-json")}</details></section><section class="panel"><h2>Match rules</h2><p class="muted">Matches alternate sides. Use a shared roster or let each LLM build its own team under official game rules.</p><div class="form-grid">${selectField(
    "Team setup",
    "team_mode",
@@ -1173,12 +1173,12 @@ function readCompetition(form) {
   base.name = f.get("name");
   base.models = models;
   base.replicates = n("replicates");
-  base.generations = n("generations");
+  base.generations = f.get("round_stop") === "manual" ? null : n("generations");
   base.schema_version = 2;
   base.improvement_conditions = ["control", "feedback"];
   base.prompt_language = "en";
   base.seeds = array("seeds");
-  base.final_seeds = base.generations === 2 ? array("final_seeds") : [];
+  base.final_seeds = base.generations !== 1 ? array("final_seeds") : [];
   base.include_mirrors = f.has("include_mirrors");
   base.scenario.team_size = n("team_size");
   base.scenario.max_turns = n("max_turns");
@@ -1244,9 +1244,9 @@ function planMarkup(p) {
   const total =
     p.ranked_matches_if_all_submit +
     p.mirrors_if_all_submit +
-    p.g1_contemporary_matches +
-    p.common_reference_matches;
-  return `<div class="info-row"><span>Conversations</span><strong>${fmt(p.sessions)}</strong></div><div class="info-row"><span>Evaluation matches</span><strong>${fmt(total)}</strong></div><div class="info-row"><span>Maximum preparation matches</span><strong>${p.max_preparation_matches == null ? "Unlimited" : fmt(p.max_preparation_matches)}</strong></div><div class="info-row"><span>Total API spending limit</span><strong>${p.simulated ? "$0 (mock)" : p.max_cost_usd == null ? "No limit" : money(p.max_cost_usd)}</strong></div><p class="muted" style="font-size:10px;margin-top:12px">Schedule assuming every participant submits a strategy. ${p.simulated ? "Mock run with no API calls." : "Reservations estimate cost; they do not confirm provider billing."}</p>`;
+    (p.g1_contemporary_matches || 0) +
+    (p.common_reference_matches || 0);
+  return `<div class="info-row"><span>Conversations</span><strong>${p.sessions == null ? "Until manual stop" : fmt(p.sessions)}</strong></div><div class="info-row"><span>Evaluation matches</span><strong>${p.sessions == null ? "Until manual stop" : fmt(total)}</strong></div><div class="info-row"><span>Maximum preparation matches</span><strong>${p.max_preparation_matches == null ? "Unlimited" : fmt(p.max_preparation_matches)}</strong></div><div class="info-row"><span>Total API spending limit</span><strong>${p.simulated ? "$0 (mock)" : p.max_cost_usd == null ? "No limit" : money(p.max_cost_usd)}</strong></div><p class="muted" style="font-size:10px;margin-top:12px">Schedule assuming every participant submits a strategy. ${p.simulated ? "Mock run with no API calls." : "Reservations estimate cost; they do not confirm provider billing."}</p>`;
 }
 async function launchDialog(draftId = null, runId = null) {
   if (draftId) await refreshBoot();
@@ -1516,15 +1516,22 @@ function overviewIdentity(id) {
     id,
     model: session?.model || parts?.[1] || id,
     condition: session?.condition || parts?.[4] || "initial",
+    generation: Number(session?.generation ?? parts?.[3] ?? 0),
     replicate: Number(session?.replicate ?? parts?.[2] ?? 0),
   };
 }
-const overviewRound = (condition) =>
-  condition === "initial"
-    ? "R1 · Initial"
-    : condition === "control"
-      ? "R2 · No feedback"
-      : "R2 · Feedback";
+const overviewRound = (condition, generation = 1) => {
+  if (condition === "initial") return "R1 · Initial";
+  if (String(condition).includes(":"))
+    [generation, condition] = condition.split(":");
+  return `R${Number(generation) + 1} · ${condition === "control" ? "No feedback" : "Feedback"}`;
+};
+const overviewRoundKey = (item) =>
+  item.condition === "initial"
+    ? "initial"
+    : item.generation === 1
+      ? item.condition
+      : `${item.generation}:${item.condition}`;
 function overviewEntries(match) {
   const candidateSide =
     match.candidate_side ??
@@ -1543,7 +1550,7 @@ function overviewAccept(item, scope) {
     (!scope.model || item.model === scope.model) &&
     (scope.round === "all" ||
       scope.round?.startsWith("stage:") ||
-      item.condition === scope.round)
+      overviewRoundKey(item) === scope.round)
   );
 }
 function overviewData(d) {
@@ -1584,11 +1591,12 @@ function overviewData(d) {
       if (!models.has(item.model))
         models.set(item.model, { model: item.model, ...blank() });
       add(models.get(item.model), match, item.side);
-      const key = JSON.stringify([item.model, item.condition]);
+      const key = JSON.stringify([item.model, item.generation, item.condition]);
       if (!history.has(key))
         history.set(key, {
           model: item.model,
           condition: item.condition,
+          generation: item.generation,
           ...blank(),
         });
       add(history.get(key), match, item.side);
@@ -1660,12 +1668,19 @@ function overviewFilters(d, data) {
             (stage) => ["stage:" + stage, stageText(stage)],
           )
         : []),
-      ...(hasImprovement
-        ? [
-            ["control", "Round 2 · No feedback"],
-            ["feedback", "Round 2 · Feedback"],
-          ]
-        : []),
+      ...[
+        ...new Set(
+          d.sessions
+            .filter((v) => v.generation > 0)
+            .map((v) => overviewRoundKey(overviewIdentity(v.id))),
+        ),
+      ]
+        .sort(
+          (a, b) =>
+            (a.includes(":") ? Number(a.split(":")[0]) : 1) -
+            (b.includes(":") ? Number(b.split(":")[0]) : 1),
+        )
+        .map((key) => [key, overviewRound(key).replace(/^R/, "Round ")]),
     ],
     data.scope.round,
   )}</select></label><label>Model<select data-overview-filter="model" aria-label="Overview model">${options([["", "All models"], ...models.map((m) => [m, m])], data.scope.model)}</select></label><label>Matches<select data-overview-filter="source" aria-label="Overview matches">${options(
@@ -1694,26 +1709,47 @@ function overviewColor(model) {
 function overviewEvolution(data) {
   if (!data.history.length)
     return '<div class="overview-empty">Evolution appears as rounds finish.</div>';
-  const conditions = ["initial", "control", "feedback"],
-    models = [...new Set(data.history.map((r) => r.model))];
-  const mobile = innerWidth < 600;
-  const chartWidth = mobile ? 420 : 560;
-  const height = 210,
-    y = (v) => 165 - v * 140,
-    xs = mobile ? [40, 210, 380] : [52, 278, 504];
-  return `<svg class="overview-evolution" viewBox="0 0 ${chartWidth} ${height}" role="img" aria-label="Model scores across strategy rounds">${[0, 0.5, 1].map((v) => `<line x1="38" x2="${chartWidth - 25}" y1="${y(v)}" y2="${y(v)}" stroke="#e7ebf2"/><text x="0" y="${y(v) + 4}">${v * 100}%</text>`).join("")}${["R1 · Initial", "R2 · No feedback", "R2 · Feedback"].map((label, i) => `<text x="${xs[i]}" y="195" text-anchor="${i === 0 ? "start" : i === 2 ? "end" : "middle"}">${label}</text>`).join("")}${models
+  const models = [...new Set(data.history.map((r) => r.model))];
+  const generations = [...new Set(data.history.map((r) => r.generation))].sort(
+    (a, b) => a - b,
+  );
+  const width = innerWidth < 600 ? 420 : 560,
+    height = 210;
+  const x = (g) =>
+    45 +
+    (generations.indexOf(g) * (width - 80)) /
+      Math.max(1, generations.length - 1);
+  const y = (v) => 165 - v * 140;
+  const ticks = generations.filter(
+    (g, i) =>
+      i === 0 ||
+      i === generations.length - 1 ||
+      i % Math.max(1, Math.ceil(generations.length / 8)) === 0,
+  );
+  return `<svg class="overview-evolution" viewBox="0 0 ${width} ${height}" role="img" aria-label="Model scores across strategy rounds">${[0, 0.5, 1].map((v) => `<line x1="38" x2="${width - 25}" y1="${y(v)}" y2="${y(v)}" stroke="#e7ebf2"/><text x="0" y="${y(v) + 4}">${v * 100}%</text>`).join("")}${ticks.map((g) => `<text x="${x(g)}" y="195" text-anchor="middle">R${g + 1}</text>`).join("")}${models
     .map((model) => {
-      const rows = conditions.map((condition) =>
-          data.history.find(
-            (r) => r.model === model && r.condition === condition,
-          ),
-        ),
+      const rows = data.history.filter((r) => r.model === model),
         color = overviewColor(model);
-      return `${[1, 2].map((j) => (rows[0]?.score != null && rows[j]?.score != null ? `<path d="M${xs[0]},${y(rows[0].score)} L${xs[j]},${y(rows[j].score)}" fill="none" stroke="${color}" stroke-width="2" ${j === 1 ? 'stroke-dasharray="4 4"' : ""}/>` : "")).join("")}${rows.map((r, j) => (r?.score != null ? `<circle cx="${xs[j]}" cy="${y(r.score)}" r="5" stroke="white" stroke-width="2" fill="${color}" tabindex="0"><title>${e(model)} · ${overviewRound(r.condition)}: ${pct(r.score)} (${r.completed} appearances)</title></circle>` : "")).join("")}`;
+      return ["control", "feedback"]
+        .map((condition) => {
+          const track = rows
+            .filter(
+              (r) => r.condition === "initial" || r.condition === condition,
+            )
+            .sort((a, b) => a.generation - b.generation);
+          return track
+            .map((r, i) => {
+              if (r.score == null) return "";
+              const prev = track[i - 1];
+              return `${prev?.score != null ? `<path d="M${x(prev.generation)},${y(prev.score)} L${x(r.generation)},${y(r.score)}" fill="none" stroke="${color}" stroke-width="2" ${condition === "control" ? 'stroke-dasharray="4 4"' : ""}/>` : ""}<circle cx="${x(r.generation)}" cy="${y(r.score)}" r="4" fill="${color}" tabindex="0"><title>${e(model)} · ${overviewRound(r.condition, r.generation)}: ${pct(r.score)} (${r.completed} appearances)</title></circle>`;
+            })
+            .join("");
+        })
+        .join("");
     })
     .join(
       "",
-    )}</svg><div class="overview-legend">${models.map((model) => `<span><i style="background:${overviewColor(model)}"></i>${e(model)}</span>`).join("")}</div>`;
+    )}</svg><div class="overview-legend">${models.map((model) => `<span><i style="background:${overviewColor(model)}"></i>${e(model)}</span>`).join("")}<span>Solid: feedback · Dashed: no feedback</span></div>`;
 }
 function overviewMatchLink(data, who, other, outcome, value, description) {
   const cell = data.matrix.find(
@@ -1837,13 +1873,13 @@ function overviewDetails(d, data, statistics) {
           ["Model", "Version", "Status", "Calls", "Cost", ""],
           data.sessions.map(
             (s) =>
-              `<tr><td>${e(s.model)}</td><td>${overviewRound(overviewIdentity(s.id).condition)}<small>Repetition ${s.replicate + 1}</small></td><td>${status(s.status)} ${s.validation_status && !["valid", "not_submitted"].includes(s.validation_status) ? badge(s.validation_status === "pending" ? "Validation pending" : "Validation: " + text(s.validation_status), s.validation_status === "pending" ? "blue" : "orange") : ""}</td><td>${fmt(s.calls)}</td><td>${money(s.cost_spent)}</td><td>${btn("Open", "session-conversation", `data-session="${e(s.id)}"`)}${btn("Diagnostics", "session-diagnostics", `data-session="${e(s.id)}"`)}${retryButton(s)}</td></tr>`,
+              `<tr><td>${e(s.model)}</td><td>${overviewRound(overviewIdentity(s.id).condition, s.generation)}<small>Repetition ${s.replicate + 1}</small></td><td>${status(s.status)} ${s.validation_status && !["valid", "not_submitted"].includes(s.validation_status) ? badge(s.validation_status === "pending" ? "Validation pending" : "Validation: " + text(s.validation_status), s.validation_status === "pending" ? "blue" : "orange") : ""}</td><td>${fmt(s.calls)}</td><td>${money(s.cost_spent)}</td><td>${btn("Open", "session-conversation", `data-session="${e(s.id)}"`)}${btn("Diagnostics", "session-diagnostics", `data-session="${e(s.id)}"`)}${retryButton(s)}</td></tr>`,
           ),
         )
       : "<p>No conversations recorded.</p>"
   }</div></details>
-  <details class="overview-details"><summary>Usage & match accounting</summary><div class="overview-detail-body"><h3>Selected versions</h3><p>Tokens: ${e(tokenDisplay({ ...d, sessions: data.sessions }))} · ${fmt(data.sessions.reduce((n, s) => n + (s.calls || 0), 0))} model calls · ${fmt(data.sessions.reduce((n, s) => n + (s.steps || 0), 0))} tool calls</p><h3>Whole competition</h3><dl class="overview-accounting"><div><dt>All completed fights</dt><dd>${fmt(count((m) => m.kind !== "training"))}</dd></div><div><dt>Round 1 tournament</dt><dd>${fmt(count((m) => m.kind === "competition" && m.stage !== "g1-tournament"))}</dd></div><div><dt>Round 2 tournament</dt><dd>${fmt(count((m) => m.stage === "g1-tournament"))}</dd></div><div><dt>Reference evaluations</dt><dd>${fmt(count((m) => m.kind === "evaluation"))}</dd></div><div><dt>Preparation tests (unscored)</dt><dd>${fmt(statistics?.training_matches || 0)}</dd></div><div><dt>Diagnostic mirrors (included above)</dt><dd>${fmt(count((m) => m.mirror))}</dd></div></dl>${btn("View preparation tests", "show-training")}</div></details>
-  <details class="overview-details"><summary>How to read these results</summary><div class="overview-detail-body"><p>Score = (wins + 0.5 × draws) / completed appearances. 50% can mean all draws. Failures do not earn points and remain visible separately.</p><p>Round 2 branches start from the same Round 1 submission. They are alternatives, not successive rounds. Tournament opponents change between rounds. Reference tests use the frozen Round 1 strategies and built-in scripts for a common comparison.</p><p>Filters apply to all charts, the matrix and details. The model filter selects the candidate; opponents remain visible. Tournament mirrors and preparation tests are excluded from scored results. Multiple versions of the same model are grouped; appearances can exceed the number of unique fights. Tournament diagonals are omitted.</p><p>Cost and tokens measure preparation of selected versions, independently of the match category. Unknown provider usage stays unknown. Zero configured prices still allow token measurement.</p></div></details>`;
+  <details class="overview-details"><summary>Usage & match accounting</summary><div class="overview-detail-body"><h3>Selected versions</h3><p>Tokens: ${e(tokenDisplay({ ...d, sessions: data.sessions }))} · ${fmt(data.sessions.reduce((n, s) => n + (s.calls || 0), 0))} model calls · ${fmt(data.sessions.reduce((n, s) => n + (s.steps || 0), 0))} tool calls</p><h3>Whole competition</h3><dl class="overview-accounting"><div><dt>All completed fights</dt><dd>${fmt(count((m) => m.kind !== "training"))}</dd></div><div><dt>Round 1 tournament</dt><dd>${fmt(count((m) => m.kind === "competition" && !/^g\d+-tournament$/.test(m.stage)))}</dd></div><div><dt>Improvement tournaments</dt><dd>${fmt(count((m) => /^g\d+-tournament$/.test(m.stage)))}</dd></div><div><dt>Reference evaluations</dt><dd>${fmt(count((m) => m.kind === "evaluation"))}</dd></div><div><dt>Preparation tests (unscored)</dt><dd>${fmt(statistics?.training_matches || 0)}</dd></div><div><dt>Diagnostic mirrors (included above)</dt><dd>${fmt(count((m) => m.mirror))}</dd></div></dl>${btn("View preparation tests", "show-training")}</div></details>
+  <details class="overview-details"><summary>How to read these results</summary><div class="overview-detail-body"><p>Score = (wins + 0.5 × draws) / completed appearances. 50% can mean all draws. Failures do not earn points and remain visible separately.</p><p>The feedback and no-feedback tracks share the initial submission, then continue independently. Every round finishes its tournament before the next preparation begins. Tournament opponents change between rounds. Reference tests use the frozen Round 1 strategies and built-in scripts for a common comparison.</p><p>Filters apply to all charts, the matrix and details. The model filter selects the candidate; opponents remain visible. Tournament mirrors and preparation tests are excluded from scored results. Multiple versions of the same model are grouped; appearances can exceed the number of unique fights. Tournament diagonals are omitted.</p><p>Cost and tokens measure preparation of selected versions, independently of the match category. Unknown provider usage stays unknown. Zero configured prices still allow token measurement.</p></div></details>`;
 }
 function summary(d, statistics = null) {
   const data = overviewData(d),
@@ -2175,7 +2211,7 @@ function conversation(data, append = false) {
       ? `<details class="provider-output" data-provider-event="${data.failure_event.id}" data-record-run="${e(S.run)}"><summary>Provider response or failure record</summary><pre></pre></details>`
       : "") +
     (data.generation > 0
-      ? `<div class="toolbar">${badge("Round 2 · " + text(data.condition), "blue")}${btn("Round 2 instruction", "conversation-page", `data-offset="${data.instruction_index}"`)}${btn("Initial history", "conversation-page", 'data-offset="0"')}</div>`
+      ? `<div class="toolbar">${badge(`Round ${data.generation + 1} · ` + text(data.condition), "blue")}${btn(`Round ${data.generation + 1} instruction`, "conversation-page", `data-offset="${data.instruction_index}"`)}${btn("Initial history", "conversation-page", 'data-offset="0"')}</div>`
       : "") +
     `<div class="pager"><span>${fmt(data.total)} messages · ${status(data.status)}${data.offset + data.messages.length < data.total ? " · More messages on the next page" : ""}</span><div class="actions">${btn("← Previous", "conversation-page", `data-offset="${Math.max(0, S.offset - 25)}" ${S.offset === 0 ? "disabled" : ""}`)}<span>${data.total ? S.offset + 1 : 0}-${Math.min(data.total, S.offset + 25)}</span>${btn("Next →", "conversation-page", `data-offset="${S.offset + 25}" ${S.offset + 25 >= data.total ? "disabled" : ""}`)}</div></div>` +
     data.messages
@@ -2218,7 +2254,7 @@ function conversation(data, append = false) {
           )
           .join("");
         const snippet = String(content || "").slice(0, 1800);
-        return `${data.generation > 0 && absolute === data.instruction_index ? `<div class="notice"><strong>Round 2 starts here · ${e(text(data.condition))}</strong></div>` : ""}<article class="chat-message ${e(m.role)} ${resultError ? "tool-error" : ""}" id="message-${absolute}"><div class="message-head"><strong>${e(direction)}${m.simulated ? " · predefined strategy" : ""}</strong><span>Message ${absolute + 1} · ${data.times?.[index] ? date(data.times[index]) : "Time not recorded"}</span></div>${display.reply_to != null ? `<p class="message-reply">Result of tool request in message ${display.reply_to + 1}${display.reply_to >= S.offset && display.reply_to < S.offset + 25 ? ` · <a href="#message-${display.reply_to}" data-action="message-anchor" data-index="${display.reply_to}">Go to request</a>` : ""}${m.call_id ? " · " + e(m.call_id) : ""}</p>` : ""}${resultError ? badge("Tool error", "red") : ""}${snippet ? `<div class="message-content">${e(snippet)}${m.output_text_truncated || content.length > 1800 ? "\n[Preview truncated; open the full record below.]" : ""}</div>` : m.role === "assistant" && calls ? '<p class="muted">The model requested tools without a text response.</p>' : ""}${m.briefing ? `<div class="game-brief"><strong>Game briefing sent to the model</strong><p>${e(m.briefing.game)}</p><p>${e(m.briefing.objective)}</p><p>${e(m.briefing.team_mode)}</p></div>` : ""}${m.role === "user" ? feedbackView(m.feedback) : ""}${calls}${fileExchange(m, absolute)}${providerOutput(m, absolute)}${m.role === "user" ? conversationData(Object.fromEntries(Object.entries(m).filter(([key]) => !["role", "content", "request_recorded", "request_seed"].includes(key))), m.generation ? "Full improvement instruction and supplied feedback" : "Scenario, roster, ID guide and preparation rules sent to the model") : ""}${m.usage ? `<small>Input ${fmt(m.usage.input_tokens)} · Output ${fmt(m.usage.output_tokens)} · Cost ${money(m.cost_usd)} · Response took ${fmt(m.elapsed_seconds, 3)} s</small>` : ""}${m.request_recorded ? `<p class="muted">Sent seed: ${e(m.request_seed ?? "not set")}${m.stop_reason ? " · Stop reason: " + e(m.stop_reason) : ""}</p>` : ""}<details data-message-record="${absolute}" data-record-run="${e(S.run)}" data-record-session="${e(S.session)}"><summary>Full record: exact request, native response and metadata</summary><pre></pre></details></article>`;
+        return `${data.generation > 0 && absolute === data.instruction_index ? `<div class="notice"><strong>Round ${data.generation + 1} starts here · ${e(text(data.condition))}</strong></div>` : ""}<article class="chat-message ${e(m.role)} ${resultError ? "tool-error" : ""}" id="message-${absolute}"><div class="message-head"><strong>${e(direction)}${m.simulated ? " · predefined strategy" : ""}</strong><span>Message ${absolute + 1} · ${data.times?.[index] ? date(data.times[index]) : "Time not recorded"}</span></div>${display.reply_to != null ? `<p class="message-reply">Result of tool request in message ${display.reply_to + 1}${display.reply_to >= S.offset && display.reply_to < S.offset + 25 ? ` · <a href="#message-${display.reply_to}" data-action="message-anchor" data-index="${display.reply_to}">Go to request</a>` : ""}${m.call_id ? " · " + e(m.call_id) : ""}</p>` : ""}${resultError ? badge("Tool error", "red") : ""}${snippet ? `<div class="message-content">${e(snippet)}${m.output_text_truncated || content.length > 1800 ? "\n[Preview truncated; open the full record below.]" : ""}</div>` : m.role === "assistant" && calls ? '<p class="muted">The model requested tools without a text response.</p>' : ""}${m.briefing ? `<div class="game-brief"><strong>Game briefing sent to the model</strong><p>${e(m.briefing.game)}</p><p>${e(m.briefing.objective)}</p><p>${e(m.briefing.team_mode)}</p></div>` : ""}${m.role === "user" ? feedbackView(m.feedback) : ""}${calls}${fileExchange(m, absolute)}${providerOutput(m, absolute)}${m.role === "user" ? conversationData(Object.fromEntries(Object.entries(m).filter(([key]) => !["role", "content", "request_recorded", "request_seed"].includes(key))), m.generation ? "Full improvement instruction and supplied feedback" : "Scenario, roster, ID guide and preparation rules sent to the model") : ""}${m.usage ? `<small>Input ${fmt(m.usage.input_tokens)} · Output ${fmt(m.usage.output_tokens)} · Cost ${money(m.cost_usd)} · Response took ${fmt(m.elapsed_seconds, 3)} s</small>` : ""}${m.request_recorded ? `<p class="muted">Sent seed: ${e(m.request_seed ?? "not set")}${m.stop_reason ? " · Stop reason: " + e(m.stop_reason) : ""}</p>` : ""}<details data-message-record="${absolute}" data-record-run="${e(S.run)}" data-record-session="${e(S.session)}"><summary>Full record: exact request, native response and metadata</summary><pre></pre></details></article>`;
       })
       .join("")
   );
@@ -2416,6 +2452,11 @@ function eventsPage(data) {
   )}<div class="pager"><span>Events ${data.total ? S.offset + 1 : 0}-${Math.min(data.total, S.offset + 100)}</span><div class="actions">${btn("← Previous", "event-page", `data-offset="${Math.max(0, S.offset - 100)}" ${S.offset === 0 ? "disabled" : ""}`)}${btn("Next →", "event-page", `data-offset="${S.offset + 100}" ${S.offset + 100 >= data.total ? "disabled" : ""}`)}</div></div></section>`;
 }
 function stageText(stage) {
+  const stageRound = String(stage).match(
+    /^(?:g(\d+)-tournament|evaluations\/g(\d+)-panel)$/,
+  );
+  if (stageRound)
+    return `Round ${Number(stageRound[1] ?? stageRound[2]) + 1}: ${stageRound[1] ? "tournament" : "reference evaluation"}`;
   return (
     {
       ".": "Tournament",
@@ -3337,6 +3378,8 @@ document.addEventListener("change", async (event) => {
       updateStatPreviews(false);
     } else if (n.matches("[data-member-level]")) {
       updateStatPreviews();
+    } else if (n.name === "round_stop") {
+      n.form.elements.generations.disabled = n.value === "manual";
     } else if (n.name === "team_mode") {
       updateTeamMode();
     } else if (n.id === "metric-set") {

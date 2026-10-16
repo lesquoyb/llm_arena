@@ -229,7 +229,7 @@ class Store:
                 if connection.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='events'").fetchone():
                     event_id = connection.execute('SELECT coalesce(max(id),0) FROM events').fetchone()[0]
         files = [root/'report.json', root/'analysis.json']
-        for base in (root, root/'tournament', root/'g1-tournament', root/'evaluations/g0-panel', root/'evaluations/g1-panel'):
+        for base in (root, root/'tournament', *sorted(root.glob('g*-tournament')), *sorted((root/'evaluations').glob('g*-panel'))):
             files.extend((base/'records').glob('*.json'))
         files.extend((root/'sessions').glob('*/tools/**/result.json'))
         stamps = [(p.relative_to(root).as_posix(), p.stat().st_mtime_ns, p.stat().st_size) for p in files if p.is_file()]
@@ -250,6 +250,7 @@ class Store:
             validation = (assessment or {}).get('status') or state.get('validity')
             sessions.append({"validation_status": validation or ('pending' if state.get('submission') or state['status'] == 'submitted' else 'not_submitted'), "id": sid, **{k: state[k] for k in keys if k in state},
                              "messages": state["messages"], "retry_allowed": reason is None, "retry_reason": reason})
+        sessions.sort(key=lambda s:(s.get('model',''),s.get('replicate',0),s.get('generation',0),s.get('condition','')))
         return {"id": identifier, "revision": self.revision(root), "metadata": metadata, "report": self.json(root / "report.json", {}),
                 "analysis": self.json(root / "analysis.json"), "sessions": sessions,
                 "g0": self.json(root / "tournament/report.json"),
@@ -495,8 +496,7 @@ class Store:
     def matches(self, identifier):
         root = self.run_path(identifier)
         rows = []
-        for base in (root, root / "tournament", root / "g1-tournament",
-                     root / "evaluations/g0-panel", root / "evaluations/g1-panel"):
+        for base in (root, root/'tournament', *sorted(root.glob('g*-tournament')), *sorted((root/'evaluations').glob('g*-panel'))):
             for path in sorted((base / "records").glob("*.json")):
                 record = self.json(path)
                 relative = base.relative_to(root).as_posix()

@@ -80,9 +80,23 @@ not change previous experiments.
 
 ## Competition settings
 
-Choose participants, repetitions, evaluation of the initial strategy alone or with improvement branches, seeds, team size,
+Choose participants, repetitions, strategy rounds, seeds, team size,
 turn limits, entity stats, equipment and budgets. JSON import supports full
 manifests. A repetition creates an independent conversation.
+
+**Number of rounds** includes the initial round. One evaluates only the initial
+strategy; two adds one improvement round; larger numbers keep improving each
+track. There is no 2-round limit. From Round 2 onward, feedback and no-feedback
+tracks continue separately from their own previous submission, without creating
+more branches. Every participant finishes preparing before the round's tournament;
+all tournament and reference fights finish before the next round starts.
+
+Choose **Continue until I press Stop** for no round limit. Stop preserves completed
+rounds, submissions and match records; Resume continues the same frozen study.
+The schedule is open-ended in this mode. A missing submission or failed evaluation
+pauses progression for recovery rather than silently excluding a participant from
+all future rounds. Other optional budgets still apply. In JSON, `generations` is
+the total round count, or `null` for manual stopping.
 
 A match seed controls reproducible map generation and placement. Preparation
 seed 17, feedback seeds and final evaluation seeds are separate. Mirrors compare
@@ -223,16 +237,16 @@ new per-entity telemetry separates them.
 
 ## Feedback conversations
 
-Round 2 conversations open at the new Arena instruction, after the inherited Round 1 history. Use **Initial history** to review the earlier messages and **Round 2 instruction** to return. Older runs' structured feedback is rendered as a visible table rather than only inside the raw record. Recorded requests remain unchanged.
+Improvement conversations open at the new round's Arena instruction, after the inherited history. Use **Initial history** to review earlier messages and the numbered **Round instruction** button to return. Older runs' structured feedback is rendered as a visible table rather than only inside the raw record. Recorded requests remain unchanged.
 
-With feedback, the instruction includes a plain English Round 1 result summary. `list_past_fights` lists that participant's non-mirror Round 1 tournament fights. `read_past_fight` provides an explained overview, chronological public actions, own per-turn metrics and own debug/error logs, with pagination. No 16-fight or four-action cap applies. Opponent code, opponent debug logs, other participants' unrelated fights, later rounds and final reference tests are unavailable.
+With feedback, the instruction includes a plain English previous-round result summary. `list_past_fights` lists that participant's non-mirror previous-round tournament fights. `read_past_fight` provides an explained overview, chronological public actions, own per-turn metrics and own debug/error logs, with pagination. No 16-fight or four-action cap applies. Opponent code, opponent debug logs, other participants' unrelated fights, later rounds and final reference tests are unavailable.
 
 Initial and without-feedback sessions cannot call these tools, even by guessing their names or IDs. The shared tool service enforces the permission for both native provider calls and MCP; it also omits unavailable tools from discovery. Both branches retain their standard preparation tools (`analyze`, `test`, `read_replay`). Old runs keep the feedback they originally received; the expanded tools apply to new compatible runs.
 
 ## Scores and comparisons
 
 The initial strategy produces two improvements: **Improved without feedback**
-and **Improved with feedback**. Only the latter receives match results. Both branches inherit the same initial strategy code and history.
+and **Improved with feedback**. Only the latter receives match results. Both branches inherit the same initial strategy code and history for Round 2. Later rounds continue their respective track, including its own earlier feedback. The server never grants past-fight access to the no-feedback track.
 The competition Summary uses one shared filter bar: **Round**, **Model** and **Matches** (Tournament or Reference tests). Filters apply to the ranking, evolution chart, matrix, usage and conversation details. The model filter selects the candidate; its opponents stay visible. Versions and repetitions are grouped by model.
 
 The default view shows four indicators, a model ranking, evolution by version and a head-to-head matrix. Detailed metrics, conversations, accounting and methodology expand on demand. Numeric columns in detail tables can be sorted. Small matrices fit the available width; large matrices scroll within their own container. Full model names are available from abbreviated headers.

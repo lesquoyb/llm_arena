@@ -46,10 +46,9 @@ def prepare_retry(journal, sid, config):
     journal.save(sid, state, 'retry_requested', {'session':sid, 'at':time.time(),
         'previous_status':original['status'], 'previous_checkpoint_sha256':digest(original),
         'attempt':state['retry_count'], 'history_and_counters_preserved':True})
-    if original.get('generation', 0) == 0:
-        for child_id, child in journal.states().items():
-            if (child.get('parent') == sid and child.get('status') == 'no_submission'
-                    and not child.get('calls') and not child.get('submission')):
-                child['retry_parent_refresh'] = True
-                journal.save(child_id, child, 'branch_waiting_retry', {'parent':sid})
+    for child_id, child in journal.states().items():
+        if (child.get('parent') == sid and child.get('status') == 'no_submission'
+                and not child.get('calls') and not child.get('submission')):
+            child['retry_parent_refresh'] = True
+            journal.save(child_id, child, 'branch_waiting_retry', {'parent':sid})
     return state
