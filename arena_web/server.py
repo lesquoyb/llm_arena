@@ -77,6 +77,8 @@ class Application:
             return store.session_diagnostics(run, sid)
         if route == "/api/conversation":
             return store.conversation(run, sid, number("offset", 0), min(number("limit", 25), 100))
+        if route == "/api/tool-exchange":
+            return store.tool_exchange(run, sid, number("index", 0))
         if route == "/api/message-output":
             return store.output_block(run, sid, number("index", 0), number("block", 0))
         if route == "/api/message":

@@ -113,7 +113,17 @@ class ContractTests(unittest.TestCase):
             (docs / "text.md").write_text("abcdefgh")
             tools = Preparation(tmp / "session", docs, None, {})
             page = tools.call("read_docs", {"path": "text.md", "limit": 3}, "1")
-            self.assertEqual(page, {"content": "abc", "truncated": True, "next_offset": 3})
+            self.assertEqual(page["content"], "abc")
+            self.assertTrue(page["truncated"])
+            self.assertEqual(page["next_offset"], 3)
+            continuation = page["continuation"]
+            self.assertEqual(continuation, {"tool":"read_docs", "arguments":{"path":"text.md","offset":3,"limit":3}})
+            remaining = tools.call(continuation["tool"], continuation["arguments"], "2")
+            self.assertEqual(remaining["content"], "def")
+            last = tools.call(remaining["continuation"]["tool"], remaining["continuation"]["arguments"], "3")
+            self.assertEqual(last["content"], "gh")
+            self.assertEqual(last["reading_status"], "end_of_file")
+            self.assertIsNone(last["continuation"])
             with self.assertRaises(ArenaError):
                 tools.call("write_file", {"path": "x.py", "content": "pass"}, "2")
 

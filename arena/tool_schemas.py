@@ -18,11 +18,11 @@ PAGE = {"offset": {"type": "integer", "minimum": 0},
         "limit": {"type": "integer", "minimum": 1, "maximum": 16000}}
 TOOLS = [
     {"name": "list_files", "description": "List your .leek source files.", "input_schema": schema()},
-    {"name": "read_file", "description": "Read a page of your own source file.",
+    {"name": "read_file", "description": "Read your own source file, using character offsets (not line numbers). Default 16000 characters, maximum 16000 per call. If truncated=true, follow the returned continuation arguments until next_offset=null to finish reading.",
      "input_schema": schema({"path": TEXT, **PAGE}, ["path"])},
     {"name": "write_file", "description": "Write your own .leek file (128 files, 2 MB total).",
      "input_schema": schema({"path": TEXT, "content": TEXT}, ["path", "content"])},
-    {"name": "read_docs", "description": "Read a page of the pinned shared documentation. Paths start at authoring.md, corpus/ or leekscript-v1/.",
+    {"name": "read_docs", "description": "Read the pinned shared documentation. Paths start at authoring.md, corpus/ or leekscript-v1/. Default 16000 characters, maximum 16000 per call. offset counts characters, not lines. A partial read returns truncated=true and an exact continuation call. To read the complete document, repeat with that continuation until next_offset=null; a returned page is not the whole file.",
      "input_schema": schema({"path": TEXT, **PAGE}, ["path"])},
     {"name": "analyze", "description": "Compile/analyze your saved entrypoint and every configured team entrypoint with the native engine. Returns status and readable diagnostic_messages with severity, file, line and compiler code. Analyze after the final edit; fix all errors and repeat until status=valid before submit. Analysis does not change your files.", "input_schema": schema(ENTRY)},
     {"name": "test", "description": "Run two native-engine training fights against passive, one per starting side. Read the returned test ID with read_replay for actions, metrics and debug/errors.",

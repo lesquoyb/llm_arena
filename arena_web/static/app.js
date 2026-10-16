@@ -1425,7 +1425,18 @@ async function renderRun(epoch) {
           offset: S.offset,
         });
       }
-      body = chooser + conversation(data);
+      S.liveConversation = {
+        run: S.run,
+        session: S.session,
+        next: data.offset + data.messages.length,
+        total: data.total,
+        armed: data.offset + data.messages.length >= data.total,
+      };
+      body =
+        chooser +
+        '<div id="conversation-transcript">' +
+        conversation(data) +
+        '</div><div id="conversation-live-status" aria-live="polite"></div>';
     } else {
       S.versions = await api("/api/versions", {
         run: S.run,
@@ -1456,7 +1467,8 @@ async function renderRun(epoch) {
     body = eventsPage(S.events);
   }
   if (epoch !== S.epoch) return;
-  $("#main").innerHTML = runHeader(d) + body;
+  $("#main").innerHTML =
+    '<div id="run-chrome">' + runHeader(d) + "</div>" + body;
   if (S.tab === "code" && d.sessions.length && S.versions?.versions?.length)
     await loadSource();
   if (S.tab === "matches" && S.matchPath) await loadMatch();
@@ -1885,12 +1897,22 @@ function feedbackView(value) {
   )}</section>`;
 }
 function providerOutput(message, index) {
-  const blocks = message.output_blocks || [];
+  const blocks = (message.output_blocks || []).filter(
+    (b) => !(message.file_exchange && b.kind === "tool_result"),
+  );
+  let requestIndex = 0;
+  const label = (block) => {
+    if (block.kind !== "tool_call") return block.label;
+    const call = message.call_summaries?.[requestIndex++];
+    if (!call) return block.label;
+    const args = call.arguments || {};
+    return `Tool request: ${call.name}${args.path ? " · " + args.path : ""}${args.offset != null ? " · offset " + args.offset : ""}${args.limit != null ? " · limit " + args.limit : ""}`;
+  };
   return (
     blocks
       .map(
         (block) =>
-          `<details class="provider-output ${e(block.kind)}" data-output-block="${block.index}" data-output-message="${index}" data-record-run="${e(S.run)}" data-record-session="${e(S.session)}"><summary><span>${e(block.label)}</span><small>${fmt(block.characters)} characters</small></summary><pre></pre></details>`,
+          `<details class="provider-output ${e(block.kind)}" data-output-block="${block.index}" data-output-message="${index}" data-record-run="${e(S.run)}" data-record-session="${e(S.session)}"><summary><span>${e(label(block))}</span><small>${block.kind === "reasoning" ? "Recorded reasoning" : block.kind === "tool_call" ? "Open request arguments" : fmt(block.characters) + " characters"}</small></summary><pre></pre></details>`,
       )
       .join("") +
     (Number(message.usage?.reasoning_tokens) > 0
@@ -1933,8 +1955,213 @@ function sessionDiagnostics(data, full = false) {
   }${scriptProblems.length ? `<details><summary>Script error events in ${scriptProblems.length} fights</summary><p>The same error can recur on many turns. These counts are error events, not distinct bugs. Completed fights can contain compilation or execution errors.</p>${scriptProblems.map(problem).join("")}</details>` : ""}${!problems.length ? "<p>No recorded validation or fight failure for this strategy.</p>" : ""}<small>${e(data.schedule_note)}</small>${data.assessment ? `<details><summary>Submission validation report</summary><pre>${e(pretty(data.assessment))}</pre></details>` : ""}${full ? `<details><summary>Diagnostic JSON</summary><pre id="session-diagnostic-json">${e(pretty(data))}</pre></details>` : ""}</div>`;
 }
 
-function conversation(data) {
-  conversationValues = [];
+function fileExchange(message, index) {
+  const info = message.file_exchange;
+  if (!info) return "";
+  const writing = info.name === "write_file";
+  const label = writing
+    ? `${info.saved ? "Saved" : "Attempted write"}: ${info.path} · ${fmt(info.characters)} characters`
+    : `Read ${info.name === "read_docs" ? "documentation" : "source"}: ${info.path}`;
+  return `<section class="file-exchange"><strong>${e(label)}</strong>${info.error ? `<p>Tool error: ${e(info.error)}</p>` : !writing ? `<p>Characters ${fmt(info.offset)}–${fmt(info.end_offset)}${info.total_characters != null ? " of " + fmt(info.total_characters) : " (total length not recorded)"} · ${info.truncated ? "Partial read; next offset " + fmt(info.next_offset) : "End of file reached"}</p>` : ""}<details data-file-exchange="${index}" data-record-run="${e(S.run)}" data-record-session="${e(S.session)}"><summary>${writing ? "Inspect written content and diff" : "Document excerpt actually sent to the model"}</summary><pre></pre></details></section>`;
+}
+let conversationAnimation;
+function cancelConversationAnimation() {
+  if (conversationAnimation != null)
+    cancelAnimationFrame(conversationAnimation);
+  conversationAnimation = null;
+}
+function animateConversationTail() {
+  cancelConversationAnimation();
+  const target = Math.max(
+    0,
+    document.documentElement.scrollHeight - innerHeight,
+  );
+  if (matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    window.scrollTo({ top: target, behavior: "instant" });
+    return;
+  }
+  const start = window.scrollY,
+    started = performance.now();
+  let expected = start;
+  const tick = (now) => {
+    // A wheel, scrollbar drag or script moving the viewport cancels following.
+    if (Math.abs(window.scrollY - expected) > 2) {
+      cancelConversationAnimation();
+      return;
+    }
+    const progress = Math.min(1, (now - started) / 320),
+      eased = 1 - Math.pow(1 - progress, 3);
+    window.scrollTo({
+      top: start + (target - start) * eased,
+      behavior: "instant",
+    });
+    expected = window.scrollY;
+    conversationAnimation = progress < 1 ? requestAnimationFrame(tick) : null;
+  };
+  conversationAnimation = requestAnimationFrame(tick);
+}
+window.addEventListener(
+  "wheel",
+  (event) => {
+    cancelConversationAnimation();
+    if (event.deltaY < 0 && S.tab === "conversation" && S.liveConversation)
+      S.liveConversation.userPaused = true;
+  },
+  { passive: true },
+);
+window.addEventListener("touchstart", cancelConversationAnimation, {
+  passive: true,
+});
+window.addEventListener("pointerdown", cancelConversationAnimation, {
+  passive: true,
+});
+window.addEventListener("keydown", (event) => {
+  if (
+    ["ArrowUp", "PageUp", "Home"].includes(event.key) &&
+    S.tab === "conversation" &&
+    S.liveConversation
+  )
+    S.liveConversation.userPaused = true;
+  if (
+    [
+      "ArrowUp",
+      "ArrowDown",
+      "PageUp",
+      "PageDown",
+      "Home",
+      "End",
+      "Escape",
+    ].includes(event.key)
+  )
+    cancelConversationAnimation();
+});
+function nearConversationEnd() {
+  return (
+    document.documentElement.scrollHeight - window.scrollY - innerHeight < 100
+  );
+}
+async function refreshLiveConversation(epoch, force = false) {
+  const live = S.liveConversation,
+    mount = $("#conversation-transcript");
+  if (!live || !mount || live.run !== S.run || live.session !== S.session)
+    return false;
+  if (live.refreshing) return true;
+  live.refreshing = true;
+  try {
+    if (force) {
+      live.armed = true;
+      live.userPaused = false;
+    }
+    const following =
+      force || (live.armed && !live.userPaused && nearConversationEnd());
+    const data = await api("/api/conversation", {
+      run: S.run,
+      session: S.session,
+      offset: live.next,
+      limit: following ? 100 : 1,
+    });
+    if (
+      (!S.follow && !force) ||
+      epoch !== S.epoch ||
+      mount !== $("#conversation-transcript")
+    )
+      return true;
+    const scrollWithMessages =
+      following &&
+      (force || nearConversationEnd()) &&
+      !$(".chat-message details[open]");
+    const preservedScroll = window.scrollY;
+    live.total = data.total;
+    if (following && data.messages.length) {
+      const template = document.createElement("template");
+      template.innerHTML = conversation(data, true);
+      const fragment = document.createDocumentFragment();
+      template.content
+        .querySelectorAll(".chat-message")
+        .forEach((message, index) => {
+          message.classList.add("message-arrival");
+          message.style.animationDelay = Math.min(index, 4) * 50 + "ms";
+          fragment.append(message);
+        });
+      mount.append(fragment);
+      live.next = data.offset + data.messages.length;
+      if (scrollWithMessages) {
+        const messages = $$(".chat-message", mount);
+        messages
+          .slice(0, Math.max(0, messages.length - 200))
+          .forEach((message) => message.remove());
+        S.offset = Number(
+          $(".chat-message", mount)?.id.replace("message-", "") || S.offset,
+        );
+      }
+    }
+    const diagnosis = $("[data-session-diagnostics]", mount);
+    if (following && diagnosis && !diagnosis.querySelector("details[open]")) {
+      const html = sessionDiagnostics(data.diagnostics);
+      if (diagnosis.dataset.signature !== html) {
+        const holder = document.createElement("template");
+        holder.innerHTML = html;
+        const replacement = holder.content.firstElementChild;
+        replacement.dataset.signature = html;
+        diagnosis.replaceWith(replacement);
+      }
+    }
+    const pager = $(".pager", mount),
+      first = S.offset + 1;
+    if (pager)
+      pager.innerHTML = `<span>${fmt(live.total)} messages · ${status(data.status)} · Showing ${first}–${live.next}</span><div class="actions">${btn("← Previous", "conversation-page", `data-offset="${Math.max(0, S.offset - 25)}" ${S.offset === 0 ? "disabled" : ""}`)}${btn("Next →", "conversation-page", `data-offset="${live.next}" ${live.next >= live.total ? "disabled" : ""}`)}</div>`;
+    const remaining = Math.max(0, live.total - live.next);
+    const banner = $("#conversation-live-status");
+    if (banner)
+      banner.innerHTML = remaining
+        ? `${remaining} new message${remaining === 1 ? "" : "s"} ${btn("Follow latest", "conversation-latest")}`
+        : following
+          ? "<small>Following new messages</small>"
+          : "<small>Reading history. Return to the bottom to follow new messages.</small>";
+    if (scrollWithMessages && data.messages.length) animateConversationTail();
+    const chrome = $("#run-chrome");
+    if (chrome) chrome.innerHTML = runHeader(S.detail);
+    if (!scrollWithMessages)
+      window.scrollTo({ top: preservedScroll, behavior: "instant" });
+    return true;
+  } finally {
+    live.refreshing = false;
+  }
+}
+let conversationScrollTimer;
+window.addEventListener(
+  "scroll",
+  () => {
+    clearTimeout(conversationScrollTimer);
+    conversationScrollTimer = setTimeout(async () => {
+      const live = S.liveConversation;
+      if (
+        live?.userPaused &&
+        document.documentElement.scrollHeight - window.scrollY - innerHeight < 4
+      )
+        live.userPaused = false;
+      if (
+        S.tab !== "conversation" ||
+        !S.follow ||
+        !live?.armed ||
+        live.userPaused ||
+        live.next >= live.total ||
+        !nearConversationEnd() ||
+        $(".chat-message details[open]")
+      )
+        return;
+      try {
+        await refreshLiveConversation(S.epoch);
+      } catch (error) {
+        /* Retry on the next live update. */
+      }
+    }, 150);
+  },
+  { passive: true },
+);
+
+function conversation(data, append = false) {
+  if (!append) conversationValues = [];
   const failure = data.failure;
   return (
     (failure
@@ -1950,10 +2177,10 @@ function conversation(data) {
     (data.generation > 0
       ? `<div class="toolbar">${badge("Round 2 · " + text(data.condition), "blue")}${btn("Round 2 instruction", "conversation-page", `data-offset="${data.instruction_index}"`)}${btn("Initial history", "conversation-page", 'data-offset="0"')}</div>`
       : "") +
-    `<div class="pager"><span>${fmt(data.total)} messages · ${status(data.status)}</span><div class="actions">${btn("← Previous", "conversation-page", `data-offset="${Math.max(0, S.offset - 25)}" ${S.offset === 0 ? "disabled" : ""}`)}<span>${data.total ? S.offset + 1 : 0}-${Math.min(data.total, S.offset + 25)}</span>${btn("Next →", "conversation-page", `data-offset="${S.offset + 25}" ${S.offset + 25 >= data.total ? "disabled" : ""}`)}</div></div>` +
+    `<div class="pager"><span>${fmt(data.total)} messages · ${status(data.status)}${data.offset + data.messages.length < data.total ? " · More messages on the next page" : ""}</span><div class="actions">${btn("← Previous", "conversation-page", `data-offset="${Math.max(0, S.offset - 25)}" ${S.offset === 0 ? "disabled" : ""}`)}<span>${data.total ? S.offset + 1 : 0}-${Math.min(data.total, S.offset + 25)}</span>${btn("Next →", "conversation-page", `data-offset="${S.offset + 25}" ${S.offset + 25 >= data.total ? "disabled" : ""}`)}</div></div>` +
     data.messages
       .map((m, index) => {
-        const absolute = S.offset + index,
+        const absolute = data.offset + index,
           native = m.native;
         const content =
           m.output_text ??
@@ -1991,7 +2218,7 @@ function conversation(data) {
           )
           .join("");
         const snippet = String(content || "").slice(0, 1800);
-        return `${data.generation > 0 && absolute === data.instruction_index ? `<div class="notice"><strong>Round 2 starts here · ${e(text(data.condition))}</strong></div>` : ""}<article class="chat-message ${e(m.role)} ${resultError ? "tool-error" : ""}" id="message-${absolute}"><div class="message-head"><strong>${e(direction)}${m.simulated ? " · predefined strategy" : ""}</strong><span>Message ${absolute + 1} · ${data.times?.[index] ? date(data.times[index]) : "Time not recorded"}</span></div>${display.reply_to != null ? `<p class="message-reply">Result of tool request in message ${display.reply_to + 1}${display.reply_to >= S.offset && display.reply_to < S.offset + 25 ? ` · <a href="#message-${display.reply_to}" data-action="message-anchor" data-index="${display.reply_to}">Go to request</a>` : ""}${m.call_id ? " · " + e(m.call_id) : ""}</p>` : ""}${resultError ? badge("Tool error", "red") : ""}${snippet ? `<div class="message-content">${e(snippet)}${m.output_text_truncated || content.length > 1800 ? "\n[Preview truncated; open the full record below.]" : ""}</div>` : m.role === "assistant" && calls ? '<p class="muted">The model requested tools without a text response.</p>' : ""}${m.briefing ? `<div class="game-brief"><strong>Game briefing sent to the model</strong><p>${e(m.briefing.game)}</p><p>${e(m.briefing.objective)}</p><p>${e(m.briefing.team_mode)}</p></div>` : ""}${m.role === "user" ? feedbackView(m.feedback) : ""}${calls}${providerOutput(m, absolute)}${m.role === "user" ? conversationData(Object.fromEntries(Object.entries(m).filter(([key]) => !["role", "content", "request_recorded", "request_seed"].includes(key))), m.generation ? "Full improvement instruction and supplied feedback" : "Scenario, roster, ID guide and preparation rules sent to the model") : ""}${m.usage ? `<small>Input ${fmt(m.usage.input_tokens)} · Output ${fmt(m.usage.output_tokens)} · Cost ${money(m.cost_usd)} · Response took ${fmt(m.elapsed_seconds, 3)} s</small>` : ""}${m.request_recorded ? `<p class="muted">Sent seed: ${e(m.request_seed ?? "not set")}${m.stop_reason ? " · Stop reason: " + e(m.stop_reason) : ""}</p>` : ""}<details data-message-record="${absolute}" data-record-run="${e(S.run)}" data-record-session="${e(S.session)}"><summary>Full record: exact request, native response and metadata</summary><pre></pre></details></article>`;
+        return `${data.generation > 0 && absolute === data.instruction_index ? `<div class="notice"><strong>Round 2 starts here · ${e(text(data.condition))}</strong></div>` : ""}<article class="chat-message ${e(m.role)} ${resultError ? "tool-error" : ""}" id="message-${absolute}"><div class="message-head"><strong>${e(direction)}${m.simulated ? " · predefined strategy" : ""}</strong><span>Message ${absolute + 1} · ${data.times?.[index] ? date(data.times[index]) : "Time not recorded"}</span></div>${display.reply_to != null ? `<p class="message-reply">Result of tool request in message ${display.reply_to + 1}${display.reply_to >= S.offset && display.reply_to < S.offset + 25 ? ` · <a href="#message-${display.reply_to}" data-action="message-anchor" data-index="${display.reply_to}">Go to request</a>` : ""}${m.call_id ? " · " + e(m.call_id) : ""}</p>` : ""}${resultError ? badge("Tool error", "red") : ""}${snippet ? `<div class="message-content">${e(snippet)}${m.output_text_truncated || content.length > 1800 ? "\n[Preview truncated; open the full record below.]" : ""}</div>` : m.role === "assistant" && calls ? '<p class="muted">The model requested tools without a text response.</p>' : ""}${m.briefing ? `<div class="game-brief"><strong>Game briefing sent to the model</strong><p>${e(m.briefing.game)}</p><p>${e(m.briefing.objective)}</p><p>${e(m.briefing.team_mode)}</p></div>` : ""}${m.role === "user" ? feedbackView(m.feedback) : ""}${calls}${fileExchange(m, absolute)}${providerOutput(m, absolute)}${m.role === "user" ? conversationData(Object.fromEntries(Object.entries(m).filter(([key]) => !["role", "content", "request_recorded", "request_seed"].includes(key))), m.generation ? "Full improvement instruction and supplied feedback" : "Scenario, roster, ID guide and preparation rules sent to the model") : ""}${m.usage ? `<small>Input ${fmt(m.usage.input_tokens)} · Output ${fmt(m.usage.output_tokens)} · Cost ${money(m.cost_usd)} · Response took ${fmt(m.elapsed_seconds, 3)} s</small>` : ""}${m.request_recorded ? `<p class="muted">Sent seed: ${e(m.request_seed ?? "not set")}${m.stop_reason ? " · Stop reason: " + e(m.stop_reason) : ""}</p>` : ""}<details data-message-record="${absolute}" data-record-run="${e(S.run)}" data-record-session="${e(S.session)}"><summary>Full record: exact request, native response and metadata</summary><pre></pre></details></article>`;
       })
       .join("")
   );
@@ -2004,14 +2231,46 @@ document.addEventListener(
       !node.open ||
       node.dataset.loaded ||
       !node.matches(
-        "details[data-conversation-value], details[data-message-record], details[data-output-block], details[data-provider-event]",
+        "details[data-conversation-value], details[data-message-record], details[data-output-block], details[data-provider-event], details[data-file-exchange]",
       )
     )
       return;
     node.dataset.loaded = "true";
     const output = $("pre", node);
     try {
-      if (node.dataset.outputBlock != null) {
+      if (node.dataset.fileExchange != null) {
+        const record = await api("/api/tool-exchange", {
+          run: node.dataset.recordRun,
+          session: node.dataset.recordSession,
+          index: node.dataset.fileExchange,
+        });
+        if (record.name === "write_file") {
+          const note = document.createElement("p");
+          note.textContent = record.saved
+            ? record.before_known
+              ? "Changes compared with the previous saved version."
+              : "No previous content was recorded. The diff below shows the captured write as added content."
+            : "This write was rejected; the proposed content was not saved.";
+          node.insertBefore(note, output);
+          output.className = "code-diff";
+          output.innerHTML = (record.diff || "No text changes.")
+            .split("\n")
+            .map(
+              (line) =>
+                `<span class="diff-line ${line.startsWith("+") && !line.startsWith("+++") ? "add" : line.startsWith("-") && !line.startsWith("---") ? "remove" : "meta"}">${e(line)}</span>`,
+            )
+            .join("\n");
+          const complete = document.createElement("details"),
+            title = document.createElement("summary"),
+            pre = document.createElement("pre");
+          title.textContent = "Complete written file";
+          pre.textContent = record.after || "";
+          complete.append(title, pre);
+          node.append(complete);
+        } else
+          output.textContent =
+            record.content ?? record.error ?? "No content was returned.";
+      } else if (node.dataset.outputBlock != null) {
         output.textContent = "Loading recorded output...";
         const block = await api("/api/message-output", {
           run: node.dataset.recordRun,
@@ -2808,7 +3067,9 @@ document.addEventListener("click", async (event) => {
         model: S.modelFilter,
         session: S.session,
       });
-    else if (a === "session-diagnostics") {
+    else if (a === "conversation-latest") {
+      await refreshLiveConversation(S.epoch, true);
+    } else if (a === "session-diagnostics") {
       const data = await api("/api/session-diagnostics", {
         run: S.run,
         session: node.dataset.session,
@@ -3119,6 +3380,8 @@ document.addEventListener("change", async (event) => {
       S.follow = n.checked;
       S.livePreferences ||= {};
       S.livePreferences[S.run] = n.checked;
+      if (n.checked && S.tab === "conversation")
+        await refreshLiveConversation(S.epoch);
     } else if (n.name === "match-kind")
       navigate("run", { run: S.run, tab: "matches", kind: n.value });
     else if (
@@ -3236,11 +3499,8 @@ setInterval(async () => {
           S.tab === "matches" && R
             ? { path: S.matchPath, index: R.index }
             : null;
-        if (S.follow && S.tab === "conversation") {
-          const session = d.sessions.find((v) => v.id === S.session);
-          S.offset =
-            Math.floor(Math.max(0, (session?.messages || 1) - 1) / 25) * 25;
-        }
+        if (S.tab === "conversation" && (await refreshLiveConversation(epoch)))
+          return;
         if (S.follow && S.tab === "events") {
           const events = await api("/api/events", {
             run: S.run,
@@ -3257,12 +3517,7 @@ setInterval(async () => {
         await renderRun(epoch);
         if (replay && R && replay.path === S.matchPath)
           renderReplay(Math.min(replay.index, R.events.length));
-        window.scrollTo(
-          0,
-          S.follow && S.tab === "conversation"
-            ? document.body.scrollHeight
-            : scroll,
-        );
+        window.scrollTo(0, scroll);
       }
     }
   } catch (error) {

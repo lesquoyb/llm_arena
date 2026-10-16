@@ -41,6 +41,10 @@ def blocks(message):
     native = message.get('native') or {}
     if not isinstance(native, dict):
         native = {}
+    reasoning_keys = {'reasoning', 'reasoning_content', 'reasoning_details', 'thinking', 'analysis'}
+    for key, value in native.items():
+        if key in reasoning_keys:
+            add('reasoning', ('Provider-exposed reasoning' if isinstance(value,str) else 'Reasoning data') + ' · ' + key, value)
     content = native.get('content')
     if isinstance(content, str):
         add('text', 'Answer text', content)
@@ -76,7 +80,7 @@ def blocks(message):
         name = (call.get('function') or {}).get('name', call.get('type', 'unknown'))
         add('tool_call', 'Arena tool request · ' + str(name), call)
     for key, value in native.items():
-        if key in {'role', 'content', 'parts', 'tool_calls'}:
+        if key in {'role', 'content', 'parts', 'tool_calls'} | reasoning_keys:
             continue
         kind = 'reasoning' if key in {'reasoning', 'reasoning_content', 'reasoning_details', 'thinking', 'analysis'} else 'other'
         if key in {'thought_signature', 'thoughtSignature', 'encrypted_content'}: kind = 'opaque'

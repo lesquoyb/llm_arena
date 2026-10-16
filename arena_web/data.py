@@ -308,6 +308,14 @@ class Store:
             raise ArenaError("Message not found")
         return {"message": history[index]}
 
+    def tool_exchange(self, identifier, sid, index):
+        from .tool_exchange import inspect
+        history = self.session(identifier, sid).get('history', [])
+        if not 0 <= index < len(history): raise ArenaError('Message not found')
+        result = inspect(history, index, list(history_writes(history[:index+1])))
+        if result is None: raise ArenaError('No matching file tool request was recorded')
+        return result
+
     def output_block(self, identifier, sid, index, block):
         from .provider_output import blocks
         message = self.message(identifier, sid, index)['message']
@@ -350,7 +358,7 @@ class Store:
                 turn += 1
             timeline.append({"reply_to": last_request if item.get("role") == "tool" else None, "turn": turn})
         messages = []
-        for item in history[offset:offset + limit]:
+        for absolute, item in enumerate(history[offset:offset + limit], offset):
             # Requests contain full prior histories. Do not transfer them N times
             # on every live refresh. Exact records remain available on demand.
             visible = {k:v for k,v in item.items() if k not in {"raw", "sent_parameters"}}
@@ -364,6 +372,14 @@ class Store:
                 else:
                     visible['tool_error'] = bool((item.get('result') or {}).get('error') or (item.get('result') or {}).get('valid') is False) if isinstance(item.get('result'), dict) else False
                     visible.pop('result', None)
+            if item.get('role') == 'tool':
+                from .tool_exchange import summary
+                visible['file_exchange'] = summary(history, absolute)
+            if item.get('role') == 'assistant':
+                visible['call_summaries'] = [{'name':c.get('name'), 'id':c.get('id'),
+                    'arguments': {k:(v[:200] if isinstance(v,str) else v) for k,v in (c.get('arguments') or {}).items()
+                                  if k != 'content' and isinstance(v,(str,int,float,bool))}}
+                    for c in item.get('tool_calls', []) if isinstance(c.get('arguments'),dict)]
             parameters = item.get("sent_parameters") or {}
             visible["request_recorded"] = "sent_parameters" in item
             visible["request_seed"] = parameters.get("seed", parameters.get("generationConfig", {}).get("seed"))

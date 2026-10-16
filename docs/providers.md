@@ -181,3 +181,9 @@ The journal keeps the full received JSON response and exact outgoing request. In
 This records what the endpoint returns. Hidden internal reasoning cannot be retrieved from token counts, encrypted thinking blocks or signatures. OpenAI Chat Completions often reports reasoning token usage without readable reasoning. Anthropic can return thinking or redacted thinking blocks when enabled for a compatible model. Gemini can return thought summaries when requested; for supported models the participant's Model parameters JSON can include `{"thinking_config":{"includeThoughts":true}}`. Thinking settings and available output depend on the selected model; the viewer does not silently enable them or alter generation parameters. Compatible local servers may expose `reasoning_content` or `reasoning` fields, which are preserved and inspectable.
 
 The Arena only executes its registered tools. An unknown function request is recorded and refused. External tools used inside a provider or proxy are visible only if that endpoint reports them; the journal cannot observe undisclosed remote activity. A provider-reported tool block is not proof that an Arena tool ran. Reasoning tokens are recorded separately in usage and remain part of the billed output according to the protocol's accounting rules.
+
+The OpenAI compatible adapter retains provider-returned `reasoning_content` and
+`reasoning` fields on prior assistant messages when sending the next request.
+This preserves the reasoning/tool sequence for compatible local servers. The
+journal keeps every response independently, including its native fields and raw
+response; the conversation viewer loads each response's reasoning separately.

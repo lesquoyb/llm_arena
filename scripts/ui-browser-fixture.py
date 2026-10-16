@@ -156,6 +156,19 @@ def main():
             {"role":"assistant","native":{"role":"assistant","content":"Only token counts are exposed"},"usage":{"reasoning_tokens":42}}]
         journal.save('mock-repair-r0',state,'model_response',{'fixture':'all provider outputs'})
         journal.db.close()
+        transcript_root=fixture(store,'tool-transcript')
+        journal=Journal(transcript_root);state=journal.state('mock-repair-r0')
+        history=[{'role':'user','content':'Write LeekScript 4.'}]
+        calls=[('read_docs',{'path':'authoring.md','offset':0,'limit':8},{'content':'Use var.','truncated':True,'next_offset':8}),
+               ('write_file',{'path':'main.leek','content':'var a = 1\n'},None),
+               ('write_file',{'path':'main.leek','content':'var a = 2\n'},None)]
+        import hashlib
+        for i,(name,args,result) in enumerate(calls):
+            native={'role':'assistant','content':'','reasoning_content':'Reasoning step '+str(i+1),
+                    'tool_calls':[{'id':'step-'+str(i),'type':'function','function':{'name':name,'arguments':json.dumps(args)}}]}
+            history.append({'role':'assistant','native':native,'tool_calls':[{'id':'step-'+str(i),'name':name,'arguments':args}]})
+            history.append({'role':'tool','name':name,'provider_call_id':'step-'+str(i),'result':result or {'sha256':hashlib.sha256(args['content'].encode()).hexdigest()}})
+        state['history']=history;journal.save('mock-repair-r0',state,'fixture');journal.db.close()
         class FixtureApplication(Application):
             def post(self, route, data):
                 if route != '/api/fixture-live':
@@ -193,9 +206,12 @@ def main():
                         result = save(work)
                         write_json(root/f'records/live-{number}.json',{'match':{'sides':['mock-repair-r0','mock-single-r0'],'seed':101,'mirror':False},
                             'directory':work.relative_to(root).as_posix(),'result':result})
-                elif action in {'event','file','source'}:
+                elif action in {'event','file','source','conversation'}:
                     journal = Journal(root)
                     state = journal.state('mock-repair-r0')
+                    if action == 'conversation':
+                        for i in range(30):
+                            state['history'].append({'role':'assistant','native':{'role':'assistant','content':'Live message '+str(i), 'reasoning_content':'Saved live reasoning '+str(i)}})
                     if action == 'file':
                         (root/'live-note.txt').write_text('New file while running',encoding='utf-8')
                     if action == 'source':

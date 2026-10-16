@@ -78,3 +78,8 @@ may be absent during the dry run; configure_team requires them. If
 `scenario.team_selection.require_capital` is true, provide capital for every
 member explicitly. The `llm-team` preset fixes levels at 300 and permits up to
 four members. Names, scripts, weapons and chips can differ per member.
+
+Documentation reads use character offsets, not line numbers. A partial result has
+`truncated: true` and a `continuation` containing the next tool name and arguments.
+Repeat that call to continue; `next_offset: null` marks the end of the file.
+The default page is 16000 characters, which includes this complete guide.

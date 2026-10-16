@@ -2028,3 +2028,51 @@ dialog::backdrop {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+.file-exchange {
+  margin: 12px 0;
+  padding: 12px;
+  border: 1px solid var(--border, #dce3eb);
+  border-radius: 8px;
+}
+.file-exchange > p {
+  margin: 6px 0;
+  font-size: 12px;
+}
+.file-exchange > strong {
+  overflow-wrap: anywhere;
+}
+
+.message-arrival {
+  animation: message-arrival 320ms ease-out both;
+}
+@keyframes message-arrival {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+#conversation-live-status {
+  position: sticky;
+  bottom: 12px;
+  width: fit-content;
+  margin: 12px auto;
+  padding: 8px 12px;
+  background: var(--surface, #fff);
+  border: 1px solid var(--border, #dce3eb);
+  border-radius: 8px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .message-arrival {
+    animation: none;
+  }
+}
+/* The conversation manages following explicitly. Browser scroll anchoring can
+   otherwise move a historical viewport while new cards animate below it. */
+html:has(#conversation-transcript) {
+  overflow-anchor: none;
+}

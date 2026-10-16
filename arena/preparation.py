@@ -56,12 +56,18 @@ class Preparation:
                 from .equipment import SPECIAL_CHIPS
                 text = json.dumps({key: row for key, row in json.loads(text).items()
                                    if int(key) not in SPECIAL_CHIPS}, ensure_ascii=False, indent=2)
-            offset, limit = arguments.get("offset", 0), arguments.get("limit", 4000)
+            offset, limit = arguments.get("offset", 0), arguments.get("limit", 16000)
             if type(offset) is not int or offset < 0 or type(limit) is not int or not 1 <= limit <= 16000:
                 raise ArenaError("Invalid page")
-            end = offset + limit
-            return {"content": text[offset:end], "truncated": end < len(text),
-                    "next_offset": end if end < len(text) else None}
+            end = min(offset + limit, len(text))
+            next_offset = end if end < len(text) else None
+            return {"path": arguments["path"], "offset": offset, "end_offset": max(offset, end),
+                    "total_characters": len(text), "returned_characters": len(text[offset:end]),
+                    "content": text[offset:end], "truncated": next_offset is not None,
+                    "next_offset": next_offset,
+                    "reading_status": "partial" if next_offset is not None else "end_of_file",
+                    "continuation": ({"tool": name, "arguments": {"path": arguments["path"], "offset": next_offset, "limit": limit}}
+                                     if next_offset is not None else None)}
         if name == "write_file":
             self._fields(arguments, {"path", "content"})
             path = local_path(self.workspace, arguments["path"])
@@ -72,11 +78,13 @@ class Preparation:
             existing = [p for p in self.workspace.rglob("*") if p.is_file() and (p.suffix == ".leek" or p == self.workspace / "team.json") and p != path]
             if len(existing) >= 128 or sum(p.stat().st_size for p in existing) + len(encoded) > 2_000_000:
                 raise ArenaError("Submission quota exceeded")
+            created = not path.exists()
             path.parent.mkdir(parents=True, exist_ok=True)
             tmp = path.with_suffix(".leek.tmp")
             tmp.write_bytes(encoded)
             replace_file(tmp, path)
-            return {"sha256": file_hash(path)}
+            return {"path": arguments["path"], "characters": len(content), "bytes": len(encoded),
+                    "created": created, "sha256": file_hash(path)}
         if name == "preview_build":
             from .teams import build_preview
             self._fields(arguments, {"capital", "member_index", "components", "level"})

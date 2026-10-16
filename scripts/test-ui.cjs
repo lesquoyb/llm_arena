@@ -890,6 +890,37 @@ async function main() {
     await page
       .getByText("1 compilation error · 1 warning", { exact: true })
       .waitFor();
+    await page.goto(url + "/#view=run&run=tool-transcript&tab=conversation");
+    await page
+      .getByText("Read documentation: authoring.md", { exact: true })
+      .waitFor();
+    await page.getByText(/Partial read; next offset 8/).waitFor();
+    assert.equal(await page.locator(".provider-output.reasoning").count(), 3);
+    for (let i = 0; i < 3; i++) {
+      const reasoning = page.locator(".provider-output.reasoning").nth(i);
+      await reasoning.locator("summary").click();
+      await reasoning
+        .locator("pre")
+        .filter({ hasText: "Reasoning step " + (i + 1) })
+        .waitFor();
+    }
+    const excerpt = page.locator('[data-file-exchange="2"]');
+    await excerpt.locator("summary").click();
+    await excerpt.locator("pre").filter({ hasText: "Use var." }).waitFor();
+    const write = page.locator('[data-file-exchange="6"]');
+    await write.locator("summary").click();
+    await write
+      .locator("pre")
+      .first()
+      .filter({ hasText: "-var a = 1" })
+      .waitFor();
+    await write
+      .locator("pre")
+      .first()
+      .filter({ hasText: "+var a = 2" })
+      .waitFor();
+    await write.getByText("Complete written file", { exact: true }).click();
+    assert.equal(await write.locator("details pre").innerText(), "var a = 2\n");
     await page.goto(url + "/#view=run&run=outputs&tab=conversation");
     await page.getByText("Visible answer", { exact: true }).waitFor();
     assert.equal(await page.locator(".provider-output[open]").count(), 0);
@@ -1517,6 +1548,76 @@ async function main() {
         "var live = 1",
       ),
     );
+    await page
+      .getByRole("button", { name: "Conversations", exact: true })
+      .click();
+    await page.locator("#message-0").waitFor();
+    await page.evaluate(() => {
+      window.originalMessage = document.querySelector("#message-0");
+      window.scrollTo(0, document.documentElement.scrollHeight);
+    });
+    await liveStep("conversation");
+    await page.waitForFunction(
+      () => document.querySelectorAll(".chat-message").length === 33,
+    );
+    await page.waitForFunction(
+      () =>
+        document.documentElement.scrollHeight - window.scrollY - innerHeight <
+        100,
+    );
+    assert(
+      await page.evaluate(
+        () => window.originalMessage === document.querySelector("#message-0"),
+      ),
+      "Live refresh replaced the existing message node",
+    );
+    assert(
+      await page
+        .locator("#message-32")
+        .evaluate((el) => el.classList.contains("message-arrival")),
+    );
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await liveStep("conversation");
+    await page.getByText("30 new messages", { exact: false }).waitFor();
+    assert.equal(await page.locator(".chat-message").count(), 33);
+    assert.equal(await page.evaluate(() => window.scrollY), 0);
+    await page
+      .getByRole("button", { name: "Follow latest", exact: true })
+      .click();
+    await page.waitForFunction(
+      () => document.querySelectorAll(".chat-message").length === 63,
+    );
+    await page.waitForFunction(
+      () =>
+        document.documentElement.scrollHeight - window.scrollY - innerHeight <
+        100,
+    );
+    assert(
+      await page.evaluate(
+        () => window.originalMessage === document.querySelector("#message-0"),
+      ),
+    );
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.mouse.wheel(0, -40);
+    await liveStep("conversation");
+    await page.getByText("30 new messages", { exact: false }).waitFor();
+    assert.equal(await page.locator(".chat-message").count(), 63);
+    await page.mouse.wheel(0, 100000);
+    await page.waitForFunction(
+      () => document.querySelectorAll(".chat-message").length === 93,
+    );
+    await page.waitForFunction(
+      () =>
+        document.documentElement.scrollHeight - window.scrollY - innerHeight <
+        4,
+    );
+    assert.equal(
+      await page
+        .locator("#message-92")
+        .evaluate((el) => getComputedStyle(el).animationName),
+      "none",
+    );
+    await page.emulateMedia({ reducedMotion: "no-preference" });
     await liveStep("finish");
     await page
       .getByRole("link", { name: "Compare results", exact: false })

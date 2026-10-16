@@ -501,3 +501,22 @@ artifact path. A missing validation or fight result is pending, not a failure.
 Round 2 tournament and reference evaluation fights wait until both preparation
 branches have finished, so a submitted branch can temporarily show only its
 Round 1 fights while another branch is still working.
+
+Conversation live mode appends new messages with a brief arrival animation and
+smoothly follows them when you are at the bottom of the current conversation.
+Existing message nodes stay in place. Scrolling up, inspecting an earlier page or
+opening a record pauses following so the text you are reading stays put. A new
+message indicator and Follow latest button let you catch up; returning to the
+bottom resumes following when inspecting the live tail. Reduced-motion settings
+disable the animation and smooth scrolling. The live view retains at most 200
+message cards; earlier records remain available through Previous and the journal.
+Each assistant response has its own recorded reasoning blocks, when the provider
+returns them, followed by its tool requests and their receipts.
+
+File tools show the requested path. A read identifies the character range actually
+sent to the model, whether more text remains, and its next offset. Expand the
+excerpt to read that content without the JSON envelope. A write shows a diff and
+the full submitted text, reconstructed from that exact request, including older
+runs whose receipt contains only a hash. Rejected writes are identified and do
+not become the baseline for later diffs. If the preceding content was never
+recorded, the interface says so instead of claiming an exact before/after edit.

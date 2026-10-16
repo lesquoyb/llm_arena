@@ -75,7 +75,8 @@ class APIProvider:
                 native = item["native"]
                 messages.append(native if m["provider"] == "anthropic" else
                                 {k: v for k, v in native.items()
-                                 if k in {"role", "content", "tool_calls", "refusal", "audio", "function_call"}})
+                                 if k in ({"role", "content", "tool_calls", "refusal", "audio", "function_call"}
+                                          | ({"reasoning_content", "reasoning"} if m["provider"] == "openai-compatible" else set()))})
             elif item["role"] == "tool":
                 content = json.dumps(item["result"], ensure_ascii=False)
                 if m["provider"] == "anthropic":
