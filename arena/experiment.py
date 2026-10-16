@@ -503,8 +503,10 @@ def status(out: Path) -> dict:
     return {"sessions": states}
 
 
-def run(config: dict, out: Path, resume=False, interrupt=None, prepare_only=False) -> dict:
+def run(config: dict, out: Path, resume=False, interrupt=None, prepare_only=False, retry_session=None) -> dict:
     validate_config(config)
+    if retry_session and not resume:
+        raise ArenaError("Retry requires an existing experiment")
     out = out.resolve()
     engine = Engine()
     docs = ROOT / "docs"
@@ -551,6 +553,10 @@ def run(config: dict, out: Path, resume=False, interrupt=None, prepare_only=Fals
                 journal.db.commit()
             if resume:
                 journal.verify()
+            if retry_session:
+                from .retries import prepare_retry
+                prepare_retry(journal, retry_session, config)
+            allow_extend = any(s.get('retry_count') for s in journal.states().values())
             if prepare_only:
                 for model in config["models"]:
                     for replicate in range(config["replicates"]):
@@ -562,7 +568,8 @@ def run(config: dict, out: Path, resume=False, interrupt=None, prepare_only=Fals
             for model in config["models"]:
                 for replicate in range(config["replicates"]):
                     sid = f"{model['id']}-r{replicate}"
-                    run_session(sid, model, config, out, journal, engine, interrupt)
+                    if not retry_session or sid == retry_session:
+                        run_session(sid, model, config, out, journal, engine, interrupt)
             states = {sid: state for sid, state in journal.states().items() if state.get("generation", 0) == 0}
             assessments = {}
             for sid, state in states.items():
@@ -590,7 +597,7 @@ def run(config: dict, out: Path, resume=False, interrupt=None, prepare_only=Fals
                 manifest = {"name": config["name"], "seeds": config["seeds"],
                             "scenario": config["scenario"], "include_mirrors": config["include_mirrors"],
                             "strategies": entrants}
-                tournament = run_tournament(engine, manifest, out / "tournament", (out / "tournament").exists())
+                tournament = run_tournament(engine, manifest, out / "tournament", (out / "tournament").exists(), allow_extend=allow_extend)
             simulated = all(m["provider"] == "mock" for m in config["models"])
             summary = {"simulated": simulated, "generation": 0, "sessions": len(states),
                        "with_submission": len(entrants),
@@ -617,7 +624,7 @@ def run(config: dict, out: Path, resume=False, interrupt=None, prepare_only=Fals
                        "unresolved_sessions": [sid for sid,s in states.items() if s["status"] == "needs_reconciliation"]}
             if config.get("generations", 1) == 2:
                 from .evolution import run_evolution
-                summary["evolution"] = run_evolution(config, out, journal, engine, entrants, interrupt)
+                summary["evolution"] = run_evolution(config, out, journal, engine, entrants, interrupt, retry_session=retry_session, allow_extend=allow_extend)
                 summary["generation"] = 1
                 summary["sessions"] = len(journal.states())
                 summary["cost_usd"] = summary["evolution"]["cost_usd"]

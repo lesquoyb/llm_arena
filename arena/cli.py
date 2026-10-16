@@ -47,6 +47,9 @@ def parser():
         action.add_argument("config", type=Path)
         if name in {"run", "init"}:
             action.add_argument("--out", type=Path, required=True)
+    action = actions.add_parser("retry", help="Continue one failed conversation, retaining completed submissions and matches")
+    action.add_argument("directory", type=Path)
+    action.add_argument("--session", required=True)
     for name in ("resume", "status", "report"):
         action = actions.add_parser(name)
         action.add_argument("directory", type=Path)
@@ -83,9 +86,10 @@ def main(argv=None):
             if args.action in {"plan", "run", "init"}:
                 config = load_config(args.config.absolute())
                 result = plan(config) if args.action == "plan" else run(config, args.out.absolute(), prepare_only=args.action == "init")
-            elif args.action == "resume":
+            elif args.action in {"resume", "retry"}:
                 directory = args.directory.absolute()
-                result = run(read_json(directory / "experiment.json")["config"], directory, resume=True)
+                result = run(read_json(directory / "experiment.json")["config"], directory, resume=True,
+                             retry_session=args.session if args.action == "retry" else None)
             elif args.action == "status":
                 result = status(args.directory.absolute())
             elif args.action == "export":

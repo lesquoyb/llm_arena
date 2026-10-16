@@ -45,7 +45,8 @@ def main():
             journal.save("mock-repair-r1", {**base, "replicate":1,
                 "history":[{"role":"user","content":"Second repair conversation"}]},
                 "session_created", {"test":"repair repetition"})
-            journal.save("mock-single-r0", {**base, "model":"mock-single",
+            journal.save("mock-single-r0", {**base, "model":"mock-single", "status":"provider_unavailable",
+                "failure":{"message":"Provider HTTP 429","phase":"provider request","retryable":True},
                 "history":[{"role":"user","content":"Single model conversation"}]},
                 "session_created", {"test":"single model"})
         finally:

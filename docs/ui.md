@@ -418,3 +418,27 @@ The Journal also lets you select a model across all its conversations, or select
 pagination and show their model and conversation; **Open conversation** returns
 to the corresponding thread. Model/session filters are kept in the URL for
 refresh, navigation and links, and changing a filter resets pagination.
+
+## Retry one failed conversation
+
+**Retry conversation** is available in the session list and beside the selected
+conversation when it stopped without a frozen submission. It continues that
+thread's saved history and files. Other models are not called again. Their
+submissions, API usage and completed match artifacts remain unchanged. If an
+initial strategy is recovered, its previously skipped improvement branches are
+created from the recovered submission. New matches involving recovered entrants
+are added to the existing tournament; old schedules are retained under history/.
+
+A retry does not reset usage counters or extend budgets. API calls still require
+the normal launch confirmation, for the selected model only. Unknown remote
+outcomes or reserved billing must be reconciled first. Submitted strategies
+(including invalid ones) cannot be replaced through retry after evaluation.
+An exported archive is read-only. As with resume, the frozen configuration,
+runner, engine, prompts and documentation must match the recorded experiment;
+retry does not bypass provenance checks after an incompatible project update.
+
+CLI: `python -m arena experiment retry runs/<competition> --session <session-id>`.
+The journal records retry requests, prior checkpoint hashes and attempt counts.
+
+Recovery keeps already produced feedback and improvement branches as they were;
+it does not regenerate another model's history to include newly available results.

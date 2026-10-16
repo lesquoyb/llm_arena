@@ -36,7 +36,7 @@ class Jobs:
     def _save(self):
         write_json(self.path, self.rows)
 
-    def launch(self, *, draft_id=None, run_id=None, confirm_paid=False, ceiling=None):
+    def launch(self, *, draft_id=None, run_id=None, confirm_paid=False, ceiling=None, retry_session=None):
         with self.lock:
             if (draft_id is None) == (run_id is None):
                 raise ArenaError("Choose a configuration or a competition to resume")
@@ -53,14 +53,27 @@ class Jobs:
                 run_id = time.strftime("%Y%m%d-%H%M%S", time.gmtime()) + "-" + uuid4().hex[:8]
                 out = self.store.runs / run_id
             validate_config(config)
-            paid = any(m["provider"] != "mock" for m in config["models"])
+            requested_models = config['models']
+            if retry_session is not None:
+                if draft_id is not None or not isinstance(retry_session, str):
+                    raise ArenaError('Retry requires an existing conversation')
+                from arena.retries import retry_reason
+                state = self.store.session(run_id, retry_session)
+                parent = self.store.session(run_id, state['parent']) if state.get('parent') else None
+                reason = retry_reason(state, config['budget_per_session'], parent)
+                if reason:
+                    raise ArenaError(reason)
+                requested_models = [m for m in requested_models if m['id'] == state['model']]
+                if not requested_models:
+                    raise ArenaError('Conversation model is absent from the frozen configuration')
+            paid = any(m["provider"] != "mock" for m in requested_models)
             configured_ceiling = config["spending"].get("max_total_usd")
             ceiling_matches = ((ceiling is None and configured_ceiling is None) or
                                (ceiling is not None and configured_ceiling is not None and amount(ceiling) == amount(configured_ceiling)))
             if paid and (confirm_paid is not True or not ceiling_matches):
                 raise ArenaError("Confirm the spending limit before making API calls")
             env = dict(os.environ)
-            for model in config["models"]:
+            for model in requested_models:
                 if model["provider"] == "mock":
                     continue
                 name = model["api_key_env"]
@@ -82,14 +95,15 @@ class Jobs:
                 write_json(manifest, config)
                 args = ["experiment", "run", str(manifest), "--out", str(out)]
             else:
-                args = ["experiment", "resume", str(out)]
+                args = (["experiment", "retry", str(out), "--session", retry_session] if retry_session
+                        else ["experiment", "resume", str(out)])
             env["PYTHONUTF8"] = "1"
             env["ARENA_PROJECT_ROOT"] = str(ROOT)
             env["ARENA_STATE_ROOT"] = str(Path(engine.metadata["classes"]).parent)
             options = {"start_new_session": True} if os.name == "posix" else {
                 "creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
             row = {"id": identifier, "run": run_id, "name": config["name"], "started_at": time.time(),
-                   "status": "running", "resumed": draft_id is None, "config_sha256": digest(config),
+                   "status": "running", "resumed": draft_id is None, "retry_session": retry_session, "config_sha256": digest(config),
                    "log": identifier + ".log"}
             with (logs / row["log"]).open("wb") as log:
                 self.process = subprocess.Popen([sys.executable, "-m", "arena_web.worker", *args], cwd=ROOT,

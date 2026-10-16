@@ -219,10 +219,13 @@ class Store:
         sessions = []
         keys = ("model", "replicate", "generation", "condition", "parent", "parent_checkpoint_sha256",
                 "status", "validity", "calls", "steps", "test_matches", "wall_seconds", "cost_spent",
-                "money_reserved", "token_usage_known", "input_tokens", "output_tokens", "submission")
-        for sid, state in self.states(root, keys).items():
+                "money_reserved", "token_usage_known", "input_tokens", "output_tokens", "submission", "in_flight", "retry_count")
+        from arena.retries import retry_reason
+        states = self.states(root, keys)
+        for sid, state in states.items():
+            reason = 'Exported archives are read-only' if (root / 'export.json').exists() else retry_reason(state, metadata.get('config', {}).get('budget_per_session'), states.get(state.get('parent')))
             sessions.append({"id": sid, **{k: state[k] for k in keys if k in state},
-                             "messages": state["messages"]})
+                             "messages": state["messages"], "retry_allowed": reason is None, "retry_reason": reason})
         return {"id": identifier, "metadata": metadata, "report": self.json(root / "report.json", {}),
                 "analysis": self.json(root / "analysis.json"), "sessions": sessions,
                 "g0": self.json(root / "tournament/report.json"),

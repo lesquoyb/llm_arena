@@ -147,7 +147,7 @@ class Application:
             return plan(validate_config(data["config"]))
         if route == "/api/launch":
             return self.jobs.launch(draft_id=data.get("draft_id"), run_id=data.get("run"),
-                                    confirm_paid=data.get("confirm_paid", False), ceiling=data.get("ceiling"))
+                                    confirm_paid=data.get("confirm_paid", False), ceiling=data.get("ceiling"), retry_session=data.get("retry_session"))
         if route == "/api/stop":
             return self.jobs.stop(data["id"])
         if route == "/api/aggregate":

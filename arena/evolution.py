@@ -77,7 +77,7 @@ def references(engine, config, out, journal, entrants, label, panel):
     return results
 
 
-def run_evolution(config, out, journal, engine, initial, interrupt=None):
+def run_evolution(config, out, journal, engine, initial, interrupt=None, retry_session=None, allow_extend=False):
     from .experiment import run_session, PROMPT
     from .analysis import analyze_evolution
     models = {m["id"]: m for m in config["models"]}
@@ -89,7 +89,11 @@ def run_evolution(config, out, journal, engine, initial, interrupt=None):
             continue
         for condition in config["improvement_conditions"]:
             sid = parent["id"] + "-g1-" + condition
-            if journal.state(sid) is None:
+            permitted = not retry_session or sid == retry_session or sid.startswith(retry_session + '-g1-')
+            existing = journal.state(sid)
+            if existing is None or existing.get('retry_parent_refresh'):
+                if not permitted:
+                    continue
                 state = copy.deepcopy(parent_state)
                 state.update(generation=1, condition=condition, parent=parent["id"],
                              parent_checkpoint_sha256=digest(parent_state), status="running",
@@ -101,6 +105,8 @@ def run_evolution(config, out, journal, engine, initial, interrupt=None):
                 state.pop("assessment_sha256", None)
                 state.pop("validity", None)
                 state.pop("failure", None)
+                state.pop("retry_parent_refresh", None)
+                state.pop("retry_count", None)
                 prompt_path = ROOT / "prompts" / ("feedback.md" if condition == "feedback" else "control.md")
                 message = {"role": "user", "content": prompt_path.read_text(encoding="utf-8"), "generation": 1,
                            "condition": condition, "budgets": config["budget_per_session"]}
@@ -112,7 +118,8 @@ def run_evolution(config, out, journal, engine, initial, interrupt=None):
                 journal.save(sid, state, "branch_created", {"parent": parent["id"],
                                                           "checkpoint_sha256": state["parent_checkpoint_sha256"],
                                                           "condition": condition})
-            run_session(sid, models[parent_state["model"]], config, out, journal, engine, interrupt)
+            if permitted:
+                run_session(sid, models[parent_state["model"]], config, out, journal, engine, interrupt)
             state = journal.state(sid)
             if "submission" in state:
                 directory = out / "sessions" / sid
@@ -147,7 +154,7 @@ def run_evolution(config, out, journal, engine, initial, interrupt=None):
         manifest = {"name": config["name"] + "-G1", "seeds": config["final_seeds"], "scenario": config["scenario"],
                     "include_mirrors": config["include_mirrors"],
                     "strategies": [{**s, "path": str(s["path"])} for s in branches]}
-        contemporaries = run_tournament(engine, manifest, out / "g1-tournament", (out / "g1-tournament").exists())
+        contemporaries = run_tournament(engine, manifest, out / "g1-tournament", (out / "g1-tournament").exists(), allow_extend=allow_extend)
     panel = [dict(s, path=s["path"]) for s in initial]
     for name in ("rush", "single-shot", "passive"):
         source = ROOT / "examples/strategies" / name

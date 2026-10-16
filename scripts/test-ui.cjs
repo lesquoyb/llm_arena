@@ -1130,6 +1130,23 @@ async function main() {
     );
     assert.equal(await page.locator("#session-choice option").count(), 1);
     await page
+      .getByRole("button", { name: "Retry conversation", exact: true })
+      .click();
+    await page
+      .getByRole("dialog")
+      .getByRole("heading", { name: "Retry conversation", exact: true })
+      .waitFor();
+    assert(
+      (await page.getByRole("dialog").innerText()).includes(
+        "Other models' submissions and completed matches are kept",
+      ),
+    );
+    assert.equal(
+      await page.getByRole("dialog").locator('[name="confirm_paid"]').count(),
+      0,
+    );
+    await page.getByRole("button", { name: "Cancel", exact: true }).click();
+    await page
       .getByRole("button", { name: "Conversation journal", exact: true })
       .click();
     await page.locator("#event-session").waitFor();

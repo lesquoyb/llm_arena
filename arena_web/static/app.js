@@ -1225,6 +1225,29 @@ async function launchDialog(draftId = null, runId = null) {
     `<form data-form="launch">${planMarkup(p)}${p.simulated ? notice("Mock participants, real matches. No LLM calls or API charges.") : notice("Calls use the configured keys and prices. Calculated costs are not confirmed provider bills.", "warn")}<div>${config.models.map((m) => `<div class="info-row"><span>${e(m.id)}${m.provider !== "mock" ? `<small>${e(m.endpoint || (m.provider === "anthropic" ? "https://api.anthropic.com/v1/messages" : m.provider === "gemini" ? "https://generativelanguage.googleapis.com/v1beta" : "https://api.openai.com/v1/chat/completions"))}<br>Key: ${e(m.api_key_env)}</small>` : ""}</span><strong>${e(m.model || m.profile)}${m.provider !== "mock" ? `<small>Seed: ${m.parameters?.seed ?? (m.provider === "anthropic" ? "not available" : "not set")}</small>` : ""}</strong></div>`).join("")}</div>${!p.simulated ? `<label class="check" style="margin-top:20px"><input type="checkbox" name="confirm_paid" required>I authorize API calls ${config.spending.max_total_usd == null ? "without an arena spending limit" : "with a configured total spending limit of " + money(config.spending.max_total_usd)}.</label>` : ""}<div class="form-footer">${btn("Cancel", "close-dialog")}<button type="submit" class="button primary">${runId ? "Resume" : "Start competition"}</button></div></form>`,
   );
 }
+function retryButton(session) {
+  return session?.retry_allowed && !S.detail.archived
+    ? btn(
+        "Retry conversation",
+        "retry-session",
+        `data-session="${e(session.id)}"`,
+      )
+    : "";
+}
+function retryDialog(sid) {
+  const session = S.detail.sessions.find((s) => s.id === sid),
+    config = S.detail.metadata.config;
+  if (!session?.retry_allowed)
+    throw new Error(session?.retry_reason || "Conversation cannot be retried");
+  const model = config.models.find((m) => m.id === session.model),
+    paid = model.provider !== "mock";
+  S.launch = { draftId: null, runId: S.run, config, retrySession: sid };
+  openDialog(
+    "Retry conversation",
+    sid,
+    `<form data-form="launch"><p>Continue this conversation from its saved files and history. Other models' submissions and completed matches are kept.</p><p>Usage counters and configured limits are preserved. If this recovers an initial strategy, its previously unavailable improvement branches can also run.</p><div class="info-row"><span>Model</span><strong>${e(model.id)} · ${e(model.model || model.profile)}</strong></div><div class="info-row"><span>Previous usage</span><strong>${session.calls} model calls · ${session.steps} tool calls</strong></div>${paid ? `<label class="check"><input type="checkbox" name="confirm_paid" required>I authorize API calls for this model${config.spending.max_total_usd == null ? " without an arena spending limit" : " within the existing competition limit of " + money(config.spending.max_total_usd)}.</label>` : ""}<div class="form-footer">${btn("Cancel", "close-dialog")}<button type="submit" class="button primary">Retry conversation</button></div></form>`,
+  );
+}
 const TABS = [
   ["summary", "Summary"],
   ["conversation", "Conversations"],
@@ -1287,7 +1310,7 @@ function sessionChooser(d) {
     S.session = sessions[0]?.id || null;
     S.offset = 0;
   }
-  return `<div class="toolbar">${modelPicker(d)}<label for="session-choice">Conversation</label><select id="session-choice" ${sessions.length ? "" : "disabled"}>${sessions.map((s) => `<option value="${e(s.id)}" ${s.id === S.session ? "selected" : ""}>${e(sessionLabel(s))}</option>`).join("") || "<option>No conversations yet</option>"}</select>${S.session ? btn("Conversation journal", "conversation-journal") : ""}<span class="spacer"></span><label class="check"><input id="follow-live" type="checkbox" ${S.follow ? "checked" : ""}>Follow live</label></div>`;
+  return `<div class="toolbar">${modelPicker(d)}<label for="session-choice">Conversation</label><select id="session-choice" ${sessions.length ? "" : "disabled"}>${sessions.map((s) => `<option value="${e(s.id)}" ${s.id === S.session ? "selected" : ""}>${e(sessionLabel(s))}</option>`).join("") || "<option>No conversations yet</option>"}</select>${S.session ? btn("Conversation journal", "conversation-journal") : ""}${retryButton(d.sessions.find((s) => s.id === S.session))}<span class="spacer"></span><label class="check"><input id="follow-live" type="checkbox" ${S.follow ? "checked" : ""}>Follow live</label></div>`;
 }
 async function renderRun(epoch) {
   const d = S.detail;
@@ -1453,7 +1476,7 @@ function summary(d, statistics = null) {
             ],
             d.sessions.map(
               (s) =>
-                `<tr><td><strong>${e(s.id)}</strong><small>${s.messages} messages</small></td><td>${generationLabel(s.generation || 0)} · ${text(s.condition)}</td><td>${status(s.status)} ${s.validity ? status(s.validity) : ""}</td><td>${s.calls} / ${s.steps}</td><td>${s.test_matches} matches</td><td>${fmt(s.wall_seconds, 1)} s</td><td>${btn("Explore", "session-conversation", `data-session="${e(s.id)}"`)}</td></tr>`,
+                `<tr><td><strong>${e(s.id)}</strong><small>${s.messages} messages</small></td><td>${generationLabel(s.generation || 0)} · ${text(s.condition)}</td><td>${status(s.status)} ${s.validity ? status(s.validity) : ""}</td><td>${s.calls} / ${s.steps}</td><td>${s.test_matches} matches</td><td>${fmt(s.wall_seconds, 1)} s</td><td>${btn("Explore", "session-conversation", `data-session="${e(s.id)}"`)}${retryButton(s)}</td></tr>`,
             ),
           )
         : empty(
@@ -2240,6 +2263,7 @@ document.addEventListener("click", async (event) => {
       toast("Configuration imported. Review before saving.");
     } else if (a === "launch") await launchDialog(node.dataset.id);
     else if (a === "resume") await launchDialog(null, S.run);
+    else if (a === "retry-session") retryDialog(node.dataset.session);
     else if (a === "open-run") navigate("run", { run: node.dataset.run });
     else if (a === "tab")
       navigate("run", {
@@ -2414,6 +2438,7 @@ document.addEventListener("submit", async (event) => {
         {
           draft_id: launch.draftId,
           run: launch.runId,
+          retry_session: launch.retrySession,
           confirm_paid: f.has("confirm_paid"),
           ceiling: launch.config.spending.max_total_usd,
         },
@@ -2421,8 +2446,17 @@ document.addEventListener("submit", async (event) => {
       );
       $("#dialog").close();
       await refreshBoot();
-      navigate("run", { run: job.run });
-      toast("Competition started.");
+      navigate("run", {
+        run: job.run,
+        ...(launch.retrySession
+          ? { tab: "conversation", session: launch.retrySession }
+          : {}),
+      });
+      toast(
+        launch.retrySession
+          ? "Retry started. Other submissions are preserved."
+          : "Competition started.",
+      );
     }
   } catch (error) {
     showError(error);
