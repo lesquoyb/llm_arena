@@ -26,17 +26,23 @@ def local_path(root: Path, name: str) -> Path:
 
 
 class Preparation:
-    def __init__(self, directory: Path, docs: Path, engine, scenario: dict):
+    def __init__(self, directory: Path, docs: Path, engine, scenario: dict, feedback=None):
         self.directory, self.docs = directory, docs
         self.workspace = directory / "workspace"
         self.workspace.mkdir(parents=True, exist_ok=True)
         self.engine, self.scenario = engine, scenario
+        self.feedback = feedback
 
     def call(self, name: str, arguments: dict, call_id: str) -> dict:
         if not re.fullmatch(r"call-[0-9]+-tool-[0-9]+", call_id) and call_id not in {"final"} and not call_id.isdigit():
             raise ArenaError("Invalid internal call ID")
         if not isinstance(arguments, dict):
             raise ArenaError("Tool arguments must be an object")
+        from .feedback import FEEDBACK_NAMES
+        if name in FEEDBACK_NAMES:
+            if self.feedback is None:
+                raise ArenaError("Past tournament fights are forbidden without feedback access")
+            return self.feedback.call(name, arguments)
         entry = arguments.get("entrypoint", "main.leek")
         if name == "list_files":
             self._fields(arguments, set())

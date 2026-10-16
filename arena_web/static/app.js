@@ -310,6 +310,7 @@ function route() {
   S.session = q.get("session");
   S.modelFilter = q.get("model");
   S.offset = Number(q.get("offset") || 0);
+  S.explicitOffset = q.has("offset");
   S.matchFilters = Object.fromEntries(
     [
       "kind",
@@ -1404,12 +1405,25 @@ async function renderRun(epoch) {
         "This tournament received .leek files directly and made no generation requests. Mock participants in the demo do have recorded conversations.",
       );
     else if (S.tab === "conversation") {
-      const data = await api("/api/conversation", {
+      let data = await api("/api/conversation", {
         run: S.run,
         session: S.session,
         model: S.modelFilter,
         offset: S.offset,
       });
+      if (
+        !S.explicitOffset &&
+        S.offset === 0 &&
+        data.generation > 0 &&
+        data.instruction_index > 0
+      ) {
+        S.offset = data.instruction_index;
+        data = await api("/api/conversation", {
+          run: S.run,
+          session: S.session,
+          offset: S.offset,
+        });
+      }
       body = chooser + conversation(data);
     } else {
       S.versions = await api("/api/versions", {
@@ -1857,6 +1871,16 @@ function conversationData(value, title) {
   const index = conversationValues.push(value) - 1;
   return `<details class="conversation-data" data-conversation-value="${index}"><summary>${e(title)}</summary><pre></pre></details>`;
 }
+function feedbackView(value) {
+  if (!Array.isArray(value?.matches)) return "";
+  return `<section class="game-brief"><strong>Tournament feedback supplied to the model</strong><p>Results are from this strategy's perspective. Opponents are anonymous. This historical run contains ${value.matches.length} match summaries${value.truncated ? " (truncated)" : ""}.</p>${table(
+    ["Opponent", "Result", "Turns", "Operations", "Errors"],
+    value.matches.map(
+      (m) =>
+        `<tr><td>${e(m.opponent)}</td><td>${e(m.status && m.status !== "completed" ? text(m.status) : m.winner === "self" ? "Win" : m.winner === "draw" ? "Draw" : "Loss")}</td><td>${fmt(m.turns)}</td><td>${fmt(m.operations)}</td><td>${fmt(m.errors)}</td></tr>`,
+    ),
+  )}</section>`;
+}
 function conversation(data) {
   conversationValues = [];
   const failure = data.failure;
@@ -1866,6 +1890,9 @@ function conversation(data) {
           `<strong>${e(text(data.status))}</strong><p>${e(failure.message)}</p><small>${e(failure.phase)} · ${date(failure.at)}${failure.retryable ? " · Retryable API error" : ""}${failure.uncertain ? " · Check billing before resuming" : ""}</small>`,
           "error",
         )
+      : "") +
+    (data.generation > 0
+      ? `<div class="toolbar">${badge("Round 2 · " + text(data.condition), "blue")}${btn("Round 2 instruction", "conversation-page", `data-offset="${data.instruction_index}"`)}${btn("Initial history", "conversation-page", 'data-offset="0"')}</div>`
       : "") +
     `<div class="pager"><span>${fmt(data.total)} messages · ${status(data.status)}</span><div class="actions">${btn("← Previous", "conversation-page", `data-offset="${Math.max(0, S.offset - 25)}" ${S.offset === 0 ? "disabled" : ""}`)}<span>${data.total ? S.offset + 1 : 0}-${Math.min(data.total, S.offset + 25)}</span>${btn("Next →", "conversation-page", `data-offset="${S.offset + 25}" ${S.offset + 25 >= data.total ? "disabled" : ""}`)}</div></div>` +
     data.messages
@@ -1892,7 +1919,7 @@ function conversation(data) {
                     : m.content || "";
         const direction =
           m.role === "user"
-            ? "Arena → Model"
+            ? `Arena → Model · ${generationLabel(m.generation ?? (absolute >= data.instruction_index ? data.generation : 0))}${m.condition ? " · " + text(m.condition) : ""}`
             : m.role === "tool"
               ? `Tool → Model · ${m.name}`
               : `${data.model || "Model"} → Arena`;
@@ -1906,7 +1933,7 @@ function conversation(data) {
           )
           .join("");
         const snippet = String(content || "").slice(0, 1800);
-        return `<article class="chat-message ${e(m.role)} ${resultError ? "tool-error" : ""}" id="message-${absolute}"><div class="message-head"><strong>${e(direction)}${m.simulated ? " · predefined strategy" : ""}</strong><span>Message ${absolute + 1} · ${data.times?.[index] ? date(data.times[index]) : "Time not recorded"}</span></div>${display.reply_to != null ? `<p class="message-reply">Result of tool request in message ${display.reply_to + 1}${display.reply_to >= S.offset && display.reply_to < S.offset + 25 ? ` · <a href="#message-${display.reply_to}" data-action="message-anchor" data-index="${display.reply_to}">Go to request</a>` : ""}${m.call_id ? " · " + e(m.call_id) : ""}</p>` : ""}${resultError ? badge("Tool error", "red") : ""}${snippet ? `<div class="message-content">${e(snippet)}${content.length > 1800 ? "\n[Preview truncated; open the full record below.]" : ""}</div>` : m.role === "assistant" && calls ? '<p class="muted">The model requested tools without a text response.</p>' : ""}${m.briefing ? `<div class="game-brief"><strong>Game briefing sent to the model</strong><p>${e(m.briefing.game)}</p><p>${e(m.briefing.objective)}</p><p>${e(m.briefing.team_mode)}</p></div>` : ""}${calls}${m.role === "user" ? conversationData(Object.fromEntries(Object.entries(m).filter(([key]) => !["role", "content", "request_recorded", "request_seed"].includes(key))), "Scenario, roster, ID guide and preparation rules sent to the model") : ""}${m.usage ? `<small>Input ${fmt(m.usage.input_tokens)} · Output ${fmt(m.usage.output_tokens)} · Cost ${money(m.cost_usd)} · Response took ${fmt(m.elapsed_seconds, 3)} s</small>` : ""}${m.request_recorded ? `<p class="muted">Sent seed: ${e(m.request_seed ?? "not set")}${m.stop_reason ? " · Stop reason: " + e(m.stop_reason) : ""}</p>` : ""}<details data-message-record="${absolute}" data-record-run="${e(S.run)}" data-record-session="${e(S.session)}"><summary>Full record: exact request, native response and metadata</summary><pre></pre></details></article>`;
+        return `${data.generation > 0 && absolute === data.instruction_index ? `<div class="notice"><strong>Round 2 starts here · ${e(text(data.condition))}</strong></div>` : ""}<article class="chat-message ${e(m.role)} ${resultError ? "tool-error" : ""}" id="message-${absolute}"><div class="message-head"><strong>${e(direction)}${m.simulated ? " · predefined strategy" : ""}</strong><span>Message ${absolute + 1} · ${data.times?.[index] ? date(data.times[index]) : "Time not recorded"}</span></div>${display.reply_to != null ? `<p class="message-reply">Result of tool request in message ${display.reply_to + 1}${display.reply_to >= S.offset && display.reply_to < S.offset + 25 ? ` · <a href="#message-${display.reply_to}" data-action="message-anchor" data-index="${display.reply_to}">Go to request</a>` : ""}${m.call_id ? " · " + e(m.call_id) : ""}</p>` : ""}${resultError ? badge("Tool error", "red") : ""}${snippet ? `<div class="message-content">${e(snippet)}${content.length > 1800 ? "\n[Preview truncated; open the full record below.]" : ""}</div>` : m.role === "assistant" && calls ? '<p class="muted">The model requested tools without a text response.</p>' : ""}${m.briefing ? `<div class="game-brief"><strong>Game briefing sent to the model</strong><p>${e(m.briefing.game)}</p><p>${e(m.briefing.objective)}</p><p>${e(m.briefing.team_mode)}</p></div>` : ""}${m.role === "user" ? feedbackView(m.feedback) : ""}${calls}${m.role === "user" ? conversationData(Object.fromEntries(Object.entries(m).filter(([key]) => !["role", "content", "request_recorded", "request_seed"].includes(key))), m.generation ? "Full improvement instruction and supplied feedback" : "Scenario, roster, ID guide and preparation rules sent to the model") : ""}${m.usage ? `<small>Input ${fmt(m.usage.input_tokens)} · Output ${fmt(m.usage.output_tokens)} · Cost ${money(m.cost_usd)} · Response took ${fmt(m.elapsed_seconds, 3)} s</small>` : ""}${m.request_recorded ? `<p class="muted">Sent seed: ${e(m.request_seed ?? "not set")}${m.stop_reason ? " · Stop reason: " + e(m.stop_reason) : ""}</p>` : ""}<details data-message-record="${absolute}" data-record-run="${e(S.run)}" data-record-session="${e(S.session)}"><summary>Full record: exact request, native response and metadata</summary><pre></pre></details></article>`;
       })
       .join("")
   );

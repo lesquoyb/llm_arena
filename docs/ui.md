@@ -214,6 +214,14 @@ source attribution. Missing values stay `N/A`. Old replay damage can include
 overkill. Historical operation totals may assign summons to their summoner;
 new per-entity telemetry separates them.
 
+## Feedback conversations
+
+Round 2 conversations open at the new Arena instruction, after the inherited Round 1 history. Use **Initial history** to review the earlier messages and **Round 2 instruction** to return. Older runs' structured feedback is rendered as a visible table rather than only inside the raw record. Recorded requests remain unchanged.
+
+With feedback, the instruction includes a plain English Round 1 result summary. `list_past_fights` lists that participant's non-mirror Round 1 tournament fights. `read_past_fight` provides an explained overview, chronological public actions, own per-turn metrics and own debug/error logs, with pagination. No 16-fight or four-action cap applies. Opponent code, opponent debug logs, other participants' unrelated fights, later rounds and final reference tests are unavailable.
+
+Initial and without-feedback sessions cannot call these tools, even by guessing their names or IDs. The shared tool service enforces the permission for both native provider calls and MCP; it also omits unavailable tools from discovery. Both branches retain their standard preparation tools (`analyze`, `test`, `read_replay`). Old runs keep the feedback they originally received; the expanded tools apply to new compatible runs.
+
 ## Scores and comparisons
 
 The initial strategy produces two improvements: **Improved without feedback**

@@ -14,7 +14,6 @@ from .engine import Engine
 from .preparation import Preparation
 from .providers import MockProvider, PROFILES
 from .api_providers import APIProvider, ProviderFailure
-from .tool_schemas import TOOLS
 from .usage import amount, reservation
 from .tournament import run_tournament
 
@@ -260,6 +259,8 @@ def _finish(sid, state, tools, journal, reason):
 
 
 def provider_response(sid, state, model, config, journal):
+    from .feedback import available_tools
+    session_tools = available_tools(state)
     paid = model["provider"] != "mock"
     if state.get("in_flight") and paid:
         state["status"] = "needs_reconciliation"
@@ -268,7 +269,7 @@ def provider_response(sid, state, model, config, journal):
     if paid:
         budget = config["budget_per_session"]
         try:
-            bound = reservation(model, state["history"], TOOLS,
+            bound = reservation(model, state["history"], session_tools,
                                 (budget["max_output_tokens"] - state.get("output_tokens", 0)) if "max_output_tokens" in budget else None)
         except ArenaError:
             state["status"] = "budget_exhausted"
@@ -298,13 +299,13 @@ def provider_response(sid, state, model, config, journal):
     state["in_flight"] = True
     from .api_providers import request_snapshot
     output_limit = bound["output_bound"] if paid else model.get("max_output_tokens")
-    request = request_snapshot(model, state["history"], TOOLS, output_limit)
+    request = request_snapshot(model, state["history"], session_tools, output_limit)
     journal.save(sid, state, "model_intent", {"model": model, "reservation": bound, "request": request})
     provider = APIProvider(model) if paid else MockProvider(model["profile"])
     started = time.monotonic()
     try:
-        response = (provider.respond(state["history"], TOOLS, bound["output_bound"]) if paid
-                    else provider.respond(state["history"], TOOLS, output_limit))
+        response = (provider.respond(state["history"], session_tools, bound["output_bound"]) if paid
+                    else provider.respond(state["history"], session_tools, output_limit))
     except ProviderFailure as error:
         state["status"] = "needs_reconciliation" if error.uncertain else "provider_unavailable"
         state["in_flight"] = error.uncertain
@@ -433,7 +434,8 @@ def verify_workspace(state, tools):
 def run_session(sid, model, config, out, journal, engine, interrupt=None):
     state = journal.state(sid) or initial_state(sid, model, config)
     directory = out / "sessions" / sid
-    tools = Preparation(directory, out / "corpus", engine, config["scenario"])
+    from .feedback import access_for
+    tools = Preparation(directory, out / "corpus", engine, config["scenario"], feedback=access_for(out, state))
     if state["status"] in TERMINAL:
         if "submission" in state and submission(directory / "submission", state["submission"]["entrypoint"]) != state["submission"]:
             raise ArenaError("Archived session submission changed")

@@ -25,6 +25,8 @@ class MCPIntegrationTests(unittest.TestCase):
                     listing = await session.list_tools()
                     self.assertEqual(len(listing.tools), 11)
                     self.assertIn("configure_team", {tool.name for tool in listing.tools})
+                    forbidden = await session.call_tool("list_past_fights", {})
+                    self.assertIn("forbidden", json.loads(forbidden.content[0].text)["error"])
                     result = await session.call_tool("write_file", {"path": "main.leek", "content": "var a = 1"})
                     self.assertIn("sha256", json.loads(result.content[0].text))
                     result = await session.call_tool("read_file", {"path": "main.leek"})

@@ -200,7 +200,9 @@ class ProviderContractTests(unittest.TestCase):
                 response = provider_response("mock-r0",state,descriptor,config,journal)
                 sent = response["sent_parameters"]
                 self.assertEqual(sent["messages"],[prompt])
-                self.assertEqual(sent["tools"],TOOLS)
+                from arena.feedback import available_tools, FEEDBACK_NAMES
+                self.assertEqual(sent["tools"],available_tools(state))
+                self.assertFalse(FEEDBACK_NAMES & {tool['name'] for tool in sent['tools']})
                 row = journal.db.execute("SELECT payload FROM events WHERE kind='model_intent'").fetchone()
                 import json
                 ref = json.loads(row[0])

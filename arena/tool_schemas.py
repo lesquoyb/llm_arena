@@ -47,3 +47,10 @@ TOOLS.extend([
     {'name': 'validate_team', 'description': 'Read-only team validation before configure_team. Checks team size, level, capital, player item IDs, equipment level, RAM/chip slots, weapon slots, component levels, slots and alteration capacity and competition limits. Sources need not exist yet: missing entrypoints are reported separately. Returns valid=false and errors for invalid builds. Does not write team.json or submit.',
      'input_schema': team_schema},
 ])
+
+TOOLS.extend([
+    {"name": "list_past_fights", "description": "Feedback branches only: list your frozen Round 1 tournament fights with readable win/draw/loss results and your metrics. Paginated by fight count; use next_offset until null. Cannot access other participants or future/reference fights.",
+     "input_schema": schema({"offset": {"type": "integer", "minimum": 0}, "limit": {"type": "integer", "minimum": 1, "maximum": 100}})},
+    {"name": "read_past_fight", "description": "Feedback branches only: inspect an opaque fight_id from list_past_fights. overview explains fields; actions provides chronological events and entity IDs; turns provides your per-leek metrics; logs provides only your debug/error output. Text pages use character offsets; follow next_offset. Opponent code and debug output are never available.",
+     "input_schema": schema({"fight_id": TEXT, "section": {"type": "string", "enum": ["overview", "actions", "turns", "logs"]}, **PAGE}, ["fight_id"])},
+])

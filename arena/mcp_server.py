@@ -8,7 +8,7 @@ from .core import ArenaError, read_json
 from .engine import Engine
 from .experiment import Journal, experiment_lock, execute_tool, verify_workspace, _finish
 from .preparation import Preparation
-from .tool_schemas import TOOLS
+from .feedback import access_for, available_tools
 
 
 def serve(out: Path, sid: str):
@@ -24,14 +24,14 @@ def serve(out: Path, sid: str):
             state = journal.state(sid)
             if state is None or state["status"] != "running" or state.get("pending"):
                 raise ArenaError("MCP requires an initialized, open session without a pending provider response")
-            tools = Preparation(out / "sessions" / sid, out / "corpus", Engine(), config["scenario"])
+            tools = Preparation(out / "sessions" / sid, out / "corpus", Engine(), config["scenario"], feedback=access_for(out, state))
             verify_workspace(state, tools)
             server = Server("llm-arena-preparation")
             started, previous = time.monotonic(), state["wall_seconds"]
 
             @server.list_tools()
             async def list_tools():
-                return [types.Tool(name=t["name"], description=t["description"], inputSchema=t["input_schema"]) for t in TOOLS]
+                return [types.Tool(name=t["name"], description=t["description"], inputSchema=t["input_schema"]) for t in available_tools(state)]
 
             @server.call_tool(validate_input=False)
             async def call_tool(name, arguments):

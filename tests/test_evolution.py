@@ -49,6 +49,8 @@ class EvolutionIntegrationTests(unittest.TestCase):
                 self.assertEqual(control["history"][:len(states[parent]["history"])], states[parent]["history"])
                 marker = len(states[parent]["history"])
                 self.assertNotIn("feedback", control["history"][marker])
+                self.assertIn("Your Round 1 tournament results:", feedback["history"][marker]["content"])
+                self.assertIn("read_past_fight", feedback["history"][marker]["content"])
                 serialized = str(feedback["history"][marker]["feedback"])
                 self.assertNotIn("main.leek", serialized)
                 self.assertNotIn(str(out), serialized)

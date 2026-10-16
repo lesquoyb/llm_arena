@@ -829,6 +829,48 @@ async function main() {
     assert.equal(await paid.isChecked(), false);
     assert.equal(await paid.getAttribute("required"), "");
     await page.getByRole("button", { name: "Close", exact: true }).click();
+    await page.goto(
+      url +
+        "/#view=run&run=feedback-view&tab=conversation&session=mock-repair-r0-g1-feedback",
+    );
+    await page
+      .getByText("Tournament feedback supplied to the model", { exact: true })
+      .waitFor();
+    assert(
+      (await page.locator(".chat-message.user").first().innerText()).includes(
+        "Round 2 instruction: improve with feedback",
+      ),
+    );
+    assert(
+      (await page.locator(".game-brief").innerText()).includes(
+        "opponent-anonymous",
+      ),
+    );
+    assert.equal(await page.locator(".chat-message.user").count(), 1);
+    await page
+      .getByRole("button", { name: "Initial history", exact: true })
+      .click();
+    await page
+      .getByText("Original Round 1 instruction", { exact: true })
+      .waitFor();
+    await page
+      .getByRole("button", { name: "Round 2 instruction", exact: true })
+      .click();
+    await page
+      .getByText("Tournament feedback supplied to the model", { exact: true })
+      .waitFor();
+    await page
+      .getByLabel("Conversation", { exact: true })
+      .selectOption("mock-repair-r0-g1-control");
+    await page
+      .getByText("Round 2 instruction: improve with control", { exact: true })
+      .waitFor();
+    assert.equal(
+      await page
+        .getByText("Tournament feedback supplied to the model", { exact: true })
+        .count(),
+      0,
+    );
     // Matrix counts must keep the pair, stage and result perspective across side swaps.
     const matrixSummary = url + "/#view=run&run=matrix";
     const paths = async () =>

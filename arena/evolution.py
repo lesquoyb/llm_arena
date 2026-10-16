@@ -8,29 +8,8 @@ from .tournament import run_tournament
 
 
 def feedback_for(sid, tournament):
-    """Bounded whitelist; no opponent code, paths, seeds or system logs."""
-    rows = []
-    for path in sorted((tournament / "records").glob("*.json")):
-        record = read_json(path)
-        match, result = record["match"], record["result"]
-        if match["mirror"] or sid not in match["sides"]:
-            continue
-        side = match["sides"].index(sid)
-        opponent = match["sides"][1 - side]
-        metric = result.get("team_metrics", {}).get(str(side), {})
-        rows.append({"opponent": "opponent-" + digest(opponent)[:8],
-                     "status": result["status"], "winner": "draw" if result.get("winner_side") == -1
-                     else "self" if result.get("winner_side") == side else "opponent",
-                     "operations": metric.get("operations"), "errors": metric.get("errors"),
-                     "operation_limit_hits": metric.get("operation_limit_hits"),
-                     "turns": result.get("turns")})
-        if result["status"] == "completed":
-            outcome = read_json(tournament / record["directory"] / "outcome.json")
-            actions = outcome.get("fight", {}).get("actions", [])
-            rows[-1]["replay_excerpt"] = [a for a in actions if isinstance(a, list) and
-                                         all(type(v) in (int, float, bool) or v is None for v in a)][:4]
-    return {"matches": rows[:16], "truncated": len(rows) > 16,
-            "note": "Opponents may improve. Their scripts remain private."}
+    from .feedback import PastFights
+    return PastFights(tournament.parent, sid).summary()
 
 
 def references(engine, config, out, journal, entrants, label, panel):
@@ -112,6 +91,11 @@ def run_evolution(config, out, journal, engine, initial, interrupt=None, retry_s
                            "condition": condition, "budgets": config["budget_per_session"]}
                 if condition == "feedback":
                     message["feedback"] = feedback_for(parent["id"], out / "tournament")
+                    counts = message["feedback"]
+                    message["content"] += (f"\nYour Round 1 tournament results: {counts['wins']} wins, {counts['draws']} draws, "
+                                           f"{counts['losses']} losses, {counts['failures']} unscored failures across {counts['matches']} fights. "
+                                           "Use list_past_fights to choose a fight, then read_past_fight to inspect its overview, actions, "
+                                           "your per-turn metrics or your debug/error logs. These tools only expose your Round 1 fights.\n")
                     write_json(out / "feedback" / (sid + ".json"), message["feedback"])
                 state["history"].append(message)
                 copy_submission(Path(parent["path"]), out / "sessions" / sid / "workspace", parent["submission"])

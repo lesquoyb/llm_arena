@@ -308,7 +308,8 @@ class Store:
             messages.append(visible)
         return {"total": len(history), "offset": offset, "messages": messages,
                 "times": times[offset:offset + limit], "timeline": timeline[offset:offset + limit], "model": state.get("model"),
-                "status": state["status"], "failure": failure}
+                "status": state["status"], "failure": failure, "instruction_index": start,
+                "generation": state.get("generation", 0), "condition": state.get("condition", "initial")}
 
     def events(self, identifier, sid=None, offset=0, limit=100, model=None):
         root = self.run_path(identifier)

@@ -118,6 +118,20 @@ def main():
                  "panel": "all", "completed": 12} for sid, name, condition, generation in versions]
         write_json(overview / "report.json", {"simulated": True, "sessions": 9, "cost_usd": "0", "tournament": {"completed": 9},
                    "evolution": {"rows": rows, "contemporaries": {"completed": 36}}})
+        feedback_view = fixture(store, "feedback-view")
+        journal = Journal(feedback_view)
+        parent = journal.state("mock-repair-r0")
+        inherited = [{"role":"user","content":"Original Round 1 instruction","generation":0}] + [
+            {"role":"assistant","content":"Inherited preparation response " + str(i)} for i in range(30)]
+        for condition in ("control", "feedback"):
+            message = {"role":"user","content":"Round 2 instruction: improve with " + condition,
+                       "generation":1,"condition":condition}
+            if condition == "feedback":
+                message["feedback"] = {"matches":[{"opponent":"opponent-anonymous","winner":"self",
+                    "turns":12,"operations":1234,"errors":0}]}
+            journal.save("mock-repair-r0-g1-"+condition, {**parent,"generation":1,"condition":condition,
+                "parent":"mock-repair-r0","history":[*inherited,message,{"role":"assistant","content":"New branch response"}]},"branch_created")
+        journal.db.close()
         class FixtureApplication(Application):
             def post(self, route, data):
                 if route != '/api/fixture-live':
