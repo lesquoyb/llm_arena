@@ -1154,6 +1154,101 @@ async function main() {
     await page.waitForFunction(
       () => document.querySelectorAll('[data-action="event"]').length === 3,
     );
+    const liveToken = (
+      await (await page.request.get(url + "/api/bootstrap")).json()
+    ).token;
+    const liveStep = async (action) => {
+      const response = await page.request.post(url + "/api/fixture-live", {
+        headers: { "X-Arena-Token": liveToken },
+        data: { action },
+      });
+      assert(response.ok(), await response.text());
+    };
+    await liveStep("start");
+    await page.goto(url + "/?live-fixture=1#view=run&run=live&tab=matches");
+    await page.getByLabel("Live updates", { exact: true }).waitFor();
+    assert(await page.getByLabel("Live updates", { exact: true }).isChecked());
+    await liveStep("training");
+    await page.waitForFunction(() =>
+      document
+        .querySelector("#training-count")
+        ?.textContent.includes("2 preparation tests"),
+    );
+    assert.equal(await page.locator(".match-card").count(), 0);
+    await page
+      .getByLabel("Match category", { exact: true })
+      .selectOption("training");
+    await page.waitForFunction(
+      () => document.querySelectorAll(".match-card").length === 2,
+    );
+    assert(
+      (await page.locator(".match-card").first().innerText()).includes(
+        "Excluded from standings",
+      ),
+    );
+    await page.getByRole("button", { name: "Summary", exact: true }).click();
+    await page
+      .getByText("2 preparation tests recorded; excluded from standings.", {
+        exact: false,
+      })
+      .waitFor();
+    assert.equal(
+      await page
+        .getByRole("heading", { name: "Match matrix", exact: true })
+        .count(),
+      0,
+    );
+    await page.getByRole("button", { name: "Matches", exact: true }).click();
+    await page.getByLabel("Match category", { exact: true }).waitFor();
+    await liveStep("competition");
+    await page.waitForFunction(
+      () => document.querySelectorAll(".match-card").length === 1,
+    );
+    await page.getByLabel("Live updates", { exact: true }).uncheck();
+    await liveStep("competition");
+    await page.waitForTimeout(3500);
+    assert.equal(await page.locator(".match-card").count(), 1);
+    await page.getByLabel("Live updates", { exact: true }).check();
+    await page.waitForFunction(
+      () => document.querySelectorAll(".match-card").length === 2,
+    );
+    assert(
+      !/-g1-(control|feedback)|\bG[01]\b/.test(
+        await page.locator(".match-card").first().innerText(),
+      ),
+    );
+    await page.getByRole("button", { name: "Journal", exact: true }).click();
+    await page
+      .getByRole("heading", { name: "Event log", exact: true })
+      .waitFor();
+    const previousEvents = await page
+      .getByRole("button", { name: "View artifact", exact: true })
+      .count();
+    await liveStep("event");
+    await page.waitForFunction(
+      (n) => document.querySelectorAll('[data-action="event"]').length > n,
+      previousEvents,
+    );
+    await page.getByRole("button", { name: "Files", exact: true }).click();
+    await page.locator("#file-list").waitFor();
+    await liveStep("file");
+    await page
+      .locator('[data-action="file"][data-path="live-note.txt"]')
+      .waitFor();
+    await page
+      .getByRole("button", { name: "Code & versions", exact: true })
+      .click();
+    await page
+      .getByRole("heading", { name: "No files written yet", exact: true })
+      .waitFor();
+    await liveStep("source");
+    await page.locator(".version-button").first().waitFor();
+    assert(
+      (await page.locator("#source-content").innerText()).includes(
+        "var live = 1",
+      ),
+    );
+    await liveStep("finish");
     await page
       .getByRole("link", { name: "Compare results", exact: false })
       .click();

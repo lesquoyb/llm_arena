@@ -128,10 +128,18 @@ class Store:
             write_json(self.state / "participants.json", [m for m in self.catalog() if m["id"] != identifier])
         return {"deleted": identifier}
 
+    def resolve_models(self, config):
+        result = copy.deepcopy(config)
+        catalog = {model['id']: model for model in self.catalog()}
+        result['models'] = [copy.deepcopy(catalog.get(model['id'], model)) for model in result['models']]
+        return result
+
     def drafts(self):
-        return [self.json(p) for p in sorted((self.state / "competitions").glob("*.json"))]
+        rows = [self.json(p) for p in sorted((self.state / "competitions").glob("*.json"))]
+        return [{**row, 'config': self.resolve_models(row['config'])} for row in rows]
 
     def save_draft(self, config, identifier=None):
+        config = self.resolve_models(config)
         validate_config(config)
         identifier = identifier or uuid4().hex[:12]
         path = safe_path(self.state / "competitions", identifier + ".json")
@@ -148,8 +156,8 @@ class Store:
     def draft(self, identifier):
         result = self.json(safe_path(self.state / "competitions", identifier + ".json"))
         if result is None:
-            raise ArenaError("Configuration introuvable")
-        return result
+            raise ArenaError("Configuration not found")
+        return {**result, "config": self.resolve_models(result["config"])}
 
     def run_path(self, identifier):
         root = safe_path(self.runs, identifier)
@@ -213,6 +221,20 @@ class Store:
                 rows.append({"id": identifier, "name": identifier, "error": str(error), "complete": False})
         return sorted(rows, key=lambda r: r.get("created_at", 0), reverse=True)
 
+    def revision(self, root):
+        event_id = 0
+        database = root / 'journal.sqlite'
+        if database.is_file():
+            with closing(sqlite3.connect(database.as_uri() + '?mode=ro', uri=True, timeout=2)) as connection:
+                if connection.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='events'").fetchone():
+                    event_id = connection.execute('SELECT coalesce(max(id),0) FROM events').fetchone()[0]
+        files = [root/'report.json', root/'analysis.json']
+        for base in (root, root/'tournament', root/'g1-tournament', root/'evaluations/g0-panel', root/'evaluations/g1-panel'):
+            files.extend((base/'records').glob('*.json'))
+        files.extend((root/'sessions').glob('*/tools/**/result.json'))
+        stamps = [(p.relative_to(root).as_posix(), p.stat().st_mtime_ns, p.stat().st_size) for p in files if p.is_file()]
+        return digest({'event_id':event_id, 'files':sorted(stamps)})
+
     def detail(self, identifier):
         root = self.run_path(identifier)
         metadata = self.json(root / "experiment.json")
@@ -226,7 +248,7 @@ class Store:
             reason = 'Exported archives are read-only' if (root / 'export.json').exists() else retry_reason(state, metadata.get('config', {}).get('budget_per_session'), states.get(state.get('parent')))
             sessions.append({"id": sid, **{k: state[k] for k in keys if k in state},
                              "messages": state["messages"], "retry_allowed": reason is None, "retry_reason": reason})
-        return {"id": identifier, "metadata": metadata, "report": self.json(root / "report.json", {}),
+        return {"id": identifier, "revision": self.revision(root), "metadata": metadata, "report": self.json(root / "report.json", {}),
                 "analysis": self.json(root / "analysis.json"), "sessions": sessions,
                 "g0": self.json(root / "tournament/report.json"),
                 "g1": self.json(root / "g1-tournament/report.json"),
@@ -404,11 +426,14 @@ class Store:
             if (path.parent / "scenario.json").is_file():
                 info = self.json(path.parent / "provenance.json", {})
                 scenario = self.json(path.parent / "scenario.json", {})
-                rows.append({"path": path.parent.relative_to(root).as_posix(), "stage": "préparation",
+                rows.append({"path": path.parent.relative_to(root).as_posix(), "stage": "training",
                              "sides": (["passive", path.relative_to(root).parts[1]] if "side-1" in path.as_posix()
                                        else [path.relative_to(root).parts[1], "passive"]),
                              "seed": scenario.get("random_seed"), "mirror": False,
                              "result": self.json(path), "provenance": info})
+        for row in rows:
+            row['kind'] = 'training' if row['stage'] == 'training' else 'evaluation' if row['stage'].startswith('evaluations/') else 'competition'
+            row['counts_toward_standings'] = row['kind'] == 'competition' and not row.get('mirror')
         return {"matches": rows}
 
     def match(self, identifier, name):
@@ -424,15 +449,18 @@ class Store:
     def statistics(self, identifier):
         from .metrics import competition_stats
         root = self.run_path(identifier)
-        matches = self.matches(identifier)["matches"]
+        all_matches = self.matches(identifier)["matches"]
+        matches = [row for row in all_matches if row.get('kind') != 'training']
+        training_count = len(all_matches) - len(matches)
         paths = [safe_path(root, row["path"] + "/outcome.json") for row in matches]
-        stamp = digest(matches), tuple((p.stat().st_mtime_ns, p.stat().st_size) if p.is_file() else None for p in paths)
+        stamp = (digest(matches), training_count), tuple((p.stat().st_mtime_ns, p.stat().st_size) if p.is_file() else None for p in paths)
         with self.lock:
             cache = getattr(self, "_statistics_cache", {})
             if identifier in cache and cache[identifier][0] == stamp:
                 return copy.deepcopy(cache[identifier][1])
         result = competition_stats(matches, lambda name: self.json(safe_path(root, name + "/outcome.json")),
                                    lambda name: self.json(safe_path(root, name + "/scenario.json")))
+        result['training_matches'] = training_count
         with self.lock:
             if len(cache) >= 16:
                 cache.clear()

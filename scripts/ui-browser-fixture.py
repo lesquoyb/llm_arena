@@ -2,14 +2,15 @@
 from pathlib import Path
 import json
 import sys
+import time
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path[:0] = [str(ROOT), str(ROOT / "tests")]
-from arena.core import scratch_directory, write_json
+from arena.core import scratch_directory, write_json, read_json
 from arena.experiment import Journal
 from arena_web.data import Store
 from arena_web.server import Application, Server
-from test_web import fixture
+from test_web import fixture, write_history
 
 
 def main():
@@ -75,7 +76,56 @@ def main():
                 write_json(work/"outcome.json", {"fight":fight,"winner":winner,"success":True})
             write_json(base/"records"/(label+".json"), {"match":{"sides":sides,"seed":301,"mirror":label=="mirror"},
                        "directory":work.relative_to(base).as_posix(),"result":result})
-        app = Application(store)
+        class FixtureApplication(Application):
+            def post(self, route, data):
+                if route != '/api/fixture-live':
+                    return super().post(route,data)
+                root = store.runs/'live'
+                action = data['action']
+                if action == 'start':
+                    config = read_json(ROOT/'configs/offline-complete.json')
+                    config.update(generations=1,replicates=1,models=config['models'][:1])
+                    write_json(root/'experiment.json',{'config':config,'engine':{},'scientific_identity':{'fixture':'live'}})
+                    write_json(root/'report.json',{})
+                    journal = Journal(root)
+                    journal.save('mock-repair-r0',{'model':'mock-repair','replicate':0,'generation':0,'condition':'initial',
+                        'history':[{'role':'user','content':'Live fixture prompt'}],'status':'submitted','calls':1,'steps':0,
+                        'test_matches':0,'wall_seconds':1},'session_created')
+                    journal.db.close()
+                    logs = store.state/'jobs';logs.mkdir(exist_ok=True)
+                    (logs/'fixture-live.log').write_text('Synthetic running job',encoding='utf-8')
+                    self.jobs.rows.append({'id':'fixture-live-job','run':'live','name':'Live fixture','status':'running',
+                        'started_at':time.time(),'log':'fixture-live.log'})
+                elif action in {'training','competition'}:
+                    def save(work):
+                        result = {'status':'completed','winner_side':0,'turns':1,'elapsed_seconds':.1}
+                        write_json(work/'scenario.json',{'random_seed':17,'entities':[[{'cores':10}],[{'cores':10}]]})
+                        write_json(work/'provenance.json',{})
+                        write_json(work/'result.json',result)
+                        write_json(work/'outcome.json',{'fight':fight,'winner':0,'success':True})
+                        return result
+                    if action == 'training':
+                        for side in (0,1):
+                            save(root/f'sessions/mock-repair-r0/tools/call-1-tool-0-side-{side}/attempt-1')
+                    else:
+                        number = len(list((root/'records').glob('*.json'))) + 1
+                        work = root/f'matches/live-{number}/attempt-1'
+                        result = save(work)
+                        write_json(root/f'records/live-{number}.json',{'match':{'sides':['mock-repair-r0','mock-single-r0'],'seed':101,'mirror':False},
+                            'directory':work.relative_to(root).as_posix(),'result':result})
+                elif action in {'event','file','source'}:
+                    journal = Journal(root)
+                    state = journal.state('mock-repair-r0')
+                    if action == 'file':
+                        (root/'live-note.txt').write_text('New file while running',encoding='utf-8')
+                    if action == 'source':
+                        state['history'] += write_history('var live = 1')
+                    journal.save('mock-repair-r0',state,'fixture_live_update',{'action':action})
+                    journal.db.close()
+                elif action == 'finish':
+                    self.jobs.rows[-1]['status']='completed'
+                return {'updated':action}
+        app = FixtureApplication(store)
         server = Server(("127.0.0.1", 0), app)
         print(json.dumps({"url": f"http://127.0.0.1:{server.server_port}"}), flush=True)
         try:

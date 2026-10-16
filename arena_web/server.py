@@ -12,7 +12,7 @@ import threading
 from urllib.parse import parse_qs, urlsplit, quote
 import webbrowser
 
-from arena.core import ArenaError, ROOT, file_lock, read_json
+from arena.core import ArenaError, ROOT, digest, file_lock, read_json
 from arena.experiment import plan, validate_config
 from .data import Store, safe_path
 from .jobs import Jobs
@@ -144,10 +144,11 @@ class Application:
         if route == "/api/competition/delete":
             return self.store.delete_draft(data["id"])
         if route == "/api/plan":
-            return plan(validate_config(data["config"]))
+            config = data['config'] if data.get('frozen') else self.store.resolve_models(data['config'])
+            return {**plan(validate_config(config)), 'config':config, 'config_sha256':digest(config)}
         if route == "/api/launch":
             return self.jobs.launch(draft_id=data.get("draft_id"), run_id=data.get("run"),
-                                    confirm_paid=data.get("confirm_paid", False), ceiling=data.get("ceiling"), retry_session=data.get("retry_session"))
+                                    confirm_paid=data.get("confirm_paid", False), ceiling=data.get("ceiling"), retry_session=data.get("retry_session"), expected_config_sha256=data.get("expected_config_sha256"))
         if route == "/api/stop":
             return self.jobs.stop(data["id"])
         if route == "/api/aggregate":

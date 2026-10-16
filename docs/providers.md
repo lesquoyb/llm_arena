@@ -162,7 +162,7 @@ In **Participants**, select **openai-compatible** and enter:
 - Model: click **Load models** or enter the exact installed model name.
 - Input/output prices: `0` for local inference.
 - Output cap: optional; start with it blank. Increase the timeout if loading or
-  running your local model takes longer than 60 seconds (up to 300 seconds).
+  running your local model takes longer than 60 seconds (up to 3600 seconds).
 
 Save the participant and add it to a competition. The launch confirmation still
 asks you to authorize API calls, including local inference. Tool support depends

@@ -442,3 +442,40 @@ The journal records retry requests, prior checkpoint hashes and attempt counts.
 
 Recovery keeps already produced feedback and improvement branches as they were;
 it does not regenerate another model's history to include newly available results.
+
+## Editable profiles, frozen runs and preparation matches
+
+Saved competition configurations use the latest saved participant profiles when
+opened, previewed and launched, including endpoint, model, prices and parameters.
+Inline participants whose IDs are absent from the profile catalog keep their
+embedded settings. The launch preview shows the resolved settings. If a profile
+changes after that preview, launch is rejected until you review the updated
+preview. A started competition freezes its resolved profiles; editing a profile
+does not alter existing runs, retries, historical requests or results.
+
+The execution order is:
+
+1. Preparation: each model can edit, compile and request training fights against
+   passive. These fights are explicitly unscored and cannot expose opponent scripts.
+2. Initial round: submitted sources and team.json are frozen. The configured
+   pairings run against those same submissions, without model calls between fights.
+3. Improvement, if enabled: both branches inherit the initial code/history; one
+   gets the initial round's results and the control branch does not.
+4. Improved round and reference evaluations: each branch's submitted code is frozen.
+
+Matches defaults to **Competition rounds**. Choose **Preparation tests (unscored)**
+to inspect training fights, **Reference evaluations (frozen scripts)** for the
+common evaluation panel, or **All fights**. Training fights are excluded from
+competition statistics and matrices, and have an explicit badge on their replays.
+Their count is displayed separately. Configuring unlimited preparation lets a
+model run more training tests until it submits; a training fight is not a round.
+
+**Live updates** is enabled by default when opening a running competition and
+is available in the common toolbar for every view. Refreshes follow journal and
+match artifact revisions, even if no new model message or root report exists.
+Matches, statistics, the journal, files and code versions update accordingly.
+The checkbox pauses updates; its selection is kept while navigating that run.
+Expanded conversation records, open dialogs and playing replays pause replacement
+so they remain readable. Selected match/replay position, file and statistics stage
+are preserved. Human labels use initial/improved strategy and feedback condition;
+raw paths, IDs, original messages and provenance remain unchanged for auditing.

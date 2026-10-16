@@ -239,7 +239,7 @@ const field = (
 };
 const selectField = (label, name, values, current, help = "") => {
   help ||= FIELD_HELP[name] || "";
-  return `<label class="field">${fieldHeading(label, help)}<select name="${name}">${values.map(([v, l]) => `<option value="${e(v)}" ${v === current ? "selected" : ""}>${e(l)}</option>`).join("")}</select></label>`;
+  return `<label class="field">${fieldHeading(label, help)}<select name="${name}" aria-label="${e(label)}">${values.map(([v, l]) => `<option value="${e(v)}" ${v === current ? "selected" : ""}>${e(l)}</option>`).join("")}</select></label>`;
 };
 const query = (args) =>
   new URLSearchParams(
@@ -310,7 +310,7 @@ function route() {
   S.modelFilter = q.get("model");
   S.offset = Number(q.get("offset") || 0);
   S.matchFilters = Object.fromEntries(
-    ["stage", "entrant", "opponent", "outcome", "search"].map((k) => [
+    ["kind", "stage", "entrant", "opponent", "outcome", "search"].map((k) => [
       k,
       q.get(k) || "",
     ]),
@@ -329,7 +329,30 @@ function showError(error) {
 async function refreshBoot() {
   S.boot = await api("/api/bootstrap");
   S.equipment ||= await api("/api/equipment");
+  syncLiveMode();
   updateChrome();
+}
+function syncLiveMode() {
+  S.livePreferences ||= {};
+  if (activeJobs().some((job) => job.run === S.run)) S.autoLiveRun = S.run;
+  S.follow = S.livePreferences[S.run] ?? S.autoLiveRun === S.run;
+}
+function runningPhase(d) {
+  const states = d.sessions,
+    config = d.metadata.config;
+  if (!config) return "Evaluating frozen strategies";
+  const initial = states.filter((s) => !s.generation);
+  if (
+    initial.length < config.models.length * config.replicates ||
+    initial.some((s) => s.status === "running")
+  )
+    return "Preparing initial strategies";
+  const improved = states.filter((s) => s.generation);
+  if (improved.some((s) => s.status === "running"))
+    return "Improving strategies";
+  return improved.length
+    ? "Evaluating improved strategies"
+    : "Initial round · frozen strategies";
 }
 function activeJobs() {
   return S.boot.jobs.filter((j) => ["running", "stopping"].includes(j.status));
@@ -372,6 +395,7 @@ async function renderRoute() {
   R = null;
   updateChrome();
   if (S.view === "run") {
+    syncLiveMode();
     const d = await api("/api/run", { run: S.run }).catch(async (error) => {
       if (activeJobs().some((j) => j.run === S.run)) {
         setTimeout(() => renderRoute().catch(showError), 800);
@@ -1091,7 +1115,7 @@ function competitionEditor() {
     b = c.budget_per_session;
   const choices = new Map(c.models.map((m) => [m.id, m]));
   S.boot.participants.forEach(({ spec: m }) => {
-    if (!choices.has(m.id)) choices.set(m.id, m);
+    choices.set(m.id, m);
   });
   S.choiceModels = [...choices.values()];
   return (
@@ -1214,11 +1238,13 @@ function planMarkup(p) {
   return `<div class="info-row"><span>Conversations</span><strong>${fmt(p.sessions)}</strong></div><div class="info-row"><span>Evaluation matches</span><strong>${fmt(total)}</strong></div><div class="info-row"><span>Maximum preparation matches</span><strong>${p.max_preparation_matches == null ? "Unlimited" : fmt(p.max_preparation_matches)}</strong></div><div class="info-row"><span>Total API spending limit</span><strong>${p.simulated ? "$0 (mock)" : p.max_cost_usd == null ? "No limit" : money(p.max_cost_usd)}</strong></div><p class="muted" style="font-size:10px;margin-top:12px">Schedule assuming every participant submits a strategy. ${p.simulated ? "Mock run with no API calls." : "Reservations estimate cost; they do not confirm provider billing."}</p>`;
 }
 async function launchDialog(draftId = null, runId = null) {
-  const config = draftId
-      ? S.boot.drafts.find((d) => d.id === draftId).config
-      : S.detail.metadata.config,
-    p = await api("/api/plan", { config }, true);
-  S.launch = { draftId, runId, config };
+  if (draftId) await refreshBoot();
+  let config = draftId
+    ? S.boot.drafts.find((d) => d.id === draftId).config
+    : S.detail.metadata.config;
+  const p = await api("/api/plan", { config, frozen: !!runId }, true);
+  config = p.config;
+  S.launch = { draftId, runId, config, expectedHash: p.config_sha256 };
   openDialog(
     runId ? "Resume competition" : "Launch competition",
     config.name,
@@ -1234,17 +1260,24 @@ function retryButton(session) {
       )
     : "";
 }
-function retryDialog(sid) {
+async function retryDialog(sid) {
   const session = S.detail.sessions.find((s) => s.id === sid),
     config = S.detail.metadata.config;
   if (!session?.retry_allowed)
     throw new Error(session?.retry_reason || "Conversation cannot be retried");
   const model = config.models.find((m) => m.id === session.model),
     paid = model.provider !== "mock";
-  S.launch = { draftId: null, runId: S.run, config, retrySession: sid };
+  const reviewed = await api("/api/plan", { config, frozen: true }, true);
+  S.launch = {
+    draftId: null,
+    runId: S.run,
+    config,
+    retrySession: sid,
+    expectedHash: reviewed.config_sha256,
+  };
   openDialog(
     "Retry conversation",
-    sid,
+    strategyName(sid),
     `<form data-form="launch"><p>Continue this conversation from its saved files and history. Other models' submissions and completed matches are kept.</p><p>Usage counters and configured limits are preserved. If this recovers an initial strategy, its previously unavailable improvement branches can also run.</p><div class="info-row"><span>Model</span><strong>${e(model.id)} · ${e(model.model || model.profile)}</strong></div><div class="info-row"><span>Previous usage</span><strong>${session.calls} model calls · ${session.steps} tool calls</strong></div>${paid ? `<label class="check"><input type="checkbox" name="confirm_paid" required>I authorize API calls for this model${config.spending.max_total_usd == null ? " without an arena spending limit" : " within the existing competition limit of " + money(config.spending.max_total_usd)}.</label>` : ""}<div class="form-footer">${btn("Cancel", "close-dialog")}<button type="submit" class="button primary">Retry conversation</button></div></form>`,
   );
 }
@@ -1258,6 +1291,7 @@ const TABS = [
   ["config", "Configuration"],
 ];
 function runHeader(d) {
+  syncLiveMode();
   S.renderedJobState = S.boot.jobs.find((j) => j.run === S.run)?.status;
   const config = d.metadata.config || d.metadata.manifest,
     job = S.boot.jobs.find((j) => j.run === S.run),
@@ -1269,7 +1303,7 @@ function runHeader(d) {
       "Results, conversations and files.",
       `${active ? btn("■ Stop", "stop-job", `data-id="${e(job.id)}"`) : experiment && !d.archived ? btn("Resume", "resume") : ""}${experiment ? btn("Clone configuration", "clone-run") : ""}${experiment ? btn("Export", "export-run") : ""}`,
     ) +
-    `<div class="toolbar">${config.models ? (config.models.every((m) => m.provider === "mock") ? badge("MOCK RUN (no LLM calls)", "blue") : badge("REAL API CALLS", "orange")) : badge("Provided strategies")}${d.archived ? badge("Exported copy", "orange") : ""}${job ? status(job.status === "failed" && d.report?.incomplete ? "incomplete" : job.status) : ""}<span class="mono muted" style="font-size:10px">${e(S.run)}</span><span class="spacer"></span>${job ? btn("Run log", "job-log", `data-id="${e(job.id)}"`) : ""}</div><div class="tabs">${TABS.map(([key, label]) => `<button class="tab ${S.tab === key ? "active" : ""}" data-action="tab" data-tab="${key}">${label}</button>`).join("")}</div>`
+    `<div class="toolbar">${config.models ? (config.models.every((m) => m.provider === "mock") ? badge("MOCK RUN (no LLM calls)", "blue") : badge("REAL API CALLS", "orange")) : badge("Provided strategies")}${d.archived ? badge("Exported copy", "orange") : ""}${job ? status(job.status === "failed" && d.report?.incomplete ? "incomplete" : job.status) : ""}<span class="mono muted" style="font-size:10px">${e(S.run)}</span><span class="spacer"></span>${job && ["running", "stopping"].includes(job.status) ? badge(runningPhase(d), "blue") : ""}<label class="check"><input id="follow-live" type="checkbox" ${S.follow ? "checked" : ""}>Live updates</label>${job ? btn("Run log", "job-log", `data-id="${e(job.id)}"`) : ""}</div><div class="tabs">${TABS.map(([key, label]) => `<button class="tab ${S.tab === key ? "active" : ""}" data-action="tab" data-tab="${key}">${label}</button>`).join("")}</div>`
   );
 }
 function runModels(d) {
@@ -1297,6 +1331,18 @@ function modelPicker(d, journal = false) {
     )
     .join("")}</select>`;
 }
+function strategyName(id) {
+  const session = S.detail?.sessions.find((s) => s.id === id);
+  const match = String(id || "").match(
+    /^(.*)-r(\d+)(?:-g1-(control|feedback))?$/,
+  );
+  if (!session && !match) return id || "Competition";
+  const model = session?.model || match[1],
+    repetition = Number(session?.replicate ?? match?.[2] ?? 0) + 1;
+  const improved = session?.generation || match?.[3];
+  const condition = session?.condition || match?.[3];
+  return `${model} · repetition ${repetition} · ${improved ? `improved ${condition === "feedback" ? "with" : "without"} feedback` : "initial strategy"}`;
+}
 function sessionLabel(session) {
   return `Repetition ${Number(session.replicate || 0) + 1} · ${generationLabel(session.generation)}${session.generation ? " · " + text(session.condition) : ""} · ${text(session.status)}`;
 }
@@ -1310,7 +1356,7 @@ function sessionChooser(d) {
     S.session = sessions[0]?.id || null;
     S.offset = 0;
   }
-  return `<div class="toolbar">${modelPicker(d)}<label for="session-choice">Conversation</label><select id="session-choice" ${sessions.length ? "" : "disabled"}>${sessions.map((s) => `<option value="${e(s.id)}" ${s.id === S.session ? "selected" : ""}>${e(sessionLabel(s))}</option>`).join("") || "<option>No conversations yet</option>"}</select>${S.session ? btn("Conversation journal", "conversation-journal") : ""}${retryButton(d.sessions.find((s) => s.id === S.session))}<span class="spacer"></span><label class="check"><input id="follow-live" type="checkbox" ${S.follow ? "checked" : ""}>Follow live</label></div>`;
+  return `<div class="toolbar">${modelPicker(d)}<label for="session-choice">Conversation</label><select id="session-choice" ${sessions.length ? "" : "disabled"}>${sessions.map((s) => `<option value="${e(s.id)}" ${s.id === S.session ? "selected" : ""}>${e(sessionLabel(s))}</option>`).join("") || "<option>No conversations yet</option>"}</select>${S.session ? btn("Conversation journal", "conversation-journal") : ""}${retryButton(d.sessions.find((s) => s.id === S.session))}<span class="spacer"></span></div>`;
 }
 async function renderRun(epoch) {
   const d = S.detail;
@@ -1391,7 +1437,9 @@ async function renderRun(epoch) {
     S.files.length
   )
     await loadFile(
-      S.files.find((f) => f.path === "report.md")?.path || S.files[0].path,
+      S.files.find((f) => f.path === S.file)?.path ||
+        S.files.find((f) => f.path === "report.md")?.path ||
+        S.files[0].path,
     );
 }
 function bars(rows) {
@@ -1420,7 +1468,7 @@ function summary(d, statistics = null) {
             )
             .map(
               (s) =>
-                `<p>${e(s.id)} · ${e(text(s.status))} ${btn("Show conversation", "session-conversation", `data-session="${e(s.id)}"`)}</p>`,
+                `<p>${e(strategyName(s.id))} · ${e(text(s.status))} ${btn("Show conversation", "session-conversation", `data-session="${e(s.id)}"`)}</p>`,
             )
             .join("")}`,
           "warn",
@@ -1440,7 +1488,7 @@ function summary(d, statistics = null) {
     `<div class="metrics">${metric("Finished sessions", `${done} / ${d.sessions.length}`, `${r.valid_submissions ?? 0} valid submissions`)}${metric("Completed matches", fmt(completed(r)), "Evaluation only; preparation listed separately", "⚔")}${metric("API cost", r.cost_usd === undefined ? "N/A" : money(r.cost_usd), r.reserved_usd === null ? "Pending call cost unknown" : r.reserved_usd && Number(r.reserved_usd) > 0 ? `${money(r.reserved_usd)} reserved` : "Mock run or cost calculated from usage", "↗")}${metric("Input / output tokens", r.input_tokens == null ? "Not measured" : `${fmt(r.input_tokens)} / ${fmt(r.output_tokens)}`, r.simulated ? "No LLM tokens in mock runs" : "Unavailable values stay unknown", "≋")}</div>` +
     (statistics ? competitionStatistics(statistics) : "") +
     (a
-      ? `<section class="panel"><div class="panel-title"><div><h2>Strategy performance</h2><small>Initial and improved strategies evaluated against the same panel on final seeds.</small></div><select id="panel-choice" aria-label="Evaluation panel">${["all", "controls", "g0"].map((p) => `<option value="${p}" ${S.panel === p ? "selected" : ""}>${text(p)}</option>`).join("")}</select></div>${bars(rows.map((v) => ({ label: v.session, score: v.score })))}<p class="muted" style="font-size:11px;margin:13px 0 0">Score = (wins + 0.5 × draws) / completed matches. Mirrors are excluded. The full panel includes frozen initial strategies and handwritten controls.</p></section>
+      ? `<section class="panel"><div class="panel-title"><div><h2>Strategy performance</h2><small>Initial and improved strategies evaluated against the same panel on final seeds.</small></div><select id="panel-choice" aria-label="Evaluation panel">${["all", "controls", "g0"].map((p) => `<option value="${p}" ${S.panel === p ? "selected" : ""}>${text(p)}</option>`).join("")}</select></div>${bars(rows.map((v) => ({ label: strategyName(v.session), score: v.score })))}<p class="muted" style="font-size:11px;margin:13px 0 0">Score = (wins + 0.5 × draws) / completed matches. Mirrors are excluded. The full panel includes frozen initial strategies and handwritten controls.</p></section>
  <section class="panel flush"><div class="panel-head"><div><h2>Detailed results</h2><p>Operations measure LeekScript computation. They are separate from tokens and API cost.</p></div></div>${table(
    [
      "Strategy",
@@ -1454,13 +1502,13 @@ function summary(d, statistics = null) {
    ],
    rows.map(
      (v) =>
-       `<tr><td><button class="table-button" data-action="session-conversation" data-session="${e(v.session)}">${e(v.session)}</button><small>${e(v.model)} · repetition ${v.replicate + 1}</small></td><td>${generationLabel(v.generation)}<small>${text(v.condition)}</small></td><td class="score numeric">${pct(v.score)}</td><td class="numeric">${fmt(v.completed)} / ${fmt(v.failed)}</td><td class="numeric">${fmt(v.operations)}</td><td class="numeric">${fmt(v.errors)} / ${fmt(v.operation_limit_hits)}</td><td class="numeric">${fmt(v.input_tokens)} / ${fmt(v.output_tokens)}</td><td class="numeric">${money(v.cost_usd)}<small>including initial strategy: ${money(v.trajectory_cost_usd)}</small></td></tr>`,
+       `<tr><td><button class="table-button" data-action="session-conversation" data-session="${e(v.session)}">${e(strategyName(v.session))}</button><small>${e(v.model)} · repetition ${v.replicate + 1}</small></td><td>${generationLabel(v.generation)}<small>${text(v.condition)}</small></td><td class="score numeric">${pct(v.score)}</td><td class="numeric">${fmt(v.completed)} / ${fmt(v.failed)}</td><td class="numeric">${fmt(v.operations)}</td><td class="numeric">${fmt(v.errors)} / ${fmt(v.operation_limit_hits)}</td><td class="numeric">${fmt(v.input_tokens)} / ${fmt(v.output_tokens)}</td><td class="numeric">${money(v.cost_usd)}<small>including initial strategy: ${money(v.trajectory_cost_usd)}</small></td></tr>`,
    ),
  )}</section>
- <div class="grid two"><section class="panel"><h2>Feedback effect</h2><p class="muted">Improved with feedback minus improved without feedback, starting from the same initial strategy conversation.</p>${(a.paired || []).map((p) => `<div class="info-row"><span>${e(p.parent)}</span><strong>${p.feedback_minus_control == null ? "Unavailable" : (p.feedback_minus_control >= 0 ? "+" : "") + fmt(p.feedback_minus_control * 100, 1) + " points"}</strong></div>`).join("")}<p class="muted" style="font-size:10px;margin-top:12px">${a.interval_95_exploratory ? `Exploratory interval: ${e(pretty(a.interval_95_exploratory))}` : "Not enough complete conversations to estimate an interval."} Mock demos do not measure real model performance.</p></section><section class="panel"><h2>Versions and conditions</h2><div class="info-row"><span>Initial strategy</span><strong>Before improvement</strong></div><div class="info-row"><span>Improved without feedback</span><strong>Improvement without match results</strong></div><div class="info-row"><span>Improved with feedback</span><strong>Improvement with match results</strong></div><p class="muted" style="font-size:11px;margin-top:13px">Both branches inherit the same code and history and are evaluated against the same opponents.</p></section></div>`
+ <div class="grid two"><section class="panel"><h2>Feedback effect</h2><p class="muted">Improved with feedback minus improved without feedback, starting from the same initial strategy conversation.</p>${(a.paired || []).map((p) => `<div class="info-row"><span>${e(strategyName(p.parent))}</span><strong>${p.feedback_minus_control == null ? "Unavailable" : (p.feedback_minus_control >= 0 ? "+" : "") + fmt(p.feedback_minus_control * 100, 1) + " points"}</strong></div>`).join("")}<p class="muted" style="font-size:10px;margin-top:12px">${a.interval_95_exploratory ? `Exploratory interval: ${e(pretty(a.interval_95_exploratory))}` : "Not enough complete conversations to estimate an interval."} Mock demos do not measure real model performance.</p></section><section class="panel"><h2>Versions and conditions</h2><div class="info-row"><span>Initial strategy</span><strong>Before improvement</strong></div><div class="info-row"><span>Improved without feedback</span><strong>Improvement without match results</strong></div><div class="info-row"><span>Improved with feedback</span><strong>Improvement with match results</strong></div><p class="muted" style="font-size:11px;margin-top:13px">Both branches inherit the same code and history and are evaluated against the same opponents.</p></section></div>`
       : "") +
     (d.standings
-      ? `<section class="panel"><h2>Tournament standings</h2>${bars(d.standings.map((v) => ({ label: v.strategy || v.id, score: v.score })))}${raw(d.standings, "Full standings statistics")}</section>`
+      ? `<section class="panel"><h2>Tournament standings</h2>${bars(d.standings.map((v) => ({ label: strategyName(v.strategy || v.id), score: v.score })))}${raw(d.standings, "Full standings statistics")}</section>`
       : "") +
     `<section class="panel flush"><div class="panel-head"><h2>Conversation status</h2></div>${
       d.sessions.length
@@ -1476,7 +1524,7 @@ function summary(d, statistics = null) {
             ],
             d.sessions.map(
               (s) =>
-                `<tr><td><strong>${e(s.id)}</strong><small>${s.messages} messages</small></td><td>${generationLabel(s.generation || 0)} · ${text(s.condition)}</td><td>${status(s.status)} ${s.validity ? status(s.validity) : ""}</td><td>${s.calls} / ${s.steps}</td><td>${s.test_matches} matches</td><td>${fmt(s.wall_seconds, 1)} s</td><td>${btn("Explore", "session-conversation", `data-session="${e(s.id)}"`)}${retryButton(s)}</td></tr>`,
+                `<tr><td><strong>${e(strategyName(s.id))}</strong><small>${s.messages} messages</small></td><td>${generationLabel(s.generation || 0)} · ${text(s.condition)}</td><td>${status(s.status)} ${s.validity ? status(s.validity) : ""}</td><td>${s.calls} / ${s.steps}</td><td>${s.test_matches} matches</td><td>${fmt(s.wall_seconds, 1)} s</td><td>${btn("Explore", "session-conversation", `data-session="${e(s.id)}"`)}${retryButton(s)}</td></tr>`,
             ),
           )
         : empty(
@@ -1686,7 +1734,7 @@ function eventsPage(data) {
     ["N°", "Timestamp", "Model / conversation", "Type", ""],
     data.events.map(
       (v) =>
-        `<tr><td>${v.id}</td><td>${date(v.at)}</td><td>${e(S.detail.sessions.find((s) => s.id === v.session)?.model || "Competition")}<small>${e(v.session)}</small></td><td><code>${e(v.kind)}</code></td><td>${btn("View artifact", "event", `data-id="${v.id}"`)}${S.detail.sessions.some((s) => s.id === v.session) ? btn("Open conversation", "session-conversation", `data-session="${e(v.session)}"`) : ""}</td></tr>`,
+        `<tr><td>${v.id}</td><td>${date(v.at)}</td><td>${e(S.detail.sessions.find((s) => s.id === v.session)?.model || "Competition")}<small>${e(strategyName(v.session))}</small></td><td><code>${e(v.kind)}</code></td><td>${btn("View artifact", "event", `data-id="${v.id}"`)}${S.detail.sessions.some((s) => s.id === v.session) ? btn("Open conversation", "session-conversation", `data-session="${e(v.session)}"`) : ""}</td></tr>`,
     ),
   )}<div class="pager"><span>Events ${data.total ? S.offset + 1 : 0}-${Math.min(data.total, S.offset + 100)}</span><div class="actions">${btn("← Previous", "event-page", `data-offset="${Math.max(0, S.offset - 100)}" ${S.offset === 0 ? "disabled" : ""}`)}${btn("Next →", "event-page", `data-offset="${S.offset + 100}" ${S.offset + 100 >= data.total ? "disabled" : ""}`)}</div></div></section>`;
 }
@@ -1698,13 +1746,22 @@ function stageText(stage) {
       "g1-tournament": "Improved strategy tournament",
       "evaluations/g0-panel": "Initial strategy reference panel",
       "evaluations/g1-panel": "Improved strategy reference panel",
-      préparation: "Preparation",
+      préparation: "Preparation tests (unscored)",
+      training: "Preparation tests (unscored)",
     }[stage] || stage
   );
 }
 function matchSubset() {
   const f = S.matchFilters || {};
   return S.matches.filter((m) => {
+    const kind =
+      m.kind ||
+      (m.stage === "training" || m.stage === "préparation"
+        ? "training"
+        : m.stage.startsWith("evaluations/")
+          ? "evaluation"
+          : "competition");
+    if (f.kind !== "all" && kind !== (f.kind || "competition")) return false;
     if (f.stage && m.stage !== f.stage) return false;
     if (f.entrant && !m.sides.includes(f.entrant)) return false;
     if (
@@ -1739,12 +1796,34 @@ function matchSubset() {
 }
 function matchesPage() {
   const f = S.matchFilters || {},
-    stages = [...new Set(S.matches.map((m) => m.stage))],
+    stages = [
+      ...new Set(
+        S.matches
+          .filter(
+            (m) => f.kind === "all" || m.kind === (f.kind || "competition"),
+          )
+          .map((m) => m.stage),
+      ),
+    ],
     participants = [...new Set(S.matches.flatMap((m) => m.sides))].sort();
   const rows = matchSubset();
+  const categoryTotal = S.matches.filter(
+    (m) => f.kind === "all" || m.kind === (f.kind || "competition"),
+  ).length;
+  const trainingCount = S.matches.filter((m) => m.kind === "training").length;
   S.matchPath =
     rows.find((m) => m.path === S.matchPath)?.path || rows[0]?.path || null;
-  return `<div class="match-filters">${field("Search", "match-search", f.search || "", "search", "", 'id="match-search"')}${selectField("Stage", "match-stage", [["", "All stages"], ...stages.map((s) => [s, stageText(s)])], f.stage || "")}${selectField("Participant", "match-entrant", [["", "All participants"], ...participants.map((p) => [p, p])], f.entrant || "")}${selectField("Opponent", "match-opponent", [["", "All opponents"], ...participants.map((p) => [p, p])], f.opponent || "")}${selectField(
+  return `${notice("Preparation tests use editable scripts and never count toward standings. Competition rounds use frozen submissions; improvements happen after the initial round.")}${trainingCount ? `<p id="training-count">${trainingCount} preparation tests stored separately. ${btn("View preparation tests", "show-training")}</p>` : ""}${selectField(
+    "Match category",
+    "match-kind",
+    [
+      ["competition", "Competition rounds"],
+      ["training", "Preparation tests (unscored)"],
+      ["evaluation", "Reference evaluations (frozen scripts)"],
+      ["all", "All fights"],
+    ],
+    f.kind || "competition",
+  )}<div class="match-filters">${field("Search", "match-search", f.search || "", "search", "", 'id="match-search"')}${selectField("Stage", "match-stage", [["", "All stages"], ...stages.map((s) => [s, stageText(s)])], f.stage || "")}${selectField("Participant", "match-entrant", [["", "All participants"], ...participants.map((p) => [p, strategyName(p)])], f.entrant || "")}${selectField("Opponent", "match-opponent", [["", "All opponents"], ...participants.map((p) => [p, strategyName(p)])], f.opponent || "")}${selectField(
     "Outcome for participant (or side 1)",
     "match-outcome",
     [
@@ -1756,7 +1835,7 @@ function matchesPage() {
       ["completed", "Completed"],
     ],
     f.outcome || "",
-  )}<div class="actions">${btn("Clear filters", "clear-match-filters")}<span id="match-filter-count" class="muted">${rows.length} / ${S.matches.length} matches</span></div></div>${S.matches.length ? `<div class="match-layout"><div id="match-list" class="match-list">${matchButtons(rows)}</div><section class="panel" id="match-detail">${rows.length ? "Loading match..." : empty("No matches found", "Change or clear the filters.")}</section></div>` : empty("No matches recorded", "Matches appear here during execution.")}`;
+  )}<div class="actions">${btn("Clear filters", "clear-match-filters")}<span id="match-filter-count" class="muted">${rows.length} / ${categoryTotal} matches in this category</span></div></div>${S.matches.length ? `<div class="match-layout"><div id="match-list" class="match-list">${matchButtons(rows)}</div><section class="panel" id="match-detail">${rows.length ? "Loading match..." : !categoryTotal && (!f.kind || f.kind === "competition") ? empty("No competition matches yet", "Models may still be preparing their strategies.", btn("View preparation tests", "show-training")) : empty("No matches found", "Change or clear the filters.")}</section></div>` : empty("No competition matches yet", "Models may still be preparing their strategies.", btn("View preparation tests", "show-training"))}`;
 }
 function matchButtons(rows) {
   return (
@@ -1764,7 +1843,7 @@ function matchButtons(rows) {
       .slice(0, 800)
       .map(
         (m) =>
-          `<button class="match-card ${m.path === S.matchPath ? "active" : ""}" data-action="match" data-path="${e(m.path)}"><span class="badge ${m.stage.includes("panel") ? "blue" : ""}">${e(stageText(m.stage))}</span><strong>${e(m.sides[0])}<br><span class="muted">vs</span> ${e(m.sides[1])}</strong><small>Seed ${e(m.seed)} · ${m.mirror ? "mirror · " : ""}${m.result.status === "completed" ? (m.result.winner_side === -1 ? "Draw" : "Winner: " + e(m.sides[m.result.winner_side])) : e(text(m.result.status))}</small></button>`,
+          `<button class="match-card ${m.path === S.matchPath ? "active" : ""}" data-action="match" data-path="${e(m.path)}"><span class="badge ${m.stage.includes("panel") ? "blue" : ""}">${e(stageText(m.stage))}</span>${m.kind === "training" ? badge("Excluded from standings", "orange") : ""}<strong>${e(strategyName(m.sides[0]))}<br><span class="muted">vs</span> ${e(strategyName(m.sides[1]))}</strong><small>Seed ${e(m.seed)} · ${m.mirror ? "mirror · " : ""}${m.result.status === "completed" ? (m.result.winner_side === -1 ? "Draw" : "Winner: " + e(strategyName(m.sides[m.result.winner_side]))) : e(text(m.result.status))}</small></button>`,
       )
       .join("") +
     (rows.length > 800 ? "<small>Filter to find more matches.</small>" : "")
@@ -1780,7 +1859,7 @@ async function loadMatch() {
   const row = S.matches.find((m) => m.path === path),
     result = data.result;
   $("#match-detail").innerHTML =
-    `<div class="panel-title"><div><h2>${result.status === "completed" ? (result.winner_side === -1 ? "Draw" : "Winner: " + e(row.sides[result.winner_side])) : e(text(result.status))}</h2><small>Seed ${e(row.seed)} · ${result.turns == null ? "N/A turns" : countLabel(result.turns, "turn")} · ${fmt(result.elapsed_seconds, 2)} s</small></div>${status(result.status)}</div>${row.mirror ? notice("Mirror match: excluded from the standings.") : ""}${data.replay ? `<svg id="replay-board" class="board" role="img" aria-label="Match map and entity positions"></svg><div class="replay-controls">${btn("▷", "replay-play", 'id="replay-play" aria-label="Play or pause"')}${btn("←", "replay-prev", 'aria-label="Previous action"')}<input id="replay-range" type="range" min="0" max="${data.replay.events.length}" value="0" aria-label="Replay position">${btn("→", "replay-next", 'aria-label="Next action"')}<select id="replay-speed" aria-label="Playback speed"><option value="400">× 1</option><option value="150">× 2</option><option value="50">× 4</option></select></div><div class="toolbar"><strong id="replay-label" style="font-size:11px"></strong><span class="spacer"></span><span id="replay-count" class="muted" style="font-size:10px"></span></div><div id="replay-entities" class="entity-list"></div><div id="replay-events" class="event-list"></div><p class="muted" style="font-size:10px;margin-top:13px">${e(data.replay.note)}${data.replay.unknown_codes.length ? " Actions not visualized: " + e(data.replay.unknown_codes.join(", ")) + "." : ""}</p>` : notice(e(result.error || "No replay is available for this match."), "warn")}${data.statistics ? combatStatistics(data.statistics) : ""}${raw(result, "Full metrics: computation, errors and result")}${data.scenario ? raw(data.scenario, "Exact match scenario") : ""}${raw(data.provenance, "Strategies, hashes and provenance")}${data.outcome ? raw(data.outcome, "Full raw replay, actions and logs") : ""}`;
+    `<div class="panel-title"><div><h2>${result.status === "completed" ? (result.winner_side === -1 ? "Draw" : "Winner: " + e(strategyName(row.sides[result.winner_side]))) : e(text(result.status))}</h2><small>Seed ${e(row.seed)} · ${result.turns == null ? "N/A turns" : countLabel(result.turns, "turn")} · ${fmt(result.elapsed_seconds, 2)} s</small></div>${status(result.status)}</div>${row.kind === "training" ? notice("Preparation test requested by the model. Editable scripts; excluded from competition standings and matrices.", "warn") : notice("Frozen strategies: these scripts cannot change during this round.")}${row.mirror ? notice("Mirror match: excluded from the standings.") : ""}${data.replay ? `<svg id="replay-board" class="board" role="img" aria-label="Match map and entity positions"></svg><div class="replay-controls">${btn("▷", "replay-play", 'id="replay-play" aria-label="Play or pause"')}${btn("←", "replay-prev", 'aria-label="Previous action"')}<input id="replay-range" type="range" min="0" max="${data.replay.events.length}" value="0" aria-label="Replay position">${btn("→", "replay-next", 'aria-label="Next action"')}<select id="replay-speed" aria-label="Playback speed"><option value="400">× 1</option><option value="150">× 2</option><option value="50">× 4</option></select></div><div class="toolbar"><strong id="replay-label" style="font-size:11px"></strong><span class="spacer"></span><span id="replay-count" class="muted" style="font-size:10px"></span></div><div id="replay-entities" class="entity-list"></div><div id="replay-events" class="event-list"></div><p class="muted" style="font-size:10px;margin-top:13px">${e(data.replay.note)}${data.replay.unknown_codes.length ? " Actions not visualized: " + e(data.replay.unknown_codes.join(", ")) + "." : ""}</p>` : notice(e(result.error || "No replay is available for this match."), "warn")}${data.statistics ? combatStatistics(data.statistics) : ""}${raw(result, "Full metrics: computation, errors and result")}${data.scenario ? raw(data.scenario, "Exact match scenario") : ""}${raw(data.provenance, "Strategies, hashes and provenance")}${data.outcome ? raw(data.outcome, "Full raw replay, actions and logs") : ""}`;
   S.combatStatistics = data.statistics;
   $$(".match-card").forEach((n) =>
     n.classList.toggle("active", n.dataset.path === path),
@@ -1942,7 +2021,7 @@ function comparePage() {
     selected = S.compareSelection || [];
   return (
     head("Compare results", "Comparison by model and competition protocol.") +
-    `<section class="panel"><h2>Select competitions</h2><p class="muted">Complete experiments are compared against fixed opponents.</p><div class="comparison-select">${runs.map((r) => `<label class="choice"><input type="checkbox" name="compare-run" value="${e(r.id)}" ${selected.includes(r.id) ? "checked" : ""}><span><strong>${e(r.name)}</strong><small>${date(r.created_at)} · ${r.simulated ? "simulation" : r.simulated === false ? "Real API calls" : "tournoi"}</small></span></label>`).join("")}</div><div class="form-footer">${btn("Compare selected runs", "compare-selection", "", true)}</div></section><div id="comparison-result">${S.comparison ? comparisonResult(S.comparison) : notice("Mock runs and API runs form separate groups. Exports are not counted twice.")}</div>`
+    `<section class="panel"><h2>Select competitions</h2><p class="muted">Complete experiments are compared against fixed opponents.</p><div class="comparison-select">${runs.map((r) => `<label class="choice"><input type="checkbox" name="compare-run" value="${e(r.id)}" ${selected.includes(r.id) ? "checked" : ""}><span><strong>${e(r.name)}</strong><small>${date(r.created_at)} · ${r.simulated ? "simulation" : r.simulated === false ? "Real API calls" : "Tournament"}</small></span></label>`).join("")}</div><div class="form-footer">${btn("Compare selected runs", "compare-selection", "", true)}</div></section><div id="comparison-result">${S.comparison ? comparisonResult(S.comparison) : notice("Mock runs and API runs form separate groups. Exports are not counted twice.")}</div>`
   );
 }
 function lineChart(group) {
@@ -2261,9 +2340,11 @@ document.addEventListener("click", async (event) => {
       $("#main").innerHTML = competitionEditor();
       updateStatPreviews();
       toast("Configuration imported. Review before saving.");
-    } else if (a === "launch") await launchDialog(node.dataset.id);
+    } else if (a === "show-training")
+      navigate("run", { run: S.run, tab: "matches", kind: "training" });
+    else if (a === "launch") await launchDialog(node.dataset.id);
     else if (a === "resume") await launchDialog(null, S.run);
-    else if (a === "retry-session") retryDialog(node.dataset.session);
+    else if (a === "retry-session") await retryDialog(node.dataset.session);
     else if (a === "open-run") navigate("run", { run: node.dataset.run });
     else if (a === "tab")
       navigate("run", {
@@ -2309,7 +2390,8 @@ document.addEventListener("click", async (event) => {
       S.fileMode = node.dataset.mode;
       renderFileView();
     } else if (a === "file") await loadFile(node.dataset.path);
-    else if (a === "clear-match-filters") await filterMatches(true);
+    else if (a === "clear-match-filters")
+      navigate("run", { run: S.run, tab: "matches" });
     else if (a === "match") {
       S.matchPath = node.dataset.path;
       await loadMatch();
@@ -2439,6 +2521,7 @@ document.addEventListener("submit", async (event) => {
           draft_id: launch.draftId,
           run: launch.runId,
           retry_session: launch.retrySession,
+          expected_config_sha256: launch.expectedHash,
           confirm_paid: f.has("confirm_paid"),
           ceiling: launch.config.spending.max_total_usd,
         },
@@ -2544,6 +2627,7 @@ document.addEventListener("change", async (event) => {
           S.combatStatistics,
         );
     } else if (n.id === "statistics-stage") {
+      S.statisticsStage = S.statistics.stages[Number(n.value)]?.stage;
       $("#statistics-stage-detail").innerHTML = statisticsStage(
         S.statistics.stages[Number(n.value)],
       );
@@ -2576,7 +2660,11 @@ document.addEventListener("change", async (event) => {
       });
     else if (n.id === "follow-live") {
       S.follow = n.checked;
-    } else if (
+      S.livePreferences ||= {};
+      S.livePreferences[S.run] = n.checked;
+    } else if (n.name === "match-kind")
+      navigate("run", { run: S.run, tab: "matches", kind: n.value });
+    else if (
       [
         "match-stage",
         "match-entrant",
@@ -2650,6 +2738,9 @@ setInterval(async () => {
     const data = await api("/api/runs");
     S.boot.runs = data.runs;
     S.boot.jobs = data.jobs;
+    syncLiveMode();
+    const liveToggle = $("#follow-live");
+    if (liveToggle) liveToggle.checked = !!S.follow;
     updateChrome();
     if (S.logJob && $("#job-log-live")) {
       const log = await api("/api/job", { id: S.logJob });
@@ -2658,8 +2749,9 @@ setInterval(async () => {
     if (
       S.view === "run" &&
       !$("#dialog").open &&
-      (S.tab === "summary" || S.follow) &&
+      S.follow &&
       !(S.tab === "conversation" && $(".chat-message details[open]")) &&
+      !(S.tab === "matches" && replayTimer) &&
       (activeJobs().some((j) => j.run === S.run) ||
         S.boot.runs.some(
           (r) =>
@@ -2672,22 +2764,38 @@ setInterval(async () => {
         d = await api("/api/run", { run: S.run });
       if (epoch !== S.epoch) return;
       if (
+        d.revision !== S.detail?.revision ||
         old !== pretty(d.sessions) ||
         pretty(S.detail.report) !== pretty(d.report) ||
         S.renderedJobState !== S.boot.jobs.find((j) => j.run === S.run)?.status
       ) {
         S.detail = d;
         const scroll = window.scrollY;
+        const replay =
+          S.tab === "matches" && R
+            ? { path: S.matchPath, index: R.index }
+            : null;
         if (S.follow && S.tab === "conversation") {
           const session = d.sessions.find((v) => v.id === S.session);
           S.offset =
             Math.floor(Math.max(0, (session?.messages || 1) - 1) / 25) * 25;
+        }
+        if (S.follow && S.tab === "events") {
+          const events = await api("/api/events", {
+            run: S.run,
+            session: S.session || undefined,
+            model: S.modelFilter || undefined,
+            limit: 1,
+          });
+          S.offset = Math.floor(Math.max(0, events.total - 1) / 100) * 100;
         }
         if (S.follow && S.tab === "code") {
           S.version = null;
           S.previous = null;
         }
         await renderRun(epoch);
+        if (replay && R && replay.path === S.matchPath)
+          renderReplay(Math.min(replay.index, R.events.length));
         window.scrollTo(
           0,
           S.follow && S.tab === "conversation"
@@ -2917,7 +3025,7 @@ function combatTable(rows, perTurn = false) {
     ],
     rows.map(
       (row) =>
-        `<tr>${perTurn ? `<td>${e(row.turn)}</td>` : ""}<td>${e(row.name || row.id)}${row.side != null ? `<small>Side ${row.side + 1} · #${row.entity}</small>` : ""}</td>${columns.map(([key]) => `<td>${fmt(row[key])}</td>`).join("")}${mean ? `<td>${fmt(row.operations != null && row.ai_turns ? row.operations / row.ai_turns : null, 1)}</td>` : ""}${showLimit ? `<td>${fmt(row.operations_limit_per_turn)}</td>` : ""}</tr>`,
+        `<tr>${perTurn ? `<td>${e(row.turn)}</td>` : ""}<td>${e(row.name || strategyName(row.id))}${row.side != null ? `<small>Side ${row.side + 1} · #${row.entity}</small>` : ""}</td>${columns.map(([key]) => `<td>${fmt(row[key])}</td>`).join("")}${mean ? `<td>${fmt(row.operations != null && row.ai_turns ? row.operations / row.ai_turns : null, 1)}</td>` : ""}${showLimit ? `<td>${fmt(row.operations_limit_per_turn)}</td>` : ""}</tr>`,
     ),
   );
 }
@@ -2925,7 +3033,13 @@ function combatStatistics(data) {
   return `<section class="combat-statistics"><h3>Match statistics</h3>${metricSetPicker()}<p class="muted">Limit: ${data.operation_limits?.length > 1 ? "varies by leek; see the per-leek rows" : fmt(data.operations_limit_per_turn) + " operations per played turn and leek"} (${e(data.limit_source)}). ${e(data.action_definition)}</p>${data.missing.map((m) => notice(e(m))).join("")}<h3>Match and team totals</h3>${combatTable([data.total, ...data.sides])}<h3>Totals by leek</h3>${combatTable(data.entities)}<details><summary>Totals by turn</summary>${combatTable(data.rounds, true)}</details><details><summary>Details by turn and leek</summary>${combatTable(data.turns, true)}</details></section>`;
 }
 function competitionStatistics(data) {
-  return `<section class="panel"><h2>Match statistics</h2><p class="muted">Limit: ${data.operation_limits?.length > 1 ? "varies by leek: " + data.operation_limits.map((v) => fmt(v)).join(", ") : fmt(data.operations_limit_per_turn)} operations per played turn and leek. Actions count moves, weapon changes, shots and chips. Totals include mirrors; matrices exclude them.</p><div class="form-grid">${metricSetPicker()}<label class="field">Stage<select id="statistics-stage">${data.stages.map((g, i) => `<option value="${i}">${e(stageText(g.stage))}</option>`).join("")}</select></label></div><div id="statistics-stage-detail">${statisticsStage(data.stages[0])}</div></section>`;
+  const selectedStage = Math.max(
+    0,
+    data.stages.findIndex((group) => group.stage === S.statisticsStage),
+  );
+  if (!data.stages.length)
+    return `<section class="panel"><h2>Match statistics</h2><p>No competition matches yet. ${data.training_matches || 0} preparation tests recorded; excluded from standings.</p>${btn("View preparation tests", "show-training")}</section>`;
+  return `<section class="panel"><h2>Match statistics</h2><p class="muted">Limit: ${data.operation_limits?.length > 1 ? "varies by leek: " + data.operation_limits.map((v) => fmt(v)).join(", ") : fmt(data.operations_limit_per_turn)} operations per played turn and leek. Actions count moves, weapon changes, shots and chips. Totals include mirrors; matrices exclude them. Preparation tests are excluded from these statistics.</p>${data.training_matches ? `<p>${data.training_matches} preparation tests recorded separately. ${btn("View preparation tests", "show-training")}</p>` : ""}<div class="form-grid">${metricSetPicker()}<label class="field">Stage<select id="statistics-stage">${data.stages.map((g, i) => `<option value="${i}" ${i === selectedStage ? "selected" : ""}>${e(stageText(g.stage))}</option>`).join("")}</select></label></div><div id="statistics-stage-detail">${statisticsStage(data.stages[selectedStage])}</div></section>`;
 }
 function statisticsStage(group) {
   if (!group) return empty("No recorded matches", "");
@@ -2938,10 +3052,10 @@ function statisticsStage(group) {
     ),
   ].sort();
   return `<p class="muted">${group.matches} matches · ${group.with_replay} replays available. N/A = data missing from this archive. Per-turn and per-leek details are under Matches.</p>${combatTable(Object.values(group.strategies))}<h3>Match matrix</h3><p class="muted">Row vs column: wins / draws / losses. Failures are listed separately. Click a number to open matching fights.</p><div class="matrix">${table(
-    ["Strategy", ...names.map(e)],
+    ["Strategy", ...names.map((name) => e(strategyName(name)))],
     names.map(
       (who) =>
-        `<tr><th>${e(who)}</th>${names
+        `<tr><th>${e(strategyName(who))}</th>${names
           .map((other) => {
             const r = group.matrix[who]?.[other];
             if (!r) return '<td><span aria-label="No matches">N/A</span></td>';
@@ -2959,9 +3073,11 @@ async function filterMatches(clear = false) {
   if (clear) {
     S.matchFilters = {};
     for (const n of $$("input, select", form)) n.value = "";
+    $("[name=match-kind]").value = "competition";
   } else
     S.matchFilters = {
       search: $("#match-search").value,
+      kind: $("[name=match-kind]")?.value || "competition",
       stage: $("[name=match-stage]", form).value,
       entrant: $("[name=match-entrant]", form).value,
       opponent: $("[name=match-opponent]", form).value,
@@ -2977,7 +3093,7 @@ async function filterMatches(clear = false) {
   );
   const rows = matchSubset();
   $("#match-filter-count").textContent =
-    `${rows.length} / ${S.matches.length} matches`;
+    `${rows.length} / ${S.matches.filter((m) => S.matchFilters.kind === "all" || m.kind === (S.matchFilters.kind || "competition")).length} matches in this category`;
   if (!$("#match-list")) return;
   $("#match-list").innerHTML = matchButtons(rows);
   const path =
@@ -3007,9 +3123,10 @@ function matrixLink(stage, entrant, opponent, outcome, value, description) {
       run: S.run,
       tab: "matches",
       stage,
+      kind: stage.startsWith("evaluations/") ? "evaluation" : "competition",
       entrant,
       opponent,
       outcome,
     });
-  return `<a href="${e(href)}" aria-label="${e(`${entrant} vs ${opponent}: ${description}`)}">${e(value)}</a>`;
+  return `<a href="${e(href)}" aria-label="${e(`${strategyName(entrant)} vs ${strategyName(opponent)}: ${description}`)}">${e(value)}</a>`;
 }

@@ -36,7 +36,7 @@ class Jobs:
     def _save(self):
         write_json(self.path, self.rows)
 
-    def launch(self, *, draft_id=None, run_id=None, confirm_paid=False, ceiling=None, retry_session=None):
+    def launch(self, *, draft_id=None, run_id=None, confirm_paid=False, ceiling=None, retry_session=None, expected_config_sha256=None):
         with self.lock:
             if (draft_id is None) == (run_id is None):
                 raise ArenaError("Choose a configuration or a competition to resume")
@@ -52,6 +52,8 @@ class Jobs:
                 config = self.store.draft(draft_id)["config"]
                 run_id = time.strftime("%Y%m%d-%H%M%S", time.gmtime()) + "-" + uuid4().hex[:8]
                 out = self.store.runs / run_id
+            if expected_config_sha256 is not None and expected_config_sha256 != digest(config):
+                raise ArenaError('Participant settings changed after the launch preview. Reopen the launch dialog to review them.')
             validate_config(config)
             requested_models = config['models']
             if retry_session is not None:
