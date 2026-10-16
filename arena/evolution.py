@@ -57,7 +57,7 @@ def references(engine, config, out, journal, entrants, label, panel):
 
 
 def run_generation(config, out, journal, engine, initial, interrupt=None, retry_session=None, allow_extend=False, generation=1, roots=None):
-    from .experiment import run_session, PROMPT
+    from .experiment import run_session, PROMPT, initial_state
     from .analysis import analyze_evolution
     models = {m["id"]: m for m in config["models"]}
     initial_states = {s["id"]: journal.state(s["id"]) for s in initial}
@@ -84,6 +84,9 @@ def run_generation(config, out, journal, engine, initial, interrupt=None, retry_
                              parent_checkpoint_sha256=digest(parent_state), status="running",
                              calls=0, steps=0, test_matches=0, wall_seconds=0, pending=None, cursor=0,
                              in_flight=False, money_reserved="0", reservation_unbounded=False, cost_spent="0", input_tokens=0, output_tokens=0)
+                state['history'] = initial_state(sid, models[parent_state['model']], config)['history']
+                state['message_times'] = []
+                state['history_policy'] = 'fresh-round'
                 state["token_usage_known"] = False
                 state.pop("submission", None)
                 state.pop("reserved", None)
@@ -94,17 +97,18 @@ def run_generation(config, out, journal, engine, initial, interrupt=None, retry_
                 state.pop("retry_count", None)
                 state.pop("submission_reminders", None)
                 prompt_path = ROOT / "prompts" / ("feedback.md" if condition == "feedback" else "control.md")
-                message = {"role": "user", "content": prompt_path.read_text(encoding="utf-8").replace("Round 2", f"Round {generation+1}").replace("Round 1", f"Round {generation}"), "generation": generation,
-                           "condition": condition, "budgets": config["budget_per_session"]}
+                message = state['history'][0]
+                message.update(generation=generation,condition=condition,
+                    content=f"You are preparing Round {generation+1}; {generation} competition rounds have elapsed.\n"
+                        + prompt_path.read_text(encoding='utf-8') + '\nPreparation rules:\n' + PROMPT)
                 if condition == "feedback":
-                    message["feedback"] = feedback_for(parent["id"], out / "tournament")
-                    counts = message["feedback"]
+                    counts = feedback_for(parent["id"], out / "tournament")
+                    state["previous_round_feedback"] = counts
                     message["content"] += (f"\nYour Round {generation} tournament results: {counts['wins']} wins, {counts['draws']} draws, "
                                            f"{counts['losses']} losses, {counts['failures']} unscored failures across {counts['matches']} fights. "
                                            "Use list_past_fights to choose a fight, then read_past_fight to inspect its overview, actions, "
                                            f"your per-turn metrics or your debug/error logs. These tools only expose your Round {generation} fights.\n")
-                    write_json(out / "feedback" / (sid + ".json"), message["feedback"])
-                state["history"].append(message)
+                    write_json(out / "feedback" / (sid + ".json"), counts)
                 copy_submission(Path(parent["path"]), out / "sessions" / sid / "workspace", parent["submission"])
                 journal.save(sid, state, "branch_created", {"parent": parent["id"],
                                                           "checkpoint_sha256": state["parent_checkpoint_sha256"],

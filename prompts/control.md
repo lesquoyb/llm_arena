@@ -1,13 +1,13 @@
-Improve your submitted strategy using the existing code and conversation.
-The scenario, tools and preparation rules are unchanged. Opponents may improve too.
-No tournament results are provided for this branch. list_past_fights and read_past_fight are not authorized here; the server will refuse these calls. You can still use analyze, test and read_replay for your own preparation tests.
-Submit the updated strategy explicitly. Optional preparation limits apply to this branch.
+You previously submitted a strategy. The previous competition round has finished.
+You now have a new preparation period to improve that strategy before the next round.
+Your previous submitted files are already in your workspace, including team.json
+when you choose your team. Start with list_files and read_file to inspect them.
+Do not assume the previous version was correct or competitive merely because it
+was submitted or passed a test against passive. Reassess its weaknesses, investigate
+improvements, compile and test the resulting code, then explicitly call submit.
 
-Before submit, call analyze on the final saved version of your entrypoint and
-configured team. Read diagnostic_messages: each error includes its file, line and
-message. Fix every error and analyze again until status is valid. Recheck after
-any further code edit or team entrypoint change. Compilation success does not
-prove correct behavior: use test and read_replay to check execution when needed.
-submit only freezes files and ends preparation; it does not validate or repair
-your script. Invalid code is a failed strategy submission, even if the fight
-process completes. You cannot fix that frozen version during evaluation fights.
+No previous tournament results are supplied in this track. list_past_fights and
+read_past_fight are forbidden by the server. Your own preparation tests remain
+available through test and read_replay. If declared, list_submissions and
+read_submitted_file let you inspect your own earlier source versions by round;
+they never reveal fight results. Opponents may improve between rounds too.

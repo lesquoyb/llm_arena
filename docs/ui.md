@@ -237,7 +237,7 @@ new per-entity telemetry separates them.
 
 ## Feedback conversations
 
-Improvement conversations open at the new round's Arena instruction, after the inherited history. Use **Initial history** to review earlier messages and the numbered **Round instruction** button to return. Older runs' structured feedback is rendered as a visible table rather than only inside the raw record. Recorded requests remain unchanged.
+New improvement conversations start fresh, with the scenario, a numbered preparation instruction and the previous submitted files in the workspace. Earlier conversations are not resent. Select an older session to inspect its archived messages; **Initial history** remains available in older runs that inherited their history. Older runs' structured feedback is rendered as a visible table rather than only inside the raw record. Recorded requests remain unchanged.
 
 With feedback, the instruction includes a plain English previous-round result summary. `list_past_fights` lists that participant's non-mirror previous-round tournament fights. `read_past_fight` provides an explained overview, chronological public actions, own per-turn metrics and own debug/error logs, with pagination. No 16-fight or four-action cap applies. Opponent code, opponent debug logs, other participants' unrelated fights, later rounds and final reference tests are unavailable.
 
@@ -246,7 +246,7 @@ Initial and without-feedback sessions cannot call these tools, even by guessing 
 ## Scores and comparisons
 
 The initial strategy produces two improvements: **Improved without feedback**
-and **Improved with feedback**. Only the latter receives match results. Both branches inherit the same initial strategy code and history for Round 2. Later rounds continue their respective track, including its own earlier feedback. The server never grants past-fight access to the no-feedback track.
+and **Improved with feedback**. Only the latter receives match results. Both branches start from the same initial strategy code for Round 2. Later rounds continue their respective code track with a fresh conversation and an explicit round number. Only the feedback track receives a previous-round result summary. The server never grants past-fight access to the no-feedback track.
 The competition Summary uses one shared filter bar: **Round**, **Model** and **Matches** (Tournament or Reference tests). Filters apply to the ranking, evolution chart, matrix, usage and conversation details. The model filter selects the candidate; its opponents stay visible. Versions and repetitions are grouped by model.
 
 The default view shows four indicators, a model ranking, evolution by version and a head-to-head matrix. Detailed metrics, conversations, accounting and methodology expand on demand. Numeric columns in detail tables can be sorted. Small matrices fit the available width; large matrices scroll within their own container. Full model names are available from abbreviated headers.
@@ -492,7 +492,7 @@ The execution order is:
    passive. These fights are explicitly unscored and cannot expose opponent scripts.
 2. Initial round: submitted sources and team.json are frozen. The configured
    pairings run against those same submissions, without model calls between fights.
-3. Improvement, if enabled: both branches inherit the initial code/history; one
+3. Improvement, if enabled: both branches start from the initial code, with fresh conversations; one
    gets the initial round's results and the control branch does not.
 4. Improved round and reference evaluations: each branch's submitted code is frozen.
 
@@ -541,3 +541,24 @@ the full submitted text, reconstructed from that exact request, including older
 runs whose receipt contains only a hash. Rejected writes are identified and do
 not become the baseline for later diffs. If the preceding content was never
 recorded, the interface says so instead of claiming an exact before/after edit.
+
+
+## Model-facing document and replay views
+
+Document JSON is compacted before pagination; source URLs, commit IDs and hashes
+stay in the frozen corpus and journal rather than the model-facing view. Character
+offsets refer to that compact view. Source code and meaningful Markdown line breaks
+are preserved. Tool responses sent to providers omit internal hashes and provenance;
+the exact outgoing request remains inspectable in the journal.
+
+`read_replay` defaults to 16000 characters. A partial page explicitly reports
+`truncated`, its character range and a complete `continuation` call. Repeat that
+call until `next_offset` is null. The same test ID, side and section must be kept.
+A partial JSON fragment is not a complete replay.
+
+`list_past_fights` and `read_past_fight` expose only the previous round, labeled in
+each result, and only to the feedback track. Calibration uses the same previous-round
+scope for training fights; validation and audit fights remain hidden.
+`list_submissions` and `read_submitted_file` provide earlier frozen code by explicit
+round number, within the same track and replicate. These source-only tools are
+available with or without feedback; they reveal no match results or opponent code.

@@ -62,7 +62,8 @@ class CalibrationTests(TestCase):
                 self.assertEqual(last['calibration']['previous_sessions'],['target-r0-g0','target-r0-g1'])
                 access=CalibrationFights(out,last)
                 listing=access.call('list_past_fights',{})
-                self.assertEqual(listing['total'],6) # two rounds, including the second round's two self-history fights
+                self.assertEqual(listing['total'],4) # Previous round only: two training and two previous-version fights
+                self.assertEqual(listing['round'],2)
                 with self.assertRaises(ArenaError): access.call('read_past_fight',{'fight_id':'validation-secret'})
                 tools=Preparation(tmp/'isolated',out/'corpus',engine,value['scenario'],feedback=access,allowed_tools=['submit'])
                 with self.assertRaisesRegex(ArenaError,'disabled'): tools.call('list_past_fights',{},'1')

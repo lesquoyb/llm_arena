@@ -26,13 +26,14 @@ def local_path(root: Path, name: str) -> Path:
 
 
 class Preparation:
-    def __init__(self, directory: Path, docs: Path, engine, scenario: dict, feedback=None, allowed_tools=None):
+    def __init__(self, directory: Path, docs: Path, engine, scenario: dict, feedback=None, allowed_tools=None, versions=None):
         self.directory, self.docs = directory, docs
         self.workspace = directory / "workspace"
         self.workspace.mkdir(parents=True, exist_ok=True)
         self.engine, self.scenario = engine, scenario
         self.feedback = feedback
         self.allowed_tools = allowed_tools
+        self.versions = versions
 
     def call(self, name: str, arguments: dict, call_id: str) -> dict:
         if self.allowed_tools is not None and name not in self.allowed_tools:
@@ -46,6 +47,9 @@ class Preparation:
             if self.feedback is None:
                 raise ArenaError("Past tournament fights are forbidden without feedback access")
             return self.feedback.call(name, arguments)
+        if name in {'list_submissions','read_submitted_file'}:
+            if self.versions is None: raise ArenaError('Submitted versions are not available in this session')
+            return self.versions.call(name, arguments)
         entry = arguments.get("entrypoint", "main.leek")
         if name == "list_files":
             self._fields(arguments, set())
@@ -59,6 +63,9 @@ class Preparation:
                 from .equipment import SPECIAL_CHIPS
                 text = json.dumps({key: row for key, row in json.loads(text).items()
                                    if int(key) not in SPECIAL_CHIPS}, ensure_ascii=False, indent=2)
+            if name == "read_docs":
+                from .model_content import documentation
+                text = documentation(arguments["path"], text)
             offset, limit = arguments.get("offset", 0), arguments.get("limit", 16000)
             if type(offset) is not int or offset < 0 or type(limit) is not int or not 1 <= limit <= 16000:
                 raise ArenaError("Invalid page")
@@ -131,12 +138,9 @@ class Preparation:
             outcome = read_json(local_path(self.directory, cached["artifact_dir"]) / "outcome.json")
             if section not in outcome:
                 raise ArenaError("This archive has no " + section + " section")
-            text = json.dumps(outcome[section], ensure_ascii=False)
-            offset, limit = arguments.get("offset", 0), arguments.get("limit", 4000)
-            if type(offset) is not int or offset < 0 or type(limit) is not int or not 1 <= limit <= 16000:
-                raise ArenaError("Invalid page")
-            return {"content": text[offset:offset + limit], "truncated": offset + limit < len(text),
-                    "next_offset": offset + limit if offset + limit < len(text) else None}
+            from .model_content import compact, page
+            text = compact(outcome[section])
+            return page(text, arguments, 'read_replay', {'test_id':test_id,'side':side,'section':section})
         if name in {"analyze", "test", "submit"}:
             self._fields(arguments, {"entrypoint", "scenario_id", "seed_id", "opponent_id"} if name == "test" else {"entrypoint"})
             if name == "test" and (arguments.get("scenario_id", "training") != "training" or

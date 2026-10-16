@@ -396,7 +396,7 @@ class Store:
                 if row: failure_event = {'id': row[0], 'kind': row[1]}
         return {"total": len(history), "offset": offset, "messages": messages,
                 "times": times[offset:offset + limit], "timeline": timeline[offset:offset + limit], "model": state.get("model"),
-                "status": state["status"], "failure": failure, "instruction_index": start,
+                "status": state["status"], "failure": failure, "instruction_index": start, "history_policy":state.get("history_policy"),
                 "generation": state.get("generation", 0), "condition": state.get("condition", "initial"),
                 "failure_event": failure_event, "diagnostics": self.session_diagnostics(identifier, sid)}
 

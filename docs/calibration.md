@@ -37,7 +37,7 @@ conversations, code, evaluation records and costs.
 3. Choose a scenario, fixed opponents, seeds, replicates and round settings.
    The included opponents are deterministic scripted strategies: `passive`,
    `single-shot` and `rush`. Scenario JSON remains editable.
-4. Run the calibration. Each replicate starts a fresh conversation. The model
+4. Run the calibration. Each replicate starts independently. Each strategy round uses a fresh conversation with the system prompt, scenario, explicit phase instruction and a short previous-round training summary; previous model messages are not resent. The previous submitted code stays in the workspace. The model
    prepares and submits one strategy per round. That frozen strategy plays both
    sides against the fixed panel; only then can the model revise it next round.
 5. Inspect the score chart and each round's conversation, journal, files and
@@ -59,7 +59,7 @@ starting sides and all opponents/seeds. A script that fails compilation forfeits
 its evaluation and scores zero. Its diagnostics return to the next round.
 
 Training results return to the target in readable text. Enabled past-fight tools
-can inspect only earlier training fights in the same replicate and candidate.
+can inspect only the previous training round, labeled in every response, in the same replicate and candidate. Source-version tools can read your own earlier submissions by round, without exposing results.
 Validation and audit records remain inaccessible through those tools.
 Optional fights against earlier versions show whether the model beats its own
 older strategies; they do not change the fixed-panel training score.

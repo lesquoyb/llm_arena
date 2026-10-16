@@ -2211,7 +2211,7 @@ function conversation(data, append = false) {
       ? `<details class="provider-output" data-provider-event="${data.failure_event.id}" data-record-run="${e(S.run)}"><summary>Provider response or failure record</summary><pre></pre></details>`
       : "") +
     (data.generation > 0
-      ? `<div class="toolbar">${badge(`Round ${data.generation + 1} · ` + text(data.condition), "blue")}${btn(`Round ${data.generation + 1} instruction`, "conversation-page", `data-offset="${data.instruction_index}"`)}${btn("Initial history", "conversation-page", 'data-offset="0"')}</div>`
+      ? `<div class="toolbar">${badge(`Round ${data.generation + 1} · ` + text(data.condition), "blue")}${btn(`Round ${data.generation + 1} instruction`, "conversation-page", `data-offset="${data.instruction_index}"`)}${data.history_policy === "fresh-round" ? "" : btn("Initial history", "conversation-page", 'data-offset="0"')}</div>`
       : "") +
     `<div class="pager"><span>${fmt(data.total)} messages · ${status(data.status)}${data.offset + data.messages.length < data.total ? " · More messages on the next page" : ""}</span><div class="actions">${btn("← Previous", "conversation-page", `data-offset="${Math.max(0, S.offset - 25)}" ${S.offset === 0 ? "disabled" : ""}`)}<span>${data.total ? S.offset + 1 : 0}-${Math.min(data.total, S.offset + 25)}</span>${btn("Next →", "conversation-page", `data-offset="${S.offset + 25}" ${S.offset + 25 >= data.total ? "disabled" : ""}`)}</div></div>` +
     data.messages

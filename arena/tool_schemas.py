@@ -29,7 +29,7 @@ TOOLS = [
      "input_schema": schema({**ENTRY, "scenario_id": {"type": "string", "enum": ["training"]},
                              "seed_id": {"type": "string", "enum": ["train-17"]},
                              "opponent_id": {"type": "string", "enum": ["passive"]}})},
-    {"name": "read_replay", "description": "Read a page of your own preparation test: fight actions/entities, team_metrics, turn_metrics, or debug/error logs.",
+    {"name": "read_replay", "description": "Read your preparation test: fight actions/entities, team_metrics, turn_metrics, or debug/error logs. Pages use character offsets, not turns or lines. Default and maximum 16000 characters. truncated=true means this is NOT the complete replay: repeat the exact returned continuation (same test_id, side and section) until next_offset=null. A JSON fragment may be incomplete until all pages are read.",
      "input_schema": schema({"test_id": TEXT, "side": {"type": "integer", "enum": [0, 1]},
                              "section": {"type": "string", "enum": ["fight", "team_metrics", "turn_metrics", "logs"]}, **PAGE}, ["test_id"])},
     {"name": "configure_team", "description": "Choose team members, per-member .leek entrypoints, weapons and chips. Available only when scenario.team_selection enables participant teams. Sources must exist first. Boss/internal and summon-only chips are forbidden in all modes. Read leekscript-v1/weapons.json and chips.json; weapons use their item field as runtime IDs, chips use their object keys/id. Replay actions use template IDs. With independent_builds, choose an explicit level (1–301) and capital for every member; components default to none and reference stats are not imposed. Per-member capital is required when scenario.team_selection.require_capital is true, otherwise optional in realistic-v1 mode or raw stats in free mode; omit to inherit the corresponding default member. Read corpus/stat-rules.json. Realistic builds accept component item-template IDs or {template, stats} altered instances. Use corpus/component-rules.json for current stats, levels and capacities; it overrides the older generator component catalog. Duplicates and over-level pieces are rejected; eight slots are enforced (recovery components consume three), and alteration charge cannot exceed capacity; equipment must meet allowlists and slot limits; realistic mode also enforces the leek level, RAM chip capacity, level-based weapon capacity and special-item restrictions (explicit free mode permits higher-level items). The selection is journaled as team.json and frozen with submit.",
@@ -53,4 +53,11 @@ TOOLS.extend([
      "input_schema": schema({"offset": {"type": "integer", "minimum": 0}, "limit": {"type": "integer", "minimum": 1, "maximum": 100}})},
     {"name": "read_past_fight", "description": "Feedback branches only: inspect an opaque fight_id from list_past_fights. overview explains fields; actions provides chronological events and entity IDs; turns provides your per-leek metrics; logs provides only your debug/error output. Text pages use character offsets; follow next_offset. Opponent code and debug output are never available.",
      "input_schema": schema({"fight_id": TEXT, "section": {"type": "string", "enum": ["overview", "actions", "turns", "logs"]}, **PAGE}, ["fight_id"])},
+])
+
+TOOLS.extend([
+    {'name':'list_submissions','description':'List your own frozen source versions by strategy round (Round 1 is the initial version). Same track and replicate only; no fight results or opponent code. Available with or without feedback. Follow next_offset for more versions.',
+     'input_schema':schema({'offset':{'type':'integer','minimum':0},'limit':{'type':'integer','minimum':1,'maximum':100}})},
+    {'name':'read_submitted_file','description':'Read one file of your own earlier submitted strategy. Choose round and path from list_submissions. Character pages: follow continuation until next_offset=null. Cannot access other tracks, opponents, future rounds or match results.',
+     'input_schema':schema({'round':{'type':'integer','minimum':1},'path':TEXT,**PAGE},['round','path'])},
 ])

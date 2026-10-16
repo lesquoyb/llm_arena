@@ -63,6 +63,8 @@ class APIProvider:
         self.model, self.transport = model, transport
 
     def payload(self, history, tools, output_limit):
+        from .model_content import history_view, message_text, tool_text
+        history = history_view(history)
         m = self.model
         if m["provider"] == "gemini":
             return gemini_payload(history, tools, output_limit, m.get("parameters", {}))
@@ -72,8 +74,7 @@ class APIProvider:
                 if m["provider"] != "anthropic":
                     messages.append({"role": "system", "content": item["content"]})
             elif item["role"] == "user":
-                messages.append({"role": "user", "content": json.dumps(
-                    {k: v for k, v in item.items() if k != "role"}, ensure_ascii=False)})
+                messages.append({"role": "user", "content": message_text(item)})
             elif item["role"] == "assistant":
                 native = item["native"]
                 messages.append(native if m["provider"] == "anthropic" else
@@ -81,7 +82,7 @@ class APIProvider:
                                  if k in ({"role", "content", "tool_calls", "refusal", "audio", "function_call"}
                                           | ({"reasoning_content", "reasoning"} if m["provider"] == "openai-compatible" else set()))})
             elif item["role"] == "tool":
-                content = json.dumps(item["result"], ensure_ascii=False)
+                content = tool_text(item["result"])
                 if m["provider"] == "anthropic":
                     block = {"type": "tool_result", "tool_use_id": item["provider_call_id"], "content": content}
                     if messages and messages[-1]["role"] == "user" and isinstance(messages[-1]["content"], list):
@@ -184,6 +185,8 @@ def connection(model, key):
 
 
 def gemini_payload(history, tools, output_limit, parameters):
+    from .model_content import history_view, message_text
+    history = history_view(history)
     contents = []
     native_ids = {part["functionCall"].get("id") for item in history if item["role"] == "assistant"
                   for part in item.get("native", {}).get("parts", []) if "functionCall" in part}
@@ -191,7 +194,7 @@ def gemini_payload(history, tools, output_limit, parameters):
         if item["role"] == "system":
             continue
         if item["role"] == "user":
-            parts = [{"text": json.dumps({k:v for k,v in item.items() if k != "role"}, ensure_ascii=False)}]
+            parts = [{"text": message_text(item)}]
             role = "user"
         elif item["role"] == "assistant":
             contents.append(item["native"])

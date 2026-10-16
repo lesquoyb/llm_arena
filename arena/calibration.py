@@ -120,22 +120,23 @@ class CalibrationFights(PastFights):
     def __init__(self, out, state):
         self.root, self.parent = out, 'target'
         self.context = state['calibration']
+        self.round = state['generation']
 
     def records(self):
         result = {}
-        for sid in self.context['previous_sessions']:
+        for sid in self.context['previous_sessions'][-1:]:
             paths = [path for label in ('training-', 'history-') for path in (self.root/'evaluations'/(label+sid)/'records').glob('*.json')]
             for path in sorted(paths):
                 row = read_json(path)
                 identifier = 'fight-' + digest({'session': sid, 'record': path.relative_to(self.root).as_posix()})[:20]
                 sides = [self.parent, row['opponent']] if row['side'] == 0 else [row['opponent'], self.parent]
-                result[identifier] = {'match': {'sides': sides}, 'result': row['result'], 'directory': row['artifact_dir']}
+                result[identifier] = {'match': {'sides': sides, 'round':self.round}, 'result': row['result'], 'directory': row['artifact_dir']}
         return result
 
     def call(self, name, arguments):
         result = super().call(name, arguments)
         if name == 'list_past_fights':
-            result['scope'] = 'Your earlier training rounds only. Validation and audit fights are inaccessible.'
+            result['scope'] = 'Your previous training round only. Validation and audit fights are inaccessible.'
         return result
 
 
@@ -217,10 +218,13 @@ def trial(config, out, resume=False, engine=None):
                             state['history'].insert(0, {'role': 'system', 'content': config['prompt']})
                         else:
                             parent = journal.state(previous[-1])
-                            state['history'] = copy.deepcopy(parent['history'])
+                            state['history'][0]['content'] = 'Your previously submitted strategy is in the workspace. Inspect it with list_files/read_file; use source-version tools if enabled. Submission or a successful preparation test does not prove competitive quality. This is a new preparation period: review weaknesses, improve, analyze and test, then explicitly submit.'
+                            state['history'].insert(0, {'role':'system','content':config['prompt']})
+                            state['history_policy'] = 'fresh-round'
+                            state['parent'] = previous[-1]
                             counts = rounds[-1]['training']
-                            state['history'].append({'role': 'user', 'generation': round_index, 'condition': 'feedback',
-                                'content': f"Round {round_index+1}. Your last training round: {counts['wins']} wins, {counts['draws']} draws, {counts['losses']} losses, score {counts['score']:.3f} (win=1, draw=0.5, loss=0). Improve your saved strategy, then submit. The fixed opponents and training seeds are unchanged. list_past_fights/read_past_fight can inspect earlier training fights if enabled. Evaluation fights start only after submission; preparation tests never count toward the score."})
+                            state['history'][-1].update({'generation': round_index, 'condition': 'feedback',
+                                'content': state['history'][-1]['content'] + f" {round_index} training rounds have elapsed. Round {round_index+1}. Your last training round: {counts['wins']} wins, {counts['draws']} draws, {counts['losses']} losses, score {counts['score']:.3f} (win=1, draw=0.5, loss=0). Improve your saved strategy, then submit. The fixed opponents and training seeds are unchanged. list_past_fights/read_past_fight can inspect your previous training round if enabled. Every result identifies that round. Evaluation fights start only after submission; preparation tests never count toward the score."})
                             if rounds[-1]['validity'] != 'valid':
                                 from .compiler_diagnostics import readable_analysis
                                 message = state['history'][-1]

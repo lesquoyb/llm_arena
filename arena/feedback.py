@@ -31,7 +31,7 @@ def available_tools(state):
     if state.get("calibration"):
         names = state["calibration"]["tools"]
         descriptions = {
-            'list_past_fights':'List your completed earlier calibration training and previous-version fights. Paginate with offset/limit and next_offset. Validation and audit fights, other replicates and other prompt candidates are inaccessible.',
+            'list_past_fights':'List your completed previous-round calibration training and previous-version fights; every response identifies the round. Paginate with offset/limit and next_offset. Validation and audit fights, other training rounds, replicates and prompt candidates are inaccessible.',
             'read_past_fight':'Inspect a fight_id from list_past_fights: overview explains results and metrics; actions gives ordered events; turns gives per-entity metrics; logs gives your side only. Character pages use offset/limit and next_offset. Validation and audit records cannot be read.'}
         return [{**tool, 'description':descriptions.get(tool['name'],tool['description'])}
                 for tool in TOOLS if tool['name'] in names]
@@ -45,6 +45,7 @@ class PastFights:
         import re
         previous = re.search(r'-g(\d+)-(?:control|feedback)$', parent)
         self.root, self.parent = out / (f'g{previous[1]}-tournament' if previous else 'tournament'), parent
+        self.round = int(previous[1])+1 if previous else 1
 
     def records(self):
         result = {}
@@ -59,7 +60,7 @@ class PastFights:
     def overview(self, identifier, record):
         match, result = record['match'], record['result']
         side = match['sides'].index(self.parent)
-        return {'fight_id': identifier, 'opponent': 'opponent-' + digest(match['sides'][1-side])[:8],
+        return {'fight_id': identifier, 'round':match.get('round',self.round), 'opponent': 'opponent-' + digest(match['sides'][1-side])[:8],
                 'own_side': side, 'status': result['status'],
                 'result': ('unscored' if result['status'] != 'completed' else 'draw' if result['winner_side'] == -1
                            else 'win' if result['winner_side'] == side else 'loss'),
@@ -83,7 +84,7 @@ class PastFights:
         if name == 'list_past_fights':
             matches = [self.overview(key, row) for key, row in records.items()]
             end = min(len(matches), offset+limit)
-            return {'scope': 'Your previous-round tournament fights; mirrors excluded. Results are from your perspective.',
+            return {'round':self.round, 'scope': 'Your previous-round tournament fights; mirrors excluded. Results are from your perspective.',
                     'total': len(matches), 'matches': matches[offset:end],
                     'next_offset': end if end < len(matches) else None}
         record = records.get(arguments.get('fight_id'))
@@ -127,7 +128,6 @@ class PastFights:
                     events.append({'turn': turn, 'actor': actor, 'action': ACTION_GUIDE.get(action[0], 'Other public engine action'), 'code': action[0], 'arguments': action[1:]})
                 content = {'own_side': side, 'guide': 'Events are chronological. actor is the active entity; team is 1 for side 0, 2 for side 1. Chip/weapon IDs here are replay templates, not runtime item IDs. String debug/chat payloads are excluded.',
                            'entities': [{k:v for k,v in leek.items() if k in {'id','team','life','cellPos','summon','level','strength','tp','mp'}} for leek in fight.get('leeks', [])], 'events': events}
-        text = json.dumps(content, ensure_ascii=False)
-        end = min(len(text), offset+limit)
-        return {'fight_id': arguments['fight_id'], 'section': section, 'content': text[offset:end],
-                'truncated': end < len(text), 'next_offset': end if end < len(text) else None}
+        from .model_content import compact, page
+        return {**page(compact(content),arguments,name,{'fight_id':arguments['fight_id'],'section':section},default=4000),
+                'round':self.round}

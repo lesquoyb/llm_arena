@@ -24,7 +24,9 @@ def serve(out: Path, sid: str):
             state = journal.state(sid)
             if state is None or state["status"] != "running" or state.get("pending"):
                 raise ArenaError("MCP requires an initialized, open session without a pending provider response")
-            tools = Preparation(out / "sessions" / sid, out / "corpus", Engine(), config["scenario"], feedback=access_for(out, state))
+            from .submitted_versions import OwnSubmissions
+            tools = Preparation(out / "sessions" / sid, out / "corpus", Engine(), config["scenario"], feedback=access_for(out, state),
+                                allowed_tools=state.get('calibration',{}).get('tools'), versions=OwnSubmissions(out,state))
             verify_workspace(state, tools)
             server = Server("llm-arena-preparation")
             started, previous = time.monotonic(), state["wall_seconds"]
@@ -47,7 +49,8 @@ def serve(out: Path, sid: str):
                     if str(error) == "Tool budget exhausted":
                         _finish(sid, state, tools, journal, "budget_exhausted")
                     result = {"error": str(error)}
-                return [types.TextContent(type="text", text=json.dumps(result, ensure_ascii=False))]
+                from .model_content import compact, visible
+                return [types.TextContent(type="text", text=compact(visible(result)))]
 
             async def run_server():
                 async with stdio_server() as (reader, writer):

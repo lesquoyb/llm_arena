@@ -12,6 +12,8 @@ class MockProvider:
         self.profile = profile
 
     def payload(self, history, tools, output_limit):
+        from .model_content import history_view
+        history = history_view(history)
         return {"profile": self.profile,
                 "messages": [{k: copy.deepcopy(v) for k, v in item.items() if k != "sent_parameters"} for item in history],
                 "tools": copy.deepcopy(tools), "max_output_tokens": output_limit}

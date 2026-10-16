@@ -439,8 +439,9 @@ def run_session(sid, model, config, out, journal, engine, interrupt=None):
     state = journal.state(sid) or initial_state(sid, model, config)
     directory = out / "sessions" / sid
     from .feedback import access_for
+    from .submitted_versions import OwnSubmissions
     tools = Preparation(directory, out / "corpus", engine, config["scenario"], feedback=access_for(out, state),
-                        allowed_tools=state.get("calibration", {}).get("tools"))
+                        allowed_tools=state.get("calibration", {}).get("tools"), versions=OwnSubmissions(out,state))
     if state["status"] in TERMINAL:
         if "submission" in state and submission(directory / "submission", state["submission"]["entrypoint"]) != state["submission"]:
             raise ArenaError("Archived session submission changed")
