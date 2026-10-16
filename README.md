@@ -38,6 +38,14 @@ compatible experiments. No Node.js installation is needed to use it.
 See the [Windows](docs/windows.md), [Linux](docs/linux.md) and [interface](docs/ui.md)
 guides. Installation needs Internet access; mock experiments and matches run locally afterward.
 
+## Prompt calibration
+
+Run `python -m arena calibrate serve --open` with the virtual environment activated
+to compare system prompts, tool sets and model parameters in a separate workshop.
+It supports manual revisions, automatic analyst proposals, fixed opponents,
+round-by-round inspection and held-out evaluation. See the
+[prompt calibration guide](docs/calibration.md).
+
 ## Command line
 
 Use the Python executable inside `.venv`, or activate it before these commands:

@@ -20,11 +20,21 @@ def allowed(state):
 
 
 def access_for(out, state):
+    if state.get("calibration"):
+        from .calibration import CalibrationFights
+        return CalibrationFights(out, state)
     return PastFights(out, state['parent']) if allowed(state) else None
 
 
 def available_tools(state):
     from .tool_schemas import TOOLS
+    if state.get("calibration"):
+        names = state["calibration"]["tools"]
+        descriptions = {
+            'list_past_fights':'List your completed earlier calibration training and previous-version fights. Paginate with offset/limit and next_offset. Validation and audit fights, other replicates and other prompt candidates are inaccessible.',
+            'read_past_fight':'Inspect a fight_id from list_past_fights: overview explains results and metrics; actions gives ordered events; turns gives per-entity metrics; logs gives your side only. Character pages use offset/limit and next_offset. Validation and audit records cannot be read.'}
+        return [{**tool, 'description':descriptions.get(tool['name'],tool['description'])}
+                for tool in TOOLS if tool['name'] in names]
     return [tool for tool in TOOLS if tool['name'] not in FEEDBACK_NAMES or allowed(state)]
 
 

@@ -56,7 +56,7 @@ class MockProvider:
             calls = sequence[step] if step < len(sequence) else []
         if profile == "budget":
             calls = [("write_file", {"path": "main.leek", "content": source})]
-        scenario = history[0].get("scenario", {})
+        scenario = next((item["scenario"] for item in history if "scenario" in item), {})
         if scenario.get("team_selection") and any(name == "write_file" for name, _ in calls):
             rules = scenario["team_selection"]
             # Fixtures exercise the same tool as native providers without API calls.

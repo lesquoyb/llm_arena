@@ -68,7 +68,10 @@ class APIProvider:
             return gemini_payload(history, tools, output_limit, m.get("parameters", {}))
         messages = []
         for item in history:
-            if item["role"] == "user":
+            if item["role"] == "system":
+                if m["provider"] != "anthropic":
+                    messages.append({"role": "system", "content": item["content"]})
+            elif item["role"] == "user":
                 messages.append({"role": "user", "content": json.dumps(
                     {k: v for k, v in item.items() if k != "role"}, ensure_ascii=False)})
             elif item["role"] == "assistant":
@@ -92,11 +95,15 @@ class APIProvider:
             if output_limit is None:
                 raise ArenaError("Anthropic requires max_tokens; configure maximum output per call")
             payload.update(max_tokens=output_limit, tools=tools)
+            system = "\n\n".join(item["content"] for item in history if item["role"] == "system")
+            if system:
+                payload["system"] = system
         else:
             if output_limit is not None:
                 payload["max_completion_tokens"] = output_limit
             payload.update(tools=[{"type": "function", "function": {"name": t["name"],
                                   "description": t["description"], "parameters": t["input_schema"]}} for t in tools])
+        if not tools: payload.pop("tools", None)
         return payload
 
     def respond(self, history, tools, output_limit):
@@ -181,6 +188,8 @@ def gemini_payload(history, tools, output_limit, parameters):
     native_ids = {part["functionCall"].get("id") for item in history if item["role"] == "assistant"
                   for part in item.get("native", {}).get("parts", []) if "functionCall" in part}
     for item in history:
+        if item["role"] == "system":
+            continue
         if item["role"] == "user":
             parts = [{"text": json.dumps({k:v for k,v in item.items() if k != "role"}, ensure_ascii=False)}]
             role = "user"
@@ -202,9 +211,14 @@ def gemini_payload(history, tools, output_limit, parameters):
     generation = {mapping.get(k,k):v for k,v in parameters.items()}
     if output_limit is not None:
         generation["maxOutputTokens"] = output_limit
-    return {"contents": contents, "generationConfig": generation,
+    payload = {"contents": contents, "generationConfig": generation,
             "tools": [{"functionDeclarations": [{"name":t["name"], "description":t["description"],
                        "parametersJsonSchema":t["input_schema"]} for t in tools]}]}
+    system = "\n\n".join(item["content"] for item in history if item["role"] == "system")
+    if system:
+        payload["systemInstruction"] = {"parts": [{"text": system}]}
+    if not tools: payload.pop("tools", None)
+    return payload
 
 
 def request_snapshot(model, history, tools, output_limit):

@@ -26,14 +26,17 @@ def local_path(root: Path, name: str) -> Path:
 
 
 class Preparation:
-    def __init__(self, directory: Path, docs: Path, engine, scenario: dict, feedback=None):
+    def __init__(self, directory: Path, docs: Path, engine, scenario: dict, feedback=None, allowed_tools=None):
         self.directory, self.docs = directory, docs
         self.workspace = directory / "workspace"
         self.workspace.mkdir(parents=True, exist_ok=True)
         self.engine, self.scenario = engine, scenario
         self.feedback = feedback
+        self.allowed_tools = allowed_tools
 
     def call(self, name: str, arguments: dict, call_id: str) -> dict:
+        if self.allowed_tools is not None and name not in self.allowed_tools:
+            raise ArenaError("Tool is disabled for this calibration trial")
         if not re.fullmatch(r"call-[0-9]+-tool-[0-9]+", call_id) and call_id not in {"final"} and not call_id.isdigit():
             raise ArenaError("Invalid internal call ID")
         if not isinstance(arguments, dict):

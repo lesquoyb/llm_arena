@@ -1,0 +1,288 @@
+<!doctype html>
+<html lang="en">
+  <meta charset="utf-8" /><meta
+    name="viewport"
+    content="width=device-width,initial-scale=1"
+  /><link rel="icon" href="/favicon.png" type="image/png" /><title>
+    Prompt calibration · LLM Arena</title
+  ><link rel="stylesheet" href="/calibration.css" />
+  <script defer src="/calibration.js"></script>
+  <body>
+    <header>
+      <strong>LLM Arena</strong><span>Prompt calibration</span
+      ><span id="connection"></span>
+    </header>
+    <main>
+      <section id="editor">
+        <h1>New calibration</h1>
+        <p>
+          Compare initial prompts against fixed opponents. Each candidate starts
+          with a fresh conversation; only training results return to the target.
+        </p>
+        <div class="fields">
+          <label>Name<input id="name" /></label
+          ><label>Target model<select id="target"></select></label
+          ><label
+            >Workflow<select id="mode">
+              <option value="manual">Manual prompt editing</option>
+              <option value="automatic">Automatic prompt editing</option>
+              <option value="grid">Model parameter sweep</option>
+            </select></label
+          ><label id="analyst-label" hidden
+            >Analyst model<select id="analyst"></select
+          ></label>
+        </div>
+        <div class="fields">
+          <label
+            >Target API key (optional, kept in worker memory)<input
+              type="password"
+              id="target-key"
+              autocomplete="off" /></label
+          ><label
+            >Analyst API key (optional)<input
+              type="password"
+              id="analyst-key"
+              autocomplete="off"
+          /></label>
+        </div>
+        <details>
+          <summary>Provider configuration</summary>
+          <p>
+            Saved participants are shared with the competition application. Edit
+            the JSON here for an unsaved model. API keys can also come from the
+            named environment variables. Ollama uses the OpenAI compatible
+            protocol and an HTTP loopback endpoint.
+          </p>
+          <label
+            >Target model JSON<textarea
+              id="target-json"
+              rows="8"
+            ></textarea></label
+          ><label
+            >Analyst model JSON<textarea id="analyst-json" rows="8"></textarea>
+          </label>
+        </details>
+        <label
+          >Initial system prompt<textarea
+            id="prompt"
+            rows="14"
+            spellcheck="false"
+          ></textarea>
+        </label>
+        <details>
+          <summary>Tools available to the target</summary>
+          <p>
+            These are the registered Arena MCP tools. Disabled tools are
+            rejected by the dispatcher, even if the model guesses their names.
+            Earlier training fights are the only competition records accessible
+            to the target.
+          </p>
+          <div id="tools"></div>
+        </details>
+        <div class="fields">
+          <label
+            >Maximum rounds<input
+              id="rounds"
+              type="number"
+              min="1"
+              max="100" /></label
+          ><label
+            >Minimum rounds<input
+              id="minimum"
+              type="number"
+              min="1"
+              max="100" /></label
+          ><label
+            >Plateau patience<input
+              id="patience"
+              type="number"
+              min="1"
+              max="100" /></label
+          ><label
+            >Replicates<input
+              id="replicates"
+              type="number"
+              min="1"
+              max="20" /></label
+          ><label
+            >Minimum score improvement<input
+              id="epsilon"
+              type="number"
+              min="0"
+              max="1"
+              step="0.001"
+          /></label>
+        </div>
+        <label
+          ><input id="previous-versions" type="checkbox" /> Evaluate against
+          previous versions too (separate score)</label
+        >
+        <details>
+          <summary>Panels, scenario and optimizer settings</summary>
+          <p>
+            Training drives improvement and plateau detection. Validation
+            compares prompts. A separate audit panel evaluates the selected
+            candidate after search. All panels use both starting sides. Model
+            outputs may vary even with a seed.
+          </p>
+          <label
+            >Static opponents (comma separated)<input id="opponents"
+          /></label>
+          <div class="fields">
+            <label>Training seeds<input id="training" /></label
+            ><label>Validation seeds<input id="validation" /></label
+            ><label>Audit seeds<input id="audit" /></label>
+          </div>
+          <label
+            >Scenario preset<select id="scenario-preset">
+              <option value="simple">Simple duel</option>
+              <option value="dream-team">Dream team</option>
+              <option value="llm-team">Model chooses its team</option>
+              <option value="custom">Custom configuration</option>
+            </select></label
+          ><label
+            >Scenario JSON<textarea id="scenario" rows="10"></textarea>
+          </label>
+          <h3>Search settings</h3>
+          <div class="fields">
+            <label
+              >Maximum candidates<input
+                id="candidate-count"
+                type="number"
+                min="1"
+                max="100" /></label
+            ><label
+              >Stop after rejected candidates<input
+                id="search-patience"
+                type="number"
+                min="1"
+                max="100" /></label
+            ><label
+              >Allowed score regression per replicate<input
+                id="score-tolerance"
+                type="number"
+                min="0"
+                max="1"
+                step="0.001" /></label
+            ><label
+              >Penalty per convergence round<input
+                id="round-penalty"
+                type="number"
+                min="0"
+                max="1"
+                step="0.001" /></label
+            ><label
+              >Penalty per million target tokens<input
+                id="token-penalty"
+                type="number"
+                min="0"
+                max="1"
+                step="0.001" /></label
+            ><label
+              >Analyst evidence limit (characters)<input
+                id="evidence-limit"
+                type="number"
+                min="1000"
+                max="1000000"
+            /></label>
+          </div>
+          <label
+            >Editor JSON repair retries<input
+              id="editor-retries"
+              type="number"
+              min="0"
+              max="3" /></label
+          ><label
+            >Parameter grid JSON (parameter-sweep mode)<textarea
+              id="parameter-grid"
+              rows="3"
+            ></textarea>
+          </label>
+          <p>
+            Utility = validation score − round penalty × convergence round −
+            token penalty × mean tokens / 1,000,000. A candidate must improve
+            utility and stay within score tolerance in every paired replicate.
+            Parameter grid replaces analyst editing with a deterministic
+            Cartesian sweep.
+          </p>
+          <label
+            >Optional per-round limits JSON<textarea
+              id="budget"
+              rows="3"
+            ></textarea></label
+          ><label
+            ><input id="api-enabled" type="checkbox" /> Enable API requests,
+            including local servers</label
+          ><label
+            >Optional study spending ceiling (USD)<input
+              id="cost-ceiling"
+              type="number"
+              min="0"
+              step="any"
+              placeholder="Unlimited"
+          /></label>
+          <p>
+            No token or call limits apply by default. Remote API calls require
+            allow_paid_calls=true. If set, max_total_usd covers the entire
+            study, including the analyst.
+          </p>
+        </details>
+        <p id="simulation-note"></p>
+        <div class="actions">
+          <button id="start">Run calibration</button
+          ><button id="export" class="secondary">Export configuration</button>
+        </div>
+      </section>
+      <section>
+        <div class="title">
+          <h2>Studies</h2>
+          <button id="refresh" class="secondary">Refresh</button>
+        </div>
+        <p id="comparison-note"></p>
+        <div id="studies"></div>
+      </section>
+      <section id="inspection" hidden>
+        <div class="title">
+          <h2 id="study-title"></h2>
+          <div>
+            <button id="show-prompt" class="secondary">Inspect prompt</button
+            ><button id="fork" class="secondary">Edit selected prompt</button
+            ><button id="resume" class="secondary">Resume</button
+            ><button id="stop" class="secondary">Stop</button
+            ><button id="log" class="secondary">Run log</button>
+          </div>
+        </div>
+        <div id="status"></div>
+        <div id="trial-comparison"></div>
+        <div class="fields">
+          <label>Candidate<select id="trial"></select></label
+          ><label>Replicate<select id="replicate"></select></label>
+        </div>
+        <div id="chart"></div>
+        <div id="rounds-table"></div>
+        <h3>Inspect trajectory</h3>
+        <div class="fields">
+          <label>Round or analyst session<select id="session"></select></label
+          ><label
+            >View<select id="view">
+              <option value="conversation">Conversation</option>
+              <option value="events">Journal</option>
+              <option value="files">Saved files</option>
+              <option value="fights">Fights</option>
+            </select></label
+          >
+        </div>
+        <div id="history"></div>
+      </section>
+    </main>
+    <dialog id="dialog">
+      <div class="title">
+        <h2 id="dialog-title"></h2>
+        <button id="close" class="secondary">Close</button>
+      </div>
+      <button id="copy" class="secondary">Copy</button>
+      <pre id="dialog-content"></pre>
+    </dialog>
+    <div id="error" role="alert" hidden></div>
+  </body>
+</html>

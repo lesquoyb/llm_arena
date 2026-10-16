@@ -277,6 +277,9 @@ def provider_response(sid, state, model, config, journal):
         spent = amount(state.get("cost_spent", "0"))
         total = sum(amount(s.get("cost_spent", "0")) + amount(s.get("money_reserved", "0"))
                     for s in journal.states().values())
+        if state.get("calibration"):
+            from .calibration import study_spending
+            total = study_spending(journal)
         remaining = []
         if "max_cost_usd" in budget:
             remaining.append(amount(budget["max_cost_usd"]) - spent)
@@ -435,7 +438,8 @@ def run_session(sid, model, config, out, journal, engine, interrupt=None):
     state = journal.state(sid) or initial_state(sid, model, config)
     directory = out / "sessions" / sid
     from .feedback import access_for
-    tools = Preparation(directory, out / "corpus", engine, config["scenario"], feedback=access_for(out, state))
+    tools = Preparation(directory, out / "corpus", engine, config["scenario"], feedback=access_for(out, state),
+                        allowed_tools=state.get("calibration", {}).get("tools"))
     if state["status"] in TERMINAL:
         if "submission" in state and submission(directory / "submission", state["submission"]["entrypoint"]) != state["submission"]:
             raise ArenaError("Archived session submission changed")
