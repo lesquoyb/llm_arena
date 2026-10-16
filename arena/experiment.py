@@ -497,7 +497,29 @@ def run_session(sid, model, config, out, journal, engine, interrupt=None):
                 journal.save(sid, state, "cancelled_remaining_tools")
             if state["status"] == "running":
                 if not calls:
-                    _finish(sid, state, tools, journal, "submitted")
+                    # A provider stop ends one response, not the Arena preparation session.
+                    state["pending"] = None
+                    reminders = state.get("submission_reminders", 0)
+                    if reminders < 3:
+                        state["submission_reminders"] = reminders + 1
+                        state["history"].append({"role": "user", "content":
+                            "Your response ended, but you have not submitted a strategy. "
+                            "This round is not complete. Continue using the Arena tools: "
+                            "finish your LeekScript files, run analyze to check compilation, "
+                            "then explicitly call submit. Ending a response or saying you are "
+                            "finished does not submit your files. "
+                            f"Reminder {reminders + 1} of 3; after three reminders, another "
+                            "response without tool calls will end this session without a submission."})
+                        journal.save(sid, state, "submission_required", {"reminder": reminders + 1})
+                    else:
+                        state["status"] = "no_submission"
+                        state["failure"] = {"message": "The model ended responses without explicitly calling submit after three reminders.",
+                                            "phase": "submission",
+                                            "retryable": False, "uncertain": False}
+                        state["history"].append({"role": "user", "content":
+                            "Arena stopped this session: no strategy was submitted after three reminders. "
+                            "This round has no valid submission; workspace files were not submitted automatically."})
+                        journal.save(sid, state, "finished_without_submission", state["failure"])
                 else:
                     state["pending"] = None
                     journal.save(sid, state, "turn_completed")

@@ -159,6 +159,13 @@ to moderate LLM conversations. It is retained as part of the engine inventory.
 
 ## Conversations and journal
 
+A provider's `stop` finish reason ends its response, not its Arena round. Without
+an explicit `submit` tool call, Arena sends a visible reminder and continues the
+conversation. After three reminders, another response without tools ends the
+session as **No submission**, with an explanation. Existing files are not
+submitted automatically when a response stops. Reminder responses count toward
+usage and any configured budgets. Previously recorded runs remain unchanged.
+
 **Conversations** shows complete recorded prompts, responses, tool calls and
 results, with pagination. **Follow live** moves to new messages.
 New calls include a **Sent request** section containing the full messages,
