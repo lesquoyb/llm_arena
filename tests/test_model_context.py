@@ -25,6 +25,13 @@ class ModelContextTests(TestCase):
             chunks.append(result['content']);args=(result['continuation'] or {}).get('arguments')
         self.assertEqual(''.join(chunks),text)
 
+    def test_hash_cleanup_does_not_consume_long_runs_of_ordinary_text(self):
+        text='a'*17005
+        self.assertEqual(documentation('guide.md',text),text)
+        self.assertEqual(documentation('guide.md','Commit: `'+('a'*40)+'`.'),'Commit: .')
+        code='```leekscript\nvar value = "'+('a'*64)+'";\n```'
+        self.assertEqual(documentation('guide.md',code),code)
+
     def test_source_line_breaks_are_preserved_without_json_string_wrapping(self):
         code='if (true) {\n\tdebug("hello");\n}\n'
         result={'path':'main.leek','content':code,'sha256':'a'*64}

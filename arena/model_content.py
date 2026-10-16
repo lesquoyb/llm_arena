@@ -36,7 +36,7 @@ def documentation(path, text):
         part = re.sub(r'(?m)^Sources?:[^\n]*(?:\n(?!\n)[^\n]*)*', '', part)
         part = re.sub(r'\[([^\]]+)\]\(https?://[^)]+\)', r'\1', part)
         part = re.sub(r'https?://[^\s)]+', '', part)
-        part = re.sub(r'`?[a-f0-9]{40,64}`?', '', part)
+        part = re.sub(r'(?<![A-Za-z0-9_])`?(?:[a-f0-9]{40}|[a-f0-9]{64})`?(?![A-Za-z0-9_])', '', part)
         pieces[index] = re.sub(r'\n{3,}', '\n\n', part)
     return ''.join(pieces)
 
