@@ -1,6 +1,7 @@
 """Read-only access to this trajectory's own frozen earlier source versions."""
 import json
 import sqlite3
+from contextlib import closing
 from .core import ArenaError, file_hash
 from .preparation import local_path
 from .model_content import page
@@ -18,7 +19,7 @@ class OwnSubmissions:
         seeds = list(self.state.get('calibration',{}).get('previous_sessions',[]))
         if self.state.get('parent'): seeds.append(self.state['parent'])
         result, seen = [], set()
-        with sqlite3.connect(database.as_uri()+'?mode=ro',uri=True) as db:
+        with closing(sqlite3.connect(database.as_uri()+'?mode=ro',uri=True)) as db:
             while seeds:
                 sid = seeds.pop()
                 if sid in seen: continue

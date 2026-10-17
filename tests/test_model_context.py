@@ -2,6 +2,7 @@
 import copy
 import json
 import sqlite3
+from contextlib import closing
 from unittest import TestCase
 
 from arena.core import ArenaError, scratch_directory, submission, write_json
@@ -58,7 +59,7 @@ class ModelContextTests(TestCase):
                 source=out/'sessions'/sid/'submission'
                 source.mkdir(parents=True);(source/'main.leek').write_text(code)
                 states[sid]={'model':'model','replicate':0,'generation':gen,'parent':parent,'submission':submission(source)}
-            with sqlite3.connect(out/'journal.sqlite') as db:
+            with closing(sqlite3.connect(out/'journal.sqlite')) as db, db:
                 db.execute('CREATE TABLE sessions (id TEXT PRIMARY KEY,state TEXT)')
                 db.executemany('INSERT INTO sessions VALUES (?,?)',[(sid,json.dumps(state)) for sid,state in states.items()])
             access=OwnSubmissions(out,{'model':'model','replicate':0,'generation':2,'parent':'model-r0-g1-control'})
@@ -70,3 +71,5 @@ class ModelContextTests(TestCase):
             with self.assertRaises(ArenaError): access.call('read_submitted_file',{'round':2,'path':'../model-r0-g1-feedback/main.leek'})
             (out/'sessions/model-r0-g1-control/submission/main.leek').write_text('// tampered')
             with self.assertRaisesRegex(ArenaError,'changed'): access.call('read_submitted_file',{'round':2,'path':'main.leek'})
+            # Windows rejects deletion if any reader or the fixture kept a handle.
+            (out/'journal.sqlite').unlink()
