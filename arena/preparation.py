@@ -142,11 +142,15 @@ class Preparation:
             text = compact(outcome[section])
             return page(text, arguments, 'read_replay', {'test_id':test_id,'side':side,'section':section})
         if name in {"analyze", "test", "submit"}:
-            self._fields(arguments, {"entrypoint", "scenario_id", "seed_id", "opponent_id"} if name == "test" else {"entrypoint"})
-            if name == "test" and (arguments.get("scenario_id", "training") != "training" or
-                                   arguments.get("seed_id", "train-17") != "train-17" or
-                                   arguments.get("opponent_id", "passive") != "passive"):
-                raise ArenaError("Test is outside the preparation catalog")
+            self._fields(arguments, {"entrypoint", "scenario_id", "seed_id", "opponent_id", "opponent_entrypoint"} if name == "test" else {"entrypoint"})
+            own_opponent = arguments.get('opponent_entrypoint')
+            opponent_id = arguments.get('opponent_id', 'workspace' if own_opponent is not None else 'passive')
+            if name == 'test':
+                if (arguments.get('scenario_id','training') != 'training' or arguments.get('seed_id','train-17') != 'train-17'
+                        or opponent_id not in {'passive','workspace'}):
+                    raise ArenaError('Test is outside the preparation catalog')
+                if (opponent_id == 'workspace') != (own_opponent is not None):
+                    raise ArenaError('Choose opponent_entrypoint for a workspace opponent, or omit it for passive')
             info = submission(self.workspace, entry)
             if self.scenario.get("team_selection") and name in {"test", "submit"}:
                 from .teams import validate_team
@@ -173,7 +177,30 @@ class Preparation:
                 # An interrupted invocation is retained; retry in a new directory.
                 out = self._attempt(out)
                 return readable_analysis(self.engine.analyze(self.workspace, entry, out), getattr(self.engine, "identity", None))
-            opponent = ROOT / "examples/strategies/passive"
+            opponent = ROOT / 'examples/strategies/passive'
+            opponent_info = submission(opponent,'main.leek')
+            if own_opponent is not None:
+                # Resolve only this model's source files; no arbitrary opponent paths.
+                local_path(self.workspace, own_opponent)
+                opponent = self.workspace
+                opponent_info = submission(opponent,own_opponent)
+                if 'team' in opponent_info:
+                    # Test the alternate script on the same roster, without changing
+                    # the candidate's configured member entrypoints or team.json.
+                    import copy
+                    from .teams import TEAM_FILE, validate_team
+                    from .core import source_files
+                    target = self.directory/'tools'/f'{call_id}-opponent'
+                    if not target.exists():
+                        staging = target.with_name(target.name+'-staging-'+uuid4().hex)
+                        copy_submission(self.workspace,staging,opponent_info)
+                        team = copy.deepcopy(opponent_info['team'])
+                        for member in team['members']: member['entrypoint'] = own_opponent
+                        team = validate_team(team,self.scenario,source_files(staging),self.docs/'leekscript-v1')
+                        write_json(staging/TEAM_FILE,team)
+                        staging.rename(target)
+                    opponent = target
+                    opponent_info = submission(opponent,own_opponent)
             results = []
             for side in range(2):
                 base = self.directory / "tools" / f"{call_id}-side-{side}"
@@ -182,13 +209,18 @@ class Preparation:
                     results.append(read_json(cached))
                     continue
                 sources = [self.workspace, opponent] if side == 0 else [opponent, self.workspace]
-                infos = [submission(s, entry if s == self.workspace else "main.leek") for s in sources]
+                infos = [info,opponent_info] if side == 0 else [opponent_info,info]
                 work = self._attempt(base / "match")
                 result = self.engine.fight(sources, infos, self.scenario, 17, work)
                 result["artifact_dir"] = work.relative_to(self.directory).as_posix()
+                result['own_side'] = side
+                result['opponent'] = opponent_id
+                if own_opponent is not None: result['opponent_entrypoint'] = own_opponent
                 write_json(cached, result)
                 results.append(result)
-            return {"test_id": call_id, "training_seed": 17, "opponent": "passive", "matches": results}
+            return {"test_id": call_id, "training_seed": 17, "entrypoint":entry,"opponent":opponent_id,
+                    **({'opponent_entrypoint':own_opponent, 'opponent_roster':'Same roster; every opposing member runs opponent_entrypoint'} if own_opponent is not None else {}),
+                    "matches": results}
         raise ArenaError("Unknown tool")
 
     @staticmethod

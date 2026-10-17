@@ -562,3 +562,22 @@ scope for training fights; validation and audit fights remain hidden.
 `list_submissions` and `read_submitted_file` provide earlier frozen code by explicit
 round number, within the same track and replicate. These source-only tools are
 available with or without feedback; they reveal no match results or opponent code.
+
+
+## Language reference and private sparring
+
+Models can read a dense LeekScript 4 sheet at `corpus/language/cheatsheet.md`
+and choose an official tutorial topic through `corpus/language/index.md`.
+The initial instruction points to syntax before implementation; the full strategy
+in authoring.md is optional. See [language reference sources](language-reference.md)
+for origin, extraction and manual refresh instructions.
+
+The preparation `test` tool accepts `opponent_entrypoint` to pit two scripts in
+the participant's own workspace against one another. It still runs both starting
+sides and returns a normal replay ID. A participant can therefore write a
+sparring strategy, or copy an earlier own submission, and examine the resulting
+logs and metrics. Participant-team opponents mirror the candidate roster and
+run the alternate script for every member, without editing the candidate's team.
+The Matches view labels these opponents by their source entrypoint. These are
+preparation tests, not scored competition fights. No other model's sources are
+readable through this mechanism.

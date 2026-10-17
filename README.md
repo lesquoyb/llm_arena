@@ -120,7 +120,7 @@ keys and paid-call authorization; spending limits are optional. Check the workfl
 - [Interface](docs/ui.md): matrix links, filters, files, requests, replays and statistics.
 - [Full experiment](docs/complete-experiment.md): initial/improved strategies, MCP, exports and Docker.
 - [Providers](docs/providers.md): OpenAI, Anthropic, Gemini, compatible APIs, seeds and billing.
-- [Strategy authoring](docs/authoring.md) and [pinned API reference](docs/leekscript-v1/api.md).
+- [Language reference and official tutorials](docs/language-reference.md), [strategy authoring](docs/authoring.md) and [pinned API reference](docs/leekscript-v1/api.md).
 - [Engine audit](docs/engine-audit.md), [experiment protocol](docs/protocol.md) and [implementation status](docs/implementation-status.md).
 
 To generate a new API reference: `python -m arena docs --out docs/new-snapshot`.

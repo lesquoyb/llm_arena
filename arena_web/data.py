@@ -515,9 +515,11 @@ class Store:
             if (path.parent / "scenario.json").is_file():
                 info = self.json(path.parent / "provenance.json", {})
                 scenario = self.json(path.parent / "scenario.json", {})
+                cached = self.json(path.parent.parent / "cached.json", {})
+                opponent = 'Own script: '+cached['opponent_entrypoint'] if cached.get('opponent_entrypoint') else 'passive'
                 rows.append({"path": path.parent.relative_to(root).as_posix(), "stage": "training",
-                             "sides": (["passive", path.relative_to(root).parts[1]] if "side-1" in path.as_posix()
-                                       else [path.relative_to(root).parts[1], "passive"]),
+                             "sides": ([opponent, path.relative_to(root).parts[1]] if "side-1" in path.as_posix()
+                                       else [path.relative_to(root).parts[1], opponent]),
                              "seed": scenario.get("random_seed"), "mirror": False,
                              "result": self.json(path), "provenance": info})
         for row in rows:
