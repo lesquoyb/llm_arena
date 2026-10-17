@@ -12,7 +12,7 @@ import threading
 from urllib.parse import parse_qs, urlsplit, quote
 import webbrowser
 
-from arena.core import ArenaError, ROOT, file_lock, read_json
+from arena.core import ArenaError, ROOT, digest, file_lock, read_json
 from arena.experiment import plan, validate_config
 from .data import Store, safe_path
 from .jobs import Jobs
@@ -73,12 +73,18 @@ class Application:
             return {"runs": store.listing(), "jobs": self.jobs.listing()}
         if route == "/api/run":
             return store.detail(run)
+        if route == "/api/session-diagnostics":
+            return store.session_diagnostics(run, sid)
         if route == "/api/conversation":
             return store.conversation(run, sid, number("offset", 0), min(number("limit", 25), 100))
+        if route == "/api/tool-exchange":
+            return store.tool_exchange(run, sid, number("index", 0))
+        if route == "/api/message-output":
+            return store.output_block(run, sid, number("index", 0), number("block", 0))
         if route == "/api/message":
             return store.message(run, sid, number("index", 0))
         if route == "/api/events":
-            return store.events(run, sid, number("offset", 0), min(number("limit", 100), 500))
+            return store.events(run, sid, number("offset", 0), min(number("limit", 100), 500), value("model"))
         if route == "/api/event":
             return store.event(run, number("id", 0))
         if route == "/api/versions":
@@ -144,10 +150,11 @@ class Application:
         if route == "/api/competition/delete":
             return self.store.delete_draft(data["id"])
         if route == "/api/plan":
-            return plan(validate_config(data["config"]))
+            config = data['config'] if data.get('frozen') else self.store.resolve_models(data['config'])
+            return {**plan(validate_config(config)), 'config':config, 'config_sha256':digest(config)}
         if route == "/api/launch":
             return self.jobs.launch(draft_id=data.get("draft_id"), run_id=data.get("run"),
-                                    confirm_paid=data.get("confirm_paid", False), ceiling=data.get("ceiling"))
+                                    confirm_paid=data.get("confirm_paid", False), ceiling=data.get("ceiling"), retry_session=data.get("retry_session"), expected_config_sha256=data.get("expected_config_sha256"))
         if route == "/api/stop":
             return self.jobs.stop(data["id"])
         if route == "/api/aggregate":

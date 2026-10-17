@@ -15,9 +15,24 @@ def score(records):
                  int(r["result"]["winner_side"] == r["side"]) for r in completed)
     return {"score": points / len(completed) if completed else None,
             "completed": len(completed), "failed": len(records) - len(completed),
+            "wins": sum(r["result"]["winner_side"] == r["side"] for r in completed),
+            "draws": sum(r["result"]["winner_side"] == -1 for r in completed),
+            "losses": sum(r["result"]["winner_side"] not in {-1, r["side"]} for r in completed),
+            "points": points,
             "operations": sum(r["result"]["team_metrics"][str(r["side"])]["operations"] for r in completed),
             "errors": sum(r["result"]["team_metrics"][str(r["side"])]["errors"] for r in completed),
             "operation_limit_hits": sum(r["result"]["team_metrics"][str(r["side"])]["operation_limit_hits"] for r in completed)}
+
+
+def trajectory_cost(states, sid):
+    seen, total = set(), amount('0')
+    while sid and sid not in seen:
+        seen.add(sid)
+        state = states.get(sid, {})
+        if state.get('status') == 'needs_reconciliation' or amount(state.get('money_reserved', '0')) > 0: return None
+        total += amount(state.get('cost_spent', '0'))
+        sid = state.get('parent')
+    return str(total)
 
 
 def analyze_evolution(config, out, states, initial, branches, baseline, evolved, contemporaries):
@@ -26,7 +41,7 @@ def analyze_evolution(config, out, states, initial, branches, baseline, evolved,
     initial_ids = {participant["id"] for participant in initial}
     for participant in [*initial, *branches]:
         sid = participant["id"]
-        generation = 1 if "parent" in participant else 0
+        generation = states[sid].get("generation", 0)
         records = evolved.values() if generation else baseline.values()
         records = [r for r in records if r["session"] == sid]
         for panel_name, selected in (("all", records),
@@ -43,10 +58,7 @@ def analyze_evolution(config, out, states, initial, branches, baseline, evolved,
                          "output_tokens": states[sid].get("output_tokens") if states[sid].get("token_usage_known") else None,
                          "cost_status": "simulation" if providers[participant["model"]] == "mock"
                          else "calculated_or_reserved",
-                         "trajectory_cost_usd": None if states[sid]["status"] == "needs_reconciliation" or
-                                  (participant.get("parent") and states[participant["parent"]]["status"] == "needs_reconciliation")
-                                  else str(amount(states[sid].get("cost_spent", "0")) +
-                                           amount(states.get(participant.get("parent"), {}).get("cost_spent", "0")))})
+                         "trajectory_cost_usd": trajectory_cost(states, sid)})
     paired = []
     parents = [{"id": sid, "model": state["model"], "replicate": state["replicate"]}
                for sid, state in states.items() if state.get("generation", 0) == 0]
@@ -98,13 +110,13 @@ def analyze_evolution(config, out, states, initial, branches, baseline, evolved,
         writer = csv.DictWriter(stream, fieldnames=list(rows[0]) if rows else ["session"])
         writer.writeheader()
         writer.writerows(rows)
-    lines = ["# G0/G1 comparison", "", "Mock providers" if all(m["provider"] == "mock" for m in config["models"])
+    lines = ["# Strategy round comparison", "", "Mock providers" if all(m["provider"] == "mock" for m in config["models"])
              else "Real APIs: costs calculated from reported usage, billing not confirmed",
              "", "Scores against the same frozen G0 opponents and fixed controls on separate final seeds.",
              "", "| Session | Panel | Score | Matches | Failures |", "|---|---|---:|---:|---:|"]
     for row in rows:
         lines.append(f"| {row['session']} | {row['panel']} | {row['score']} | {row['completed']} | {row['failed']} |")
-    lines += ["", "## Paired feedback minus control effect", "", "| G0 conversation | Difference |", "|---|---:|"]
+    lines += ["", "## Paired feedback minus control effect", "", "| Initial conversation | Difference |", "|---|---:|"]
     lines += [f"| {r['parent']} | {r['feedback_minus_control']} |" for r in paired]
     lines += ["", f"Total cost: {total_cost} USD; unresolved reservations: {held} USD.",
               "", "Missing results are retained in analysis.json. Scores are conditional on available submissions.",

@@ -12,6 +12,8 @@ class MockProvider:
         self.profile = profile
 
     def payload(self, history, tools, output_limit):
+        from .model_content import history_view
+        history = history_view(history)
         return {"profile": self.profile,
                 "messages": [{k: copy.deepcopy(v) for k, v in item.items() if k != "sent_parameters"} for item in history],
                 "tools": copy.deepcopy(tools), "max_output_tokens": output_limit}
@@ -56,7 +58,7 @@ class MockProvider:
             calls = sequence[step] if step < len(sequence) else []
         if profile == "budget":
             calls = [("write_file", {"path": "main.leek", "content": source})]
-        scenario = history[0].get("scenario", {})
+        scenario = next((item["scenario"] for item in history if "scenario" in item), {})
         if scenario.get("team_selection") and any(name == "write_file" for name, _ in calls):
             rules = scenario["team_selection"]
             # Fixtures exercise the same tool as native providers without API calls.

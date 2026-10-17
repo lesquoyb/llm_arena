@@ -263,7 +263,17 @@ async function main() {
     await page.getByRole("button", { name: "New competition" }).click();
     await page.getByLabel("Competition name").fill("Configuration navigateur");
     await page.getByLabel("Repetitions per participant").fill("2");
-    await page.getByLabel("Evaluation cycle").selectOption("1");
+    await page.locator('[name="generations"]').fill("4");
+    await page
+      .getByLabel("Round stopping rule", { exact: true })
+      .selectOption("manual");
+    assert(
+      await page.locator('[name="generations"]').isDisabled(),
+    );
+    await page
+      .getByLabel("Round stopping rule", { exact: true })
+      .selectOption("fixed");
+    await page.locator('[name="generations"]').fill("1");
     const realisticStats = page.getByLabel(
       "Realistic stats (capital, components and alterations)",
     );
@@ -359,8 +369,11 @@ async function main() {
           .filter(
             ([key, value]) => key !== "level" && typeof value === "number",
           )
-          .map(([key, value]) => ["total_" + key,
-            value + (key === "life" ? (i === 0 ? -1 : -4) : key === "ram" ? 5 : 0)]),
+          .map(([key, value]) => [
+            "total_" + key,
+            value +
+              (key === "life" ? (i === 0 ? -1 : -4) : key === "ram" ? 5 : 0),
+          ]),
       ),
       components: [{ template: 313, stats: { ram: 1, life: -4 } }],
       weapons: [{ template: i === 1 ? 45 : 37 }],
@@ -410,18 +423,33 @@ async function main() {
       "3",
     );
     assert(!(await realisticStats.isChecked()));
-    const publishedStats = await page.locator("input[data-stat]").evaluateAll(
-      (inputs) => inputs.map((input) => input.value),
+    const publishedStats = await page
+      .locator("input[data-stat]")
+      .evaluateAll((inputs) => inputs.map((input) => input.value));
+    const conversionResponse = page.waitForResponse((response) =>
+      response.url().endsWith("/api/stats/realistic"),
     );
-    const conversionResponse = page.waitForResponse((response) => response.url().endsWith('/api/stats/realistic'));
     await realisticStats.check();
     const conversionResult = await conversionResponse;
-    assert(conversionResult.ok(), JSON.stringify(await conversionResult.json()));
-    await page.locator('#member-stat-builds[data-mode="realistic-v1"]').waitFor();
-    assert.deepEqual(await page.locator("input[data-stat]").evaluateAll(
-      (inputs) => inputs.map((input) => input.value),
-    ), publishedStats, "Public totals and altered instances must survive realistic validation");
-    assert((await page.locator("#stats-validation").innerText()).includes("All final stats preserved"));
+    assert(
+      conversionResult.ok(),
+      JSON.stringify(await conversionResult.json()),
+    );
+    await page
+      .locator('#member-stat-builds[data-mode="realistic-v1"]')
+      .waitFor();
+    assert.deepEqual(
+      await page
+        .locator("input[data-stat]")
+        .evaluateAll((inputs) => inputs.map((input) => input.value)),
+      publishedStats,
+      "Public totals and altered instances must survive realistic validation",
+    );
+    assert(
+      (await page.locator("#stats-validation").innerText()).includes(
+        "All final stats preserved",
+      ),
+    );
     await realisticStats.uncheck();
     assert(
       Number(
@@ -479,7 +507,9 @@ async function main() {
       .waitFor();
     await page.getByLabel("Team setup").selectOption("fixed");
     assert(await page.locator("#fixed-roster").isVisible());
-    const fixedRequest = page.waitForRequest((request) => request.url().endsWith('/api/plan'));
+    const fixedRequest = page.waitForRequest((request) =>
+      request.url().endsWith("/api/plan"),
+    );
     await page.getByRole("button", { name: "Calculate schedule" }).click();
     const fixedScenario = (await fixedRequest).postDataJSON().config.scenario;
     assert.equal(fixedScenario.preset, "custom");
@@ -507,21 +537,44 @@ async function main() {
     assert(await highLevelChip.isEnabled());
     await page.locator('[name="member_0_strength"]').fill("100000");
     await realisticStats.check();
-    await page.waitForFunction(() => document.querySelector("#stats-validation")?.textContent.includes("validation failed"));
+    await page.waitForFunction(() =>
+      document
+        .querySelector("#stats-validation")
+        ?.textContent.includes("validation failed"),
+    );
     assert(!(await realisticStats.isChecked()));
     assert(await highLevelWeapon.isEnabled());
-    assert.equal(await page.locator('[name="member_0_strength"]').inputValue(), "100000");
+    assert.equal(
+      await page.locator('[name="member_0_strength"]').inputValue(),
+      "100000",
+    );
     // A failed validation preserves the build. Supply a valid level-100 build explicitly.
-    const validLevel100 = { life: 597, strength: 100, wisdom: 0, agility: 0,
-      resistance: 0, science: 0, magic: 0, frequency: 100, cores: 5, ram: 6, tp: 12, mp: 5 };
+    const validLevel100 = {
+      life: 597,
+      strength: 100,
+      wisdom: 0,
+      agility: 0,
+      resistance: 0,
+      science: 0,
+      magic: 0,
+      frequency: 100,
+      cores: 5,
+      ram: 6,
+      tp: 12,
+      mp: 5,
+    };
     for (const i of [0, 1]) {
-      await page.locator(`[data-action="character-tab"][data-index="${i}"]`).click();
+      await page
+        .locator(`[data-action="character-tab"][data-index="${i}"]`)
+        .click();
       for (const [key, value] of Object.entries(validLevel100))
         await page.locator(`[name="member_${i}_${key}"]`).fill(String(value));
     }
     await page.locator('[data-action="character-tab"][data-index="0"]').click();
     await realisticStats.check();
-    await page.locator('#member-stat-builds[data-mode="realistic-v1"]').waitFor();
+    await page
+      .locator('#member-stat-builds[data-mode="realistic-v1"]')
+      .waitFor();
     assert(await highLevelWeapon.isDisabled());
     assert(await highLevelChip.isDisabled());
     assert.equal(
@@ -637,11 +690,17 @@ async function main() {
       "Boss chips must be absent from selectors",
     );
     assert(await page.locator("#fixed-roster").isHidden());
-    assert.equal(await page.getByLabel("Competition weapon cap per member").count(), 0);
+    assert.equal(
+      await page.getByLabel("Competition weapon cap per member").count(),
+      0,
+    );
     assert.equal(await page.locator('[name="team_allowed_chips"]').count(), 0);
-    const independentRequest = page.waitForRequest((request) => request.url().endsWith('/api/plan'));
+    const independentRequest = page.waitForRequest((request) =>
+      request.url().endsWith("/api/plan"),
+    );
     await page.getByRole("button", { name: "Calculate schedule" }).click();
-    const independent = (await independentRequest).postDataJSON().config.scenario;
+    const independent = (await independentRequest).postDataJSON().config
+      .scenario;
     assert.equal(independent.team_selection.independent_builds, true);
     assert.equal(independent.team_selection.require_capital, true);
     assert.equal(independent.team_selection.max_weapons, 4);
@@ -735,7 +794,8 @@ async function main() {
       );
       await page.waitForFunction(
         () =>
-          document.querySelectorAll(".metrics .value")[1]?.textContent === "2",
+          document.querySelector(".overview-kpis > div:first-child strong")
+            ?.textContent === "2",
       );
       await page.screenshot({
         path: path.join(artifacts, "live-competition.png"),
@@ -779,6 +839,167 @@ async function main() {
     assert.equal(await paid.isChecked(), false);
     assert.equal(await paid.getAttribute("required"), "");
     await page.getByRole("button", { name: "Close", exact: true }).click();
+    await page.goto(
+      url +
+        "/#view=run&run=feedback-view&tab=conversation&session=mock-repair-r0-g1-feedback",
+    );
+    await page
+      .getByText("Tournament feedback supplied to the model", { exact: true })
+      .waitFor();
+    assert(
+      (await page.locator(".chat-message.user").first().innerText()).includes(
+        "Round 2 instruction: improve with feedback",
+      ),
+    );
+    assert(
+      (await page.locator(".game-brief").innerText()).includes(
+        "opponent-anonymous",
+      ),
+    );
+    assert.equal(await page.locator(".chat-message.user").count(), 1);
+    await page
+      .getByRole("button", { name: "Initial history", exact: true })
+      .click();
+    await page
+      .getByText("Original Round 1 instruction", { exact: true })
+      .waitFor();
+    await page
+      .getByRole("button", { name: "Round 2 instruction", exact: true })
+      .click();
+    await page
+      .getByText("Tournament feedback supplied to the model", { exact: true })
+      .waitFor();
+    await page
+      .getByLabel("Conversation", { exact: true })
+      .selectOption("mock-repair-r0-g1-control");
+    await page
+      .getByText("Round 2 instruction: improve with control", { exact: true })
+      .waitFor();
+    assert.equal(
+      await page
+        .getByText("Tournament feedback supplied to the model", { exact: true })
+        .count(),
+      0,
+    );
+    await page.goto(url + "/#view=run&run=diagnostics&tab=conversation");
+    await page
+      .locator("[data-session-diagnostics]")
+      .getByText("Strategy submitted", { exact: true })
+      .waitFor();
+    await page
+      .getByText("The submitted strategy does not compile.", { exact: true })
+      .waitFor();
+    await page
+      .getByText("Submission validation report", { exact: true })
+      .click();
+    await page
+      .getByText("Unknown variable or function: moveResult", { exact: false })
+      .first()
+      .waitFor();
+    await page.getByText("main.leek:15:8", { exact: true }).waitFor();
+    await page
+      .getByText("1 compilation error · 1 warning", { exact: true })
+      .waitFor();
+    await page.goto(url + "/#view=run&run=tool-transcript&tab=conversation");
+    await page
+      .getByText("Read documentation: authoring.md", { exact: true })
+      .waitFor();
+    await page.getByText(/Partial read; next offset 8/).waitFor();
+    assert.equal(await page.locator(".provider-output.reasoning").count(), 3);
+    for (let i = 0; i < 3; i++) {
+      const reasoning = page.locator(".provider-output.reasoning").nth(i);
+      await reasoning.locator("summary").click();
+      await reasoning
+        .locator("pre")
+        .filter({ hasText: "Reasoning step " + (i + 1) })
+        .waitFor();
+    }
+    const excerpt = page.locator('[data-file-exchange="2"]');
+    await excerpt.locator("summary").click();
+    await excerpt.locator("pre").filter({ hasText: "Use var." }).waitFor();
+    const write = page.locator('[data-file-exchange="6"]');
+    await write.locator("summary").click();
+    await write
+      .locator("pre")
+      .first()
+      .filter({ hasText: "-var a = 1" })
+      .waitFor();
+    await write
+      .locator("pre")
+      .first()
+      .filter({ hasText: "+var a = 2" })
+      .waitFor();
+    await write.getByText("Complete written file", { exact: true }).click();
+    assert.equal(await write.locator("details pre").innerText(), "var a = 2\n");
+    await page.goto(url + "/#view=run&run=outputs&tab=conversation");
+    await page.getByText("Visible answer", { exact: true }).waitFor();
+    assert.equal(await page.locator(".provider-output[open]").count(), 0);
+    assert.equal(await page.locator(".provider-output.reasoning").count(), 3);
+    await page
+      .getByText("Provider-reported tool activity · remote_search", {
+        exact: true,
+      })
+      .waitFor();
+    await page
+      .getByText("Provider block · future_block", { exact: true })
+      .waitFor();
+    await page
+      .getByText(
+        "42 reasoning tokens reported; no readable reasoning text returned.",
+        { exact: true },
+      )
+      .waitFor();
+    let outputRequests = 0;
+    const watchOutput = (request) => {
+      if (request.url().includes("/api/message-output?")) outputRequests++;
+    };
+    page.on("request", watchOutput);
+    const reasoning = page.locator(".provider-output.reasoning").first();
+    assert.equal(await reasoning.locator("pre").innerText(), "");
+    await reasoning.locator("summary").click();
+    await page.waitForFunction(() =>
+      document
+        .querySelector(".provider-output.reasoning pre")
+        ?.textContent.startsWith("Exposed reasoning example"),
+    );
+    assert.equal(outputRequests, 1);
+    await reasoning.locator("summary").click();
+    await reasoning.locator("summary").click();
+    assert.equal(outputRequests, 1);
+    const remote = page.locator(".provider-output").filter({
+      has: page.getByText("Provider-reported tool activity · remote_search", {
+        exact: true,
+      }),
+    });
+    await remote.locator("summary").click();
+    await page.waitForFunction(() =>
+      [...document.querySelectorAll(".provider-output pre")].some((n) =>
+        n.textContent.includes("unknown-mcp-server"),
+      ),
+    );
+    const toolResult = page.locator(".provider-output.tool_result");
+    assert.equal(await toolResult.locator("pre").innerText(), "");
+    await toolResult.locator("summary").click();
+    await page.waitForFunction(() =>
+      document
+        .querySelector(".provider-output.tool_result pre")
+        ?.textContent.includes("WHOLE_TOOL_OUTPUT"),
+    );
+    const envelope = page
+      .getByText("Complete provider response", { exact: true })
+      .first()
+      .locator("..");
+    await envelope.click();
+    await page.waitForFunction(() =>
+      [...document.querySelectorAll(".provider-output.raw pre")].some((n) =>
+        n.textContent.includes("extra_remote_tool"),
+      ),
+    );
+    await page.screenshot({
+      path: path.join(artifacts, "provider-output.png"),
+      fullPage: true,
+    });
+    page.off("request", watchOutput);
     // Matrix counts must keep the pair, stage and result perspective across side swaps.
     const matrixSummary = url + "/#view=run&run=matrix";
     const paths = async () =>
@@ -787,6 +1008,9 @@ async function main() {
         .evaluateAll((nodes) => nodes.map((n) => n.dataset.path).sort());
     async function openMatrix(label, expected) {
       await page.goto(matrixSummary);
+      await page
+        .getByLabel("Overview round", { exact: true })
+        .selectOption("stage:.");
       await page.getByRole("link", { name: label, exact: true }).click();
       await page.waitForFunction(
         (n) => document.querySelectorAll(".match-card").length === n,
@@ -867,17 +1091,142 @@ async function main() {
       .getByRole("button", { name: "Conversations", exact: true })
       .click();
     await page.getByText("No recorded conversation", { exact: true }).waitFor();
-    await page.goto(url + "/#view=run&run=one");
-    await page.getByRole("heading", { name: "Strategy performance" }).waitFor();
-    await page.getByRole("heading", { name: "Match matrix" }).waitFor();
-    await page.getByLabel("Metrics", { exact: false }).selectOption("damage");
+    await page.goto(url + "/#view=run&run=overview");
+    await page.getByRole("heading", { name: "Model ranking" }).waitFor();
+    assert.equal(await page.locator(".overview-ranking li").count(), 3);
+    assert.equal(await page.locator(".overview-matrix tbody tr").count(), 3);
+    assert.equal(
+      await page.evaluate(() => overviewData(S.detail).selected.length),
+      36,
+    );
+    assert.equal(
+      await page.evaluate(() => overviewData(S.detail).sessions.length),
+      9,
+    );
     await page
-      .locator("#statistics-stage-detail th")
-      .filter({ hasText: "Damage dealt" })
+      .getByLabel("Overview round", { exact: true })
+      .selectOption("feedback");
+    assert.equal(
+      await page.evaluate(() => overviewData(S.detail).sessions.length),
+      3,
+    );
+    assert(
+      (await page.locator(".overview-detail-body").allTextContents()).every(
+        (text) => !text.includes("NaN"),
+      ),
+    );
+    await page
+      .getByLabel("Overview model", { exact: true })
+      .selectOption("Qwen3-30B-A3B-Instruct-2507-local");
+    assert.equal(await page.locator(".overview-ranking li").count(), 1);
+    assert.equal(await page.locator(".overview-matrix tbody tr").count(), 1);
+    assert.equal(await page.locator(".overview-legend > span i").count(), 1);
+    await page
+      .getByLabel("Overview matches", { exact: true })
+      .selectOption("evaluation");
+    assert.equal(
+      await page.evaluate(() => overviewData(S.detail).selected.length),
+      12,
+    );
+    assert.equal(
+      await page.evaluate(() => overviewData(S.detail).models[0].completed),
+      12,
+    );
+    await page
+      .getByLabel("Overview round", { exact: true })
+      .selectOption("initial");
+    assert.equal(
+      await page.evaluate(() => overviewData(S.detail).models[0].completed),
+      12,
+    ); // self-reference counts once
+    await page.getByLabel("Overview model", { exact: true }).selectOption("");
+    await page
+      .getByLabel("Overview round", { exact: true })
+      .selectOption("all");
+    assert.equal(
+      await page.evaluate(() => overviewData(S.detail).selected.length),
+      108,
+    );
+    await page
+      .getByLabel("Overview matches", { exact: true })
+      .selectOption("competition");
+    for (const width of [1440, 1024, 390]) {
+      await page.setViewportSize({ width, height: 900 });
+      assert(
+        await page
+          .locator(".overview-matrix-wrap")
+          .evaluate((n) => n.scrollWidth <= n.clientWidth + 1),
+      );
+      assert(
+        await page
+          .locator(".competition-overview")
+          .evaluate((n) => n.getBoundingClientRect().right <= innerWidth),
+      );
+      await page.screenshot({
+        path: path.join(artifacts, `overview-${width}.png`),
+        fullPage: true,
+      });
+    }
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    const groupedLink = page
+      .locator('.overview-matrix a[href*="entrant_model"]')
+      .first();
+    const groupQuery = new URLSearchParams(
+      (await groupedLink.getAttribute("href")).slice(1),
+    );
+    const expectedGroupCount = await page.evaluate(
+      ({ who, other }) =>
+        overviewData(S.detail).matrix.find(
+          (r) => r.who === who && r.other === other,
+        ).completed,
+      {
+        who: groupQuery.get("entrant_model"),
+        other: groupQuery.get("opponent_model"),
+      },
+    );
+    await groupedLink.click();
+    await page.waitForFunction(
+      (n) => document.querySelectorAll(".match-card").length === n,
+      expectedGroupCount,
+    );
+    assert(
+      new URLSearchParams(new URL(page.url()).hash.slice(1)).get(
+        "entrant_model",
+      ),
+    );
+    assert.equal(await page.locator(".match-card").count(), expectedGroupCount);
+    await page.reload();
+    await page.locator(".match-card").first().waitFor();
+    await page.goBack();
+    await page.getByRole("heading", { name: "Model ranking" }).waitFor();
+    await page.goto(url + "/#view=run&run=one");
+    await page.getByRole("heading", { name: "Model ranking" }).waitFor();
+    assert.equal(await page.locator(".overview-filters select").count(), 3);
+    assert.equal(await page.locator(".overview-details[open]").count(), 0);
+    await page
+      .getByRole("img", { name: "Model scores across strategy rounds" })
       .waitFor();
-    await page.getByLabel("Metrics", { exact: false }).selectOption("overview");
-    await page.getByText("10,000,000", { exact: false }).first().waitFor();
-    assert((await page.locator(".matrix").innerText()).includes("1 / 0 / 0"));
+    await page.getByText("Detailed metrics", { exact: true }).click();
+    const sortButton = page
+      .getByRole("button", { name: "Score ↕", exact: true })
+      .first();
+    await sortButton.click();
+    assert.equal(
+      await sortButton.locator("..").getAttribute("aria-sort"),
+      "descending",
+    );
+    await sortButton.click();
+    assert.equal(
+      await sortButton.locator("..").getAttribute("aria-sort"),
+      "ascending",
+    );
+    await page.getByText("Detailed metrics", { exact: true }).click();
+    await page.getByRole("heading", { name: "Match matrix" }).waitFor();
+    assert(
+      (await page.locator(".overview-matrix").innerText()).includes(
+        "1 / 0 / 0",
+      ),
+    );
     await page.screenshot({
       path: path.join(artifacts, "summary.png"),
       fullPage: true,
@@ -950,6 +1299,16 @@ async function main() {
     );
     await page.getByRole("button", { name: "Matches", exact: true }).click();
     await page.locator("#replay-board circle").first().waitFor();
+    assert(
+      (await page.locator(".replay-legend").innerText()).includes(
+        "Side 1 · Blue",
+      ),
+    );
+    assert(
+      (await page.locator(".replay-legend").innerText()).includes(
+        "Side 2 · Orange",
+      ),
+    );
     assert.equal(await page.locator('[data-summon="true"]').count(), 0);
     assert(
       !(await page.locator("#replay-entities").innerText()).includes(
@@ -1031,6 +1390,245 @@ async function main() {
       .getByText('"test": "event"', { exact: false })
       .waitFor();
     await page.getByRole("button", { name: "Close", exact: true }).click();
+    await page.goto(url + "/#view=run&run=threads&tab=conversation");
+    await page.locator("#session-choice").waitFor();
+    assert.equal(
+      await page.locator("#conversation-model").inputValue(),
+      "mock-repair",
+    );
+    assert.equal(await page.locator("#session-choice option").count(), 2);
+    await page.locator("#session-choice").selectOption("mock-repair-r1");
+    await page
+      .getByText("Second repair conversation", { exact: true })
+      .waitFor();
+    await page
+      .getByRole("button", { name: "Conversation journal", exact: true })
+      .click();
+    await page.getByRole("heading", { name: "Event log" }).waitFor();
+    assert.equal(
+      await page.locator("#event-session").inputValue(),
+      "mock-repair-r1",
+    );
+    assert.equal(
+      await page.getByRole("button", { name: "View artifact" }).count(),
+      1,
+    );
+    await page.locator("#event-session").selectOption("");
+    await page.waitForFunction(
+      () => document.querySelectorAll('[data-action="event"]').length === 2,
+    );
+    await page.locator("#conversation-model").selectOption("mock-single");
+    await page.waitForFunction(
+      () => document.querySelectorAll('[data-action="event"]').length === 1,
+    );
+    assert.equal(await page.locator("#event-session option").count(), 2);
+    await page.reload();
+    await page.locator("#conversation-model").waitFor();
+    assert.equal(
+      await page.locator("#conversation-model").inputValue(),
+      "mock-single",
+    );
+    await page
+      .getByRole("button", { name: "Open conversation", exact: true })
+      .click();
+    await page
+      .getByText("Single model conversation", { exact: true })
+      .waitFor();
+    assert.equal(
+      await page.locator("#conversation-model").inputValue(),
+      "mock-single",
+    );
+    assert.equal(await page.locator("#session-choice option").count(), 1);
+    await page
+      .getByRole("button", { name: "Retry conversation", exact: true })
+      .click();
+    await page
+      .getByRole("dialog")
+      .getByRole("heading", { name: "Retry conversation", exact: true })
+      .waitFor();
+    assert(
+      (await page.getByRole("dialog").innerText()).includes(
+        "Other models' submissions and completed matches are kept",
+      ),
+    );
+    assert.equal(
+      await page.getByRole("dialog").locator('[name="confirm_paid"]').count(),
+      0,
+    );
+    await page.getByRole("button", { name: "Cancel", exact: true }).click();
+    await page
+      .getByRole("button", { name: "Conversation journal", exact: true })
+      .click();
+    await page.locator("#event-session").waitFor();
+    await page.locator("#conversation-model").selectOption("");
+    await page.waitForFunction(
+      () => document.querySelectorAll('[data-action="event"]').length === 3,
+    );
+    const liveToken = (
+      await (await page.request.get(url + "/api/bootstrap")).json()
+    ).token;
+    const liveStep = async (action) => {
+      const response = await page.request.post(url + "/api/fixture-live", {
+        headers: { "X-Arena-Token": liveToken },
+        data: { action },
+      });
+      assert(response.ok(), await response.text());
+    };
+    await liveStep("start");
+    await page.goto(url + "/?live-fixture=1#view=run&run=live&tab=matches");
+    await page.getByLabel("Live updates", { exact: true }).waitFor();
+    assert(await page.getByLabel("Live updates", { exact: true }).isChecked());
+    await liveStep("training");
+    await page.waitForFunction(() =>
+      document
+        .querySelector("#training-count")
+        ?.textContent.includes("2 preparation tests"),
+    );
+    assert.equal(await page.locator(".match-card").count(), 0);
+    await page
+      .getByLabel("Match category", { exact: true })
+      .selectOption("training");
+    await page.waitForFunction(
+      () => document.querySelectorAll(".match-card").length === 2,
+    );
+    assert(
+      (await page.locator(".match-card").first().innerText()).includes(
+        "Excluded from standings",
+      ),
+    );
+    await page.getByRole("button", { name: "Summary", exact: true }).click();
+    await page
+      .getByText("2 preparation tests recorded; excluded from standings.", {
+        exact: false,
+      })
+      .waitFor();
+    assert.equal(
+      await page
+        .getByRole("heading", { name: "Match matrix", exact: true })
+        .count(),
+      0,
+    );
+    await page.getByRole("button", { name: "Matches", exact: true }).click();
+    await page.getByLabel("Match category", { exact: true }).waitFor();
+    await liveStep("competition");
+    await page.waitForFunction(
+      () => document.querySelectorAll(".match-card").length === 1,
+    );
+    await page.getByLabel("Live updates", { exact: true }).uncheck();
+    await liveStep("competition");
+    await page.waitForTimeout(3500);
+    assert.equal(await page.locator(".match-card").count(), 1);
+    await page.getByLabel("Live updates", { exact: true }).check();
+    await page.waitForFunction(
+      () => document.querySelectorAll(".match-card").length === 2,
+    );
+    assert(
+      !/-g1-(control|feedback)|\bG[01]\b/.test(
+        await page.locator(".match-card").first().innerText(),
+      ),
+    );
+    await page.getByRole("button", { name: "Journal", exact: true }).click();
+    await page
+      .getByRole("heading", { name: "Event log", exact: true })
+      .waitFor();
+    const previousEvents = await page
+      .getByRole("button", { name: "View artifact", exact: true })
+      .count();
+    await liveStep("event");
+    await page.waitForFunction(
+      (n) => document.querySelectorAll('[data-action="event"]').length > n,
+      previousEvents,
+    );
+    await page.getByRole("button", { name: "Files", exact: true }).click();
+    await page.locator("#file-list").waitFor();
+    await liveStep("file");
+    await page
+      .locator('[data-action="file"][data-path="live-note.txt"]')
+      .waitFor();
+    await page
+      .getByRole("button", { name: "Code & versions", exact: true })
+      .click();
+    await page
+      .getByRole("heading", { name: "No files written yet", exact: true })
+      .waitFor();
+    await liveStep("source");
+    await page.locator(".version-button").first().waitFor();
+    assert(
+      (await page.locator("#source-content").innerText()).includes(
+        "var live = 1",
+      ),
+    );
+    await page
+      .getByRole("button", { name: "Conversations", exact: true })
+      .click();
+    await page.locator("#message-0").waitFor();
+    await page.evaluate(() => {
+      window.originalMessage = document.querySelector("#message-0");
+      window.scrollTo(0, document.documentElement.scrollHeight);
+    });
+    await liveStep("conversation");
+    await page.waitForFunction(
+      () => document.querySelectorAll(".chat-message").length === 33,
+    );
+    await page.waitForFunction(
+      () =>
+        document.documentElement.scrollHeight - window.scrollY - innerHeight <
+        100,
+    );
+    assert(
+      await page.evaluate(
+        () => window.originalMessage === document.querySelector("#message-0"),
+      ),
+      "Live refresh replaced the existing message node",
+    );
+    assert(
+      await page
+        .locator("#message-32")
+        .evaluate((el) => el.classList.contains("message-arrival")),
+    );
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await liveStep("conversation");
+    await page.getByText("30 new messages", { exact: false }).waitFor();
+    assert.equal(await page.locator(".chat-message").count(), 33);
+    assert.equal(await page.evaluate(() => window.scrollY), 0);
+    await page
+      .getByRole("button", { name: "Follow latest", exact: true })
+      .click();
+    await page.waitForFunction(
+      () => document.querySelectorAll(".chat-message").length === 63,
+    );
+    await page.waitForFunction(
+      () =>
+        document.documentElement.scrollHeight - window.scrollY - innerHeight <
+        100,
+    );
+    assert(
+      await page.evaluate(
+        () => window.originalMessage === document.querySelector("#message-0"),
+      ),
+    );
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.mouse.wheel(0, -40);
+    await liveStep("conversation");
+    await page.getByText("30 new messages", { exact: false }).waitFor();
+    assert.equal(await page.locator(".chat-message").count(), 63);
+    await page.mouse.wheel(0, 100000);
+    await page.waitForFunction(
+      () => document.querySelectorAll(".chat-message").length === 93,
+    );
+    await page.waitForFunction(
+      () =>
+        document.documentElement.scrollHeight - window.scrollY - innerHeight <
+        4,
+    );
+    assert.equal(
+      await page
+        .locator("#message-92")
+        .evaluate((el) => getComputedStyle(el).animationName),
+      "none",
+    );
+    await page.emulateMedia({ reducedMotion: "no-preference" });
+    await liveStep("finish");
     await page
       .getByRole("link", { name: "Compare results", exact: false })
       .click();

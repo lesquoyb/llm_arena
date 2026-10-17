@@ -5,6 +5,7 @@ import hashlib
 import json
 import re
 import shutil
+import time
 import uuid
 import os
 from contextlib import contextmanager
@@ -92,7 +93,24 @@ def write_json(path: Path, value):
     temporary = path.with_suffix(path.suffix + ".tmp")
     # Receipts and crash recovery hash canonical UTF-8/LF bytes on every host.
     temporary.write_text(json.dumps(value, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n")
-    temporary.replace(path)
+    replace_file(temporary, path)
+
+
+def replace_file(source: Path, target: Path, attempts: int = 50):
+    """Atomic replace that tolerates transient Windows sharing violations.
+
+    A concurrent reader (the web dashboard polling reports, antivirus, the
+    search indexer) holding the target open makes MoveFileEx fail with
+    WinError 5/32; the handle is short-lived, so back off and retry.
+    """
+    for attempt in range(attempts):
+        try:
+            source.replace(target)
+            return
+        except PermissionError:
+            if os.name != "nt" or attempt == attempts - 1:
+                raise
+            time.sleep(min(0.01 * 2 ** attempt, 0.25))
 
 
 def digest(value) -> str:

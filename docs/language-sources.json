@@ -1,0 +1,384 @@
+{
+  "fetched_at": "2026-10-17T05:36:09.635626+00:00",
+  "index_url": "https://leekwars.com/encyclopedia/fr/LeekScript",
+  "transform": "English source; remove web widgets, quizzes and complete-AI/game-strategy sections at recorded headings; remap topic links; add Arena compatibility notes.",
+  "pages": [
+    {
+      "path": "corpus/language/official-cheatsheet.md",
+      "title": "LeekScript Cheat Sheet",
+      "page_id": 357,
+      "source_url": "https://leekwars.com/encyclopedia/en/LeekScript_Cheat_Sheet",
+      "last_edition_time": 1790951580,
+      "creator": "Pilow",
+      "contributors": [
+        {
+          "id": 1,
+          "name": "Pilow",
+          "avatar_changed": 1730708991
+        },
+        {
+          "id": 126148,
+          "name": "Klaude",
+          "avatar_changed": 1775556040
+        }
+      ],
+      "cut_before_heading": null,
+      "source_sha256": "80a1256536c21c00b4b46dd9a3db72a628fe3f8d500ee93467dfd16587d1db74",
+      "rendered_sha256": "17578330c6a36f3e687d30e27754d43a565b5848af4dbf8e4525cacfb714d338"
+    },
+    {
+      "path": "corpus/language/variables.md",
+      "title": "Variables",
+      "page_id": 673,
+      "source_url": "https://leekwars.com/encyclopedia/en/Variables",
+      "last_edition_time": 1791143328,
+      "creator": "Pilow",
+      "contributors": [
+        {
+          "id": 1,
+          "name": "Pilow",
+          "avatar_changed": 1730708991
+        },
+        {
+          "id": 98155,
+          "name": "Husky",
+          "avatar_changed": 1717934977
+        },
+        {
+          "id": 126148,
+          "name": "Klaude",
+          "avatar_changed": 1775556040
+        }
+      ],
+      "cut_before_heading": "❓ Quiz",
+      "source_sha256": "ff714c89bb6e5e53acabc7f62e895573194eb351680d1ed246fdbeb4ff6cee51",
+      "rendered_sha256": "0d50f2b07590e7ff2ee7f44bb5072a143fa6305472f98a251ea3683e910bec7a"
+    },
+    {
+      "path": "corpus/language/standard-functions.md",
+      "title": "Standard functions",
+      "page_id": 674,
+      "source_url": "https://leekwars.com/encyclopedia/en/Standard_functions",
+      "last_edition_time": 1790939291,
+      "creator": "Pilow",
+      "contributors": [
+        {
+          "id": 1,
+          "name": "Pilow",
+          "avatar_changed": 1730708991
+        },
+        {
+          "id": 98155,
+          "name": "Husky",
+          "avatar_changed": 1717934977
+        },
+        {
+          "id": 126148,
+          "name": "Klaude",
+          "avatar_changed": 1775556040
+        }
+      ],
+      "cut_before_heading": "❓ Quiz",
+      "source_sha256": "05652742ba494cefdc49e3e45058fadf3822dd0fc05d192f5d140df28950048d",
+      "rendered_sha256": "27dc4f1873d25b12f1ddc126ddaa5f2e33edde960faeb5bccedf08317e1883d4"
+    },
+    {
+      "path": "corpus/language/conditions.md",
+      "title": "Conditions",
+      "page_id": 675,
+      "source_url": "https://leekwars.com/encyclopedia/en/Conditions",
+      "last_edition_time": 1790979454,
+      "creator": "Pilow",
+      "contributors": [
+        {
+          "id": 1,
+          "name": "Pilow",
+          "avatar_changed": 1730708991
+        },
+        {
+          "id": 98155,
+          "name": "Husky",
+          "avatar_changed": 1717934977
+        },
+        {
+          "id": 126148,
+          "name": "Klaude",
+          "avatar_changed": 1775556040
+        }
+      ],
+      "cut_before_heading": "❓ Quiz",
+      "source_sha256": "e23fbf2a36fb2c865673ad67687573466e99521b2d6899bade89e9ed2f05b9ed",
+      "rendered_sha256": "f07cbd91c28a2511b6bcbc51c09a3ddf172bccfe953e61510afcf277404a4056"
+    },
+    {
+      "path": "corpus/language/booleans-null.md",
+      "title": "Booleans and null",
+      "page_id": 676,
+      "source_url": "https://leekwars.com/encyclopedia/en/Booleans_and_null",
+      "last_edition_time": 1790979457,
+      "creator": "Pilow",
+      "contributors": [
+        {
+          "id": 1,
+          "name": "Pilow",
+          "avatar_changed": 1730708991
+        },
+        {
+          "id": 126148,
+          "name": "Klaude",
+          "avatar_changed": 1775556040
+        }
+      ],
+      "cut_before_heading": "❓ Quiz",
+      "source_sha256": "ee97d67e36c08b9113896b79146b35daa19cba8bc8985638d5b3c6e2b9f90633",
+      "rendered_sha256": "935b37a769d30bc1abe44de0502a1ead7d9a939aa8d1b17854bcc4c6ab98f5b8"
+    },
+    {
+      "path": "corpus/language/operators.md",
+      "title": "Operators",
+      "page_id": 680,
+      "source_url": "https://leekwars.com/encyclopedia/en/Operators",
+      "last_edition_time": 1790938485,
+      "creator": "Pilow",
+      "contributors": [
+        {
+          "id": 1,
+          "name": "Pilow",
+          "avatar_changed": 1730708991
+        },
+        {
+          "id": 76604,
+          "name": "nytope",
+          "avatar_changed": 1669397670
+        },
+        {
+          "id": 126148,
+          "name": "Klaude",
+          "avatar_changed": 1775556040
+        }
+      ],
+      "cut_before_heading": "A smarter healing condition",
+      "source_sha256": "c54cf53cb0ed943f7009f51c8437176ff0de448475661e6bd4b6329572e4f33b",
+      "rendered_sha256": "3958d30fd34f84da85ff4aeda6aaa988ea380773f234c4964020b49e7e03d4f6"
+    },
+    {
+      "path": "corpus/language/strings.md",
+      "title": "Strings",
+      "page_id": 682,
+      "source_url": "https://leekwars.com/encyclopedia/en/Strings",
+      "last_edition_time": 1790939291,
+      "creator": "Pilow",
+      "contributors": [
+        {
+          "id": 1,
+          "name": "Pilow",
+          "avatar_changed": 1730708991
+        },
+        {
+          "id": 126148,
+          "name": "Klaude",
+          "avatar_changed": 1775556040
+        }
+      ],
+      "cut_before_heading": "Greet your opponent",
+      "source_sha256": "cce66812f010be22d817d49b6ca0dfde80ec77b28ed6110223f0f34dada4e39a",
+      "rendered_sha256": "4d0ffee2f8596f7fec40f2bd0bea6b00bca6697f96d1e8622021ba61f8649bb9"
+    },
+    {
+      "path": "corpus/language/loops.md",
+      "title": "Loops",
+      "page_id": 683,
+      "source_url": "https://leekwars.com/encyclopedia/en/Loops",
+      "last_edition_time": 1790979459,
+      "creator": "Pilow",
+      "contributors": [
+        {
+          "id": 1,
+          "name": "Pilow",
+          "avatar_changed": 1730708991
+        },
+        {
+          "id": 98155,
+          "name": "Husky",
+          "avatar_changed": 1717934977
+        },
+        {
+          "id": 126148,
+          "name": "Klaude",
+          "avatar_changed": 1775556040
+        }
+      ],
+      "cut_before_heading": "Attacking several times in a row",
+      "source_sha256": "58bae58ae148df1d6120c091e45c9263cb3454590f72e4d083ffd93563e0bb1a",
+      "rendered_sha256": "11a986bc390e9b1b3c4d34cdf9077a17868a9bb7b0079562771392d7761bc8a3"
+    },
+    {
+      "path": "corpus/language/lists-maps.md",
+      "title": "Lists",
+      "page_id": 684,
+      "source_url": "https://leekwars.com/encyclopedia/en/Lists",
+      "last_edition_time": 1790938762,
+      "creator": "Pilow",
+      "contributors": [
+        {
+          "id": 1,
+          "name": "Pilow",
+          "avatar_changed": 1730708991
+        },
+        {
+          "id": 98155,
+          "name": "Husky",
+          "avatar_changed": 1717934977
+        },
+        {
+          "id": 126148,
+          "name": "Klaude",
+          "avatar_changed": 1775556040
+        }
+      ],
+      "cut_before_heading": "Estimating a weapon",
+      "source_sha256": "4523d4bac3c2a2f42b638effd63fa8b2d428372941a8d5eec731e5519e6bc1e0",
+      "rendered_sha256": "207c07a84b674702e181bf53cea79beddeb392848f2d0425f10a119f9c8e5570"
+    },
+    {
+      "path": "corpus/language/functions.md",
+      "title": "Create your functions",
+      "page_id": 685,
+      "source_url": "https://leekwars.com/encyclopedia/en/Create_your_functions",
+      "last_edition_time": 1791143261,
+      "creator": "Pilow",
+      "contributors": [
+        {
+          "id": 1,
+          "name": "Pilow",
+          "avatar_changed": 1730708991
+        },
+        {
+          "id": 8414,
+          "name": "FdHP",
+          "avatar_changed": 1762164739
+        },
+        {
+          "id": 19370,
+          "name": "Loutreavin",
+          "avatar_changed": 1627061837
+        },
+        {
+          "id": 76604,
+          "name": "nytope",
+          "avatar_changed": 1669397670
+        },
+        {
+          "id": 98155,
+          "name": "Husky",
+          "avatar_changed": 1717934977
+        },
+        {
+          "id": 126148,
+          "name": "Klaude",
+          "avatar_changed": 1775556040
+        }
+      ],
+      "cut_before_heading": "Creating a `canFinish",
+      "source_sha256": "36ebbb170e52effb9bd0ef182642123f6dcde9444ab290a38c883decf7b423cb",
+      "rendered_sha256": "8314ebc854c3e25c9944840460ea9225c13f14242ec0344e9fb18d4f30e69b11"
+    },
+    {
+      "path": "corpus/language/objects-classes.md",
+      "title": "Objects and Classes",
+      "page_id": 345,
+      "source_url": "https://leekwars.com/encyclopedia/en/Objects_and_Classes",
+      "last_edition_time": 1790949854,
+      "creator": "Pilow",
+      "contributors": [
+        {
+          "id": 1,
+          "name": "Pilow",
+          "avatar_changed": 1730708991
+        },
+        {
+          "id": 126148,
+          "name": "Klaude",
+          "avatar_changed": 1775556040
+        }
+      ],
+      "cut_before_heading": null,
+      "source_sha256": "6dc2592b66e5388391b6daf67ecab961938a1c89ebb1580cb141b27f01cf80ac",
+      "rendered_sha256": "7dca35f6b55c1c9a42cdc7dc710441f0dbe8abf3416acc45482d546ccb4b57a8"
+    },
+    {
+      "path": "corpus/language/typing.md",
+      "title": "Typing",
+      "page_id": 8422,
+      "source_url": "https://leekwars.com/encyclopedia/en/Typing",
+      "last_edition_time": 1790951583,
+      "creator": "Pilow",
+      "contributors": [
+        {
+          "id": 1,
+          "name": "Pilow",
+          "avatar_changed": 1730708991
+        },
+        {
+          "id": 512,
+          "name": "WhiteSlash",
+          "avatar_changed": 1687165267
+        },
+        {
+          "id": 126148,
+          "name": "Klaude",
+          "avatar_changed": 1775556040
+        }
+      ],
+      "cut_before_heading": null,
+      "source_sha256": "066c1251f732543287462e5ed393203a44b264127dc41af8557b3844eec2d59c",
+      "rendered_sha256": "5c809c18783da806fdaec83dea87045f0a7699f084d84f273b475b82ced091c1"
+    },
+    {
+      "path": "corpus/language/strict-mode.md",
+      "title": "Strict mode",
+      "page_id": 8497,
+      "source_url": "https://leekwars.com/encyclopedia/en/Strict_mode",
+      "last_edition_time": 1791143318,
+      "creator": "Pilow",
+      "contributors": [
+        {
+          "id": 1,
+          "name": "Pilow",
+          "avatar_changed": 1730708991
+        },
+        {
+          "id": 126148,
+          "name": "Klaude",
+          "avatar_changed": 1775556040
+        }
+      ],
+      "cut_before_heading": null,
+      "source_sha256": "bfd3c257f09b20d65a7f109114c2bea10efa6145dbc07cb40a6b626733830c76",
+      "rendered_sha256": "eb1c4c396ce58f26e74e749b55a34547c20a927d7d4a595ee763f83980b6be37"
+    },
+    {
+      "path": "corpus/language/version-4.md",
+      "title": "LeekScript 4",
+      "page_id": 464,
+      "source_url": "https://leekwars.com/encyclopedia/en/LeekScript_4",
+      "last_edition_time": 1791143281,
+      "creator": "Pilow",
+      "contributors": [
+        {
+          "id": 1,
+          "name": "Pilow",
+          "avatar_changed": 1730708991
+        },
+        {
+          "id": 126148,
+          "name": "Klaude",
+          "avatar_changed": 1775556040
+        }
+      ],
+      "cut_before_heading": null,
+      "source_sha256": "1aeb90793370f9760b80ea07804e0e064c23343965e4bbb5c8e79f52c66dc124",
+      "rendered_sha256": "b1c55fecd2bc8d16a7ab4edfeee5ba9750850302ac3d36a00691026306c7e3ce"
+    }
+  ]
+}

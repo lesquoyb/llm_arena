@@ -1,5 +1,9 @@
 # LeekScript 4 syntax and state
 
+For the language itself, start with `corpus/language/cheatsheet.md` and choose
+a topic in `corpus/language/index.md`. These cover declarations, control flow,
+arrays versus maps, functions, objects and classes.
+
 `var` declares a variable. `if`, `while` and `break` control execution.
 Arrays are zero-indexed. Game functions are global; Python or JavaScript imports
 are not needed. `main.leek` is the entry point.

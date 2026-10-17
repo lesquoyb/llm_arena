@@ -46,8 +46,14 @@ class ProviderContractTests(unittest.TestCase):
                 self.assertEqual(saved["cost_spent"], "0.00001")
                 self.assertEqual(saved["pending"]["request_id"], "fixture")
                 with mock.patch("arena.experiment.APIProvider") as provider:
+                    provider.return_value.respond.side_effect = ProviderFailure("fixture limit", uncertain=False, retryable=True)
                     run_session("fixture-r0", config["models"][0], config, tmp, journal, None)
-                    provider.assert_not_called()
+                    provider.return_value.respond.assert_called_once()
+                    resumed = journal.state("fixture-r0")
+                    self.assertEqual(resumed["cost_spent"], "0.00001")
+                    self.assertEqual(resumed["submission_reminders"], 1)
+                    self.assertEqual(sum(m.get("request_id") == "fixture" for m in resumed["history"]), 1)
+                    self.assertEqual(resumed["status"], "provider_unavailable")
             finally:
                 journal.db.close()
     def test_openai_native_history_usage_and_reasoning_not_counted_twice(self):
@@ -200,7 +206,9 @@ class ProviderContractTests(unittest.TestCase):
                 response = provider_response("mock-r0",state,descriptor,config,journal)
                 sent = response["sent_parameters"]
                 self.assertEqual(sent["messages"],[prompt])
-                self.assertEqual(sent["tools"],TOOLS)
+                from arena.feedback import available_tools, FEEDBACK_NAMES
+                self.assertEqual(sent["tools"],available_tools(state))
+                self.assertFalse(FEEDBACK_NAMES & {tool['name'] for tool in sent['tools']})
                 row = journal.db.execute("SELECT payload FROM events WHERE kind='model_intent'").fetchone()
                 import json
                 ref = json.loads(row[0])

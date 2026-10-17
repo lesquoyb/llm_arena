@@ -46,10 +46,15 @@ class EvolutionIntegrationTests(unittest.TestCase):
             for parent in ("mock-repair-r0", "mock-single-r0"):
                 control, feedback = states[parent + "-g1-control"], states[parent + "-g1-feedback"]
                 self.assertEqual(control["parent_checkpoint_sha256"], feedback["parent_checkpoint_sha256"])
-                self.assertEqual(control["history"][:len(states[parent]["history"])], states[parent]["history"])
-                marker = len(states[parent]["history"])
+                self.assertEqual(control['history_policy'], 'fresh-round')
+                self.assertEqual(control['history'][0]['generation'], 1)
+                self.assertIn('new preparation period', control['history'][0]['content'])
+                self.assertNotEqual(control['history'][:len(states[parent]['history'])], states[parent]['history'])
+                marker = 0
                 self.assertNotIn("feedback", control["history"][marker])
-                serialized = str(feedback["history"][marker]["feedback"])
+                self.assertIn("Your Round 1 tournament results:", feedback["history"][marker]["content"])
+                self.assertIn("read_past_fight", feedback["history"][marker]["content"])
+                serialized = str(feedback["previous_round_feedback"])
                 self.assertNotIn("main.leek", serialized)
                 self.assertNotIn(str(out), serialized)
                 self.assertNotIn("seed", serialized)

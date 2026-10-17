@@ -168,7 +168,9 @@ class TeamEngineTests(unittest.TestCase):
                 for condition in ('control', 'feedback'):
                     state = journal.state('fixture-r0-g1-' + condition)
                     writes = list(history_writes(state['history']))
-                    self.assertGreaterEqual(sum(w['path'] == 'team.json' for w in writes), 2)
+                    self.assertEqual(state['history_policy'], 'fresh-round')
+                    # Only this round's configuration is in its conversation.
+                    self.assertGreaterEqual(sum(w['path'] == 'team.json' for w in writes), 1)
                 journal.verify()
             finally:
                 journal.db.close()

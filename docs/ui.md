@@ -80,9 +80,23 @@ not change previous experiments.
 
 ## Competition settings
 
-Choose participants, repetitions, evaluation of the initial strategy alone or with improvement branches, seeds, team size,
+Choose participants, repetitions, strategy rounds, seeds, team size,
 turn limits, entity stats, equipment and budgets. JSON import supports full
 manifests. A repetition creates an independent conversation.
+
+**Number of rounds** includes the initial round. One evaluates only the initial
+strategy; two adds one improvement round; larger numbers keep improving each
+track. There is no 2-round limit. From Round 2 onward, feedback and no-feedback
+tracks continue separately from their own previous submission, without creating
+more branches. Every participant finishes preparing before the round's tournament;
+all tournament and reference fights finish before the next round starts.
+
+Choose **Continue until I press Stop** for no round limit. Stop preserves completed
+rounds, submissions and match records; Resume continues the same frozen study.
+The schedule is open-ended in this mode. A missing submission or failed evaluation
+pauses progression for recovery rather than silently excluding a participant from
+all future rounds. Other optional budgets still apply. In JSON, `generations` is
+the total round count, or `null` for manual stopping.
 
 A match seed controls reproducible map generation and placement. Preparation
 seed 17, feedback seeds and final evaluation seeds are separate. Mirrors compare
@@ -159,6 +173,13 @@ to moderate LLM conversations. It is retained as part of the engine inventory.
 
 ## Conversations and journal
 
+A provider's `stop` finish reason ends its response, not its Arena round. Without
+an explicit `submit` tool call, Arena sends a visible reminder and continues the
+conversation. After three reminders, another response without tools ends the
+session as **No submission**, with an explanation. Existing files are not
+submitted automatically when a response stops. Reminder responses count toward
+usage and any configured budgets. Previously recorded runs remain unchanged.
+
 **Conversations** shows complete recorded prompts, responses, tool calls and
 results, with pagination. **Follow live** moves to new messages.
 New calls include a **Sent request** section containing the full messages,
@@ -199,7 +220,7 @@ Statistics include computation, actions, shots, chips, weapon changes, movement,
 cells moved, damage, healing, erosion, deaths, errors and operation-limit hits.
 Use **Metrics** to switch between overview, computation, actions, damage and all
 columns. Match views show totals for the match, teams and leeks, plus per-turn
-and per-leek details. Summary totals and matrices are separated by stage.
+and per-leek details. Summary uses shared filters for rounds, models and match category.
 Actions count moves, weapon changes, shots and chips; automatic effects are not
 counted as decisions. AP/MP removed refers to replay events, not all resource spending.
 
@@ -214,17 +235,29 @@ source attribution. Missing values stay `N/A`. Old replay damage can include
 overkill. Historical operation totals may assign summons to their summoner;
 new per-entity telemetry separates them.
 
+## Feedback conversations
+
+New improvement conversations start fresh, with the scenario, a numbered preparation instruction and the previous submitted files in the workspace. Earlier conversations are not resent. Select an older session to inspect its archived messages; **Initial history** remains available in older runs that inherited their history. Older runs' structured feedback is rendered as a visible table rather than only inside the raw record. Recorded requests remain unchanged.
+
+With feedback, the instruction includes a plain English previous-round result summary. `list_past_fights` lists that participant's non-mirror previous-round tournament fights. `read_past_fight` provides an explained overview, chronological public actions, own per-turn metrics and own debug/error logs, with pagination. No 16-fight or four-action cap applies. Opponent code, opponent debug logs, other participants' unrelated fights, later rounds and final reference tests are unavailable.
+
+Initial and without-feedback sessions cannot call these tools, even by guessing their names or IDs. The shared tool service enforces the permission for both native provider calls and MCP; it also omits unavailable tools from discovery. Both branches retain their standard preparation tools (`analyze`, `test`, `read_replay`). Old runs keep the feedback they originally received; the expanded tools apply to new compatible runs.
+
 ## Scores and comparisons
 
 The initial strategy produces two improvements: **Improved without feedback**
-and **Improved with feedback**. Only the latter receives match results. Both branches inherit the same initial strategy code and history.
-Score is `(wins + 0.5 * draws) / completed matches`, excluding mirrors. A score
-of 70% is not necessarily a 70% win rate. A score difference of 0.4 is 40 percentage points.
+and **Improved with feedback**. Only the latter receives match results. Both branches start from the same initial strategy code for Round 2. Later rounds continue their respective code track with a fresh conversation and an explicit round number. Only the feedback track receives a previous-round result summary. The server never grants past-fight access to the no-feedback track.
+The competition Summary uses one shared filter bar: **Round**, **Model** and **Matches** (Tournament or Reference tests). Filters apply to the ranking, evolution chart, matrix, usage and conversation details. The model filter selects the candidate; its opponents stay visible. Versions and repetitions are grouped by model.
 
-Panels distinguish all reference opponents, frozen initial strategies and fixed
-handwritten controls. Compare versions against the same panel. Contemporary
-initial and improved strategy standings remain separate. Mock cost zero means no API calls; machine
-cost is not included. Operations are not tokens. Missing costs stay unknown.
+The default view shows four indicators, a model ranking, evolution by version and a head-to-head matrix. Detailed metrics, conversations, accounting and methodology expand on demand. Numeric columns in detail tables can be sorted. Small matrices fit the available width; large matrices scroll within their own container. Full model names are available from abbreviated headers.
+
+Score is `(wins + 0.5 * draws) / completed appearances`. The ranking pools the selected appearances for each model; a 50% score can mean all draws. Failures are displayed separately. A tournament fight contributes an appearance to each model, so appearance counts can exceed unique fight counts. The completed-fight indicator counts each selected fight once. Tournament mirrors and preparation tests do not enter the scores.
+
+Round 1 is the initial submission. Round 2 has two alternative branches, with and without feedback. Tournament opponents may change between rounds; use Reference tests to compare against frozen initial submissions and built-in scripts. Reference tests count only the candidate side, including tests against its own initial strategy. The evolution chart uses the same selected matches and rounds as the ranking.
+
+Matrix cells show score and wins / draws / losses from the row model's perspective. Click a result to open the relevant fights. Tournament diagonals are omitted because versions of the same model are grouped. The accounting section reconciles tournament, reference and diagnostic mirror counts for the whole competition; preparation tests are listed separately.
+
+Cost and tokens describe preparation of the selected versions regardless of match category. Reported tokens are counted even at zero prices and without limits; missing usage remains unknown or is marked partial. Mock participants have no LLM tokens. Replay legends identify the models by side and color.
 
 **Compare results** averages fixed-opponent scores with equal weight per complete
 conversation. Incomplete conversations are counted separately. Runs group only
@@ -407,3 +440,144 @@ teams. Mock profiles configure a team through the same tools as API models; fixe
 reference strategies use the scenario roster. They now handle empty weapon lists
 and inspect all equipped weapons. They remain simple weapon baselines, not optimal
 chip/summon strategies; feature-showcase demonstrates those APIs separately.
+
+## Conversations and journal by model
+
+Choose a **Model** in Conversations or Code & versions, then a conversation by
+repetition and initial/improved strategy. Only that model's conversations appear
+in the selector. **Conversation journal** opens the events for that exact thread.
+The Journal also lets you select a model across all its conversations, or select
+**All models** for the complete competition log. Events are filtered before
+pagination and show their model and conversation; **Open conversation** returns
+to the corresponding thread. Model/session filters are kept in the URL for
+refresh, navigation and links, and changing a filter resets pagination.
+
+## Retry one failed conversation
+
+**Retry conversation** is available in the session list and beside the selected
+conversation when it stopped without a frozen submission. It continues that
+thread's saved history and files. Other models are not called again. Their
+submissions, API usage and completed match artifacts remain unchanged. If an
+initial strategy is recovered, its previously skipped improvement branches are
+created from the recovered submission. New matches involving recovered entrants
+are added to the existing tournament; old schedules are retained under history/.
+
+A retry does not reset usage counters or extend budgets. API calls still require
+the normal launch confirmation, for the selected model only. Unknown remote
+outcomes or reserved billing must be reconciled first. Submitted strategies
+(including invalid ones) cannot be replaced through retry after evaluation.
+An exported archive is read-only. As with resume, the frozen configuration,
+runner, engine, prompts and documentation must match the recorded experiment;
+retry does not bypass provenance checks after an incompatible project update.
+
+CLI: `python -m arena experiment retry runs/<competition> --session <session-id>`.
+The journal records retry requests, prior checkpoint hashes and attempt counts.
+
+Recovery keeps already produced feedback and improvement branches as they were;
+it does not regenerate another model's history to include newly available results.
+
+## Editable profiles, frozen runs and preparation matches
+
+Saved competition configurations use the latest saved participant profiles when
+opened, previewed and launched, including endpoint, model, prices and parameters.
+Inline participants whose IDs are absent from the profile catalog keep their
+embedded settings. The launch preview shows the resolved settings. If a profile
+changes after that preview, launch is rejected until you review the updated
+preview. A started competition freezes its resolved profiles; editing a profile
+does not alter existing runs, retries, historical requests or results.
+
+The execution order is:
+
+1. Preparation: each model can edit, compile and request training fights against
+   passive. These fights are explicitly unscored and cannot expose opponent scripts.
+2. Initial round: submitted sources and team.json are frozen. The configured
+   pairings run against those same submissions, without model calls between fights.
+3. Improvement, if enabled: both branches start from the initial code, with fresh conversations; one
+   gets the initial round's results and the control branch does not.
+4. Improved round and reference evaluations: each branch's submitted code is frozen.
+
+Matches defaults to **Competition rounds**. Choose **Preparation tests (unscored)**
+to inspect training fights, **Reference evaluations (frozen scripts)** for the
+common evaluation panel, or **All fights**. Training fights are excluded from
+competition statistics and matrices, and have an explicit badge on their replays.
+Their count is displayed separately. Configuring unlimited preparation lets a
+model run more training tests until it submits; a training fight is not a round.
+
+**Live updates** is enabled by default when opening a running competition and
+is available in the common toolbar for every view. Refreshes follow journal and
+match artifact revisions, even if no new model message or root report exists.
+Matches, statistics, the journal, files and code versions update accordingly.
+The checkbox pauses updates; its selection is kept while navigating that run.
+Expanded conversation records, open dialogs and playing replays pause replacement
+so they remain readable. Selected match/replay position, file and statistics stage
+are preserved. Human labels use initial/improved strategy and feedback condition;
+raw paths, IDs, original messages and provenance remain unchanged for auditing.
+
+A **Submitted** conversation has frozen its sources; it does not certify compilation
+or successful fights. Open **Diagnostics** in the overview's Conversations table,
+or open the conversation, to inspect generation status, submission validation and
+fight failures separately. The compilation report includes diagnostics from every
+team entrypoint. Fight failures show the engine error, seed, participants and
+artifact path. A missing validation or fight result is pending, not a failure.
+Round 2 tournament and reference evaluation fights wait until both preparation
+branches have finished, so a submitted branch can temporarily show only its
+Round 1 fights while another branch is still working.
+
+Conversation live mode appends new messages with a brief arrival animation and
+smoothly follows them when you are at the bottom of the current conversation.
+Existing message nodes stay in place. Scrolling up, inspecting an earlier page or
+opening a record pauses following so the text you are reading stays put. A new
+message indicator and Follow latest button let you catch up; returning to the
+bottom resumes following when inspecting the live tail. Reduced-motion settings
+disable the animation and smooth scrolling. The live view retains at most 200
+message cards; earlier records remain available through Previous and the journal.
+Each assistant response has its own recorded reasoning blocks, when the provider
+returns them, followed by its tool requests and their receipts.
+
+File tools show the requested path. A read identifies the character range actually
+sent to the model, whether more text remains, and its next offset. Expand the
+excerpt to read that content without the JSON envelope. A write shows a diff and
+the full submitted text, reconstructed from that exact request, including older
+runs whose receipt contains only a hash. Rejected writes are identified and do
+not become the baseline for later diffs. If the preceding content was never
+recorded, the interface says so instead of claiming an exact before/after edit.
+
+
+## Model-facing document and replay views
+
+Document JSON is compacted before pagination; source URLs, commit IDs and hashes
+stay in the frozen corpus and journal rather than the model-facing view. Character
+offsets refer to that compact view. Source code and meaningful Markdown line breaks
+are preserved. Tool responses sent to providers omit internal hashes and provenance;
+the exact outgoing request remains inspectable in the journal.
+
+`read_replay` defaults to 16000 characters. A partial page explicitly reports
+`truncated`, its character range and a complete `continuation` call. Repeat that
+call until `next_offset` is null. The same test ID, side and section must be kept.
+A partial JSON fragment is not a complete replay.
+
+`list_past_fights` and `read_past_fight` expose only the previous round, labeled in
+each result, and only to the feedback track. Calibration uses the same previous-round
+scope for training fights; validation and audit fights remain hidden.
+`list_submissions` and `read_submitted_file` provide earlier frozen code by explicit
+round number, within the same track and replicate. These source-only tools are
+available with or without feedback; they reveal no match results or opponent code.
+
+
+## Language reference and private sparring
+
+Models can read a dense LeekScript 4 sheet at `corpus/language/cheatsheet.md`
+and choose an official tutorial topic through `corpus/language/index.md`.
+The initial instruction points to syntax before implementation; the full strategy
+in authoring.md is optional. See [language reference sources](language-reference.md)
+for origin, extraction and manual refresh instructions.
+
+The preparation `test` tool accepts `opponent_entrypoint` to pit two scripts in
+the participant's own workspace against one another. It still runs both starting
+sides and returns a normal replay ID. A participant can therefore write a
+sparring strategy, or copy an earlier own submission, and examine the resulting
+logs and metrics. Participant-team opponents mirror the candidate roster and
+run the alternate script for every member, without editing the candidate's team.
+The Matches view labels these opponents by their source entrypoint. These are
+preparation tests, not scored competition fights. No other model's sources are
+readable through this mechanism.

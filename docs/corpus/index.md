@@ -2,8 +2,10 @@
 
 - `rules.md`: turns, resources, map, teams and preparation catalog.
 - `api-guide.md`: control-strategy functions, arguments and errors.
-- `syntax.md`: basic syntax, includes, state and communication.
-- `../authoring.md`: complete example and submission contract.
+- `language/cheatsheet.md`: dense LeekScript 4 syntax, without a combat-strategy template.
+- `language/index.md`: short official tutorial chapters by topic.
+- `syntax.md`: includes, state and communication in Arena.
+- `../authoring.md`: optional worked strategy and submission contract.
 - `../leekscript-v1/api.md`: all signatures and declared base costs.
 - `../leekscript-v1/{weapons,chips,summons,components}.json`: pinned equipment.
 

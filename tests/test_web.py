@@ -102,6 +102,77 @@ class WebContractTests(unittest.TestCase):
         self.assertEqual(self.store.conversation("example", "mock-repair-r0", 0, 1)["messages"][0]["content"],
                          "PROMPT INITIAL <script>not executable</script>")
 
+    def test_drafts_resolve_latest_profiles_but_runs_keep_frozen_settings(self):
+        old = dict(api_model(), provider='openai-compatible', endpoint='http://localhost:11434/v1/chat/completions')
+        self.store.save_participant(old)
+        config = read_json(ROOT/'configs/offline-complete.json')
+        config.update(models=[old], spending={'allow_paid_calls':True})
+        draft = self.store.save_draft(config)
+        file = self.store.state/'competitions'/(draft['id']+'.json')
+        original = file.read_bytes()
+        updated = {**old, 'endpoint':'http://localhost:11435/v1/chat/completions', 'model':'updated-local-model'}
+        self.store.save_participant(updated)
+        self.assertEqual(self.store.draft(draft['id'])['config']['models'], [updated])
+        self.assertEqual(self.store.drafts()[0]['config']['models'], [updated])
+        self.assertEqual(file.read_bytes(), original)
+        app = Application(self.store)
+        preview = app.post('/api/plan', {'config':config})
+        self.assertEqual(preview['config']['models'], [updated])
+        frozen = app.post('/api/plan', {'config':config, 'frozen':True})
+        self.assertEqual(frozen['config']['models'], [old])
+        with mock.patch('arena_web.jobs.subprocess.Popen') as process:
+            with self.assertRaisesRegex(ArenaError,'settings changed'):
+                app.jobs.launch(draft_id=draft['id'],confirm_paid=True,expected_config_sha256=frozen['config_sha256'])
+            process.assert_not_called()
+        root = self.store.runs/'frozen'
+        write_json(root/'experiment.json', {'config':config})
+        self.assertEqual(self.store.detail('frozen')['metadata']['config']['models'], [old])
+
+    def test_live_revision_changes_without_conversation_or_root_report_changes(self):
+        root = fixture(self.store)
+        before = self.store.detail('example')
+        write_json(root/'tournament/records/live.json', {'match':{'sides':['A','B']}, 'result':{}})
+        after = self.store.detail('example')
+        self.assertEqual(before['sessions'],after['sessions'])
+        self.assertEqual(before['report'],after['report'])
+        self.assertNotEqual(before['revision'],after['revision'])
+
+    def test_training_tests_are_visible_but_excluded_from_competition_statistics(self):
+        root = fixture(self.store)
+        before = self.store.statistics('example')
+        work = root/'sessions/mock-repair-r0/tools/call-1-tool-0-side-0/attempt-1'
+        write_json(work/'scenario.json', {'random_seed':17,'entities':[[{'cores':1}],[{'cores':1}]]})
+        write_json(work/'provenance.json', {})
+        write_json(work/'result.json', {'status':'completed','winner_side':0,'turns':1})
+        write_json(work/'outcome.json', {'fight':{'leeks':[],'actions':[]}})
+        rows = self.store.matches('example')['matches']
+        training = [r for r in rows if r['kind']=='training']
+        self.assertEqual(len(training),1)
+        self.assertFalse(training[0]['counts_toward_standings'])
+        after = self.store.statistics('example')
+        self.assertEqual(after['training_matches'],1)
+        self.assertEqual(after['stages'],before['stages'])
+
+    def test_journal_filters_models_before_counting_and_pagination(self):
+        root = fixture(self.store)
+        journal = Journal(root)
+        base = journal.state("mock-repair-r0")
+        try:
+            for sid, model in (("other-r0", "other"), ("other-r1", "other"), ("repair-r1", "mock-repair")):
+                journal.save(sid, {**base, "model": model}, "model_response", {"session": sid})
+        finally:
+            journal.db.close()
+        before = (root / "journal.sqlite").read_bytes()
+        first = self.store.events("example", model="mock-repair", limit=1)
+        second = self.store.events("example", model="mock-repair", offset=1, limit=1)
+        self.assertEqual(first["total"], 2)
+        self.assertEqual(first["events"][0]["session"], "mock-repair-r0")
+        self.assertEqual(second["events"][0]["session"], "repair-r1")
+        self.assertEqual(self.store.events("example", "other-r0", model="mock-repair")["total"], 0)
+        self.assertEqual(self.store.events("example", model="unknown' OR 1=1 --")["total"], 0)
+        self.assertEqual(self.store.events("example")["total"], 4)
+        self.assertEqual((root / "journal.sqlite").read_bytes(), before)
+
     def test_viewing_events_is_read_only_and_detects_modified_artifact(self):
         root = fixture(self.store)
         before = (root / "journal.sqlite").read_bytes()
@@ -182,10 +253,12 @@ class WebContractTests(unittest.TestCase):
         write_json(work/"outcome.json",data)
         first = self.store.statistics("example")
         self.assertEqual(first["stages"][0]["strategies"]["A"]["actions"],1)
+        self.assertEqual(first["match_totals"]["matches/cached"][0]["actions"],1)
         data["fight"]["actions"].append([13,37])
         write_json(work/"outcome.json",data)
         second = self.store.statistics("example")
         self.assertEqual(second["stages"][0]["strategies"]["A"]["actions"],2)
+        self.assertEqual(second["match_totals"]["matches/cached"][0]["actions"],2)
 
     def test_paths_cannot_escape_run_directory(self):
         fixture(self.store)
@@ -246,6 +319,7 @@ class WebWorkerIntegrationTests(unittest.TestCase):
             config = read_json(ROOT / "configs/offline-complete.json")
             config.update(generations=1, include_mirrors=False)
             for model in config["models"]:
+                model["id"] += "-worker"
                 model["profile"] = "single-shot"
             config["scenario"]["max_turns"] = 1
             draft = store.save_draft(config)
@@ -284,3 +358,60 @@ class WebWorkerIntegrationTests(unittest.TestCase):
                     self.assertEqual((path.stat().st_mtime_ns, path.read_bytes()), before)
             finally:
                 jobs.close()
+
+
+class SubmissionDiagnosticsTests(unittest.TestCase):
+    def test_submitted_conversation_exposes_compilation_failure_and_member_diagnostics(self):
+        from arena.core import file_hash
+        with scratch_directory() as tmp:
+            store = Store(tmp/'runs',tmp/'state')
+            root = fixture(store)
+            path = root/'sessions/mock-repair-r0/assessment.json'
+            assessment = {'status':'invalid','diagnostics':[{'file':'main.leek','line':8,'message':'Unknown function'}],
+                          'member_analyses':{'support.leek':{'status':'invalid','error':'Unknown symbol'}}}
+            write_json(path,assessment)
+            journal = Journal(root)
+            try:
+                state=journal.state('mock-repair-r0')
+                state.update(validity='invalid',assessment_sha256=file_hash(path))
+                journal.save('mock-repair-r0',state,'submission_assessment',assessment)
+            finally: journal.db.close()
+            data=store.conversation('example','mock-repair-r0')
+            self.assertEqual(data['status'],'submitted')
+            self.assertIsNone(data['failure'])
+            self.assertEqual(data['diagnostics']['validation_status'],'invalid')
+            self.assertEqual(data['diagnostics']['problems'][0]['phase'],'submission validation')
+            self.assertEqual(data['diagnostics']['assessment'],assessment)
+            self.assertEqual(store.detail('example')['sessions'][0]['validation_status'],'invalid')
+            write_json(path,{'status':'valid'})
+            with self.assertRaisesRegex(ArenaError,'modified'):
+                store.session_diagnostics('example','mock-repair-r0')
+
+    def test_submitted_without_round_two_fights_is_pending_not_failed(self):
+        with scratch_directory() as tmp:
+            store=Store(tmp/'runs',tmp/'state')
+            fixture(store)
+            data=store.session_diagnostics('example','mock-repair-r0')
+            self.assertEqual(data['generation_status'],'submitted')
+            self.assertEqual(data['validation_status'],'pending')
+            self.assertEqual(data['problems'],[])
+            self.assertEqual(data['matches']['failed'],0)
+            self.assertIn('after all Round 2 preparation',data['schedule_note'])
+
+    def test_fight_engine_failure_surfaces_for_both_participants_not_unrelated_sessions(self):
+        with scratch_directory() as tmp:
+            store=Store(tmp/'runs',tmp/'state')
+            root=fixture(store)
+            write_json(root/'sessions/mock-repair-r0/assessment.json',{'status':'valid'})
+            write_json(root/'tournament/records/failed.json',{
+                'match':{'sides':['mock-repair-r0','other-r0'],'seed':101},'directory':'matches/broken',
+                'result':{'status':'engine_error','error':'Engine exited 1; see stderr.log'}})
+            write_json(root/'tournament/records/elsewhere.json',{
+                'match':{'sides':['unrelated-r0','other-r0'],'seed':101},'directory':'matches/elsewhere',
+                'result':{'status':'timeout','error':'Deadline exceeded'}})
+            data=store.conversation('example','mock-repair-r0')['diagnostics']
+            self.assertEqual(data['validation_status'],'valid')
+            self.assertEqual(data['matches']['failed'],1)
+            self.assertEqual(len(data['problems']),1)
+            self.assertEqual(data['problems'][0]['message'],'Engine exited 1; see stderr.log')
+            self.assertEqual(data['problems'][0]['path'],'tournament/matches/broken')

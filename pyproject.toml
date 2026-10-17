@@ -19,5 +19,6 @@ arena = "arena.cli:main"
 packages = ["arena", "arena_web"]
 
 [tool.setuptools.package-data]
+arena = ["compiler_errors.json"]
 arena_web = ["static/*"]
 

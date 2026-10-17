@@ -47,12 +47,26 @@ def parser():
         action.add_argument("config", type=Path)
         if name in {"run", "init"}:
             action.add_argument("--out", type=Path, required=True)
+    action = actions.add_parser("retry", help="Continue one failed conversation, retaining completed submissions and matches")
+    action.add_argument("directory", type=Path)
+    action.add_argument("--session", required=True)
     for name in ("resume", "status", "report"):
         action = actions.add_parser(name)
         action.add_argument("directory", type=Path)
     action = actions.add_parser("export")
     action.add_argument("directory", type=Path)
     action.add_argument("--out", type=Path, required=True)
+    c = commands.add_parser("calibrate", help="Separate prompt calibration workshop")
+    ca = c.add_subparsers(dest="calibration_action", required=True)
+    ca.add_parser("example", help="Print an editable offline calibration configuration")
+    action = ca.add_parser("serve", help="Open the standalone calibration interface")
+    action.add_argument("--port", type=int, default=8766)
+    action.add_argument("--out", type=Path, default=ROOT / "calibrations")
+    action.add_argument("--open", action="store_true", dest="open_browser")
+    action = ca.add_parser("run", help="Run or resume an immutable calibration study")
+    action.add_argument("config", type=Path)
+    action.add_argument("--out", type=Path, required=True)
+    action.add_argument("--automatic", action="store_true")
     c = commands.add_parser("mcp", help="Preparation tools over MCP stdio")
     actions_mcp = c.add_subparsers(dest="mcp_action", required=True)
     action = actions_mcp.add_parser("serve")
@@ -74,6 +88,15 @@ def main(argv=None):
                 raise ArenaError("Port must be between 0 and 65535")
             serve(args.port, args.runs, args.open_browser)
             return 0
+        if args.command == "calibrate":
+            from .calibration import defaults, study
+            if args.calibration_action == "serve":
+                from arena_web.calibration import serve
+                serve(args.out, args.port, args.open_browser)
+                return 0
+            result = defaults() if args.calibration_action == "example" else study(read_json(args.config), args.out, args.automatic)
+            print(json.dumps(result, ensure_ascii=False, indent=2))
+            return int(result.get('status') == 'blocked')
         if args.command == "mcp":
             from .mcp_server import serve
             serve(args.experiment, args.session)
@@ -83,9 +106,10 @@ def main(argv=None):
             if args.action in {"plan", "run", "init"}:
                 config = load_config(args.config.absolute())
                 result = plan(config) if args.action == "plan" else run(config, args.out.absolute(), prepare_only=args.action == "init")
-            elif args.action == "resume":
+            elif args.action in {"resume", "retry"}:
                 directory = args.directory.absolute()
-                result = run(read_json(directory / "experiment.json")["config"], directory, resume=True)
+                result = run(read_json(directory / "experiment.json")["config"], directory, resume=True,
+                             retry_session=args.session if args.action == "retry" else None)
             elif args.action == "status":
                 result = status(args.directory.absolute())
             elif args.action == "export":
