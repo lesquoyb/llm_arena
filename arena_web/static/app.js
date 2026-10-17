@@ -1412,31 +1412,34 @@ async function renderRun(epoch) {
         model: S.modelFilter,
         offset: S.offset,
       });
-      if (
-        !S.explicitOffset &&
-        S.offset === 0 &&
-        data.generation > 0 &&
-        data.instruction_index > 0
-      ) {
-        S.offset = data.instruction_index;
+      if (epoch !== S.epoch) return;
+      // Opening a conversation follows its tail; explicit page links retain history.
+      if (!S.explicitOffset && data.total > data.messages.length) {
+        S.offset = Math.max(0, data.total - 25);
         data = await api("/api/conversation", {
-          run: S.run,
-          session: S.session,
-          offset: S.offset,
+          run: S.run, session: S.session, offset: S.offset,
         });
+        if (epoch !== S.epoch) return;
       }
+      // Keep the selected conversation stable across reloads.
+      const conversationURL = new URL(location.href);
+      conversationURL.hash = query({view: "run", run: S.run, tab: "conversation",
+        session: S.session, model: S.modelFilter,
+        ...(S.explicitOffset ? {offset: S.offset} : {})});
+      history.replaceState(null, "", conversationURL);
       S.liveConversation = {
         run: S.run,
         session: S.session,
         next: data.offset + data.messages.length,
         total: data.total,
-        armed: data.offset + data.messages.length >= data.total,
+        armed: !S.explicitOffset || data.offset + data.messages.length >= data.total,
       };
       body =
         chooser +
         '<div id="conversation-transcript">' +
         conversation(data) +
-        '</div><div id="conversation-live-status" aria-live="polite"></div>';
+        '</div><div id="conversation-live-status" aria-live="polite">' +
+        conversationLiveStatus(S.liveConversation, false) + '</div>';
     } else {
       S.versions = await api("/api/versions", {
         run: S.run,
@@ -1469,6 +1472,8 @@ async function renderRun(epoch) {
   if (epoch !== S.epoch) return;
   $("#main").innerHTML =
     '<div id="run-chrome">' + runHeader(d) + "</div>" + body;
+  if (S.tab === "conversation" && S.follow && !S.explicitOffset)
+    animateConversationTail();
   if (S.tab === "code" && d.sessions.length && S.versions?.versions?.length)
     await loadSource();
   if (S.tab === "matches" && S.matchPath) await loadMatch();
@@ -2076,6 +2081,14 @@ function nearConversationEnd() {
     document.documentElement.scrollHeight - window.scrollY - innerHeight < 100
   );
 }
+function conversationLiveStatus(live, following) {
+  const remaining = Math.max(0, live.total - live.next);
+  return remaining
+    ? `${remaining} new message${remaining === 1 ? "" : "s"} ${btn("Follow latest", "conversation-latest")}`
+    : following
+      ? "<small>Following new messages</small>"
+      : "<small>Reading history. Return to the bottom to follow new messages.</small>";
+}
 async function refreshLiveConversation(epoch, force = false) {
   const live = S.liveConversation,
     mount = $("#conversation-transcript");
@@ -2087,25 +2100,54 @@ async function refreshLiveConversation(epoch, force = false) {
     if (force) {
       live.armed = true;
       live.userPaused = false;
+      S.explicitOffset = false;
+      const latestURL = new URL(location.href);
+      const parameters = new URLSearchParams(latestURL.hash.slice(1));
+      parameters.delete("offset");
+      latestURL.hash = parameters.toString();
+      history.replaceState(null, "", latestURL);
     }
-    const following =
-      force || (live.armed && !live.userPaused && nearConversationEnd());
-    const data = await api("/api/conversation", {
-      run: S.run,
-      session: S.session,
+    let following =
+      force || (live.armed && !live.userPaused && nearConversationEnd() &&
+        !$(".chat-message details[open], details[data-provider-event][open]"));
+    let data = await api("/api/conversation", {
+      run: live.run,
+      session: live.session,
       offset: live.next,
       limit: following ? 100 : 1,
     });
     if (
       (!S.follow && !force) ||
       epoch !== S.epoch ||
+      live !== S.liveConversation ||
+      S.tab !== "conversation" ||
+      live.session !== S.session ||
+      live.run !== S.run ||
       mount !== $("#conversation-transcript")
     )
       return true;
+    if (!force && (live.userPaused || !nearConversationEnd() ||
+        $(".chat-message details[open], details[data-provider-event][open]"))) following = false;
+    // A resumed/replaced history can be shorter than the previously loaded one.
+    // Rebuild that page instead of keeping messages that no longer exist.
+    if (data.total < live.next) {
+      S.offset = Math.max(0, data.total - 25);
+      data = await api("/api/conversation", {
+        run: live.run, session: live.session, offset: S.offset,
+      });
+      if (epoch !== S.epoch || live !== S.liveConversation || mount !== $("#conversation-transcript")) return true;
+      mount.innerHTML = conversation(data);
+      live.next = data.offset + data.messages.length;
+      live.total = data.total;
+      live.armed = true;
+      const banner = $("#conversation-live-status");
+      if (banner) banner.innerHTML = conversationLiveStatus(live, following);
+      return true;
+    }
     const scrollWithMessages =
       following &&
       (force || nearConversationEnd()) &&
-      !$(".chat-message details[open]");
+      (force || !$(".chat-message details[open]"));
     const preservedScroll = window.scrollY;
     live.total = data.total;
     if (following && data.messages.length) {
@@ -2146,14 +2188,8 @@ async function refreshLiveConversation(epoch, force = false) {
       first = S.offset + 1;
     if (pager)
       pager.innerHTML = `<span>${fmt(live.total)} messages · ${status(data.status)} · Showing ${first}–${live.next}</span><div class="actions">${btn("← Previous", "conversation-page", `data-offset="${Math.max(0, S.offset - 25)}" ${S.offset === 0 ? "disabled" : ""}`)}${btn("Next →", "conversation-page", `data-offset="${live.next}" ${live.next >= live.total ? "disabled" : ""}`)}</div>`;
-    const remaining = Math.max(0, live.total - live.next);
     const banner = $("#conversation-live-status");
-    if (banner)
-      banner.innerHTML = remaining
-        ? `${remaining} new message${remaining === 1 ? "" : "s"} ${btn("Follow latest", "conversation-latest")}`
-        : following
-          ? "<small>Following new messages</small>"
-          : "<small>Reading history. Return to the bottom to follow new messages.</small>";
+    if (banner) banner.innerHTML = conversationLiveStatus(live, following);
     if (scrollWithMessages && data.messages.length) animateConversationTail();
     const chrome = $("#run-chrome");
     if (chrome) chrome.innerHTML = runHeader(S.detail);
@@ -3509,14 +3545,19 @@ setInterval(async () => {
       const log = await api("/api/job", { id: S.logJob });
       $("#job-log-live").textContent = log.content;
     }
+    if (S.view === "run" && S.tab === "conversation" && S.follow && !$("#dialog").open) {
+      try {
+        await refreshLiveConversation(S.epoch);
+      } catch (error) {
+        const banner = $("#conversation-live-status");
+        if (banner) banner.textContent = "Live update interrupted. Retrying automatically…";
+      }
+    }
     if (
       S.view === "run" &&
       !$("#dialog").open &&
       S.follow &&
-      !(
-        S.tab === "conversation" &&
-        $(".chat-message details[open], details[data-provider-event][open]")
-      ) &&
+
       !(S.tab === "summary" && $(".overview-details[open]")) &&
       !(S.tab === "matches" && replayTimer) &&
       (activeJobs().some((j) => j.run === S.run) ||
@@ -3542,7 +3583,7 @@ setInterval(async () => {
           S.tab === "matches" && R
             ? { path: S.matchPath, index: R.index }
             : null;
-        if (S.tab === "conversation" && (await refreshLiveConversation(epoch)))
+        if (S.tab === "conversation" && S.liveConversation?.session === S.session)
           return;
         if (S.follow && S.tab === "events") {
           const events = await api("/api/events", {
