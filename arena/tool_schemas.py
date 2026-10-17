@@ -15,7 +15,7 @@ COMPONENTS = {'type': 'array', 'maxItems': 8, 'items': {'anyOf': [
         'stats': schema({key: {'type': 'integer', 'minimum': -100000, 'maximum': 100000}
                          for key in STATS})}, ['template'])]}}
 PAGE = {"offset": {"type": "integer", "minimum": 0},
-        "limit": {"type": "integer", "minimum": 1, "maximum": 16000}}
+        "limit": {"type": "integer", "minimum": 1, "description": "Character count; values above 16000 are capped at 16000."}}
 TOOLS = [
     {"name": "list_files", "description": "List your .leek source files.", "input_schema": schema()},
     {"name": "read_file", "description": "Read your own source file, using character offsets (not line numbers). Default 16000 characters, maximum 16000 per call. If truncated=true, follow the returned continuation arguments until next_offset=null to finish reading.",

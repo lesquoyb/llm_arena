@@ -61,6 +61,23 @@ class ToolExchangeTests(unittest.TestCase):
             write=tools.call('write_file',{'path':'main.leek','content':'var a = 2'},'4')
             self.assertFalse(write['created'])
 
+    def test_oversized_document_pages_are_capped_and_remain_continuable(self):
+        with scratch_directory() as tmp:
+            (tmp/'docs').mkdir()
+            content = 'var x = 1;\n' * 5000
+            (tmp/'docs/guide.md').write_text(content, encoding='utf-8')
+            tools = Preparation(tmp/'session', tmp/'docs', None, {})
+            first = tools.call('read_docs', {'path':'guide.md'}, '1')
+            second = tools.call('read_docs', {'path':'guide.md', 'offset':16000, 'limit':45000}, '2')
+            self.assertEqual(second['content'], content[16000:32000])
+            self.assertEqual(second['returned_characters'], 16000)
+            self.assertEqual(second['continuation']['arguments'], {'path':'guide.md', 'offset':32000, 'limit':16000})
+            self.assertEqual(first['next_offset'], second['offset'])
+            for arguments, field in [({'offset':-1}, 'offset'), ({'offset':True}, 'offset'),
+                                     ({'limit':0}, 'limit'), ({'limit':'45000'}, 'limit')]:
+                with self.assertRaisesRegex(Exception, 'Invalid '+field+':'):
+                    tools.call('read_docs', {'path':'guide.md', **arguments}, 'invalid')
+
     def test_compatible_reasoning_is_retained_across_requests_and_recorded_on_each_turn(self):
         model={'id':'local','provider':'openai-compatible','model':'local','api_key_env':'ARENA_TEST_LOCAL_KEY',
                'endpoint':'http://127.0.0.1:11434/v1/chat/completions',

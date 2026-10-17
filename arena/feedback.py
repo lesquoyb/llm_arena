@@ -78,8 +78,12 @@ class PastFights:
         if set(arguments) - fields:
             raise ArenaError('Unknown feedback tool arguments')
         offset, limit = arguments.get('offset', 0), arguments.get('limit', 20 if name == 'list_past_fights' else 4000)
-        if type(offset) is not int or offset < 0 or type(limit) is not int or not 1 <= limit <= (100 if name == 'list_past_fights' else 16000):
-            raise ArenaError('Invalid feedback page')
+        if name == 'list_past_fights':
+            if type(offset) is not int or offset < 0 or type(limit) is not int or not 1 <= limit <= 100:
+                raise ArenaError('Invalid feedback page: offset must be a non-negative integer and limit an integer from 1 to 100')
+        else:
+            from .model_content import character_page
+            offset, limit = character_page(arguments, 4000)
         records = self.records()
         if name == 'list_past_fights':
             matches = [self.overview(key, row) for key, row in records.items()]

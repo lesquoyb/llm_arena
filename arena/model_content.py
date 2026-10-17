@@ -71,11 +71,18 @@ def tool_text(result):
     return compact(value)
 
 
-def page(text, arguments, tool, identity, default=16000):
+def character_page(arguments, default=16000):
     from .core import ArenaError
-    offset, limit = arguments.get('offset',0), arguments.get('limit',default)
-    if type(offset) is not int or offset < 0 or type(limit) is not int or not 1<=limit<=16000:
-        raise ArenaError('Invalid page')
+    offset, limit = arguments.get('offset', 0), arguments.get('limit', default)
+    if type(offset) is not int or offset < 0:
+        raise ArenaError('Invalid offset: use a non-negative integer character offset, preferably next_offset from the previous response')
+    if type(limit) is not int or limit < 1:
+        raise ArenaError('Invalid limit: use a positive integer character count; requests above 16000 are capped at 16000')
+    return offset, min(limit, 16000)
+
+
+def page(text, arguments, tool, identity, default=16000):
+    offset, limit = character_page(arguments, default)
     end = min(len(text), offset+limit)
     following = end if end<len(text) else None
     return {**identity, 'offset':offset,'end_offset':max(offset,end),'total_characters':len(text),

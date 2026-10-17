@@ -66,9 +66,8 @@ class Preparation:
             if name == "read_docs":
                 from .model_content import documentation
                 text = documentation(arguments["path"], text)
-            offset, limit = arguments.get("offset", 0), arguments.get("limit", 16000)
-            if type(offset) is not int or offset < 0 or type(limit) is not int or not 1 <= limit <= 16000:
-                raise ArenaError("Invalid page")
+            from .model_content import character_page
+            offset, limit = character_page(arguments)
             end = min(offset + limit, len(text))
             next_offset = end if end < len(text) else None
             return {"path": arguments["path"], "offset": offset, "end_offset": max(offset, end),
