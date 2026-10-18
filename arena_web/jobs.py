@@ -147,8 +147,14 @@ class Jobs:
     def _watch(self, process, row):
         code = process.wait()
         with self.lock:
-            row.update(status="stopped" if row["status"] == "stopping" else "completed" if code == 0 else "failed",
+            report_path = self.store.runs / row['run'] / 'report.json'
+            try: report = read_json(report_path) if report_path.exists() else {}
+            except (OSError, ValueError, ArenaError): report = {}
+            blocked = report.get('waiting_for_recovery') or report.get('incomplete')
+            row.update(status="stopped" if row["status"] == "stopping" else "blocked" if code == 0 and blocked else "completed" if code == 0 else "failed",
                        returncode=code, finished_at=time.time())
+            if row['status'] == 'blocked':
+                row['note'] = 'Waiting for failed conversations to be recovered. Saved submissions and fights are retained.'
             self._save()
 
     def stop(self, identifier):

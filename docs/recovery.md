@@ -16,3 +16,9 @@ An interrupted external request may have been charged even if no usable response
 A saved response continues with its pending tools. An unknown response is requested again and may incur a new charge. Recorded charges are added once; usage counters and earlier costs are preserved. Reconciliation does not invent missing token counts.
 
 Command line: `python -m arena experiment resume RUN_DIRECTORY --allow-updated-runner` allows an audited application update. Without the flag, identity checks remain strict. Billing reconciliation is available through the web interface.
+
+## A failed participant keeps its place
+
+Available fights in the current round can finish while other participants prepare. If an initial participant fails to submit, improvement rounds do not start with a smaller pool. The job ends in **Waiting for recovery**, retaining every submission and completed fight. The same round barrier applies to subsequent improvement rounds. Use **Retry conversation** or **Resume** to recover the participant.
+
+HTTP failure details include the actual request endpoint, HTTP status, provider/proxy validation fields and a request ID when supplied. Open **Provider error details** in the failed conversation. A bare `Bad Request` does not identify an unsupported field; endpoint-specific diagnostics are needed before changing request settings.

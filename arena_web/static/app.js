@@ -41,6 +41,7 @@ const LABELS = {
   incomplete: "Incomplete",
   interrupted: "Interrupted",
   needs_reconciliation: "Billing reconciliation needed",
+  blocked: "Waiting for recovery",
   budget_exhausted: "Budget exhausted",
   no_submission: "No submission",
   generation_failed: "Generation failed",
@@ -1342,6 +1343,8 @@ function runHeader(d) {
       `${active ? btn("■ Stop", "stop-job", `data-id="${e(job.id)}"`) : experiment && !d.archived ? btn("Resume", "resume") : ""}${experiment ? btn("Clone configuration", "clone-run") : ""}${experiment ? btn("Export", "export-run") : ""}`,
     ) +
     (d.sessions.some(s => s.continuation_identity) ? notice("Continued after an application update. Version changes are recorded in the journal.") : "") +
+    (d.sessions.filter(s => ["provider_unavailable", "generation_failed", "no_submission"].includes(s.status)).map(s =>
+      notice(`${e(s.model)} · ${e(sessionLabel(s))}: this round needs recovery before the next round can start. ${btn("Open conversation", "session-conversation", `data-session="${e(s.id)}"`)}${!active ? retryButton(s) : ""}`, "warn")).join("")) +
     (!active && !d.archived ? d.sessions.filter(s => s.reconciliation_required).map(s =>
       notice(`${e(s.model)} · ${e(sessionLabel(s))}: request billing needs review. ${btn("Resolve billing", "reconcile-session", `data-session="${e(s.id)}"`)}`, "warn")).join("") : "") +
     `<div class="toolbar">${config.models ? (config.models.every((m) => m.provider === "mock") ? badge("MOCK RUN (no LLM calls)", "blue") : badge("REAL API CALLS", "orange")) : badge("Provided strategies")}${d.archived ? badge("Exported copy", "orange") : ""}${job ? status(job.status === "failed" && d.report?.incomplete ? "incomplete" : job.status) : ""}<span class="mono muted" style="font-size:10px">${e(S.run)}</span><span class="spacer"></span>${job && ["running", "stopping"].includes(job.status) ? badge(runningPhase(d), "blue") : ""}<label class="check"><input id="follow-live" type="checkbox" ${S.follow ? "checked" : ""}>Live updates</label>${job ? btn("Run log", "job-log", `data-id="${e(job.id)}"`) : ""}</div><div class="tabs">${TABS.map(([key, label]) => `<button class="tab ${S.tab === key ? "active" : ""}" data-action="tab" data-tab="${key}">${label}</button>`).join("")}</div>`
@@ -2268,10 +2271,11 @@ function conversation(data, append = false) {
   return (
     (failure
       ? notice(
-          `<strong>${e(text(data.status))}</strong><p>${e(failure.message)}</p><small>${e(failure.phase)} · ${date(failure.at)}${failure.retryable ? " · Retryable API error" : ""}${failure.uncertain ? " · Check billing before resuming" : ""}</small>`,
+          `<strong>${e(text(data.status))}</strong><p>${e(failure.message)}</p><small>${e(failure.phase)} · ${date(failure.at)}${failure.diagnostics?.endpoint ? " · " + e(failure.diagnostics.endpoint) : ""}${failure.diagnostics?.request_id ? " · Request ID: " + e(failure.diagnostics.request_id) : ""}${failure.retryable ? " · Retryable API error" : ""}${failure.uncertain ? " · Check billing before resuming" : ""}</small>`,
           "error",
         )
       : "") +
+    (failure?.diagnostics ? `<details><summary>Provider error details</summary><pre>${e(pretty(failure.diagnostics))}</pre></details>` : "") +
     sessionDiagnostics(data.diagnostics) +
     (data.failure_event
       ? `<details class="provider-output" data-provider-event="${data.failure_event.id}" data-record-run="${e(S.run)}"><summary>Provider response or failure record</summary><pre></pre></details>`

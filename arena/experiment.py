@@ -318,9 +318,9 @@ def provider_response(sid, state, model, config, journal):
         if not error.uncertain:
             state["money_reserved"] = "0"
             state["reservation_unbounded"] = False
-        state["failure"] = {"message": str(error), "phase": "provider request", "at": time.time(), "uncertain": error.uncertain, "retryable": error.retryable}
+        state["failure"] = {"message": str(error), "phase": "provider request", "at": time.time(), "uncertain": error.uncertain, "retryable": error.retryable, "diagnostics":error.diagnostics}
         journal.save(sid, state, "provider_failure", {"error": str(error),
-                                                    "uncertain": error.uncertain, "retryable": error.retryable})
+                                                    "uncertain": error.uncertain, "retryable": error.retryable, "diagnostics":error.diagnostics})
         return None
     except (KeyError, ValueError, TypeError, ArenaError) as error:
         state["status"] = "needs_reconciliation" if paid else "generation_failed"
@@ -680,10 +680,10 @@ def run(config: dict, out: Path, resume=False, interrupt=None, prepare_only=Fals
                        "cost_status": "simulation" if simulated else "calculated_or_reserved",
                        **token_totals(config, states),
                        "tournament": tournament,
-                       "incomplete": any("submission" not in s for s in states.values()),
+                       "incomplete": len(states) < len(config["models"])*config["replicates"] or any("submission" not in s for s in states.values()),
                        "unresolved_sessions": [sid for sid,s in states.items() if s["status"] == "needs_reconciliation"]}
             write_json(out / "report.json", summary)
-            if config.get("generations", 1) != 1:
+            if config.get("generations", 1) != 1 and not summary["incomplete"] and not summary["unresolved_sessions"]:
                 from .evolution import run_evolution
                 summary["evolution"] = run_evolution(config, out, journal, engine, entrants, interrupt, retry_session=retry_session, allow_extend=allow_extend)
                 summary["generation"] = max((s.get("generation", 0) for s in journal.states().values()), default=0)
@@ -705,6 +705,10 @@ def run(config: dict, out: Path, resume=False, interrupt=None, prepare_only=Fals
                 summary["known_cost_subtotal_usd"] = summary["evolution"]["known_cost_subtotal_usd"]
                 summary["reserved_usd"] = summary["evolution"]["reserved_usd"]
                 summary.update(token_totals(config, final_states))
+            summary['blocked_sessions'] = [{'session':sid, 'status':state['status']}
+                for sid,state in journal.states().items() if 'submission' not in state or state.get('status') == 'needs_reconciliation']
+            summary['waiting_for_recovery'] = bool(summary['blocked_sessions'])
+            summary['incomplete'] = summary['incomplete'] or summary['waiting_for_recovery']
             summary["session_failures"] = [{"session": sid, "status": state["status"], **state["failure"]}
                                             for sid, state in journal.states().items() if state.get("failure")]
             write_json(out / "report.json", summary)

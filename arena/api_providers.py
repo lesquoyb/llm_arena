@@ -11,9 +11,10 @@ from .endpoints import validate_endpoint, optional_local_key
 
 
 class ProviderFailure(ArenaError):
-    def __init__(self, message, *, uncertain=False, retryable=False):
+    def __init__(self, message, *, uncertain=False, retryable=False, diagnostics=None):
         super().__init__(message)
         self.uncertain, self.retryable = uncertain, retryable
+        self.diagnostics = diagnostics or {}
 
 
 class LocalRedirectHandler(request.HTTPRedirectHandler):
@@ -39,21 +40,33 @@ def http_json(url, payload, headers, timeout):
                 raise ProviderFailure("Provider response exceeded quota", uncertain=True)
             return json.loads(body), response.headers.get("x-request-id") or response.headers.get("request-id")
     except error.HTTPError as exc:
-        # Keep only the structured public error fields, never the raw error body.
-        detail = ""
-        try:
-            problem = json.loads(exc.read(16000)).get("error", {})
-            if isinstance(problem, dict):
-                detail = " · ".join(str(problem[k]) for k in ("status", "type", "message")
-                                    if isinstance(problem.get(k), (str, int)))[:2000]
-                for header, value in headers.items():
-                    if header.lower() in {"authorization", "x-api-key", "x-goog-api-key"}:
-                        detail = detail.replace(value, "[REDACTED]").replace(value.removeprefix("Bearer "), "[REDACTED]")
-                detail = re.sub(r"(?i)(key|api_key|token)=([^\s&]+)", r"\1=[REDACTED]", detail)
-        except (ValueError, OSError, AttributeError):
-            pass
+        # Extract public validation fields, including proxy/FastAPI error formats.
+        try: body = exc.read(16000).decode('utf-8', errors='replace')
+        except OSError: body = ''
+        def public(value):
+            if isinstance(value, str): return value
+            if isinstance(value, list): return ' · '.join(public(item) for item in value[:8])
+            if isinstance(value, dict):
+                parts = []
+                for field in ('status', 'type', 'code', 'param', 'message', 'msg', 'detail', 'error', 'errors', 'loc'):
+                    if field in value:
+                        part = public(value[field])
+                        if part: parts.append(field + ': ' + part)
+                return ' · '.join(parts)
+            return str(value) if isinstance(value, (int, float)) else ''
+        try: detail = public(json.loads(body))
+        except ValueError:
+            detail = body.strip() if '<html' not in body.lower() and '<!doctype' not in body.lower() else ''
+        for header, value in headers.items():
+            if header.lower() in {'authorization', 'x-api-key', 'x-goog-api-key'} and value:
+                detail = detail.replace(value, '[REDACTED]').replace(value.removeprefix('Bearer '), '[REDACTED]')
+        detail = re.sub(r'(?i)(key|api_key|token)=([^\s&]+)', r'\1=[REDACTED]', detail)[:2000]
+        parsed = parse.urlsplit(url)
+        diagnostics = {'http_status':exc.code, 'endpoint':parse.urlunsplit((parsed.scheme, parsed.netloc, parsed.path, '', '')),
+                       'request_id':(exc.headers or {}).get('x-request-id') or (exc.headers or {}).get('request-id'),
+                       'provider_detail':detail or 'No public error detail was returned by the endpoint'}
         raise ProviderFailure(f"Provider HTTP {exc.code}" + (": " + detail if detail else ""), uncertain=exc.code >= 500,
-                              retryable=exc.code == 429) from None
+                              retryable=exc.code == 429, diagnostics=diagnostics) from None
     except (error.URLError, TimeoutError, OSError, ValueError) as exc:
         raise ProviderFailure(f"Provider response unavailable ({type(exc).__name__})", uncertain=True) from None
 

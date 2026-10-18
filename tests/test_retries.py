@@ -50,7 +50,9 @@ class RetryTests(unittest.TestCase):
             journal=Journal(out)
             before=journal.states();journal.db.close()
             self.assertEqual(before['flaky-r0']['status'],'provider_unavailable')
-            self.assertEqual(before['flaky-r0-g1-control']['calls'],0)
+            self.assertTrue(first['waiting_for_recovery'])
+            self.assertNotIn('flaky-r0-g1-control',before)
+            self.assertTrue(all(state.get('generation',0)==0 for state in before.values()))
             peers={sid:state for sid,state in before.items() if state['model']!='flaky'}
             artifacts={p:(file_hash(p),p.stat().st_mtime_ns) for p in out.rglob('*')
                        if p.is_file() and ('matches' in p.parts or 'submission' in p.parts)}
@@ -58,9 +60,12 @@ class RetryTests(unittest.TestCase):
             retried=[]
             def recovered(provider,history,tools,limit):
                 retried.append(provider.profile)
-                if provider.profile!='rate-limit':
-                    raise AssertionError('A healthy model was invoked again')
-                return original(MockProvider('single-shot'),history,tools,limit)
+                if provider.profile=='rate-limit':
+                    return original(MockProvider('single-shot'),history,tools,limit)
+                # Healthy initial conversations stay frozen; their improvement
+                # conversations are now created only after the failed peer recovers.
+                self.assertTrue(any(m.get('generation',0)>0 for m in history if m.get('role')=='user'))
+                return original(provider,history,tools,limit)
             with mock.patch.object(MockProvider,'respond',recovered):
                 result=run(copy.deepcopy(config),out,resume=True,retry_session='flaky-r0')
             self.assertFalse(result['incomplete'],result)
