@@ -189,3 +189,13 @@ journal keeps every response independently, including its native fields and raw
 response; the conversation viewer loads each response's reasoning separately.
 
 For the web recovery workflow, including **Resolve billing**, see [competition recovery](recovery.md).
+
+## Investigate a slow local model
+
+Improvement rounds start a fresh conversation. Within a preparation session, each request includes its growing history, including documentation pages, tool results and previous replies. Reading the entire API can therefore keep a large amount of text in subsequent requests. Prefer `lookup_api` to retrieve only relevant signatures.
+
+New conversation messages show input/output token counts when reported, request characters, message count, local request setup time and total API response time. The displayed output-token rate divides output tokens by the full response time: it includes input processing, queueing and provider retries, rather than measuring decoder throughput alone. Character counts are not tokenizer counts. Local setup measures request construction and saving its intent, separately from waiting for the provider.
+
+For Ollama, compare `ollama ps` before and during the slowdown. Check CPU/GPU placement and context allocation. Context growth, KV-cache memory pressure, partial CPU offload, prompt reprocessing and other workloads can reduce performance. Reasoning can also consume time beyond the visible answer. Arena cannot infer GPU saturation or actual decoder speed from a compatible API response that does not expose those measurements.
+
+Round evaluation waits until all conversations for that round finish preparation. One submitted feedback strategy does not start its evaluation while another strategy is still being edited. Preparation tests are separate and do not count toward competition results.

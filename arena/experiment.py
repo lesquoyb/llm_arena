@@ -260,6 +260,7 @@ def _finish(sid, state, tools, journal, reason):
 
 
 def provider_response(sid, state, model, config, journal):
+    request_setup_started = time.monotonic()
     from .feedback import available_tools
     session_tools = available_tools(state)
     paid = model["provider"] != "mock"
@@ -329,6 +330,9 @@ def provider_response(sid, state, model, config, journal):
         return None
     state["in_flight"] = False
     response["elapsed_seconds"] = time.monotonic() - started
+    response['request_metrics'] = {'history_messages':len(state['history']),
+        'request_setup_seconds':started - request_setup_started,
+        'request_characters':len(json.dumps(request.get('body', request), ensure_ascii=False))}
     if paid:
         usage = response["usage"]
         known = (response["cost_usd"] is not None and usage["input_tokens"] is not None

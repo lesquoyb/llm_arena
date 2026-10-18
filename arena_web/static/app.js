@@ -352,18 +352,14 @@ function runningPhase(d) {
   const states = d.sessions,
     config = d.metadata.config;
   if (!config) return "Evaluating frozen strategies";
-  const initial = states.filter((s) => !s.generation);
-  if (
-    initial.length < config.models.length * config.replicates ||
-    initial.some((s) => s.status === "running")
-  )
-    return "Preparing initial strategies";
-  const improved = states.filter((s) => s.generation);
-  if (improved.some((s) => s.status === "running"))
-    return "Improving strategies";
-  return improved.length
-    ? "Evaluating improved strategies"
-    : "Initial round · frozen strategies";
+  const generation = Math.max(0, ...states.map(s => Number(s.generation || 0)));
+  const round = states.filter(s => Number(s.generation || 0) === generation);
+  const expected = config.models.length * config.replicates *
+    (generation ? (config.improvement_conditions?.length || 2) : 1);
+  const finished = round.filter(s => s.status !== "running").length;
+  if (round.length < expected || round.some(s => s.status === "running"))
+    return `Round ${generation + 1} · ${finished}/${expected} preparations finished · Evaluation waits for all`;
+  return `Round ${generation + 1} · Evaluating frozen strategies`;
 }
 function activeJobs() {
   return S.boot.jobs.filter((j) => ["running", "stopping"].includes(j.status));
@@ -2310,7 +2306,7 @@ function conversation(data, append = false) {
           )
           .join("");
         const snippet = String(content || "").slice(0, 1800);
-        return `${data.generation > 0 && absolute === data.instruction_index ? `<div class="notice"><strong>Round ${data.generation + 1} starts here · ${e(text(data.condition))}</strong></div>` : ""}<article class="chat-message ${e(m.role)} ${resultError ? "tool-error" : ""}" id="message-${absolute}"><div class="message-head"><strong>${e(direction)}${m.simulated ? " · predefined strategy" : ""}</strong><span>Message ${absolute + 1} · ${data.times?.[index] ? date(data.times[index]) : "Time not recorded"}</span></div>${display.reply_to != null ? `<p class="message-reply">Result of tool request in message ${display.reply_to + 1}${display.reply_to >= S.offset && display.reply_to < S.offset + 25 ? ` · <a href="#message-${display.reply_to}" data-action="message-anchor" data-index="${display.reply_to}">Go to request</a>` : ""}${m.call_id ? " · " + e(m.call_id) : ""}</p>` : ""}${resultError ? badge("Tool error", "red") : ""}${snippet ? `<div class="message-content">${e(snippet)}${m.output_text_truncated || content.length > 1800 ? "\n[Preview truncated; open the full record below.]" : ""}</div>` : m.role === "assistant" && calls ? '<p class="muted">The model requested tools without a text response.</p>' : ""}${m.briefing ? `<div class="game-brief"><strong>Game briefing sent to the model</strong><p>${e(m.briefing.game)}</p><p>${e(m.briefing.objective)}</p><p>${e(m.briefing.team_mode)}</p></div>` : ""}${m.role === "user" ? feedbackView(m.feedback) : ""}${calls}${fileExchange(m, absolute)}${providerOutput(m, absolute)}${m.role === "user" ? conversationData(Object.fromEntries(Object.entries(m).filter(([key]) => !["role", "content", "request_recorded", "request_seed"].includes(key))), m.generation ? "Full improvement instruction and supplied feedback" : "Scenario, roster, ID guide and preparation rules sent to the model") : ""}${m.usage ? `<small>Input ${fmt(m.usage.input_tokens)} · Output ${fmt(m.usage.output_tokens)} · Cost ${money(m.cost_usd)} · Response took ${fmt(m.elapsed_seconds, 3)} s</small>` : ""}${m.request_recorded ? `<p class="muted">Sent seed: ${e(m.request_seed ?? "not set")}${m.stop_reason ? " · Stop reason: " + e(m.stop_reason) : ""}</p>` : ""}<details data-message-record="${absolute}" data-record-run="${e(S.run)}" data-record-session="${e(S.session)}"><summary>Full record: exact request, native response and metadata</summary><pre></pre></details></article>`;
+        return `${data.generation > 0 && absolute === data.instruction_index ? `<div class="notice"><strong>Round ${data.generation + 1} starts here · ${e(text(data.condition))}</strong></div>` : ""}<article class="chat-message ${e(m.role)} ${resultError ? "tool-error" : ""}" id="message-${absolute}"><div class="message-head"><strong>${e(direction)}${m.simulated ? " · predefined strategy" : ""}</strong><span>Message ${absolute + 1} · ${data.times?.[index] ? date(data.times[index]) : "Time not recorded"}</span></div>${display.reply_to != null ? `<p class="message-reply">Result of tool request in message ${display.reply_to + 1}${display.reply_to >= S.offset && display.reply_to < S.offset + 25 ? ` · <a href="#message-${display.reply_to}" data-action="message-anchor" data-index="${display.reply_to}">Go to request</a>` : ""}${m.call_id ? " · " + e(m.call_id) : ""}</p>` : ""}${resultError ? badge("Tool error", "red") : ""}${snippet ? `<div class="message-content">${e(snippet)}${m.output_text_truncated || content.length > 1800 ? "\n[Preview truncated; open the full record below.]" : ""}</div>` : m.role === "assistant" && calls ? '<p class="muted">The model requested tools without a text response.</p>' : ""}${m.briefing ? `<div class="game-brief"><strong>Game briefing sent to the model</strong><p>${e(m.briefing.game)}</p><p>${e(m.briefing.objective)}</p><p>${e(m.briefing.team_mode)}</p></div>` : ""}${m.role === "user" ? feedbackView(m.feedback) : ""}${calls}${fileExchange(m, absolute)}${providerOutput(m, absolute)}${m.role === "user" ? conversationData(Object.fromEntries(Object.entries(m).filter(([key]) => !["role", "content", "request_recorded", "request_seed"].includes(key))), m.generation ? "Full improvement instruction and supplied feedback" : "Scenario, roster, ID guide and preparation rules sent to the model") : ""}${m.usage ? `<small>Input ${fmt(m.usage.input_tokens)} · Output ${fmt(m.usage.output_tokens)} · Cost ${money(m.cost_usd)} · Response took ${fmt(m.elapsed_seconds, 3)} s</small>` : ""}${m.request_metrics ? `<small>Context: ${fmt(m.request_metrics.history_messages)} messages · ${fmt(m.request_metrics.request_characters)} request characters · ${fmt(m.request_metrics.request_setup_seconds, 2)} s local request setup${m.usage?.output_tokens != null && m.elapsed_seconds > 0 ? ` · ${fmt(m.usage.output_tokens / m.elapsed_seconds, 2)} output tokens/s including input processing and API waits` : ""}</small>` : ""}${m.request_recorded ? `<p class="muted">Sent seed: ${e(m.request_seed ?? "not set")}${m.stop_reason ? " · Stop reason: " + e(m.stop_reason) : ""}</p>` : ""}<details data-message-record="${absolute}" data-record-run="${e(S.run)}" data-record-session="${e(S.session)}"><summary>Full record: exact request, native response and metadata</summary><pre></pre></details></article>`;
       })
       .join("")
   );
