@@ -36,7 +36,7 @@ class Jobs:
     def _save(self):
         write_json(self.path, self.rows)
 
-    def launch(self, *, draft_id=None, run_id=None, confirm_paid=False, ceiling=None, retry_session=None, expected_config_sha256=None, allow_updated_runner=False):
+    def launch(self, *, draft_id=None, run_id=None, confirm_paid=False, ceiling=None, retry_session=None, expected_config_sha256=None, allow_updated_runner=False, retry_reasoning_effort=None):
         with self.lock:
             if (draft_id is None) == (run_id is None):
                 raise ArenaError("Choose a configuration or a competition to resume")
@@ -60,6 +60,8 @@ class Jobs:
             if expected_config_sha256 is not None and expected_config_sha256 != digest(config):
                 raise ArenaError('Participant settings changed after the launch preview. Reopen the launch dialog to review them.')
             validate_config(config)
+            if retry_reasoning_effort is not None and retry_session is None:
+                raise ArenaError('Choose a specific failed conversation to change reasoning effort')
             requested_models = config['models']
             if retry_session is not None:
                 if draft_id is not None or not isinstance(retry_session, str):
@@ -71,6 +73,9 @@ class Jobs:
                 if reason:
                     raise ArenaError(reason)
                 requested_models = [m for m in requested_models if m['id'] == state['model']]
+                if retry_reasoning_effort is not None and requested_models:
+                    from arena.reasoning import validate_effort
+                    validate_effort(requested_models[0], None if retry_reasoning_effort == 'provider-default' else retry_reasoning_effort)
                 if not requested_models:
                     raise ArenaError('Conversation model is absent from the frozen configuration')
             paid = any(m["provider"] != "mock" for m in requested_models)
@@ -106,6 +111,8 @@ class Jobs:
             else:
                 args = (["experiment", "retry", str(out), "--session", retry_session] if retry_session
                         else ["experiment", "resume", str(out)])
+            if retry_reasoning_effort is not None:
+                args.extend(["--reasoning-effort", retry_reasoning_effort])
             if draft_id is None and allow_updated_runner:
                 args.append("--allow-updated-runner")
             env["PYTHONUTF8"] = "1"

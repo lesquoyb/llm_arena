@@ -50,6 +50,7 @@ def parser():
     action = actions.add_parser("retry", help="Continue one failed conversation, retaining completed submissions and matches")
     action.add_argument("directory", type=Path)
     action.add_argument("--session", required=True)
+    action.add_argument("--reasoning-effort")
     action.add_argument("--allow-updated-runner", action="store_true")
     for name in ("resume", "status", "report"):
         action = actions.add_parser(name)
@@ -75,6 +76,7 @@ def parser():
     action = actions_mcp.add_parser("serve")
     action.add_argument("--experiment", type=Path, required=True)
     action.add_argument("--session", required=True)
+    action.add_argument("--reasoning-effort")
     action.add_argument("--allow-updated-runner", action="store_true")
     for name in ("analyze", "fight", "verify", "tournament"):
         c = commands.choices[name]
@@ -114,7 +116,8 @@ def main(argv=None):
                 directory = args.directory.absolute()
                 result = run(read_json(directory / "experiment.json")["config"], directory, resume=True,
                              retry_session=args.session if args.action == "retry" else None,
-                             allow_updated_runner=args.allow_updated_runner)
+                             allow_updated_runner=args.allow_updated_runner,
+                             retry_reasoning_effort=getattr(args,"reasoning_effort",None))
             elif args.action == "status":
                 result = status(args.directory.absolute())
             elif args.action == "export":

@@ -111,6 +111,8 @@ class Store:
 
     def save_participant(self, model, secret=None):
         self.validate_model(model)
+        from arena.reasoning import validate_effort
+        validate_effort(model, model.get('parameters', {}).get('reasoning_effort'))
         if secret is not None and (not isinstance(secret, str) or len(secret) > 8192):
             raise ArenaError("Invalid API key")
         if secret and not model.get("api_key_env", "").startswith("ARENA_"):
@@ -241,7 +243,7 @@ class Store:
         sessions = []
         keys = ("model", "replicate", "generation", "condition", "parent", "parent_checkpoint_sha256",
                 "status", "validity", "calls", "steps", "test_matches", "wall_seconds", "cost_spent",
-                "money_reserved", "token_usage_known", "input_tokens", "output_tokens", "submission", "in_flight", "retry_count", "continuation_identity")
+                "money_reserved", "token_usage_known", "input_tokens", "output_tokens", "submission", "in_flight", "retry_count", "continuation_identity", "provider_parameter_overrides")
         from arena.retries import retry_reason
         from arena.recovery import needs_reconciliation
         external = {m['id'] for m in metadata.get('config', {}).get('models', []) if m['provider'] != 'mock'}
@@ -286,6 +288,7 @@ class Store:
         recorded_failure = {k:v for k,v in (recorded_failure or {}).items() if k in {'error','error_type','uncertain','retryable','diagnostics'}}
         return {'session':sid, 'origin_session':current, 'provider':model.get('provider'), 'model':model.get('model'),
                 'status':state['status'], 'model_calls':state.get('calls',0),
+                'session_parameter_overrides':state.get('provider_parameter_overrides', {}),
                 'endpoint':request.get('endpoint') or configured_endpoint,
                 'configured_parameters':{k:v for k,v in params.items() if k in {'reasoning_effort','temperature','top_p','top_k','seed','thinking','thinking_config'}},
                 'failure':state.get('failure'), 'failure_event':recorded_failure or None,

@@ -442,6 +442,8 @@ def verify_workspace(state, tools):
 
 def run_session(sid, model, config, out, journal, engine, interrupt=None):
     state = journal.state(sid) or initial_state(sid, model, config)
+    from .reasoning import apply_overrides
+    model = apply_overrides(model, state)
     directory = out / "sessions" / sid
     from .feedback import access_for
     from .submitted_versions import OwnSubmissions
@@ -547,8 +549,10 @@ def status(out: Path) -> dict:
     return {"sessions": states}
 
 
-def run(config: dict, out: Path, resume=False, interrupt=None, prepare_only=False, retry_session=None, allow_updated_runner=False) -> dict:
+def run(config: dict, out: Path, resume=False, interrupt=None, prepare_only=False, retry_session=None, allow_updated_runner=False, retry_reasoning_effort=None) -> dict:
     validate_config(config)
+    if retry_reasoning_effort is not None and not retry_session:
+        raise ArenaError("An effort override requires a specific failed conversation")
     if retry_session and not resume:
         raise ArenaError("Retry requires an existing experiment")
     out = out.resolve()
@@ -614,7 +618,7 @@ def run(config: dict, out: Path, resume=False, interrupt=None, prepare_only=Fals
                                 'frozen_documentation_preserved':True, 'completed_matches_preserved':True})
             if retry_session:
                 from .retries import prepare_retry
-                prepare_retry(journal, retry_session, config)
+                prepare_retry(journal, retry_session, config, retry_reasoning_effort)
             elif resume:
                 from .retries import prepare_retry, retry_reason
                 for sid,state in journal.states().items():

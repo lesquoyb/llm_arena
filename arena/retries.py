@@ -26,13 +26,19 @@ def retry_reason(state, budget=None, parent=None):
     return None
 
 
-def prepare_retry(journal, sid, config):
+def prepare_retry(journal, sid, config, reasoning_effort=None):
     original = journal.state(sid)
     parent = journal.state(original['parent']) if original and original.get('parent') else None
     reason = retry_reason(original, config['budget_per_session'], parent)
     if reason:
         raise ArenaError(reason)
     state = copy.deepcopy(original)
+    if reasoning_effort is not None:
+        from .reasoning import validate_effort
+        model = next(m for m in config['models'] if m['id'] == state['model'])
+        effort = None if reasoning_effort == 'provider-default' else reasoning_effort
+        validate_effort(model, effort)
+        state['provider_parameter_overrides'] = {**state.get('provider_parameter_overrides', {}), 'reasoning_effort':effort}
     state.update(status='running', in_flight=False, money_reserved='0', reservation_unbounded=False,
                  retry_count=state.get('retry_count', 0) + 1)
     state.pop('failure', None)
@@ -45,7 +51,8 @@ def prepare_retry(journal, sid, config):
         state['pending'], state['cursor'], state['reserved'] = None, 0, None
     journal.save(sid, state, 'retry_requested', {'session':sid, 'at':time.time(),
         'previous_status':original['status'], 'previous_checkpoint_sha256':digest(original),
-        'attempt':state['retry_count'], 'history_and_counters_preserved':True})
+        'attempt':state['retry_count'], 'history_and_counters_preserved':True,
+        'provider_parameter_overrides':state.get('provider_parameter_overrides', {})})
     for child_id, child in journal.states().items():
         if (child.get('parent') == sid and child.get('status') == 'no_submission'
                 and not child.get('calls') and not child.get('submission')):

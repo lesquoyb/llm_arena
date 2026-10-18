@@ -202,7 +202,7 @@ Round fights run as soon as their strategies are submitted and frozen. Improveme
 
 ## Requested reasoning effort
 
-OpenAI and compatible profiles have a **Reasoning effort** selector. **Provider default** omits `reasoning_effort`; Arena does not silently select medium or maximum. Explicit values are sent unchanged. Available levels depend on the exact model and endpoint. Additional endpoint-specific values can be entered as `reasoning_effort` in the JSON parameters; the selector preserves them when editing an existing profile.
+OpenAI and compatible profiles have a **Reasoning effort** selector. **Provider default** omits `reasoning_effort`; Arena does not silently select medium or maximum. Explicit values are sent unchanged. Available levels depend on the exact model and endpoint. JSON configurations can specify additional endpoint-specific effort values. In the participant editor, the reasoning selector is authoritative over the JSON field; saved custom values are retained in the selector.
 
 The requested setting appears in the participant list, launch preview and recorded conversation requests. An endpoint may reject or ignore an unsupported setting, so the requested value does not prove the effective effort. An alias such as a Codex model name alone does not establish the API's default or supported levels. Inspect the exact endpoint/model documentation when choosing a level.
 
@@ -217,3 +217,7 @@ Responses requests send `reasoning.effort`, flat function-tool definitions and `
 Responses does not support `seed`; it is omitted and a note is attached to each recorded response. The recorded request is authoritative. Explicit `reasoning_effort: none` keeps Chat Completions unless the endpoint explicitly selects Responses. Other models retain their existing Chat Completions behavior.
 
 After a definitive HTTP 400 rejection, update the application and click **Retry conversation**. The saved conversation and other participants' results are retained; reasoning does not need to be disabled for this tools/endpoint incompatibility.
+
+For `gpt-6.1-sol`, the API reports `low`, `medium`, `high` and `xhigh`. Neither `none` nor `minimal` is supported. The editor disables these choices for that exact model and rejects unsupported profile saves before an API call.
+
+A running competition retains its original profile settings. **Retry conversation** now has an effort selector that explicitly overrides the saved effort for that failed conversation. The override is audited, does not rewrite the original configuration or affect other participants, and is inherited by future improvement branches from the recovered conversation. CLI equivalent: `python -m arena experiment retry RUN --session SESSION --reasoning-effort low --allow-updated-runner`. Use `--reasoning-effort provider-default` to explicitly omit an earlier effort setting.
