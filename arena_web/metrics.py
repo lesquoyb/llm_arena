@@ -111,6 +111,7 @@ def combat_stats(outcome, scenario=None):
 
 def competition_stats(matches, load, load_scenario=lambda _: None):
     groups = {}
+    match_totals = {}
     for match in matches:
         stage = match["stage"]
         group = groups.setdefault(stage, {"stage": stage, "matrix": {}, "strategies": {}, "matches": 0, "with_replay": 0, "operation_limits": []})
@@ -127,6 +128,7 @@ def competition_stats(matches, load, load_scenario=lambda _: None):
             continue
         group["with_replay"] += 1
         stats = combat_stats(outcome, load_scenario(match["path"]))
+        match_totals[match["path"]] = stats["sides"]
         for cap in stats["operation_limits"] or [stats["operations_limit_per_turn"]]:
             if cap is not None and cap not in group["operation_limits"]:
                 group["operation_limits"].append(cap)
@@ -141,5 +143,5 @@ def competition_stats(matches, load, load_scenario=lambda _: None):
                 value = totals[key]
                 row[key] = None if value is None or row[key] is None else row[key] + value
     limits = sorted({cap for g in groups.values() for cap in g["operation_limits"]})
-    return {"stages": list(groups.values()), "operation_limits": limits,
+    return {"stages": list(groups.values()), "match_totals": match_totals, "operation_limits": limits,
             "operations_limit_per_turn": limits[0] if len(limits) == 1 else None}

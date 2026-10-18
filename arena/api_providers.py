@@ -63,21 +63,26 @@ class APIProvider:
         self.model, self.transport = model, transport
 
     def payload(self, history, tools, output_limit):
+        from .model_content import history_view, message_text, tool_text
+        history = history_view(history)
         m = self.model
         if m["provider"] == "gemini":
             return gemini_payload(history, tools, output_limit, m.get("parameters", {}))
         messages = []
         for item in history:
-            if item["role"] == "user":
-                messages.append({"role": "user", "content": json.dumps(
-                    {k: v for k, v in item.items() if k != "role"}, ensure_ascii=False)})
+            if item["role"] == "system":
+                if m["provider"] != "anthropic":
+                    messages.append({"role": "system", "content": item["content"]})
+            elif item["role"] == "user":
+                messages.append({"role": "user", "content": message_text(item)})
             elif item["role"] == "assistant":
                 native = item["native"]
                 messages.append(native if m["provider"] == "anthropic" else
                                 {k: v for k, v in native.items()
-                                 if k in {"role", "content", "tool_calls", "refusal", "audio", "function_call"}})
+                                 if k in ({"role", "content", "tool_calls", "refusal", "audio", "function_call"}
+                                          | ({"reasoning_content", "reasoning"} if m["provider"] == "openai-compatible" else set()))})
             elif item["role"] == "tool":
-                content = json.dumps(item["result"], ensure_ascii=False)
+                content = tool_text(item["result"])
                 if m["provider"] == "anthropic":
                     block = {"type": "tool_result", "tool_use_id": item["provider_call_id"], "content": content}
                     if messages and messages[-1]["role"] == "user" and isinstance(messages[-1]["content"], list):
@@ -91,11 +96,15 @@ class APIProvider:
             if output_limit is None:
                 raise ArenaError("Anthropic requires max_tokens; configure maximum output per call")
             payload.update(max_tokens=output_limit, tools=tools)
+            system = "\n\n".join(item["content"] for item in history if item["role"] == "system")
+            if system:
+                payload["system"] = system
         else:
             if output_limit is not None:
                 payload["max_completion_tokens"] = output_limit
             payload.update(tools=[{"type": "function", "function": {"name": t["name"],
                                   "description": t["description"], "parameters": t["input_schema"]}} for t in tools])
+        if not tools: payload.pop("tools", None)
         return payload
 
     def respond(self, history, tools, output_limit):
@@ -176,12 +185,16 @@ def connection(model, key):
 
 
 def gemini_payload(history, tools, output_limit, parameters):
+    from .model_content import history_view, message_text
+    history = history_view(history)
     contents = []
     native_ids = {part["functionCall"].get("id") for item in history if item["role"] == "assistant"
                   for part in item.get("native", {}).get("parts", []) if "functionCall" in part}
     for item in history:
+        if item["role"] == "system":
+            continue
         if item["role"] == "user":
-            parts = [{"text": json.dumps({k:v for k,v in item.items() if k != "role"}, ensure_ascii=False)}]
+            parts = [{"text": message_text(item)}]
             role = "user"
         elif item["role"] == "assistant":
             contents.append(item["native"])
@@ -201,9 +214,14 @@ def gemini_payload(history, tools, output_limit, parameters):
     generation = {mapping.get(k,k):v for k,v in parameters.items()}
     if output_limit is not None:
         generation["maxOutputTokens"] = output_limit
-    return {"contents": contents, "generationConfig": generation,
+    payload = {"contents": contents, "generationConfig": generation,
             "tools": [{"functionDeclarations": [{"name":t["name"], "description":t["description"],
                        "parametersJsonSchema":t["input_schema"]} for t in tools]}]}
+    system = "\n\n".join(item["content"] for item in history if item["role"] == "system")
+    if system:
+        payload["systemInstruction"] = {"parts": [{"text": system}]}
+    if not tools: payload.pop("tools", None)
+    return payload
 
 
 def request_snapshot(model, history, tools, output_limit):

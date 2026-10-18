@@ -38,6 +38,14 @@ compatible experiments. No Node.js installation is needed to use it.
 See the [Windows](docs/windows.md), [Linux](docs/linux.md) and [interface](docs/ui.md)
 guides. Installation needs Internet access; mock experiments and matches run locally afterward.
 
+## Prompt calibration
+
+Run `python -m arena calibrate serve --open` with the virtual environment activated
+to compare system prompts, tool sets and model parameters in a separate workshop.
+It supports manual revisions, automatic analyst proposals, fixed opponents,
+round-by-round inspection and held-out evaluation. See the
+[prompt calibration guide](docs/calibration.md).
+
 ## Command line
 
 Use the Python executable inside `.venv`, or activate it before these commands:
@@ -112,7 +120,7 @@ keys and paid-call authorization; spending limits are optional. Check the workfl
 - [Interface](docs/ui.md): matrix links, filters, files, requests, replays and statistics.
 - [Full experiment](docs/complete-experiment.md): initial/improved strategies, MCP, exports and Docker.
 - [Providers](docs/providers.md): OpenAI, Anthropic, Gemini, compatible APIs, seeds and billing.
-- [Strategy authoring](docs/authoring.md) and [pinned API reference](docs/leekscript-v1/api.md).
+- [Language reference and official tutorials](docs/language-reference.md), [strategy authoring](docs/authoring.md) and [pinned API reference](docs/leekscript-v1/api.md).
 - [Engine audit](docs/engine-audit.md), [experiment protocol](docs/protocol.md) and [implementation status](docs/implementation-status.md).
 
 To generate a new API reference: `python -m arena docs --out docs/new-snapshot`.

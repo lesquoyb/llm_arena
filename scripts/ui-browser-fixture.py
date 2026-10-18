@@ -2,13 +2,15 @@
 from pathlib import Path
 import json
 import sys
+import time
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path[:0] = [str(ROOT), str(ROOT / "tests")]
-from arena.core import scratch_directory, write_json
+from arena.core import scratch_directory, write_json, read_json
+from arena.experiment import Journal
 from arena_web.data import Store
 from arena_web.server import Application, Server
-from test_web import fixture
+from test_web import fixture, write_history
 
 
 def main():
@@ -37,6 +39,19 @@ def main():
                        "seed": 301, "mirror": False}, "directory": work.relative_to(root).as_posix(), "result": result})
             (root / "report.md").write_text("# Rapport navigateur\n\n**Résultat** : terminé.\n\n<img src=x onerror=window.__arenaUnexpectedScript=1>\n\n| Stat | Valeur |\n| --- | --- |\n| Score | 50 % |\n", encoding="utf-8")
             write_json(root / "example.json", {"result": {"score": .5}, "literal":"<script>window.__arenaUnexpectedScript=1</script>"})
+        threads = fixture(store, "threads")
+        journal = Journal(threads)
+        try:
+            base = journal.state("mock-repair-r0")
+            journal.save("mock-repair-r1", {**base, "replicate":1,
+                "history":[{"role":"user","content":"Second repair conversation"}]},
+                "session_created", {"test":"repair repetition"})
+            journal.save("mock-single-r0", {**base, "model":"mock-single", "status":"provider_unavailable",
+                "failure":{"message":"Provider HTTP 429","phase":"provider request","retryable":True},
+                "history":[{"role":"user","content":"Single model conversation"}]},
+                "session_created", {"test":"single model"})
+        finally:
+            journal.db.close()
         legacy = store.runs / "legacy"
         write_json(legacy / "experiment.json", {"manifest":{"name":"Tournoi sans génération", "strategies":[]}})
         write_json(legacy / "report.json", {"completed":0})
@@ -61,7 +76,152 @@ def main():
                 write_json(work/"outcome.json", {"fight":fight,"winner":winner,"success":True})
             write_json(base/"records"/(label+".json"), {"match":{"sides":sides,"seed":301,"mirror":label=="mirror"},
                        "directory":work.relative_to(base).as_posix(),"result":result})
-        app = Application(store)
+        # Nine submitted versions, three models, 153 fights. No external APIs.
+        overview = store.runs / "overview"
+        model_ids = ["Qwen3-30B-A3B-Instruct-2507-local", "Gemini-2.5-Flash-Lite-latest", "Claude-Sonnet-4.5"]
+        config = read_json(ROOT / "configs/offline-complete.json")
+        config["models"] = [{"id": name, "provider": "mock", "profile": "repair-and-submit"} for name in model_ids]
+        write_json(overview / "experiment.json", {"config": config})
+        versions = [(name + "-r0" + suffix, name, condition, generation)
+                    for condition, suffix, generation in [("initial", "", 0), ("control", "-g1-control", 1), ("feedback", "-g1-feedback", 1)]
+                    for name in model_ids]
+        journal = Journal(overview)
+        for sid, name, condition, generation in versions:
+            journal.save(sid, {"model": name, "replicate": 0, "generation": generation, "condition": condition,
+                         "history": [], "status": "submitted", "calls": 2, "steps": 3, "wall_seconds": 1,
+                         "test_matches": 0, "cost_spent": "0"}, "session_created")
+        journal.db.close()
+        index = 0
+        def overview_match(stage, sides, mirror=False, candidate=None, side=None):
+            nonlocal index
+            index += 1
+            base = overview / stage
+            work = base / "matches" / str(index) / "attempt-1"
+            result = {"status": "completed", "winner_side": -1 if index % 3 == 0 else index % 2,
+                      "turns": 12, "elapsed_seconds": .1}
+            write_json(work / "result.json", result)
+            write_json(base / "records" / (str(index) + ".json"), {
+                "match": {"sides": sides, "seed": 301, "mirror": mirror}, "session": candidate, "side": side,
+                "directory": work.relative_to(base).as_posix(), "result": result})
+        initial = versions[:3]
+        improved = versions[3:]
+        for stage, group in [("tournament", initial), ("g1-tournament", improved)]:
+            for left, *_ in group:
+                for right, *_ in group:
+                    overview_match(stage, [left, right], mirror=left == right)
+        for sid, _, _, generation in versions:
+            for opponent in [v[0] for v in initial] + ["passive", "rush", "single-shot"]:
+                for side in [0, 1]:
+                    sides = [sid, opponent] if side == 0 else [opponent, sid]
+                    overview_match("evaluations/g1-panel" if generation else "evaluations/g0-panel", sides, candidate=sid, side=side)
+        rows = [{"session": sid, "model": name, "generation": generation, "condition": condition,
+                 "panel": "all", "completed": 12} for sid, name, condition, generation in versions]
+        write_json(overview / "report.json", {"simulated": True, "sessions": 9, "cost_usd": "0", "tournament": {"completed": 9},
+                   "evolution": {"rows": rows, "contemporaries": {"completed": 36}}})
+        feedback_view = fixture(store, "feedback-view")
+        journal = Journal(feedback_view)
+        parent = journal.state("mock-repair-r0")
+        inherited = [{"role":"user","content":"Original Round 1 instruction","generation":0}] + [
+            {"role":"assistant","content":"Inherited preparation response " + str(i)} for i in range(30)]
+        for condition in ("control", "feedback"):
+            message = {"role":"user","content":"Round 2 instruction: improve with " + condition,
+                       "generation":1,"condition":condition}
+            if condition == "feedback":
+                message["feedback"] = {"matches":[{"opponent":"opponent-anonymous","winner":"self",
+                    "turns":12,"operations":1234,"errors":0}]}
+            journal.save("mock-repair-r0-g1-"+condition, {**parent,"generation":1,"condition":condition,
+                "parent":"mock-repair-r0","history":[*inherited,message,{"role":"assistant","content":"New branch response"}]},"branch_created")
+        journal.db.close()
+        diagnostic_root=fixture(store,"diagnostics")
+        write_json(diagnostic_root/'sessions/mock-repair-r0/assessment.json', {
+            'status':'invalid','diagnostics':[[0,'main.leek',15,8,15,17,33,['moveResult']],[1,'main.leek',22,23,22,25,93]]})
+        output_root=fixture(store,"outputs")
+        journal=Journal(output_root);state=journal.state("mock-repair-r0")
+        native_openai={"role":"assistant","content":"Visible answer", "reasoning_content":"Exposed reasoning example " * 3000,
+                       "unexpected_annotation":{"keep":"UNKNOWN_FIELD"}}
+        native_anthropic={"role":"assistant","content":[
+            {"type":"thinking","thinking":"Provider reasoning summary","signature":"SIGNED_THOUGHT"},
+            {"type":"redacted_thinking","data":"OPAQUE_THOUGHT"},
+            {"type":"mcp_tool_use","name":"remote_search","server_name":"unknown-mcp-server","input":{"query":"example"}},
+            {"type":"mcp_tool_result","tool_use_id":"external-call","content":[{"type":"text","text":"EXTERNAL_TOOL_RESULT"}]},
+            {"type":"future_block","value":"UNRECOGNIZED_OUTPUT"},
+            {"type":"text","text":"Another visible answer"}]}
+        native_gemini={"role":"model","parts":[{"thought":True,"text":"Gemini exposed summary","thoughtSignature":"SIGNED_PART"},
+                          {"text":"Gemini answer"},{"executableCode":{"language":"PYTHON","code":"print(1)"}}]}
+        state['history']=[{"role":"user","content":"Output inspection fixture"},
+            {"role":"assistant","native":native_openai,"raw":{"choices":[{"message":native_openai}],"server_tool_calls":[{"name":"extra_remote_tool"}]}},
+            {"role":"assistant","native":native_anthropic,"raw":{"content":native_anthropic['content']}},
+            {"role":"assistant","native":native_gemini,"raw":{"candidates":[{"content":native_gemini}]}},
+            {"role":"tool","name":"read_docs","result":{"content":"WHOLE_TOOL_OUTPUT"}},
+            {"role":"assistant","native":{"role":"assistant","content":"Only token counts are exposed"},"usage":{"reasoning_tokens":42}}]
+        journal.save('mock-repair-r0',state,'model_response',{'fixture':'all provider outputs'})
+        journal.db.close()
+        transcript_root=fixture(store,'tool-transcript')
+        journal=Journal(transcript_root);state=journal.state('mock-repair-r0')
+        history=[{'role':'user','content':'Write LeekScript 4.'}]
+        calls=[('read_docs',{'path':'authoring.md','offset':0,'limit':8},{'content':'Use var.','truncated':True,'next_offset':8}),
+               ('write_file',{'path':'main.leek','content':'var a = 1\n'},None),
+               ('write_file',{'path':'main.leek','content':'var a = 2\n'},None)]
+        import hashlib
+        for i,(name,args,result) in enumerate(calls):
+            native={'role':'assistant','content':'','reasoning_content':'Reasoning step '+str(i+1),
+                    'tool_calls':[{'id':'step-'+str(i),'type':'function','function':{'name':name,'arguments':json.dumps(args)}}]}
+            history.append({'role':'assistant','native':native,'tool_calls':[{'id':'step-'+str(i),'name':name,'arguments':args}]})
+            history.append({'role':'tool','name':name,'provider_call_id':'step-'+str(i),'result':result or {'sha256':hashlib.sha256(args['content'].encode()).hexdigest()}})
+        state['history']=history;journal.save('mock-repair-r0',state,'fixture');journal.db.close()
+        class FixtureApplication(Application):
+            def post(self, route, data):
+                if route != '/api/fixture-live':
+                    return super().post(route,data)
+                root = store.runs/'live'
+                action = data['action']
+                if action == 'start':
+                    config = read_json(ROOT/'configs/offline-complete.json')
+                    config.update(generations=1,replicates=1,models=config['models'][:1])
+                    write_json(root/'experiment.json',{'config':config,'engine':{},'scientific_identity':{'fixture':'live'}})
+                    write_json(root/'report.json',{})
+                    journal = Journal(root)
+                    journal.save('mock-repair-r0',{'model':'mock-repair','replicate':0,'generation':0,'condition':'initial',
+                        'history':[{'role':'user','content':'Live fixture prompt'}],'status':'submitted','calls':1,'steps':0,
+                        'test_matches':0,'wall_seconds':1},'session_created')
+                    journal.db.close()
+                    logs = store.state/'jobs';logs.mkdir(exist_ok=True)
+                    (logs/'fixture-live.log').write_text('Synthetic running job',encoding='utf-8')
+                    self.jobs.rows.append({'id':'fixture-live-job','run':'live','name':'Live fixture','status':'running',
+                        'started_at':time.time(),'log':'fixture-live.log'})
+                elif action in {'training','competition'}:
+                    def save(work):
+                        result = {'status':'completed','winner_side':0,'turns':1,'elapsed_seconds':.1}
+                        write_json(work/'scenario.json',{'random_seed':17,'entities':[[{'cores':10}],[{'cores':10}]]})
+                        write_json(work/'provenance.json',{})
+                        write_json(work/'result.json',result)
+                        write_json(work/'outcome.json',{'fight':fight,'winner':0,'success':True})
+                        return result
+                    if action == 'training':
+                        for side in (0,1):
+                            save(root/f'sessions/mock-repair-r0/tools/call-1-tool-0-side-{side}/attempt-1')
+                    else:
+                        number = len(list((root/'records').glob('*.json'))) + 1
+                        work = root/f'matches/live-{number}/attempt-1'
+                        result = save(work)
+                        write_json(root/f'records/live-{number}.json',{'match':{'sides':['mock-repair-r0','mock-single-r0'],'seed':101,'mirror':False},
+                            'directory':work.relative_to(root).as_posix(),'result':result})
+                elif action in {'event','file','source','conversation'}:
+                    journal = Journal(root)
+                    state = journal.state('mock-repair-r0')
+                    if action == 'conversation':
+                        for i in range(30):
+                            state['history'].append({'role':'assistant','native':{'role':'assistant','content':'Live message '+str(i), 'reasoning_content':'Saved live reasoning '+str(i)}})
+                    if action == 'file':
+                        (root/'live-note.txt').write_text('New file while running',encoding='utf-8')
+                    if action == 'source':
+                        state['history'] += write_history('var live = 1')
+                    journal.save('mock-repair-r0',state,'fixture_live_update',{'action':action})
+                    journal.db.close()
+                elif action == 'finish':
+                    self.jobs.rows[-1]['status']='completed'
+                return {'updated':action}
+        app = FixtureApplication(store)
         server = Server(("127.0.0.1", 0), app)
         print(json.dumps({"url": f"http://127.0.0.1:{server.server_port}"}), flush=True)
         try:

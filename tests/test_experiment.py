@@ -13,6 +13,19 @@ from arena.preparation import Preparation, local_path
 
 
 class ContractTests(unittest.TestCase):
+    def test_token_totals_ignore_mocks_and_preserve_unknown_provider_usage(self):
+        from arena.experiment import token_totals
+        config = {"models": [{"id": "mock", "provider": "mock"},
+                             {"id": "local", "provider": "openai-compatible"}]}
+        states = {"mock": {"model": "mock", "calls": 4},
+                  "local": {"model": "local", "calls": 2, "token_usage_known": True,
+                            "input_tokens": 1500, "output_tokens": 300, "cost_spent": "0"}}
+        self.assertEqual(token_totals(config, states), {"input_tokens": 1500, "output_tokens": 300})
+        states["local"]["token_usage_known"] = False
+        self.assertEqual(token_totals(config, states), {"input_tokens": None, "output_tokens": None})
+        self.assertEqual(token_totals(config, {"mock": states["mock"]}),
+                         {"input_tokens": None, "output_tokens": None})
+
     def test_legacy_journal_migration_preserves_session(self):
         import json
         import sqlite3
@@ -100,7 +113,17 @@ class ContractTests(unittest.TestCase):
             (docs / "text.md").write_text("abcdefgh")
             tools = Preparation(tmp / "session", docs, None, {})
             page = tools.call("read_docs", {"path": "text.md", "limit": 3}, "1")
-            self.assertEqual(page, {"content": "abc", "truncated": True, "next_offset": 3})
+            self.assertEqual(page["content"], "abc")
+            self.assertTrue(page["truncated"])
+            self.assertEqual(page["next_offset"], 3)
+            continuation = page["continuation"]
+            self.assertEqual(continuation, {"tool":"read_docs", "arguments":{"path":"text.md","offset":3,"limit":3}})
+            remaining = tools.call(continuation["tool"], continuation["arguments"], "2")
+            self.assertEqual(remaining["content"], "def")
+            last = tools.call(remaining["continuation"]["tool"], remaining["continuation"]["arguments"], "3")
+            self.assertEqual(last["content"], "gh")
+            self.assertEqual(last["reading_status"], "end_of_file")
+            self.assertIsNone(last["continuation"])
             with self.assertRaises(ArenaError):
                 tools.call("write_file", {"path": "x.py", "content": "pass"}, "2")
 

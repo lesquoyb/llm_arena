@@ -13,7 +13,7 @@ import threading
 import time
 from uuid import uuid4
 
-from arena.core import ArenaError, ROOT, STATE_ROOT, digest, is_link, read_json, write_json
+from arena.core import ArenaError, ROOT, STATE_ROOT, digest, file_hash, is_link, read_json, write_json
 from arena.experiment import plan, validate_config
 from arena.preparation import local_path
 
@@ -128,10 +128,18 @@ class Store:
             write_json(self.state / "participants.json", [m for m in self.catalog() if m["id"] != identifier])
         return {"deleted": identifier}
 
+    def resolve_models(self, config):
+        result = copy.deepcopy(config)
+        catalog = {model['id']: model for model in self.catalog()}
+        result['models'] = [copy.deepcopy(catalog.get(model['id'], model)) for model in result['models']]
+        return result
+
     def drafts(self):
-        return [self.json(p) for p in sorted((self.state / "competitions").glob("*.json"))]
+        rows = [self.json(p) for p in sorted((self.state / "competitions").glob("*.json"))]
+        return [{**row, 'config': self.resolve_models(row['config'])} for row in rows]
 
     def save_draft(self, config, identifier=None):
+        config = self.resolve_models(config)
         validate_config(config)
         identifier = identifier or uuid4().hex[:12]
         path = safe_path(self.state / "competitions", identifier + ".json")
@@ -148,8 +156,8 @@ class Store:
     def draft(self, identifier):
         result = self.json(safe_path(self.state / "competitions", identifier + ".json"))
         if result is None:
-            raise ArenaError("Configuration introuvable")
-        return result
+            raise ArenaError("Configuration not found")
+        return {**result, "config": self.resolve_models(result["config"])}
 
     def run_path(self, identifier):
         root = safe_path(self.runs, identifier)
@@ -213,28 +221,109 @@ class Store:
                 rows.append({"id": identifier, "name": identifier, "error": str(error), "complete": False})
         return sorted(rows, key=lambda r: r.get("created_at", 0), reverse=True)
 
+    def revision(self, root):
+        event_id = 0
+        database = root / 'journal.sqlite'
+        if database.is_file():
+            with closing(sqlite3.connect(database.as_uri() + '?mode=ro', uri=True, timeout=2)) as connection:
+                if connection.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='events'").fetchone():
+                    event_id = connection.execute('SELECT coalesce(max(id),0) FROM events').fetchone()[0]
+        files = [root/'report.json', root/'analysis.json']
+        for base in (root, root/'tournament', *sorted(root.glob('g*-tournament')), *sorted((root/'evaluations').glob('g*-panel'))):
+            files.extend((base/'records').glob('*.json'))
+        files.extend((root/'sessions').glob('*/tools/**/result.json'))
+        stamps = [(p.relative_to(root).as_posix(), p.stat().st_mtime_ns, p.stat().st_size) for p in files if p.is_file()]
+        return digest({'event_id':event_id, 'files':sorted(stamps)})
+
     def detail(self, identifier):
         root = self.run_path(identifier)
         metadata = self.json(root / "experiment.json")
         sessions = []
         keys = ("model", "replicate", "generation", "condition", "parent", "parent_checkpoint_sha256",
                 "status", "validity", "calls", "steps", "test_matches", "wall_seconds", "cost_spent",
-                "money_reserved", "token_usage_known", "input_tokens", "output_tokens", "submission")
-        for sid, state in self.states(root, keys).items():
-            sessions.append({"id": sid, **{k: state[k] for k in keys if k in state},
-                             "messages": state["messages"]})
-        return {"id": identifier, "metadata": metadata, "report": self.json(root / "report.json", {}),
+                "money_reserved", "token_usage_known", "input_tokens", "output_tokens", "submission", "in_flight", "retry_count")
+        from arena.retries import retry_reason
+        states = self.states(root, keys)
+        for sid, state in states.items():
+            reason = 'Exported archives are read-only' if (root / 'export.json').exists() else retry_reason(state, metadata.get('config', {}).get('budget_per_session'), states.get(state.get('parent')))
+            assessment = self.json(safe_path(root, f"sessions/{sid}/assessment.json"))
+            validation = (assessment or {}).get('status') or state.get('validity')
+            sessions.append({"validation_status": validation or ('pending' if state.get('submission') or state['status'] == 'submitted' else 'not_submitted'), "id": sid, **{k: state[k] for k in keys if k in state},
+                             "messages": state["messages"], "retry_allowed": reason is None, "retry_reason": reason})
+        sessions.sort(key=lambda s:(s.get('model',''),s.get('replicate',0),s.get('generation',0),s.get('condition','')))
+        return {"id": identifier, "revision": self.revision(root), "metadata": metadata, "report": self.json(root / "report.json", {}),
                 "analysis": self.json(root / "analysis.json"), "sessions": sessions,
                 "g0": self.json(root / "tournament/report.json"),
                 "g1": self.json(root / "g1-tournament/report.json"),
                 "standings": self.json(root / "report.json", {}).get("standings"),
                 "archived": (root / "export.json").exists()}
 
+    def session_diagnostics(self, identifier, sid):
+        """Separate generation, compilation and fight health, including still-running runs."""
+        root = self.run_path(identifier)
+        state = self.session(identifier, sid)
+        assessment_path = safe_path(root, f"sessions/{sid}/assessment.json")
+        assessment = self.json(assessment_path)
+        if assessment is not None and state.get('assessment_sha256') and file_hash(assessment_path) != state['assessment_sha256']:
+            raise ArenaError('Submission assessment was modified')
+        validity = assessment.get('status') if assessment is not None else state.get('validity')
+        assessment_problem = validity is not None and validity != 'valid'
+        matches = [m for m in self.matches(identifier)['matches'] if sid in m['sides']]
+        failed = [m for m in matches if m['result'].get('status') != 'completed']
+        problems = []
+        if state.get('failure'):
+            problems.append({'phase': 'generation', 'status': state['status'], **state['failure']})
+        if assessment_problem:
+            problems.append({'phase': 'submission validation', 'status': validity,
+                'message': (assessment or {}).get('error') or ('The submitted strategy does not compile.' if validity == 'invalid' else 'The engine could not complete submission validation.'),
+                'path': assessment_path.relative_to(root).as_posix() if assessment is not None else None})
+        for match in failed:
+            problems.append({'phase': 'preparation fight' if match['kind'] == 'training' else 'evaluation fight' if match['kind'] == 'evaluation' else 'tournament fight',
+                'status': match['result'].get('status'), 'message': match['result'].get('error') or 'The engine did not complete this fight.',
+                'path': match['path'], 'stage': match['stage'], 'sides': match['sides'], 'seed': match['seed']})
+        for match in matches:
+            if match['result'].get('status') != 'completed':
+                continue
+            metrics = match['result'].get('team_metrics', {})
+            errors = sum((metrics.get(str(side)) or {}).get('errors', 0) for side, participant in enumerate(match['sides']) if participant == sid)
+            if errors:
+                problems.append({'phase': 'script execution', 'status': 'script_errors',
+                    'message': f'{errors} script errors were recorded for your side. This fight completed; inspect its replay logs for the exact messages.',
+                    'path': match['path'], 'stage': match['stage'], 'sides': match['sides'], 'seed': match['seed']})
+        from arena.compiler_diagnostics import compilation_rows
+        compilation = compilation_rows(assessment, (self.json(root / 'experiment.json') or {}).get('engine'))
+        return {'compilation': compilation, 'generation_status': state['status'], 'has_submission': bool(state.get('submission')) or state['status'] == 'submitted',
+                'validation_status': validity or ('pending' if state.get('submission') or state['status'] == 'submitted' else 'not_submitted'),
+                'assessment': assessment, 'problems': problems,
+                'matches': {'competition_completed': sum(m['kind'] == 'competition' and not m.get('mirror') and m['result'].get('status') == 'completed' for m in matches),
+                            'reference_completed': sum(m['kind'] == 'evaluation' and m['result'].get('status') == 'completed' for m in matches),
+                            'mirror_completed': sum(m['kind'] == 'competition' and m.get('mirror') and m['result'].get('status') == 'completed' for m in matches),
+                            'completed': sum(m['result'].get('status') == 'completed' for m in matches if m['kind'] != 'training'),
+                            'failed': sum(m['kind'] != 'training' for m in failed),
+                            'preparation_completed': sum(m['result'].get('status') == 'completed' for m in matches if m['kind'] == 'training')},
+                'schedule_note': 'A submitted strategy is frozen. Round 2 tournament and reference evaluation fights start after all Round 2 preparation conversations finish. Preparation tests are separate and unscored.'}
+
     def message(self, identifier, sid, index):
         history = self.session(identifier, sid).get("history", [])
         if not 0 <= index < len(history):
             raise ArenaError("Message not found")
         return {"message": history[index]}
+
+    def tool_exchange(self, identifier, sid, index):
+        from .tool_exchange import inspect
+        history = self.session(identifier, sid).get('history', [])
+        if not 0 <= index < len(history): raise ArenaError('Message not found')
+        result = inspect(history, index, list(history_writes(history[:index+1])))
+        if result is None: raise ArenaError('No matching file tool request was recorded')
+        return result
+
+    def output_block(self, identifier, sid, index, block):
+        from .provider_output import blocks
+        message = self.message(identifier, sid, index)['message']
+        parts = blocks(message)
+        if not 0 <= block < len(parts):
+            raise ArenaError("Output block not found")
+        return parts[block]
 
     def conversation(self, identifier, sid, offset=0, limit=25):
         state = self.session(identifier, sid)
@@ -270,10 +359,28 @@ class Store:
                 turn += 1
             timeline.append({"reply_to": last_request if item.get("role") == "tool" else None, "turn": turn})
         messages = []
-        for item in history[offset:offset + limit]:
+        for absolute, item in enumerate(history[offset:offset + limit], offset):
             # Requests contain full prior histories. Do not transfer them N times
             # on every live refresh. Exact records remain available on demand.
             visible = {k:v for k,v in item.items() if k not in {"raw", "sent_parameters"}}
+            if item.get('role') in {'assistant', 'tool'}:
+                from .provider_output import preview
+                visible.update(preview(item))
+                visible.pop('native', None)
+                if item.get('role') == 'assistant':
+                    visible['tool_calls'] = [{k:v for k,v in call.items() if k != 'arguments'} for call in item.get('tool_calls', [])]
+                    visible.pop('content', None)
+                else:
+                    visible['tool_error'] = bool((item.get('result') or {}).get('error') or (item.get('result') or {}).get('valid') is False) if isinstance(item.get('result'), dict) else False
+                    visible.pop('result', None)
+            if item.get('role') == 'tool':
+                from .tool_exchange import summary
+                visible['file_exchange'] = summary(history, absolute)
+            if item.get('role') == 'assistant':
+                visible['call_summaries'] = [{'name':c.get('name'), 'id':c.get('id'),
+                    'arguments': {k:(v[:200] if isinstance(v,str) else v) for k,v in (c.get('arguments') or {}).items()
+                                  if k != 'content' and isinstance(v,(str,int,float,bool))}}
+                    for c in item.get('tool_calls', []) if isinstance(c.get('arguments'),dict)]
             parameters = item.get("sent_parameters") or {}
             visible["request_recorded"] = "sent_parameters" in item
             visible["request_seed"] = parameters.get("seed", parameters.get("generationConfig", {}).get("seed"))
@@ -281,11 +388,19 @@ class Store:
                 from arena.briefing import participant_scenario
                 visible["scenario"] = participant_scenario(visible["scenario"])
             messages.append(visible)
+        failure_event = None
+        if state.get('status') in {'provider_unavailable', 'needs_reconciliation', 'generation_failed'}:
+            database = self.run_path(identifier) / 'journal.sqlite'
+            with closing(sqlite3.connect(database.as_uri() + '?mode=ro', uri=True)) as connection:
+                row = connection.execute("SELECT id,kind FROM events WHERE session=? AND kind IN ('malformed_provider_response','provider_failure') ORDER BY id DESC LIMIT 1", (sid,)).fetchone()
+                if row: failure_event = {'id': row[0], 'kind': row[1]}
         return {"total": len(history), "offset": offset, "messages": messages,
                 "times": times[offset:offset + limit], "timeline": timeline[offset:offset + limit], "model": state.get("model"),
-                "status": state["status"], "failure": failure}
+                "status": state["status"], "failure": failure, "instruction_index": start, "history_policy":state.get("history_policy"),
+                "generation": state.get("generation", 0), "condition": state.get("condition", "initial"),
+                "failure_event": failure_event, "diagnostics": self.session_diagnostics(identifier, sid)}
 
-    def events(self, identifier, sid=None, offset=0, limit=100):
+    def events(self, identifier, sid=None, offset=0, limit=100, model=None):
         root = self.run_path(identifier)
         path = root / "journal.sqlite"
         if not path.exists():
@@ -293,7 +408,14 @@ class Store:
         with closing(sqlite3.connect(path.as_uri() + "?mode=ro", uri=True, timeout=2)) as connection:
             if not connection.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='events'").fetchone():
                 return {"total": 0, "events": []}
-            clause, args = (" WHERE session=?", [sid]) if sid else ("", [])
+            conditions, args = [], []
+            if sid:
+                conditions.append("session=?")
+                args.append(sid)
+            if model:
+                conditions.append("session IN (SELECT id FROM sessions WHERE json_extract(state,'$.model')=?)")
+                args.append(model)
+            clause = " WHERE " + " AND ".join(conditions) if conditions else ""
             total = connection.execute("SELECT count(*) FROM events" + clause, args).fetchone()[0]
             rows = connection.execute("SELECT id,session,kind,payload FROM events" + clause +
                                       " ORDER BY id LIMIT ? OFFSET ?", [*args, limit, offset]).fetchall()
@@ -374,8 +496,7 @@ class Store:
     def matches(self, identifier):
         root = self.run_path(identifier)
         rows = []
-        for base in (root, root / "tournament", root / "g1-tournament",
-                     root / "evaluations/g0-panel", root / "evaluations/g1-panel"):
+        for base in (root, root/'tournament', *sorted(root.glob('g*-tournament')), *sorted((root/'evaluations').glob('g*-panel'))):
             for path in sorted((base / "records").glob("*.json")):
                 record = self.json(path)
                 relative = base.relative_to(root).as_posix()
@@ -388,17 +509,22 @@ class Store:
                 work = base / record["directory"] if "directory" in record else safe_path(root, record["artifact_dir"])
                 safe_path(root, work.relative_to(root).as_posix())
                 rows.append({"path": work.relative_to(root).as_posix(), "stage": relative,
-                             "sides": sides, "seed": match.get("seed", record.get("seed")),
+                             "sides": sides, "candidate": record.get("session"), "candidate_side": record.get("side"), "seed": match.get("seed", record.get("seed")),
                              "mirror": match.get("mirror", False), "result": record["result"]})
         for path in sorted((root / "sessions").glob("*/tools/**/result.json")):
             if (path.parent / "scenario.json").is_file():
                 info = self.json(path.parent / "provenance.json", {})
                 scenario = self.json(path.parent / "scenario.json", {})
-                rows.append({"path": path.parent.relative_to(root).as_posix(), "stage": "préparation",
-                             "sides": (["passive", path.relative_to(root).parts[1]] if "side-1" in path.as_posix()
-                                       else [path.relative_to(root).parts[1], "passive"]),
+                cached = self.json(path.parent.parent / "cached.json", {})
+                opponent = 'Own script: '+cached['opponent_entrypoint'] if cached.get('opponent_entrypoint') else 'passive'
+                rows.append({"path": path.parent.relative_to(root).as_posix(), "stage": "training",
+                             "sides": ([opponent, path.relative_to(root).parts[1]] if "side-1" in path.as_posix()
+                                       else [path.relative_to(root).parts[1], opponent]),
                              "seed": scenario.get("random_seed"), "mirror": False,
                              "result": self.json(path), "provenance": info})
+        for row in rows:
+            row['kind'] = 'training' if row['stage'] == 'training' else 'evaluation' if row['stage'].startswith('evaluations/') else 'competition'
+            row['counts_toward_standings'] = row['kind'] == 'competition' and not row.get('mirror')
         return {"matches": rows}
 
     def match(self, identifier, name):
@@ -414,15 +540,18 @@ class Store:
     def statistics(self, identifier):
         from .metrics import competition_stats
         root = self.run_path(identifier)
-        matches = self.matches(identifier)["matches"]
+        all_matches = self.matches(identifier)["matches"]
+        matches = [row for row in all_matches if row.get('kind') != 'training']
+        training_count = len(all_matches) - len(matches)
         paths = [safe_path(root, row["path"] + "/outcome.json") for row in matches]
-        stamp = digest(matches), tuple((p.stat().st_mtime_ns, p.stat().st_size) if p.is_file() else None for p in paths)
+        stamp = (digest(matches), training_count), tuple((p.stat().st_mtime_ns, p.stat().st_size) if p.is_file() else None for p in paths)
         with self.lock:
             cache = getattr(self, "_statistics_cache", {})
             if identifier in cache and cache[identifier][0] == stamp:
                 return copy.deepcopy(cache[identifier][1])
         result = competition_stats(matches, lambda name: self.json(safe_path(root, name + "/outcome.json")),
                                    lambda name: self.json(safe_path(root, name + "/scenario.json")))
+        result['training_matches'] = training_count
         with self.lock:
             if len(cache) >= 16:
                 cache.clear()

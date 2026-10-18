@@ -45,12 +45,12 @@ def verify_record(root: Path, record: dict):
             raise ArenaError("Stored match source was modified")
 
 
-def run_tournament(engine: Engine, manifest: dict, out: Path, resume: bool = False) -> dict:
+def run_tournament(engine: Engine, manifest: dict, out: Path, resume: bool = False, *, allow_extend=False) -> dict:
     with file_lock(out.parent / ("." + out.name + ".lock")):
-        return _run_tournament(engine, manifest, out, resume)
+        return _run_tournament(engine, manifest, out, resume, allow_extend=allow_extend)
 
 
-def _run_tournament(engine: Engine, manifest: dict, out: Path, resume: bool = False) -> dict:
+def _run_tournament(engine: Engine, manifest: dict, out: Path, resume: bool = False, *, allow_extend=False) -> dict:
     matches = schedule(manifest)
     # Absolute source locations are metadata, not part of the experiment identity.
     frozen = {**manifest, "strategies": [{k: v for k, v in s.items() if k != "path"} for s in manifest["strategies"]]}
@@ -62,7 +62,24 @@ def _run_tournament(engine: Engine, manifest: dict, out: Path, resume: bool = Fa
             raise ArenaError("Output already exists; use --resume for the same experiment or a new output path")
         old = read_json(out / "experiment.json")
         if old != {**provenance, "sha256": identity}:
-            raise ArenaError("Cannot resume: configuration, sources, engine or timeout changed")
+            old_rows = {s['id']:s for s in old['manifest']['strategies']}
+            new_rows = {s['id']:s for s in frozen['strategies']}
+            old_base = {**old, 'manifest':{k:v for k,v in old['manifest'].items() if k != 'strategies'}}
+            new_base = {**provenance, 'manifest':{k:v for k,v in frozen.items() if k != 'strategies'}}
+            for value in (old_base,new_base):
+                value.pop('sha256',None);value.pop('schedule',None)
+            if (not allow_extend or old_base != new_base or not old_rows.keys() < new_rows.keys()
+                    or any(new_rows[key] != row for key,row in old_rows.items())
+                    or old.get('sha256') != digest({k:v for k,v in old.items() if k != 'sha256'})
+                    or any(match not in matches for match in old['schedule'])):
+                raise ArenaError("Cannot resume: configuration, sources, engine or timeout changed")
+            # Retain the original schedule/provenance before admitting newly
+            # recovered entrants. Existing sources and completed matches stay put.
+            archive = out / 'history' / (old['sha256'] + '.json')
+            if archive.exists() and read_json(archive) != old:
+                raise ArenaError('Tournament history was modified')
+            write_json(archive,old)
+            write_json(out / 'experiment.json',{**provenance,'sha256':identity})
     else:
         if resume:
             raise ArenaError("Cannot resume an experiment that does not exist")

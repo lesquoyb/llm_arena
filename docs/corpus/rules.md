@@ -83,3 +83,22 @@ without changing files. It may report missing scripts while still validating the
 configuration. Write those scripts, then call `configure_team`; this repeats
 validation and requires existing sources. `analyze`, `test` and `submit` use the
 saved team. All requests and validation results are recorded in the conversation.
+
+## Testing your own alternative scripts
+
+`test` defaults to the built-in passive opponent. To compare your own code,
+write main.leek and sparring.leek, then call:
+
+```json
+{"entrypoint":"main.leek","opponent_entrypoint":"sparring.leek"}
+```
+
+This is a `test` call. It runs two fights with starting sides reversed, using the
+same training seed. The returned test_id opens actions, metrics and debug/error
+logs through read_replay with side 0 or 1. For participant-built teams, the
+opponent uses the same roster with sparring.leek assigned to every member;
+your candidate's own member entrypoints and team.json stay unchanged. Include
+support files normally. Both entrypoints must exist in your own workspace.
+You can load an earlier own submission with read_submitted_file and save it as
+sparring.leek for a regression test. No peer sources or hidden results are exposed.
+Preparation fights remain separate from all competition and reference scores.
