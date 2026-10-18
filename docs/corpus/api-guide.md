@@ -4,7 +4,7 @@ The arena compiles LeekScript **4**. Use `lookup_api` for exact function signatu
 
 | Call | Arguments and return value | Declared base cost |
 |---|---|---:|
-| `getEntity()` | Runtime ID of the active entity, including an invocation during its own turn. Use this for self-targeted chips. `getLeek()` only exists through version 3 and fails to compile in version 4. `getLeekID()` is a persistent website leek ID, not a replacement runtime ID. | 5 |
+| `getEntity()` | Runtime ID of the active entity, including an invocation during its own turn. Use this for self-targeted chips.`getLeekID()` is a persistent website leek ID, not a replacement runtime ID. | 5 |
 | `getNearestEnemy()` | ID of the geometrically nearest living enemy; -1 if absent. Do not assume null. | 25 |
 | `getWeapons()` | Array of weapon IDs equipped by the active entity. | 50 |
 | `setWeapon(weapon_id)` | Select an equipped weapon; false for an absent or invalid weapon. | 15 |
