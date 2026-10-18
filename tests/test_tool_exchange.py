@@ -3,7 +3,7 @@ import hashlib
 import json
 import unittest
 from unittest import mock
-from arena.core import scratch_directory
+from arena.core import ArenaError, scratch_directory
 from arena.experiment import Journal
 from arena.preparation import Preparation
 from arena.api_providers import APIProvider
@@ -73,10 +73,10 @@ class ToolExchangeTests(unittest.TestCase):
             self.assertEqual(second['returned_characters'], 16000)
             self.assertEqual(second['continuation']['arguments'], {'path':'guide.md', 'offset':32000, 'limit':16000})
             self.assertEqual(first['next_offset'], second['offset'])
-            for arguments, field in [({'offset':-1}, 'offset'), ({'offset':True}, 'offset'),
-                                     ({'limit':0}, 'limit'), ({'limit':'45000'}, 'limit')]:
-                with self.assertRaisesRegex(Exception, 'Invalid '+field+':'):
-                    tools.call('read_docs', {'path':'guide.md', **arguments}, 'invalid')
+            for index, (arguments, field) in enumerate([({'offset':-1}, 'offset'), ({'offset':True}, 'offset'),
+                                                       ({'limit':0}, 'limit'), ({'limit':'45000'}, 'limit')], 3):
+                with self.assertRaisesRegex(ArenaError, 'Invalid '+field+':'):
+                    tools.call('read_docs', {'path':'guide.md', **arguments}, f'call-{index}-tool-0')
 
     def test_compatible_reasoning_is_retained_across_requests_and_recorded_on_each_turn(self):
         model={'id':'local','provider':'openai-compatible','model':'local','api_key_env':'ARENA_TEST_LOCAL_KEY',
