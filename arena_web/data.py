@@ -387,6 +387,8 @@ class Store:
             parameters = item.get("sent_parameters") or {}
             visible["request_reasoning"] = {key:value for key,value in parameters.items()
                 if key in {'reasoning_effort', 'thinking', 'output_config'}}
+            if parameters.get('reasoning', {}).get('effort') is not None:
+                visible['request_reasoning']['reasoning_effort'] = parameters['reasoning']['effort']
             if parameters.get('generationConfig', {}).get('thinkingConfig') is not None:
                 visible['request_reasoning']['thinking_config'] = parameters['generationConfig']['thinkingConfig']
             visible["request_recorded"] = "sent_parameters" in item

@@ -63,6 +63,9 @@ class APIProvider:
         self.model, self.transport = model, transport
 
     def payload(self, history, tools, output_limit):
+        from .openai_responses import uses_responses, payload as responses_payload
+        if uses_responses(self.model):
+            return responses_payload(self.model, history, tools, output_limit)
         from .model_content import history_view, message_text, tool_text
         history = history_view(history)
         m = self.model
@@ -112,6 +115,7 @@ class APIProvider:
         key = os.environ.get(m["api_key_env"])
         if not key and not optional_local_key(m):
             raise ProviderFailure(f"Missing credential binding: {m['api_key_env']}")
+        from .openai_responses import uses_responses
         anthropic = m["provider"] == "anthropic"
         endpoint, headers = connection(m, key)
         payload = self.payload(history, tools, output_limit)
@@ -137,6 +141,15 @@ class APIProvider:
                     calls.append({"id": call.get("id", f"gemini-{len(history)}-{index}"),
                                   "name": call["name"], "arguments": call.get("args", {})})
             stop = candidate.get("finishReason") or raw.get("promptFeedback", {}).get("blockReason")
+        elif uses_responses(m):
+            from .openai_responses import unpack
+            self.last_response = {"raw":raw, "request_id":request_id, "sent_parameters":payload}
+            if raw.get('error') or raw.get('status') in {'failed','cancelled'}:
+                detail = str(raw.get('error') or raw.get('status'))[:2000]
+                if key: detail = detail.replace(key, '[REDACTED]')
+                raise ProviderFailure('Responses request failed: ' + detail, uncertain=True)
+            native, calls = unpack(raw)
+            stop = raw.get('incomplete_details', {}).get('reason') if raw.get('incomplete_details') else raw.get('status')
         elif anthropic:
             self.last_response = {"raw": raw, "request_id": request_id, "sent_parameters": payload}
             native = {"role": "assistant", "content": raw["content"]}
@@ -154,11 +167,13 @@ class APIProvider:
                     arguments = None
                 calls.append({"id": call["id"], "name": call["function"]["name"], "arguments": arguments})
             stop = raw["choices"][0].get("finish_reason")
-        usage = normalize(m["provider"], raw.get("usageMetadata") if m["provider"] == "gemini" else raw.get("usage"))
+        usage = normalize('openai-responses' if uses_responses(m) else m["provider"], raw.get("usageMetadata") if m["provider"] == "gemini" else raw.get("usage"))
         return {"role": "assistant", "provider": m["provider"], "simulated": False, "native": native,
                 "tool_calls": calls, "stop_reason": stop, "usage": usage, "raw": raw,
                 "request_id": request_id or raw.get("responseId"), "sent_parameters": payload,
                 "request_sha256": digest(payload), "system_fingerprint": raw.get("system_fingerprint"),
+                "adapter_notes": (["Responses API does not support seed; configured seed was not sent."] if uses_responses(m) and 'seed' in m.get('parameters', {}) else []),
+                "api_protocol": "responses" if uses_responses(m) else "native",
                 "model_version": raw.get("modelVersion") or raw.get("model"), "retries": retries,
                 "cost_usd": cost(usage, m["pricing"]), "cost_status": "calculated_from_reported_usage"}
 
@@ -181,7 +196,8 @@ def connection(model, key):
         headers.update({"x-api-key": key, "anthropic-version": "2023-06-01"})
     elif key:
         headers["Authorization"] = "Bearer " + key
-    return endpoint, headers
+    from .openai_responses import endpoint as response_endpoint
+    return response_endpoint(model, endpoint), headers
 
 
 def gemini_payload(history, tools, output_limit, parameters):
@@ -272,7 +288,7 @@ def list_models(provider, key, endpoint=None, transport=http_json):
     if provider == "gemini":
         base = url.rsplit("/models/", 1)[0] + "/models"
     else:
-        suffix = "/messages" if provider == "anthropic" else "/chat/completions"
+        suffix = "/messages" if provider == "anthropic" else "/responses" if url.endswith("/responses") else "/chat/completions"
         if not url.endswith(suffix):
             raise ArenaError("Nonstandard endpoint path; enter the model ID manually")
         base = url[:-len(suffix)] + "/models"

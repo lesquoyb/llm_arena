@@ -15,6 +15,10 @@ def amount(value):
 
 def normalize(provider, raw):
     raw = raw or {}
+    if provider == 'openai-responses':
+        mapped = {'prompt_tokens':raw.get('input_tokens'), 'completion_tokens':raw.get('output_tokens'),
+                  'prompt_tokens_details':raw.get('input_tokens_details'), 'completion_tokens_details':raw.get('output_tokens_details')}
+        return {**normalize('openai', mapped), 'raw':raw}
     if provider == "gemini":
         fields = ("promptTokenCount", "candidatesTokenCount", "thoughtsTokenCount", "cachedContentTokenCount")
         for key in fields:

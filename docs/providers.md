@@ -207,3 +207,13 @@ OpenAI and compatible profiles have a **Reasoning effort** selector. **Provider 
 The requested setting appears in the participant list, launch preview and recorded conversation requests. An endpoint may reject or ignore an unsupported setting, so the requested value does not prove the effective effort. An alias such as a Codex model name alone does not establish the API's default or supported levels. Inspect the exact endpoint/model documentation when choosing a level.
 
 Anthropic `thinking` and Gemini `thinking_config` remain provider-specific JSON settings; they are displayed as configured without translating them into OpenAI effort levels. Setting effort does not expose hidden reasoning. Existing competitions retain their frozen participant settings; changing a reusable profile affects new launches, not an already running conversation.
+
+## OpenAI Responses API
+
+GPT-6 model IDs, including `gpt-6.1-sol`, use `/v1/responses` automatically when reasoning effort is not explicitly `none`. A configured endpoint ending in `/chat/completions` is changed to `/responses` on the same server. This retains function tools together with reasoning effort. An explicit `/responses` endpoint also works for other models; compatible servers must implement that protocol.
+
+Responses requests send `reasoning.effort`, flat function-tool definitions and `max_output_tokens` when configured. They use `store: false` and replay only this conversation's output items and tool results. There is no `previous_response_id` or shared remote thread. Encrypted reasoning items are preserved for protocol continuation; they are not readable reasoning. Provider-exposed summaries, text, function calls and unknown output items remain inspectable in the conversation and journal. Input, cached input, output and reasoning token counts are normalized for accounting.
+
+Responses does not support `seed`; it is omitted and a note is attached to each recorded response. The recorded request is authoritative. Explicit `reasoning_effort: none` keeps Chat Completions unless the endpoint explicitly selects Responses. Other models retain their existing Chat Completions behavior.
+
+After a definitive HTTP 400 rejection, update the application and click **Retry conversation**. The saved conversation and other participants' results are retained; reasoning does not need to be disabled for this tools/endpoint incompatibility.
