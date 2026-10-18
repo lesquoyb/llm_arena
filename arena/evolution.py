@@ -4,7 +4,6 @@ import copy
 from pathlib import Path
 from .core import ROOT, ArenaError, copy_submission, digest, make_scenario, read_json, submission, write_json
 from .preparation import Preparation
-from .tournament import run_tournament
 
 
 def feedback_for(sid, tournament):
@@ -12,11 +11,11 @@ def feedback_for(sid, tournament):
     return PastFights(tournament.parent, sid).summary()
 
 
-def references(engine, config, out, journal, entrants, label, panel):
+def references(engine, config, out, journal, entrants, label, panel, *, incremental=False):
     """Both positions, identical reference opponents and final seeds for each branch."""
     root = out / "evaluations" / label
     root.mkdir(parents=True, exist_ok=True)
-    results = {}
+    results = read_json(root / 'results.json') if incremental and (root / 'results.json').exists() else {}
     for entrant in entrants:
         for opponent in panel:
             for seed in config["final_seeds"]:
@@ -65,6 +64,27 @@ def run_generation(config, out, journal, engine, initial, interrupt=None, retry_
     models = {m["id"]: m for m in config["models"]}
     initial_states = {s["id"]: journal.state(s["id"]) for s in initial}
     branches = []
+    roots = roots if roots is not None else initial
+    panel = [dict(s, path=s["path"]) for s in roots]
+    for name in ("rush", "single-shot", "passive"):
+        source = ROOT / "examples/strategies" / name
+        target = out / "controls" / name
+        info = submission(source)
+        if not target.exists():
+            copy_submission(source, target, info)
+        elif submission(target) != info:
+            raise ArenaError("Frozen control changed")
+        panel.append({"id": "fixed-" + name, "path": target, "submission": info})
+    from .greedy import evaluate as evaluate_ready, entrants as ready_entrants
+    evaluated = set()
+    baseline = references(engine, config, out, journal, roots, "g0-panel", panel)
+    def evaluate_available():
+        evaluate_ready(engine, config, out, journal, generation)
+        for entrant in ready_entrants(journal, out, generation):
+            if entrant['id'] not in evaluated:
+                references(engine, config, out, journal, [entrant], f'g{generation}-panel', panel, incremental=True)
+                evaluated.add(entrant['id'])
+    evaluate_available()
     for parent in initial:
         parent_state = initial_states[parent["id"]]
         if parent_state["status"] == "needs_reconciliation":
@@ -118,6 +138,7 @@ def run_generation(config, out, journal, engine, initial, interrupt=None, retry_
                                                           "condition": condition})
             if permitted:
                 run_session(sid, models[parent_state["model"]], config, out, journal, engine, interrupt)
+                evaluate_available()
             state = journal.state(sid)
             if "submission" in state:
                 directory = out / "sessions" / sid
@@ -149,24 +170,7 @@ def run_generation(config, out, journal, engine, initial, interrupt=None, retry_
                 skipped.update(parent=parent_sid, generation=generation, lineage_root=root, condition=condition, status="no_submission",
                                calls=0, steps=0, test_matches=0, cost_spent="0", money_reserved="0")
                 journal.save(sid, skipped, "branch_unavailable", {"reason": "No G0 submission"})
-    contemporaries = None
-    if len(branches) >= 2:
-        manifest = {"name": config["name"] + f"-round-{generation+1}", "seeds": config["final_seeds"], "scenario": config["scenario"],
-                    "include_mirrors": config["include_mirrors"],
-                    "strategies": [{**s, "path": str(s["path"])} for s in branches]}
-        contemporaries = run_tournament(engine, manifest, out / f"g{generation}-tournament", (out / f"g{generation}-tournament").exists(), allow_extend=allow_extend)
-    roots = roots if roots is not None else initial
-    panel = [dict(s, path=s["path"]) for s in roots]
-    for name in ("rush", "single-shot", "passive"):
-        source = ROOT / "examples/strategies" / name
-        target = out / "controls" / name
-        info = submission(source)
-        if not target.exists():
-            copy_submission(source, target, info)
-        elif submission(target) != info:
-            raise ArenaError("Frozen control changed")
-        panel.append({"id": "fixed-" + name, "path": target, "submission": info})
-    baseline = references(engine, config, out, journal, roots, "g0-panel", panel)
+    contemporaries = evaluate_ready(engine, config, out, journal, generation)
     evolved = references(engine, config, out, journal, branches, f"g{generation}-panel", panel)
     result = analyze_evolution(config, out, journal.states(), roots, branches, baseline, evolved, contemporaries)
     result["contemporaries"] = contemporaries

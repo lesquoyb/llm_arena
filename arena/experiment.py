@@ -15,7 +15,6 @@ from .preparation import Preparation
 from .providers import MockProvider, PROFILES
 from .api_providers import APIProvider, ProviderFailure
 from .usage import amount, reservation
-from .tournament import run_tournament
 
 PROMPT = (ROOT / "prompts/g0.md").read_text(encoding="utf-8") if (ROOT / "prompts/g0.md").exists() else (
           "Write a LeekScript 4 strategy. Read authoring.md and submit main.leek.")
@@ -158,7 +157,7 @@ def plan(config: dict) -> dict:
     return {"sessions": None if config.get("generations", 1) is None else n * (2 * config.get("generations", 1) - 1), "generation": None if config.get("generations", 1) is None else config.get("generations", 1) - 1,
             "provider": "mixed" if paid else "mock", "simulated": not paid,
             "ranked_matches_if_all_submit": n * (n - 1) * len(config["seeds"]),
-            "mirrors_if_all_submit": n * len(config["seeds"]) if config["include_mirrors"] and n >= 2 else 0,
+            "mirrors_if_all_submit": n * len(config["seeds"]) if config["include_mirrors"] else 0,
             "g1_contemporary_matches": (2*n*(2*n-1) + (2*n if config["include_mirrors"] else 0)) *
                                       len(config.get("final_seeds", [])) * (config["generations"]-1) if evolved and config.get("generations") is not None else None if evolved else 0,
             "common_reference_matches": (2*config["generations"]-1)*n*(n+3)*2*len(config.get("final_seeds", [])) if evolved and config.get("generations") is not None else None if evolved else 0,
@@ -629,11 +628,14 @@ def run(config: dict, out: Path, resume=False, interrupt=None, prepare_only=Fals
                         directory.mkdir(parents=True, exist_ok=True)
                         journal.save(sid, initial_state(sid, model, config), "session_created")
                 return {"initialized": True, "sessions": list(journal.states())}
+            from .greedy import evaluate as evaluate_ready
+            evaluate_ready(engine, config, out, journal)
             for model in config["models"]:
                 for replicate in range(config["replicates"]):
                     sid = f"{model['id']}-r{replicate}"
                     if not retry_session or sid == retry_session:
                         run_session(sid, model, config, out, journal, engine, interrupt)
+                        evaluate_ready(engine, config, out, journal)
             states = {sid: state for sid, state in journal.states().items() if state.get("generation", 0) == 0}
             assessments = {}
             for sid, state in states.items():
@@ -656,12 +658,7 @@ def run(config: dict, out: Path, resume=False, interrupt=None, prepare_only=Fals
             entrants = [{"id": sid, "model": state["model"], "replicate": state["replicate"],
                          "path": str(out / "sessions" / sid / "submission"), "submission": state["submission"]}
                         for sid, state in states.items() if "submission" in state]
-            tournament = None
-            if len(entrants) >= 2:
-                manifest = {"name": config["name"], "seeds": config["seeds"],
-                            "scenario": config["scenario"], "include_mirrors": config["include_mirrors"],
-                            "strategies": entrants}
-                tournament = run_tournament(engine, manifest, out / "tournament", (out / "tournament").exists(), allow_extend=allow_extend)
+            tournament = evaluate_ready(engine, config, out, journal)
             simulated = all(m["provider"] == "mock" for m in config["models"])
             summary = {"simulated": simulated, "generation": 0, "sessions": len(states),
                        "with_submission": len(entrants),

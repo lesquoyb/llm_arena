@@ -358,7 +358,7 @@ function runningPhase(d) {
     (generation ? (config.improvement_conditions?.length || 2) : 1);
   const finished = round.filter(s => s.status !== "running").length;
   if (round.length < expected || round.some(s => s.status === "running"))
-    return `Round ${generation + 1} · ${finished}/${expected} preparations finished · Evaluation waits for all`;
+    return `Round ${generation + 1} · ${finished}/${expected} preparations finished · Available fights run as strategies submit`;
   return `Round ${generation + 1} · Evaluating frozen strategies`;
 }
 function activeJobs() {
