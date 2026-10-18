@@ -73,8 +73,7 @@ python -m arena experiment resume runs/complete-demo
 python -m arena experiment export runs/complete-demo --out runs/complete-export
 ```
 
-Use a new output directory for a new experiment. Resume requires the recorded
-code, runtime, configuration and sources. Existing archives remain readable after updates.
+Use a new output directory for a new experiment. The web interface can continue after application updates while keeping completed work and recording version changes. CLI resume remains strict unless `--allow-updated-runner` is supplied. Configuration, game-engine and source integrity checks still apply. See [competition recovery and billing reconciliation](docs/recovery.md).
 
 ## Strategies and results
 

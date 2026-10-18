@@ -542,7 +542,7 @@ def status(out: Path) -> dict:
     return {"sessions": states}
 
 
-def run(config: dict, out: Path, resume=False, interrupt=None, prepare_only=False, retry_session=None) -> dict:
+def run(config: dict, out: Path, resume=False, interrupt=None, prepare_only=False, retry_session=None, allow_updated_runner=False) -> dict:
     validate_config(config)
     if retry_session and not resume:
         raise ArenaError("Retry requires an existing experiment")
@@ -572,9 +572,12 @@ def run(config: dict, out: Path, resume=False, interrupt=None, prepare_only=Fals
         out.mkdir(parents=True, exist_ok=False)
     with experiment_lock(out):
         if resume:
-            if read_json(out / "experiment.json") != identity:
-                raise ArenaError("Cannot resume: configuration, runner, engine, prompt or corpus changed")
-            if tree_hash(out / "corpus") != identity["corpus_sha256"]:
+            previous_identity = read_json(out / "experiment.json")
+            from .recovery import resume_compatible
+            if previous_identity != identity and not (allow_updated_runner and resume_compatible(previous_identity, identity)):
+                raise ArenaError("Cannot resume with changed settings or game engine. For an application update, use --allow-updated-runner; the continuation will be recorded.")
+            engine.allow_updated_runner = allow_updated_runner
+            if tree_hash(out / "corpus") != previous_identity["corpus_sha256"]:
                 raise ArenaError("Frozen documentation changed")
         else:
             import shutil
@@ -592,9 +595,27 @@ def run(config: dict, out: Path, resume=False, interrupt=None, prepare_only=Fals
                 journal.db.commit()
             if resume:
                 journal.verify()
+            if resume:
+                from .recovery import needs_reconciliation
+                external = {m['id'] for m in config['models'] if m['provider'] != 'mock'}
+                blocked = [sid for sid,state in journal.states().items() if needs_reconciliation(state, state['model'] in external)]
+                if blocked:
+                    raise ArenaError('Resolve billing for these conversations before resuming: ' + ', '.join(blocked))
+                if previous_identity != identity:
+                    for sid,state in journal.states().items():
+                        if state.get('continuation_identity') != digest(identity):
+                            state['continuation_identity'] = digest(identity)
+                            journal.save(sid, state, 'runner_updated', {'original':previous_identity, 'current':identity,
+                                'frozen_documentation_preserved':True, 'completed_matches_preserved':True})
             if retry_session:
                 from .retries import prepare_retry
                 prepare_retry(journal, retry_session, config)
+            elif resume:
+                from .retries import prepare_retry, retry_reason
+                for sid,state in journal.states().items():
+                    parent = journal.state(state['parent']) if state.get('parent') else None
+                    if retry_reason(state, config['budget_per_session'], parent) is None:
+                        prepare_retry(journal, sid, config)
             allow_extend = any(s.get('retry_count') for s in journal.states().values())
             if prepare_only:
                 for model in config["models"]:

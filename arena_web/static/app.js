@@ -1249,6 +1249,15 @@ function planMarkup(p) {
   return `<div class="info-row"><span>Conversations</span><strong>${p.sessions == null ? "Until manual stop" : fmt(p.sessions)}</strong></div><div class="info-row"><span>Evaluation matches</span><strong>${p.sessions == null ? "Until manual stop" : fmt(total)}</strong></div><div class="info-row"><span>Maximum preparation matches</span><strong>${p.max_preparation_matches == null ? "Unlimited" : fmt(p.max_preparation_matches)}</strong></div><div class="info-row"><span>Total API spending limit</span><strong>${p.simulated ? "$0 (mock)" : p.max_cost_usd == null ? "No limit" : money(p.max_cost_usd)}</strong></div><p class="muted" style="font-size:10px;margin-top:12px">Schedule assuming every participant submits a strategy. ${p.simulated ? "Mock run with no API calls." : "Reservations estimate cost; they do not confirm provider billing."}</p>`;
 }
 async function launchDialog(draftId = null, runId = null) {
+  if (runId) {
+    S.detail = await api("/api/run", {run:runId});
+    const blocked = S.detail.sessions.filter(s => s.reconciliation_required);
+    if (blocked.length) {
+      openDialog("Resolve billing before resuming", S.detail.metadata.config.name,
+        `<p>These conversations have unresolved provider requests. Record their costs, then resume. All saved submissions and matches are retained.</p>${blocked.map(s => `<div class="info-row"><span>${e(s.model)} · ${e(sessionLabel(s))}</span>${btn("Resolve billing", "reconcile-session", `data-session="${e(s.id)}"`)}</div>`).join("")}`);
+      return;
+    }
+  }
   if (draftId) await refreshBoot();
   let config = draftId
     ? S.boot.drafts.find((d) => d.id === draftId).config
@@ -1259,10 +1268,13 @@ async function launchDialog(draftId = null, runId = null) {
   openDialog(
     runId ? "Resume competition" : "Launch competition",
     config.name,
-    `<form data-form="launch">${planMarkup(p)}${p.simulated ? notice("Mock participants, real matches. No LLM calls or API charges.") : notice("Calls use the configured keys and prices. Calculated costs are not confirmed provider bills.", "warn")}<div>${config.models.map((m) => `<div class="info-row"><span>${e(m.id)}${m.provider !== "mock" ? `<small>${e(m.endpoint || (m.provider === "anthropic" ? "https://api.anthropic.com/v1/messages" : m.provider === "gemini" ? "https://generativelanguage.googleapis.com/v1beta" : "https://api.openai.com/v1/chat/completions"))}<br>Key: ${e(m.api_key_env)}</small>` : ""}</span><strong>${e(m.model || m.profile)}${m.provider !== "mock" ? `<small>Seed: ${m.parameters?.seed ?? (m.provider === "anthropic" ? "not available" : "not set")}</small>` : ""}</strong></div>`).join("")}</div>${!p.simulated ? `<label class="check" style="margin-top:20px"><input type="checkbox" name="confirm_paid" required>I authorize API calls ${config.spending.max_total_usd == null ? "without an arena spending limit" : "with a configured total spending limit of " + money(config.spending.max_total_usd)}.</label>` : ""}<div class="form-footer">${btn("Cancel", "close-dialog")}<button type="submit" class="button primary">${runId ? "Resume" : "Start competition"}</button></div></form>`,
+    `<form data-form="launch">${runId ? notice("Failed conversations will be continued from their checkpoints. Application updates are recorded in the journal; frozen documentation and completed matches are retained.") : ""}${planMarkup(p)}${p.simulated ? notice("Mock participants, real matches. No LLM calls or API charges.") : notice("Calls use the configured keys and prices. Calculated costs are not confirmed provider bills.", "warn")}<div>${config.models.map((m) => `<div class="info-row"><span>${e(m.id)}${m.provider !== "mock" ? `<small>${e(m.endpoint || (m.provider === "anthropic" ? "https://api.anthropic.com/v1/messages" : m.provider === "gemini" ? "https://generativelanguage.googleapis.com/v1beta" : "https://api.openai.com/v1/chat/completions"))}<br>Key: ${e(m.api_key_env)}</small>` : ""}</span><strong>${e(m.model || m.profile)}${m.provider !== "mock" ? `<small>Seed: ${m.parameters?.seed ?? (m.provider === "anthropic" ? "not available" : "not set")}</small>` : ""}</strong></div>`).join("")}</div>${!p.simulated ? `<label class="check" style="margin-top:20px"><input type="checkbox" name="confirm_paid" required>I authorize API calls ${config.spending.max_total_usd == null ? "without an arena spending limit" : "with a configured total spending limit of " + money(config.spending.max_total_usd)}.</label>` : ""}<div class="form-footer">${btn("Cancel", "close-dialog")}<button type="submit" class="button primary">${runId ? "Resume" : "Start competition"}</button></div></form>`,
   );
 }
 function retryButton(session) {
+  if (session?.reconciliation_required && !S.detail.archived &&
+      !activeJobs().some(j => j.run === S.run))
+    return btn("Resolve billing", "reconcile-session", `data-session="${e(session.id)}"`);
   return session?.retry_allowed && !S.detail.archived
     ? btn(
         "Retry conversation",
@@ -1270,6 +1282,11 @@ function retryButton(session) {
         `data-session="${e(session.id)}"`,
       )
     : "";
+}
+function reconciliationDialog(sid) {
+  const session = S.detail.sessions.find(s => s.id === sid);
+  openDialog("Resolve request billing", strategyName(sid),
+    `<form data-form="reconcile" data-session="${e(sid)}"><p>The provider request was interrupted or returned incomplete usage. Its response may have been charged. Check the provider's usage dashboard before repeating it.</p><p>If a response was saved, its pending tools will continue. Otherwise the request can be retried. Existing files and other participants' results are kept.</p><label>Additional cost for this unresolved request (USD)<input name="cost_usd" type="number" min="0" step="any" required placeholder="0 if confirmed uncharged or local"></label><small>Enter only the unresolved charge, not the conversation total. Already recorded cost: ${money(session.cost_spent || 0)}.</small><label>Verification note<textarea name="note" required placeholder="How you checked the charge; for a local model, state that it runs locally."></textarea></label><div class="form-footer">${btn("Cancel", "close-dialog")}<button class="button primary" type="submit">Record and unlock</button></div></form>`);
 }
 async function retryDialog(sid) {
   const session = S.detail.sessions.find((s) => s.id === sid),
@@ -1314,6 +1331,9 @@ function runHeader(d) {
       "Results, conversations and files.",
       `${active ? btn("■ Stop", "stop-job", `data-id="${e(job.id)}"`) : experiment && !d.archived ? btn("Resume", "resume") : ""}${experiment ? btn("Clone configuration", "clone-run") : ""}${experiment ? btn("Export", "export-run") : ""}`,
     ) +
+    (d.sessions.some(s => s.continuation_identity) ? notice("Continued after an application update. Version changes are recorded in the journal.") : "") +
+    (!active && !d.archived ? d.sessions.filter(s => s.reconciliation_required).map(s =>
+      notice(`${e(s.model)} · ${e(sessionLabel(s))}: request billing needs review. ${btn("Resolve billing", "reconcile-session", `data-session="${e(s.id)}"`)}`, "warn")).join("") : "") +
     `<div class="toolbar">${config.models ? (config.models.every((m) => m.provider === "mock") ? badge("MOCK RUN (no LLM calls)", "blue") : badge("REAL API CALLS", "orange")) : badge("Provided strategies")}${d.archived ? badge("Exported copy", "orange") : ""}${job ? status(job.status === "failed" && d.report?.incomplete ? "incomplete" : job.status) : ""}<span class="mono muted" style="font-size:10px">${e(S.run)}</span><span class="spacer"></span>${job && ["running", "stopping"].includes(job.status) ? badge(runningPhase(d), "blue") : ""}<label class="check"><input id="follow-live" type="checkbox" ${S.follow ? "checked" : ""}>Live updates</label>${job ? btn("Run log", "job-log", `data-id="${e(job.id)}"`) : ""}</div><div class="tabs">${TABS.map(([key, label]) => `<button class="tab ${S.tab === key ? "active" : ""}" data-action="tab" data-tab="${key}">${label}</button>`).join("")}</div>`
   );
 }
@@ -3128,6 +3148,7 @@ document.addEventListener("click", async (event) => {
       navigate("run", { run: S.run, tab: "matches", kind: "training" });
     else if (a === "launch") await launchDialog(node.dataset.id);
     else if (a === "resume") await launchDialog(null, S.run);
+    else if (a === "reconcile-session") reconciliationDialog(node.dataset.session);
     else if (a === "retry-session") await retryDialog(node.dataset.session);
     else if (a === "open-run") navigate("run", { run: node.dataset.run });
     else if (a === "tab")
@@ -3313,6 +3334,12 @@ document.addEventListener("submit", async (event) => {
       await refreshBoot();
       navigate("competitions");
       toast("Configuration saved. No API calls made.");
+    } else if (type === "reconcile") {
+      await api("/api/reconcile", {run:S.run, session:form.dataset.session,
+        cost_usd:f.get("cost_usd"), note:f.get("note")}, true);
+      $("#dialog").close();
+      await renderRoute();
+      toast("Billing recorded. Resume the competition or retry this conversation.");
     } else if (type === "launch") {
       const launch = S.launch;
       const job = await api(
@@ -3321,6 +3348,7 @@ document.addEventListener("submit", async (event) => {
           draft_id: launch.draftId,
           run: launch.runId,
           retry_session: launch.retrySession,
+          allow_updated_runner: !!launch.runId,
           expected_config_sha256: launch.expectedHash,
           confirm_paid: f.has("confirm_paid"),
           ceiling: launch.config.spending.max_total_usd,

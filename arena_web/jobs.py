@@ -36,7 +36,7 @@ class Jobs:
     def _save(self):
         write_json(self.path, self.rows)
 
-    def launch(self, *, draft_id=None, run_id=None, confirm_paid=False, ceiling=None, retry_session=None, expected_config_sha256=None):
+    def launch(self, *, draft_id=None, run_id=None, confirm_paid=False, ceiling=None, retry_session=None, expected_config_sha256=None, allow_updated_runner=False):
         with self.lock:
             if (draft_id is None) == (run_id is None):
                 raise ArenaError("Choose a configuration or a competition to resume")
@@ -48,6 +48,11 @@ class Jobs:
                 if "config" not in metadata or (out / "export.json").exists():
                     raise ArenaError("Only original experiments can be resumed here")
                 config = metadata["config"]
+                from arena.recovery import needs_reconciliation
+                external = {m['id'] for m in config['models'] if m['provider'] != 'mock'}
+                blocked = [sid for sid,state in self.store.states(out).items() if needs_reconciliation(state, state['model'] in external)]
+                if blocked:
+                    raise ArenaError('Resolve billing in Conversations before resuming: ' + ', '.join(blocked))
             else:
                 config = self.store.draft(draft_id)["config"]
                 run_id = time.strftime("%Y%m%d-%H%M%S", time.gmtime()) + "-" + uuid4().hex[:8]
@@ -87,8 +92,10 @@ class Jobs:
                     env[name] = secret
             from arena.engine import Engine
             engine = Engine()
-            if draft_id is None and metadata["engine"] != engine.identity:
-                raise ArenaError("This archive requires its original code and runtime. Clone its configuration for a new run.")
+            from arena.recovery import engine_compatible
+            if draft_id is None and metadata["engine"] != engine.identity and not (
+                    allow_updated_runner and engine_compatible(metadata['engine'], engine.identity)):
+                raise ArenaError("The game engine or runtime changed. Restore the original engine to retain these match results.")
             identifier = uuid4().hex[:12]
             logs = self.store.state / "jobs"
             logs.mkdir(exist_ok=True)
@@ -99,6 +106,8 @@ class Jobs:
             else:
                 args = (["experiment", "retry", str(out), "--session", retry_session] if retry_session
                         else ["experiment", "resume", str(out)])
+            if draft_id is None and allow_updated_runner:
+                args.append("--allow-updated-runner")
             env["PYTHONUTF8"] = "1"
             env["ARENA_PROJECT_ROOT"] = str(ROOT)
             env["ARENA_STATE_ROOT"] = str(Path(engine.metadata["classes"]).parent)
@@ -117,6 +126,23 @@ class Jobs:
             self.watcher = threading.Thread(target=self._watch, args=(self.process, row), daemon=True)
             self.watcher.start()
             return row
+
+    def reconcile(self, run_id, sid, cost, note):
+        from contextlib import closing
+        from arena.experiment import Journal, experiment_lock
+        from arena.recovery import reconcile
+        with self.lock:
+            if self.process and self.process.poll() is None:
+                raise ArenaError('Stop the running competition before reconciling a request')
+            root = self.store.run_path(run_id)
+            if (root / 'export.json').exists():
+                raise ArenaError('Exported archives are read-only')
+            with experiment_lock(root):
+                journal = Journal(root)
+                with closing(journal.db):
+                    journal.verify()
+                    state = reconcile(journal, sid, cost, note)
+            return {'session':sid, 'status':state['status']}
 
     def _watch(self, process, row):
         code = process.wait()

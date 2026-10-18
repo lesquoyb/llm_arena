@@ -241,15 +241,18 @@ class Store:
         sessions = []
         keys = ("model", "replicate", "generation", "condition", "parent", "parent_checkpoint_sha256",
                 "status", "validity", "calls", "steps", "test_matches", "wall_seconds", "cost_spent",
-                "money_reserved", "token_usage_known", "input_tokens", "output_tokens", "submission", "in_flight", "retry_count")
+                "money_reserved", "token_usage_known", "input_tokens", "output_tokens", "submission", "in_flight", "retry_count", "continuation_identity")
         from arena.retries import retry_reason
+        from arena.recovery import needs_reconciliation
+        external = {m['id'] for m in metadata.get('config', {}).get('models', []) if m['provider'] != 'mock'}
         states = self.states(root, keys)
         for sid, state in states.items():
             reason = 'Exported archives are read-only' if (root / 'export.json').exists() else retry_reason(state, metadata.get('config', {}).get('budget_per_session'), states.get(state.get('parent')))
             assessment = self.json(safe_path(root, f"sessions/{sid}/assessment.json"))
             validation = (assessment or {}).get('status') or state.get('validity')
             sessions.append({"validation_status": validation or ('pending' if state.get('submission') or state['status'] == 'submitted' else 'not_submitted'), "id": sid, **{k: state[k] for k in keys if k in state},
-                             "messages": state["messages"], "retry_allowed": reason is None, "retry_reason": reason})
+                             "messages": state["messages"], "retry_allowed": reason is None, "retry_reason": reason,
+                             "reconciliation_required": needs_reconciliation(state, state.get("model") in external)})
         sessions.sort(key=lambda s:(s.get('model',''),s.get('replicate',0),s.get('generation',0),s.get('condition','')))
         return {"id": identifier, "revision": self.revision(root), "metadata": metadata, "report": self.json(root / "report.json", {}),
                 "analysis": self.json(root / "analysis.json"), "sessions": sessions,

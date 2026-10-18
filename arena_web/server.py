@@ -154,7 +154,9 @@ class Application:
             return {**plan(validate_config(config)), 'config':config, 'config_sha256':digest(config)}
         if route == "/api/launch":
             return self.jobs.launch(draft_id=data.get("draft_id"), run_id=data.get("run"),
-                                    confirm_paid=data.get("confirm_paid", False), ceiling=data.get("ceiling"), retry_session=data.get("retry_session"), expected_config_sha256=data.get("expected_config_sha256"))
+                                    confirm_paid=data.get("confirm_paid", False), ceiling=data.get("ceiling"), retry_session=data.get("retry_session"), expected_config_sha256=data.get("expected_config_sha256"), allow_updated_runner=data.get("allow_updated_runner") is True)
+        if route == "/api/reconcile":
+            return self.jobs.reconcile(data["run"], data["session"], data["cost_usd"], data["note"])
         if route == "/api/stop":
             return self.jobs.stop(data["id"])
         if route == "/api/aggregate":

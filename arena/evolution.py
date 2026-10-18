@@ -35,7 +35,10 @@ def references(engine, config, out, journal, entrants, label, panel):
                                 raise ArenaError("Reference result changed")
                             scenario = make_scenario(config["scenario"], [s["submission"]["entrypoint"] for s in sources], seed, [s["submission"].get("team") for s in sources])
                             provenance = read_json(work / "provenance.json")
-                            if (read_json(work / "scenario.json") != scenario or provenance["engine"] != engine.identity
+                            from .recovery import engine_compatible
+                            accepted_engine = provenance['engine'] == engine.identity or (
+                                getattr(engine, 'allow_updated_runner', False) and engine_compatible(provenance['engine'], engine.identity))
+                            if (read_json(work / "scenario.json") != scenario or not accepted_engine
                                     or provenance["submissions"] != [s["submission"] for s in sources]):
                                 raise ArenaError("Reference provenance changed")
                             for index, source in enumerate(sources, 1):

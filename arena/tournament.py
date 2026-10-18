@@ -37,7 +37,13 @@ def verify_record(root: Path, record: dict):
     expected = [strategies[s]["submission"] for s in record["match"]["sides"]]
     scenario = make_scenario(experiment["manifest"]["scenario"],
                              [s["entrypoint"] for s in expected], record["match"]["seed"], [s.get("team") for s in expected])
-    if (provenance["engine"] != experiment["engine"] or provenance["submissions"] != expected or
+    engines = [experiment['engine']]
+    for archive in sorted((root / 'history').glob('*.json')):
+        prior = read_json(archive)
+        if prior.get('sha256') != digest({k:v for k,v in prior.items() if k != 'sha256'}):
+            raise ArenaError('Tournament history was modified')
+        engines.append(prior['engine'])
+    if (provenance["engine"] not in engines or provenance["submissions"] != expected or
             provenance["scenario_sha256"] != digest(scenario) or read_json(work / "scenario.json") != scenario):
         raise ArenaError("Stored match provenance or scenario was modified")
     for side, info in enumerate(expected, 1):
@@ -68,7 +74,12 @@ def _run_tournament(engine: Engine, manifest: dict, out: Path, resume: bool = Fa
             new_base = {**provenance, 'manifest':{k:v for k,v in frozen.items() if k != 'strategies'}}
             for value in (old_base,new_base):
                 value.pop('sha256',None);value.pop('schedule',None)
-            if (not allow_extend or old_base != new_base or not old_rows.keys() < new_rows.keys()
+            from .recovery import engine_compatible
+            updated = bool(getattr(engine, 'allow_updated_runner', False) and engine_compatible(old['engine'], engine.identity))
+            if updated:
+                old_base['engine'] = new_base['engine']
+            extending = allow_extend and old_rows.keys() < new_rows.keys()
+            if ((not extending and not (updated and old_rows == new_rows)) or old_base != new_base
                     or any(new_rows[key] != row for key,row in old_rows.items())
                     or old.get('sha256') != digest({k:v for k,v in old.items() if k != 'sha256'})
                     or any(match not in matches for match in old['schedule'])):

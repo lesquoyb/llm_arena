@@ -187,3 +187,5 @@ The OpenAI compatible adapter retains provider-returned `reasoning_content` and
 This preserves the reasoning/tool sequence for compatible local servers. The
 journal keeps every response independently, including its native fields and raw
 response; the conversation viewer loads each response's reasoning separately.
+
+For the web recovery workflow, including **Resolve billing**, see [competition recovery](recovery.md).
