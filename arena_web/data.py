@@ -261,6 +261,44 @@ class Store:
                 "standings": self.json(root / "report.json", {}).get("standings"),
                 "archived": (root / "export.json").exists()}
 
+    def provider_diagnostics(self, identifier, sid):
+        """Public transport facts only: no credentials, prompts or source contents."""
+        root = self.run_path(identifier)
+        metadata = self.json(root/'experiment.json', {})
+        selected = self.session(identifier, sid)
+        current, state, visited = sid, selected, set()
+        while state.get('parent') and not state.get('calls') and not state.get('submission') and current not in visited:
+            visited.add(current)
+            current = state['parent']
+            state = self.session(identifier, current)
+        model = next((m for m in metadata.get('config', {}).get('models', []) if m['id'] == state.get('model')), {})
+        rows = self.events(identifier, current, 0, 100000)['events']
+        intent = next((event for event in reversed(rows) if event['kind'] == 'model_intent'), None)
+        failure_event = next((event for event in reversed(rows) if event['kind'] in {'provider_failure','malformed_provider_response','remote_state_unknown'}), None)
+        intent_data = self.event(identifier, intent['id']) if intent else {}
+        request = (intent_data or {}).get('request') or {}
+        body = request.get('body') or {}
+        from arena.api_providers import connection
+        try: configured_endpoint = connection(model, None)[0] if model else None
+        except ArenaError: configured_endpoint = None
+        params = model.get('parameters') or {}
+        recorded_failure = self.event(identifier, failure_event['id']) if failure_event else {}
+        recorded_failure = {k:v for k,v in (recorded_failure or {}).items() if k in {'error','error_type','uncertain','retryable','diagnostics'}}
+        return {'session':sid, 'origin_session':current, 'provider':model.get('provider'), 'model':model.get('model'),
+                'status':state['status'], 'model_calls':state.get('calls',0),
+                'endpoint':request.get('endpoint') or configured_endpoint,
+                'configured_parameters':{k:v for k,v in params.items() if k in {'reasoning_effort','temperature','top_p','top_k','seed','thinking','thinking_config'}},
+                'failure':state.get('failure'), 'failure_event':recorded_failure or None,
+                'request_event_id':intent['id'] if intent else None,
+                'request_shape':{'fields':sorted(body), 'model':body.get('model'), 'reasoning':body.get('reasoning'),
+                    'reasoning_effort':body.get('reasoning_effort'), 'max_output_tokens':body.get('max_output_tokens'),
+                    'max_completion_tokens':body.get('max_completion_tokens'), 'store':body.get('store'),
+                    'instructions_present':'instructions' in body,
+                    'input_items':len(body.get('input') or body.get('messages') or []),
+                    'tools':[{'type':t.get('type'), 'name':t.get('name') or (t.get('function') or {}).get('name')} for t in body.get('tools') or []]},
+                'note':'This branch did not make a model call; inspect the origin conversation.' if current != sid else
+                       'No API request was recorded for this conversation.' if not intent else 'The recorded request endpoint is authoritative.'}
+
     def session_diagnostics(self, identifier, sid):
         """Separate generation, compilation and fight health, including still-running runs."""
         root = self.run_path(identifier)
@@ -293,9 +331,16 @@ class Store:
                 problems.append({'phase': 'script execution', 'status': 'script_errors',
                     'message': f'{errors} script errors were recorded for your side. This fight completed; inspect its replay logs for the exact messages.',
                     'path': match['path'], 'stage': match['stage'], 'sides': match['sides'], 'seed': match['seed']})
+        origin = None
+        if state.get('parent') and not state.get('calls') and not state.get('submission'):
+            diagnostic = self.provider_diagnostics(identifier, sid)
+            origin = diagnostic['origin_session']
+            failure = diagnostic.get('failure') or diagnostic.get('failure_event') or {}
+            problems.append({'phase':'previous-round preparation', 'status':diagnostic['status'],
+                'message':failure.get('message') or failure.get('error') or diagnostic['note'], 'origin_session':origin})
         from arena.compiler_diagnostics import compilation_rows
         compilation = compilation_rows(assessment, (self.json(root / 'experiment.json') or {}).get('engine'))
-        return {'compilation': compilation, 'generation_status': state['status'], 'has_submission': bool(state.get('submission')) or state['status'] == 'submitted',
+        return {'failure_origin':origin, 'session':sid, 'compilation': compilation, 'generation_status': state['status'], 'has_submission': bool(state.get('submission')) or state['status'] == 'submitted',
                 'validation_status': validity or ('pending' if state.get('submission') or state['status'] == 'submitted' else 'not_submitted'),
                 'assessment': assessment, 'problems': problems,
                 'matches': {'competition_completed': sum(m['kind'] == 'competition' and not m.get('mirror') and m['result'].get('status') == 'completed' for m in matches),
@@ -304,7 +349,7 @@ class Store:
                             'completed': sum(m['result'].get('status') == 'completed' for m in matches if m['kind'] != 'training'),
                             'failed': sum(m['kind'] != 'training' for m in failed),
                             'preparation_completed': sum(m['result'].get('status') == 'completed' for m in matches if m['kind'] == 'training')},
-                'schedule_note': 'A submitted strategy is frozen. Round 2 tournament and reference evaluation fights start after all Round 2 preparation conversations finish. Preparation tests are separate and unscored.'}
+                'schedule_note': 'Submitted strategies are frozen. Available fights run progressively; the next round waits for all participants. Preparation tests are separate and unscored.'}
 
     def message(self, identifier, sid, index):
         history = self.session(identifier, sid).get("history", [])

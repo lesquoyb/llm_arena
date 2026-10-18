@@ -1400,7 +1400,7 @@ function sessionChooser(d) {
     S.session = sessions[0]?.id || null;
     S.offset = 0;
   }
-  return `<div class="toolbar">${modelPicker(d)}<label for="session-choice">Conversation</label><select id="session-choice" ${sessions.length ? "" : "disabled"}>${sessions.map((s) => `<option value="${e(s.id)}" ${s.id === S.session ? "selected" : ""}>${e(sessionLabel(s))}</option>`).join("") || "<option>No conversations yet</option>"}</select>${S.session ? btn("Conversation journal", "conversation-journal") : ""}${retryButton(d.sessions.find((s) => s.id === S.session))}<span class="spacer"></span></div>`;
+  return `<div class="toolbar">${modelPicker(d)}<label for="session-choice">Conversation</label><select id="session-choice" ${sessions.length ? "" : "disabled"}>${sessions.map((s) => `<option value="${e(s.id)}" ${s.id === S.session ? "selected" : ""}>${e(sessionLabel(s))}</option>`).join("") || "<option>No conversations yet</option>"}</select>${S.session ? btn("Conversation journal", "conversation-journal") + btn("Copy provider diagnostics", "copy-provider-diagnostics", `data-session="${e(S.session)}"`) : ""}${retryButton(d.sessions.find((s) => s.id === S.session))}<span class="spacer"></span></div>`;
 }
 async function renderRun(epoch) {
   const d = S.detail;
@@ -2011,7 +2011,7 @@ function sessionDiagnostics(data, full = false) {
           ? "Compilation passed"
           : "Validation: " + text(data.validation_status);
   const problem = (p) =>
-    `<div><strong>${e(p.phase)} · ${e(text(p.status))}</strong><p>${e(p.message)}</p>${p.sides ? `<small>${e(p.sides.map(strategyName).join(" vs "))} · Seed ${e(p.seed)}</small>` : ""}${p.path ? `<small class="mono">${e(p.path)}</small>` : ""}</div>`;
+    `<div><strong>${e(p.phase)} · ${e(text(p.status))}</strong><p>${e(p.message)}</p>${p.origin_session ? btn("Open original failure", "session-conversation", `data-session="${e(p.origin_session)}"`) : ""}${p.sides ? `<small>${e(p.sides.map(strategyName).join(" vs "))} · Seed ${e(p.seed)}</small>` : ""}${p.path ? `<small class="mono">${e(p.path)}</small>` : ""}</div>`;
   const errors = compilation.filter((row) => row.severity === "error").length;
   const warnings = compilation.filter(
     (row) => row.severity === "warning",
@@ -3179,6 +3179,19 @@ document.addEventListener("click", async (event) => {
         model: S.modelFilter,
         session: S.session,
       });
+    else if (a === "copy-provider-diagnostics") {
+      const data = await api("/api/provider-diagnostics", {run:S.run, session:node.dataset.session});
+      const content = pretty(data);
+      let copied = false;
+      try {
+        if (navigator.clipboard?.writeText) {
+          await navigator.clipboard.writeText(content);
+          copied = true;
+        }
+      } catch (_) { /* Offer selectable text when clipboard access is denied. */ }
+      if (copied) toast("Provider diagnostics copied. No keys or prompt contents included.");
+      else openDialog("Provider diagnostics", "No keys or prompt contents included", `<textarea readonly rows="18">${e(content)}</textarea>`);
+    }
     else if (a === "conversation-latest") {
       await refreshLiveConversation(S.epoch, true);
     } else if (a === "session-diagnostics") {
