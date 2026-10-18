@@ -385,6 +385,10 @@ class Store:
                                   if k != 'content' and isinstance(v,(str,int,float,bool))}}
                     for c in item.get('tool_calls', []) if isinstance(c.get('arguments'),dict)]
             parameters = item.get("sent_parameters") or {}
+            visible["request_reasoning"] = {key:value for key,value in parameters.items()
+                if key in {'reasoning_effort', 'thinking', 'output_config'}}
+            if parameters.get('generationConfig', {}).get('thinkingConfig') is not None:
+                visible['request_reasoning']['thinking_config'] = parameters['generationConfig']['thinkingConfig']
             visible["request_recorded"] = "sent_parameters" in item
             visible["request_seed"] = parameters.get("seed", parameters.get("generationConfig", {}).get("seed"))
             if item.get("role") == "user" and "scenario" in visible:

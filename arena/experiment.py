@@ -104,6 +104,8 @@ def validate_config(value: dict) -> dict:
                 allowed = {"temperature", "top_p", "top_k", "seed", "thinking_config"}
             if not isinstance(params, dict) or set(params) - allowed:
                 raise ArenaError("Unsupported provider parameters (Anthropic does not expose a seed)")
+            if "reasoning_effort" in params and (not isinstance(params['reasoning_effort'], str) or not params['reasoning_effort'].strip()):
+                raise ArenaError('reasoning_effort must be a nonempty level string; omit it for the provider default')
             if "seed" in params:
                 integer(params["seed"], 0, 2**31 - 1, "model seed")
             pricing = model["pricing"]

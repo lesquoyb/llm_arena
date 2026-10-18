@@ -199,3 +199,11 @@ New conversation messages show input/output token counts when reported, request 
 For Ollama, compare `ollama ps` before and during the slowdown. Check CPU/GPU placement and context allocation. Context growth, KV-cache memory pressure, partial CPU offload, prompt reprocessing and other workloads can reduce performance. Reasoning can also consume time beyond the visible answer. Arena cannot infer GPU saturation or actual decoder speed from a compatible API response that does not expose those measurements.
 
 Round fights run as soon as their strategies are submitted and frozen. Improvement strategies can also face the frozen reference panel before other preparations finish. Results are saved immediately and reused on resume. Only the next round waits for the current round to finish; preparation tools expose feedback from previous rounds only. Preparation tests remain separate and do not count toward competition results.
+
+## Requested reasoning effort
+
+OpenAI and compatible profiles have a **Reasoning effort** selector. **Provider default** omits `reasoning_effort`; Arena does not silently select medium or maximum. Explicit values are sent unchanged. Available levels depend on the exact model and endpoint. Additional endpoint-specific values can be entered as `reasoning_effort` in the JSON parameters; the selector preserves them when editing an existing profile.
+
+The requested setting appears in the participant list, launch preview and recorded conversation requests. An endpoint may reject or ignore an unsupported setting, so the requested value does not prove the effective effort. An alias such as a Codex model name alone does not establish the API's default or supported levels. Inspect the exact endpoint/model documentation when choosing a level.
+
+Anthropic `thinking` and Gemini `thinking_config` remain provider-specific JSON settings; they are displayed as configured without translating them into OpenAI effort levels. Setting effort does not expose hidden reasoning. Existing competitions retain their frozen participant settings; changing a reusable profile affects new launches, not an already running conversation.
