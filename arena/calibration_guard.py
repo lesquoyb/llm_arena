@@ -11,7 +11,7 @@ QUESTIONS={
 
 
 def defaults():
-    return {'enabled':False,'model':'convaiinnovations/laya','device':'cpu','accept_max_risk':0.2,'reject_min_risk':0.8}
+    return {'enabled':False,'mode':'automatic','model':'convaiinnovations/laya','device':'cpu','accept_max_risk':0.2,'reject_min_risk':0.8}
 
 
 def review(before,after,directory,settings):

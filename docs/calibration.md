@@ -537,3 +537,27 @@ changes**. If the prompt is acceptable, **Accept proposal & continue** records a
 human override for that exact draft and check, then resumes the optimization.
 Configuration and tool validation still apply. Alternatively use **Resolve &
 continue** to ask the analyst for a revision or supply corrected JSON.
+
+### Automatic versus observational Laya checks
+
+**Laya proposal decisions** has three modes. **Off** skips the semantic check.
+**Observe only** saves and displays its result without rejecting a proposal or
+feeding it to the analyst. **Automatic** sends rejected or ambiguous results
+back to the analyst for revision until the check approves a proposal. These
+semantic revisions do not consume the JSON-format correction allowance. Provider
+errors, unavailable enforced checks, spending limits and manual stops still stop
+the run. With unlimited spending, semantic revision has no fixed attempt limit.
+Every checked draft and check receipt is saved under `proposals/NNN/attempts/`;
+model messages and usage remain in the analyst journal.
+
+Existing studies with the proposal check enabled use automatic decisions after
+this update. Resume a study blocked by a rejected check to continue revision
+without a human override. Independent trajectory diagnostics remain separate and
+are always informational.
+
+The analyst may also return `{"no_change": true, "rationale": "..."}` when no
+useful change is justified. This ends the optimization on the best evaluated
+candidate, without a new target trial; the conclusion is saved. A blocked
+proposal also offers **Finish with current best** for the same explicit human
+decision. A proposal rejected by Laya is never promoted just because the analyst
+has no further idea.

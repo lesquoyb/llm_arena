@@ -227,7 +227,7 @@ class Workshop:
                 if not state: raise ArenaError('No analyst conversation to recover')
                 if state.get('in_flight') or state.get('status')=='needs_reconciliation':
                     raise ArenaError('Resolve billing reconciliation before intervening')
-                state.update(status='running',repair_attempts=0,pending=None)
+                state.update(status='running',repair_attempts=0,format_repair_attempts=0,pending=None)
                 state.pop('failure',None)
                 if replacement:
                     response={'role':'assistant','content':text,'human_supplied':True}
@@ -296,7 +296,7 @@ class Workshop:
                 guard_path=directory/'proposals'/f'{index:03}'/'guard.json'
                 rows.append({'candidate':index+1,'directory':path.parent.relative_to(directory).as_posix(),
                              'source_candidate':row['parent']+1 if row and row.get('parent') is not None else (state.get('active_parent') or 0)+1 if not row and index else None,
-                             'status':'Current best' if state.get('incumbent')==index else 'Initial baseline' if index==0 else 'Selected earlier' if row and row['accepted'] else 'Not selected' if row else 'Blocked proposal' if guard_path.exists() and read_json(guard_path)['status']!='approved' else 'Untested proposal',
+                             'status':'No change proposed' if path.name in {'proposal.json','proposal-draft.json'} and read_json(path).get('no_change') else 'Current best' if state.get('incumbent')==index else 'Initial baseline' if index==0 else 'Selected earlier' if row and row['accepted'] else 'Not selected' if row else 'Blocked proposal' if guard_path.exists() and read_json(guard_path)['status']!='approved' else 'Untested proposal',
                              'score':report.get('validation_score'),'tokens':report.get('tokens'),'cost_usd':report.get('cost_usd')})
             return {'study':directory.name,'name':saved_config(directory)['name'],'versions':rows}
         if route == '/api/reusable-config':
@@ -353,8 +353,8 @@ class Workshop:
             after_documents={name:(after_root/'corpus'/name).read_text(encoding='utf-8') if (after_root/'corpus'/name).exists() else frozen.get('reference_documents',{}).get(name,before_documents.get(name,text)) for name,text in effective_documents(frozen).items()}
             guard_path=directory/'proposals'/f'{candidate:03}'/'guard.json'
             return {'guard_override':read_json(guard_path.with_name('guard-override.json')) if guard_path.with_name('guard-override.json').exists() else None,'guard':read_json(guard_path) if guard_path.exists() else None,'guard_enabled':state['config'].get('proposal_guard',{}).get('enabled',False), 'config':frozen,'current_best':state.get('incumbent')==candidate,'comparison_candidate':comparison_index+1 if comparison_index is not None else None,'candidate':candidate+1,'baseline':candidate==0,
-                    'decision_reason':('Not evaluated: the proposal check returned '+read_json(guard_path)['status']+'.') if not row and guard_path.exists() and read_json(guard_path)['status']!='approved' else decision_reason(row,comparison,state['config'],candidate),
-                    'decision':'Baseline' if candidate==0 else 'Kept' if row and row['accepted'] else 'Rejected' if row else 'Blocked by proposal check' if guard_path.exists() and read_json(guard_path)['status']!='approved' else 'Pending evaluation',
+                    'decision_reason':proposal['rationale'] if proposal.get('no_change') else ('Not evaluated: the proposal check returned '+read_json(guard_path)['status']+'.') if not row and guard_path.exists() and read_json(guard_path)['status']!='approved' else decision_reason(row,comparison,state['config'],candidate),
+                    'no_change':proposal.get('no_change',False),'decision':'No change proposed' if proposal.get('no_change') else 'Baseline' if candidate==0 else 'Kept' if row and row['accepted'] else 'Rejected' if row else 'Blocked by proposal check' if guard_path.exists() and read_json(guard_path)['status']!='approved' else 'Pending evaluation',
                     'rationale':proposal.get('rationale') or (row.get('rationale') if row else 'Candidate evaluation is in progress.'),
                     'source_candidate':parent_index+1 if parent_index is not None else 1, 'search':row.get('search') if row else None, 'rl':row.get('rl') if row else None, 'metrics_before':comparison.get('report') if comparison else None,'metrics_after':row.get('report') if row else None,
                     'tool_requests':proposal.get('tool_requests',[]) or (row.get('tool_requests',[]) if row else []),

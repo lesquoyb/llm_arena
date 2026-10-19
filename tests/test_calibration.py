@@ -131,6 +131,44 @@ class CalibrationTests(TestCase):
         rounds[0]['input_tokens']=None
         self.assertIsNone(objective({'replicates':[{'rounds':rounds}]},value)['tokens'])
 
+    def test_analyst_abstention_retains_best_without_running_another_trial(self):
+        value=config();value.update(max_rounds=1,min_rounds=1)
+        value['optimizer']['max_trials']=3
+        value['analyst']={'id':'editor','provider':'mock','profile':'single-shot'}
+        with scratch_directory() as tmp,mock.patch('arena.calibration.Engine',FixtureEngine),mock.patch('arena.calibration.propose',return_value={'no_change':True,'rationale':'No useful change justified.'}) as editor:
+            result=study(value,tmp/'study',automatic=True)
+            self.assertEqual(result['status'],'completed')
+            self.assertEqual(result['stop_reason'],'analyst_no_change')
+            self.assertEqual(result['incumbent'],0)
+            self.assertEqual(len(result['trials']),1)
+            self.assertFalse((tmp/'study/trials/001').exists())
+            editor.assert_called_once()
+
+    def test_guard_revisions_are_automatic_and_observation_does_not_revise(self):
+        from arena.calibration_guard import defaults as guard_defaults
+        with scratch_directory() as tmp:
+            value=config();value['analyst']={'id':'editor','provider':'openai-compatible','model':'fixture'}
+            value['proposal_guard']={**guard_defaults(),'enabled':True}
+            value['optimizer']['editor_retries']=0
+            answers=[]
+            def respond(sid,state,model,cfg,journal):
+                text=json.dumps({'prompt':value['prompt']+' revision '+str(len(answers)),
+                                 'tools':value['tools'],'rationale':'General authoring clarification'})
+                response={'role':'assistant','content':text}
+                answers.append(response);state['calls']=len(answers);state['history'].append(response);state['pending']=response
+                journal.save(sid,state,'fixture_response',response)
+                return response
+            context={'trajectory_excerpt':'Saved trajectory'}
+            with mock.patch('arena.calibration.analyst_context',return_value=context),mock.patch('arena.calibration.provider_response',side_effect=respond),mock.patch('arena.calibration.guard.review',side_effect=[{'status':'rejected','identity':'first','observations':[]},{'status':'approved','identity':'second','observations':[]}]):
+                propose(value,{},tmp/'baseline',tmp/'automatic')
+            self.assertEqual(len(answers),2)
+            self.assertEqual(len(list((tmp/'automatic/attempts').glob('*-draft.json'))),2)
+            value['proposal_guard']['mode']='observe';answers.clear()
+            with mock.patch('arena.calibration.analyst_context',return_value=context),mock.patch('arena.calibration.provider_response',side_effect=respond),mock.patch('arena.calibration.guard.review',return_value={'status':'rejected','identity':'observed','observations':[]}):
+                result=propose(value,{},tmp/'baseline',tmp/'observe')
+            self.assertEqual(len(answers),1)
+            self.assertEqual(result['rationale'],'General authoring clarification')
+
     def test_system_prompt_is_native_for_all_protocols_and_empty_editor_tools_are_omitted(self):
         history=[{'role':'system','content':'SYSTEM EXACT'},{'role':'user','content':'TASK'}]
         for provider in ('openai','openai-compatible','anthropic','gemini'):
