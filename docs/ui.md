@@ -581,3 +581,26 @@ run the alternate script for every member, without editing the candidate's team.
 The Matches view labels these opponents by their source entrypoint. These are
 preparation tests, not scored competition fights. No other model's sources are
 readable through this mechanism.
+
+### Reuse submitted strategies
+
+In a competition, open a conversation or the overview's conversation table and
+choose **Save as participant**. Give the frozen strategy a unique participant ID.
+It then appears in **Participants** and can be selected in another competition.
+The code, entrypoint and participant-selected team are copied and fingerprinted,
+so deleting the source run does not remove the participant. No API key, model
+call or generation charge is required. Every round uses the same saved files.
+The original scenario is required to preserve equipment/build semantics: clone
+the source competition and replace its participant selection. A mismatch is
+reported before launch. Saved participants are inspected rather than edited;
+save a newer submitted version under a new ID to replace a strategy.
+
+**Participants > Add reference strategy** adds a fixed opponent for the default
+single-leek scenario: passive, stationary shooter, one-shot pursuer, aggressive
+shooter, or the Apache-2.0 human weapon heuristic. Their descriptions state what
+they do. They are not Elo ratings and are not guaranteed to be ordered by strength.
+
+Model ranking and progress charts exclude matches between versions of the same
+model, including earlier rounds and feedback tracks. Those fights remain in the
+strategy-version matrix and match list. Click the ranking's win/draw/loss counts
+to inspect exactly the matches contributing to that number.

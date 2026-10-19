@@ -70,6 +70,12 @@
           ></textarea>
         </label>
         <details>
+          <summary>Reference documents</summary>
+          <p>Edit the learning material supplied through read_docs. Changes apply only to this candidate; engine catalogs and evaluation rules remain fixed. The automatic analyst can edit these documents too.</p>
+          <select id="reference-path" aria-label="Reference document"></select>
+          <textarea id="reference-content" rows="18" spellcheck="false" aria-label="Reference document contents"></textarea>
+        </details>
+        <details>
           <summary>Tools available to the target</summary>
           <p>
             These are the registered Arena MCP tools. Disabled tools are
@@ -126,7 +132,7 @@
             outputs may vary even with a seed.
           </p>
           <label
-            >Static opponents (comma separated)<input id="opponents"
+            >Static opponents: passive, turret, single-shot, rush, human-weapon (comma separated)<input id="opponents"
           /></label>
           <div class="fields">
             <label>Training seeds<input id="training" /></label

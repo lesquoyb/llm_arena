@@ -69,6 +69,9 @@ class Application:
             return {"components": component_catalog(), "stat_rules": RULES, "weapons": catalog(data, "weapons"), "chips": catalog(data, "chips"),
                     "component_snapshot": {key: component_rules[key] for key in ('source_url', 'master_version', 'fetched_at')},
                     "effects": effects, "snapshot": store.json(data / "snapshot.json")["engine"]["lock"]["commit"]}
+        if route == "/api/reference-strategies":
+            from arena.reference_strategies import CATALOG
+            return {"strategies":CATALOG}
         if route == "/api/runs":
             return {"runs": store.listing(), "jobs": self.jobs.listing()}
         if route == "/api/run":
@@ -143,6 +146,22 @@ class Application:
         if route == "/api/stats/realistic":
             from arena.stats import to_realistic
             return {"scenario": to_realistic(data['scenario'])}
+        if route == '/api/participant/reference':
+            from arena.reference_strategies import participant
+            from arena.presets import simple_scenario
+            scenario=self.store.detail(data['run'])['metadata']['config']['scenario'] if data.get('run') else simple_scenario()
+            spec=participant(data['reference'],data['id'],scenario)
+            with self.store.lock:
+                if any(m['id']==data['id'] for m in self.store.catalog()):
+                    raise ArenaError('A participant with this name already exists')
+                config=read_json(ROOT/'configs/offline-complete.json')
+                config.update(models=[spec],scenario=scenario,spending={'allow_paid_calls':False,'max_total_usd':0})
+                validate_config(config)
+                from arena.core import write_json
+                write_json(self.store.state/'participants.json',self.store.catalog()+[spec])
+            return {'saved':data['id']}
+        if route == "/api/participant/import":
+            return self.store.import_strategy(data["run"],data["session"],data["id"])
         if route == "/api/participant":
             return self.store.save_participant(data["spec"], data.get("secret"))
         if route == "/api/participant/delete":

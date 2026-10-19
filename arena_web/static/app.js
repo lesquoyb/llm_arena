@@ -326,6 +326,7 @@ function route() {
       "opponent_model",
       "round",
       "scored",
+      "exclude_same_model",
     ].map((k) => [k, q.get(k) || ""]),
   );
   S.version = null;
@@ -515,13 +516,13 @@ const PROVIDER_NAMES = {mock: "Built-in strategy", openai: "OpenAI", anthropic: 
 function participantCards(term = "") {
   const profiles = S.boot.participants.filter(({spec:m}) => `${m.id} ${m.provider} ${m.model || m.profile}`.toLowerCase().includes(term.toLowerCase()));
   return profiles.length ? profiles.map(({spec:m,key_configured,key_optional}) => `<article class="profile-card">
-    <div class="profile-card-top"><span class="provider-mark provider-${e(m.provider)}" aria-hidden="true">${e((PROVIDER_NAMES[m.provider] || m.provider)[0])}</span>${badge(PROVIDER_NAMES[m.provider] || m.provider)}<span class="spacer"></span><button class="icon-button" data-action="delete-participant" data-id="${e(m.id)}" title="Remove profile" aria-label="Remove ${e(m.id)}">×</button></div>
+    <div class="profile-card-top"><span class="provider-mark provider-${e(m.provider)}" aria-hidden="true">${e((PROVIDER_NAMES[m.provider] || m.provider)[0])}</span>${badge(m.profile === "saved-strategy" ? "Saved strategy" : PROVIDER_NAMES[m.provider] || m.provider)}<span class="spacer"></span><button class="icon-button" data-action="delete-participant" data-id="${e(m.id)}" title="Remove profile" aria-label="Remove ${e(m.id)}">×</button></div>
     <h2><button class="card-title" data-action="edit-participant" data-id="${e(m.id)}">${e(m.id)}</button></h2><p class="profile-model mono">${e(m.model || m.profile)}</p>
     <dl class="profile-facts"><div><dt>Reasoning</dt><dd>${m.provider === "mock" ? "Scripted" : e(reasoningLabel(m.parameters))}</dd></div><div><dt>Input / output · $ / 1M</dt><dd>${m.pricing ? `${e(m.pricing.input_per_million)} / ${e(m.pricing.output_per_million)}` : "No API cost"}</dd></div></dl>
     <div class="profile-card-footer">${m.provider === "mock" ? badge("Ready", "green") : badge(key_optional && !key_configured ? "Local · no key required" : key_configured ? "Key configured" : "API key missing", key_configured || key_optional ? "green" : "orange")}${btn("Configure", "edit-participant", `data-id="${e(m.id)}"`)}</div></article>`).join("") : empty("No participants found", term ? "Try a different name, model or provider." : "Add a model provider or a built-in strategy.", term ? "" : btn("Add participant","new-participant","",true));
 }
 function participants() {
-  return head("Participants", "Reusable model profiles for your competitions.", btn("＋ Add participant", "new-participant", "", true)) +
+  return head("Participants", "Reusable model profiles for your competitions.", btn("Add reference strategy","add-reference") + btn("＋ Add participant", "new-participant", "", true)) +
     `<div class="collection-toolbar"><span id="participant-count" aria-live="polite">${S.boot.participants.length} profiles</span><input type="search" id="participant-search" placeholder="Search name, model or provider" aria-label="Search participants"></div><div class="profile-grid" id="participant-cards">${participantCards()}</div><details class="quiet-details"><summary>API keys and pricing</summary><p>Keys entered in the interface stay in server memory. Prices are entered in USD per million tokens. Existing competitions retain the settings saved at launch.</p></details>`;
 }
 function freshConfig() {
@@ -604,6 +605,11 @@ function participantDialog(identifier = null, provider = null) {
   const m = identifier
     ? S.boot.participants.find((p) => p.spec.id === identifier).spec
     : {};
+  if (m.profile === 'saved-strategy') {
+    const origin=m.strategy.origin;
+    openDialog(m.id,'Saved strategy',`<p>Frozen code and team. No model calls; unchanged in every round. Use its original scenario.</p><p>Source: ${e(origin.reference || origin.run)}${origin.session ? ' · '+e(origin.session) : ''}</p><p>${Object.keys(m.strategy.files).length} files</p>${origin.run ? `<a class="button" href="#${query({view:'run',run:origin.run,tab:'code',session:origin.session})}" data-action="saved-source" data-run="${e(origin.run)}" data-session="${e(origin.session)}">Inspect source</a>` : `<pre>${e(m.strategy.files['main.leek'])}</pre>`}`);
+    return;
+  }
   S.editParticipant = identifier;
   const p = provider || m.provider || "mock",
     pricing = m.pricing || {};
@@ -1399,7 +1405,7 @@ function sessionChooser(d) {
     S.session = sessions[0]?.id || null;
     S.offset = 0;
   }
-  return `<div class="toolbar">${modelPicker(d)}<label for="session-choice">Conversation</label><select id="session-choice" ${sessions.length ? "" : "disabled"}>${sessions.map((s) => `<option value="${e(s.id)}" ${s.id === S.session ? "selected" : ""}>${e(sessionLabel(s))}</option>`).join("") || "<option>No conversations yet</option>"}</select>${S.session ? btn("Conversation journal", "conversation-journal") + btn("Copy provider diagnostics", "copy-provider-diagnostics", `data-session="${e(S.session)}"`) + (canProbeProvider(d, S.session) ? btn("Test API", "test-provider", `data-session="${e(S.session)}"`) : "") : ""}${retryButton(d.sessions.find((s) => s.id === S.session))}<span class="spacer"></span></div>`;
+  return `<div class="toolbar">${modelPicker(d)}<label for="session-choice">Conversation</label><select id="session-choice" ${sessions.length ? "" : "disabled"}>${sessions.map((s) => `<option value="${e(s.id)}" ${s.id === S.session ? "selected" : ""}>${e(sessionLabel(s))}</option>`).join("") || "<option>No conversations yet</option>"}</select>${S.session ? btn("Conversation journal", "conversation-journal") + btn("Copy provider diagnostics", "copy-provider-diagnostics", `data-session="${e(S.session)}"`) + (canProbeProvider(d, S.session) ? btn("Test API", "test-provider", `data-session="${e(S.session)}"`) : "") : ""}${retryButton(d.sessions.find((s) => s.id === S.session))}${d.sessions.find(s=>s.id===S.session)?.submission ? btn("Save as participant","save-strategy",`data-session="${e(S.session)}"`) : ""}<span class="spacer"></span></div>`;
 }
 async function renderRun(epoch) {
   const d = S.detail;
@@ -1659,21 +1665,24 @@ function overviewData(d) {
   const blank = () => ({ wins: 0, draws: 0, losses: 0, failures: 0 });
   for (const { match, entries } of selected)
     for (const item of entries) {
-      if (!models.has(item.model))
-        models.set(item.model, { model: item.model, ...blank() });
-      add(models.get(item.model), match, item.side);
-      const key = JSON.stringify([item.model, item.generation, item.condition]);
-      if (!history.has(key))
-        history.set(key, {
-          model: item.model,
-          condition: item.condition,
-          generation: item.generation,
-          ...blank(),
-        });
-      add(history.get(key), match, item.side);
+      const withinModel=overviewIdentity(match.sides[1-item.side]).model===item.model;
+      if (!withinModel) {
+        if (!models.has(item.model))
+          models.set(item.model, { model: item.model, ...blank() });
+        add(models.get(item.model), match, item.side);
+        const key = JSON.stringify([item.model, item.generation, item.condition]);
+        if (!history.has(key))
+          history.set(key, {
+            model: item.model,
+            condition: item.condition,
+            generation: item.generation,
+            ...blank(),
+          });
+        add(history.get(key), match, item.side);
+      }
       const who = scope.matrix === "versions" ? item.id : item.model;
       const other = scope.matrix === "versions" ? match.sides[1-item.side] : overviewIdentity(match.sides[1 - item.side]).model;
-      if (scope.matrix !== "versions" && scope.source === "competition" && other === item.model) continue;
+      if (scope.matrix !== "versions" && other === item.model) continue;
       const pair = JSON.stringify([who, other]);
       if (!matrix.has(pair))
         matrix.set(pair, {
@@ -1767,7 +1776,8 @@ function overviewFilters(d, data) {
 function overviewRanking(data) {
   if (!data.models.length)
     return '<div class="overview-empty">No scored matches in this selection.</div>';
-  return `<ol class="overview-ranking">${data.models.map((r, i) => `<li><span class="overview-rank">${i + 1}</span><div class="overview-rank-body"><div><strong>${e(r.model)}</strong><span>${pct(r.score)}</span></div><div class="overview-bar"><span style="width:${100 * (r.score || 0)}%;background:${overviewColor(r.model)}"></span></div><small>${r.wins}W · ${r.draws}D · ${r.losses}L${r.failures ? ` · ${r.failures} failed` : ""}</small></div></li>`).join("")}</ol>`;
+  const resultLink=(row,outcome,value)=>`<a href="#${query({view:'run',run:S.run,tab:'matches',kind:data.scope.source,entrant_model:row.model,round:data.scope.round,outcome,scored:'1',exclude_same_model:'1'})}">${value}</a>`;
+  return `<p class="muted">Against other models only. Click a result to inspect its fights.</p><ol class="overview-ranking">${data.models.map((r, i) => `<li><span class="overview-rank">${i + 1}</span><div class="overview-rank-body"><div><strong>${e(r.model)}</strong><span>${pct(r.score)}</span></div><div class="overview-bar"><span style="width:${100 * (r.score || 0)}%;background:${overviewColor(r.model)}"></span></div><small>${resultLink(r,"win",r.wins+"W")} · ${resultLink(r,"draw",r.draws+"D")} · ${resultLink(r,"loss",r.losses+"L")}${r.failures ? ` · ${r.failures} failed` : ""}</small></div></li>`).join("")}</ol>`;
 }
 function overviewColor(model) {
   const names = [
@@ -1948,13 +1958,13 @@ function overviewDetails(d, data, statistics) {
           ["Model", "Version", "Status", "Calls", "Cost", ""],
           data.sessions.map(
             (s) =>
-              `<tr><td>${e(s.model)}</td><td>${overviewRound(overviewIdentity(s.id).condition, s.generation)}<small>Repetition ${s.replicate + 1}</small></td><td>${status(s.status)} ${s.validation_status && !["valid", "not_submitted"].includes(s.validation_status) ? badge(s.validation_status === "pending" ? "Validation pending" : "Validation: " + text(s.validation_status), s.validation_status === "pending" ? "blue" : "orange") : ""}</td><td>${fmt(s.calls)}</td><td>${money(s.cost_spent)}</td><td>${btn("Open", "session-conversation", `data-session="${e(s.id)}"`)}${btn("Diagnostics", "session-diagnostics", `data-session="${e(s.id)}"`)}${retryButton(s)}</td></tr>`,
+              `<tr><td>${e(s.model)}</td><td>${overviewRound(overviewIdentity(s.id).condition, s.generation)}<small>Repetition ${s.replicate + 1}</small></td><td>${status(s.status)} ${s.validation_status && !["valid", "not_submitted"].includes(s.validation_status) ? badge(s.validation_status === "pending" ? "Validation pending" : "Validation: " + text(s.validation_status), s.validation_status === "pending" ? "blue" : "orange") : ""}</td><td>${fmt(s.calls)}</td><td>${money(s.cost_spent)}</td><td>${btn("Open", "session-conversation", `data-session="${e(s.id)}"`)}${btn("Diagnostics", "session-diagnostics", `data-session="${e(s.id)}"`)}${retryButton(s)}${s.submission ? btn("Save as participant","save-strategy",`data-session="${e(s.id)}"`) : ""}</td></tr>`,
           ),
         )
       : "<p>No conversations recorded.</p>"
   }</div></details>
   <details class="overview-details"><summary>Usage & match accounting</summary><div class="overview-detail-body">${usageAccounting(d)}<h3>Selected versions</h3><p>Tokens: ${e(tokenDisplay({ ...d, sessions: data.sessions }))} · ${fmt(data.sessions.reduce((n, s) => n + (s.calls || 0), 0))} model calls · ${fmt(data.sessions.reduce((n, s) => n + (s.steps || 0), 0))} tool calls</p><h3>Whole competition</h3><dl class="overview-accounting"><div><dt>All completed fights</dt><dd>${fmt(count((m) => m.kind !== "training"))}</dd></div><div><dt>Round 1 tournament</dt><dd>${fmt(count((m) => m.kind === "competition" && !/^g\d+-tournament$/.test(m.stage)))}</dd></div><div><dt>Improvement tournaments</dt><dd>${fmt(count((m) => /^g\d+-tournament$/.test(m.stage)))}</dd></div><div><dt>Reference evaluations</dt><dd>${fmt(count((m) => m.kind === "evaluation"))}</dd></div><div><dt>Preparation tests (unscored)</dt><dd>${fmt(statistics?.training_matches || 0)}</dd></div><div><dt>Diagnostic mirrors (included above)</dt><dd>${fmt(count((m) => m.mirror))}</dd></div></dl>${btn("View preparation tests", "show-training")}</div></details>
-  <details class="overview-details"><summary>How to read these results</summary><div class="overview-detail-body"><p>Score = (wins + 0.5 × draws) / completed appearances. 50% can mean all draws. Failures do not earn points and remain visible separately.</p><p>The feedback and no-feedback tracks share the initial submission, then continue independently. Every round finishes its tournament before the next preparation begins. Tournament opponents change between rounds. Reference tests use the frozen Round 1 strategies and built-in scripts for a common comparison.</p><p>Filters apply to all charts, the matrix and details. The model filter selects the candidate; opponents remain visible. Tournament mirrors and preparation tests are excluded from scored results. Multiple versions of the same model are grouped; appearances can exceed the number of unique fights. Tournament diagonals are omitted.</p><p>Cost and tokens measure preparation of selected versions, independently of the match category. Unknown provider usage stays unknown. Zero configured prices still allow token measurement.</p></div></details>`;
+  <details class="overview-details"><summary>How to read these results</summary><div class="overview-detail-body"><p>Score = (wins + 0.5 × draws) / completed appearances. 50% can mean all draws. Failures do not earn points and remain visible separately.</p><p>The feedback and no-feedback tracks share the initial submission, then continue independently. Every round finishes its tournament before the next preparation begins. Tournament opponents change between rounds. Reference tests use the frozen Round 1 strategies and built-in scripts for a common comparison.</p><p>Filters apply to all charts, the matrix and details. The model filter selects the candidate; opponents remain visible. Tournament mirrors and preparation tests are excluded from scored results. Model rankings and progress exclude fights against versions of the same model. The strategy-version matrix retains these comparisons; fight counts include them. Other appearances can exceed the number of unique fights. Tournament diagonals are omitted.</p><p>Cost and tokens measure preparation of selected versions, independently of the match category. Unknown provider usage stays unknown. Zero configured prices still allow token measurement.</p></div></details>`;
 }
 function summary(d, statistics = null) {
   const data = overviewData(d),
@@ -2465,7 +2475,7 @@ function codePage(data) {
     notice(
       "Each successful source write or team configuration creates a version in the journal. Improved versions include inherited initial history. Git is not required in participant folders.",
     ) +
-    `<div class="code-grid"><section class="panel"><h3>File write history</h3><div class="version-list">${data.versions.map((v) => `<button class="version-button ${v.index === S.version ? "active" : ""}" data-action="version" data-version="${v.index}"><strong>Version ${v.index + 1} <span class="timeline-tag">${generationLabel(v.generation)}</span></strong>${e(v.path)}<small>${v.inherited_round ? `Inherited from Round ${v.inherited_round}` : `After message ${v.message + 1}`} · ${v.files.length} files</small></button>`).join("")}</div></section><section class="panel"><div class="toolbar"><select id="source-file" aria-label="File">${current.files.map((f) => `<option ${f === S.file ? "selected" : ""}>${e(f)}</option>`).join("")}</select><span class="spacer"></span>${current.message >= 0 ? btn("Open conversation", "version-message", `data-message="${current.message}"`) : badge(`Starting files · Round ${current.inherited_round}`)}</div><div class="toolbar"><label for="source-previous">Compare with</label><select id="source-previous"><option value="-1">Empty state</option>${data.versions
+    `<div class="code-grid"><section class="panel"><h3>File write history</h3><div class="version-list">${data.versions.map((v) => `<button class="version-button ${v.index === S.version ? "active" : ""}" data-action="version" data-version="${v.index}"><strong>Version ${v.index + 1} <span class="timeline-tag">${generationLabel(v.generation)}</span></strong>${e(v.path)}<small>${v.saved_strategy ? "Frozen saved strategy" : v.inherited_round ? `Inherited from Round ${v.inherited_round}` : `After message ${v.message + 1}`} · ${v.files.length} files</small></button>`).join("")}</div></section><section class="panel"><div class="toolbar"><select id="source-file" aria-label="File">${current.files.map((f) => `<option ${f === S.file ? "selected" : ""}>${e(f)}</option>`).join("")}</select><span class="spacer"></span>${current.message >= 0 ? btn("Open conversation", "version-message", `data-message="${current.message}"`) : badge(current.saved_strategy ? "Frozen saved strategy" : `Starting files · Round ${current.inherited_round}`)}</div><div class="toolbar"><label for="source-previous">Compare with</label><select id="source-previous"><option value="-1">Empty state</option>${data.versions
       .slice(0, S.version)
       .map(
         (v) =>
@@ -2590,6 +2600,7 @@ function matchSubset() {
     if (f.kind !== "all" && kind !== (f.kind || "competition")) return false;
     if (f.stage && m.stage !== f.stage) return false;
     if (f.scored && m.mirror) return false;
+    if (f.exclude_same_model && overviewIdentity(m.sides[0]).model===overviewIdentity(m.sides[1]).model) return false;
     let scopedSide = null;
     if (f.entrant_model || f.round) {
       const candidates = overviewEntries(m).filter(
@@ -3276,6 +3287,14 @@ document.addEventListener("click", async (event) => {
         strategyName(node.dataset.session),
         sessionDiagnostics(data, true),
       );
+    } else if (a === 'saved-source') {
+      $('#dialog').close(); navigate('run',{run:node.dataset.run,tab:'code',session:node.dataset.session});
+    } else if (a === 'add-reference') {
+      const catalog=await api('/api/reference-strategies');
+      openDialog('Add reference strategy','Fixed weapons-only opponents',`<form data-form="reference-strategy">${selectField('Reference','reference',catalog.strategies.map(row=>[row.id,row.name]),'passive')}${field('Participant ID','id','reference-passive','text','','required pattern="[a-zA-Z0-9][a-zA-Z0-9_-]{0,39}"')}<p>Uses the default single-leek scenario. These are practical baselines, not certified difficulty levels.</p>${catalog.strategies.map(row=>`<p><strong>${e(row.name)}</strong>: ${e(row.description)} ${row.source ? `<a href="${e(row.source)}" target="_blank" rel="noreferrer">Source (${e(row.license)})</a>` : ''}</p>`).join('')}<button type="submit" class="button primary">Add participant</button></form>`);
+    } else if (a === "save-strategy") {
+      const sid=node.dataset.session;
+      openDialog('Save strategy as participant',strategyName(sid),`<form data-form="saved-strategy" data-session="${e(sid)}">${field('Participant ID','id',sid.slice(0,30)+'-fixed','text','Frozen submitted files and team; no LLM calls. Requires the original scenario.','required pattern="[a-zA-Z0-9][a-zA-Z0-9_-]{0,39}"')}<button type="submit" class="button primary">Save participant</button></form>`);
     } else if (a === "session-conversation")
       navigate("run", {
         run: S.run,
@@ -3388,7 +3407,13 @@ document.addEventListener("submit", async (event) => {
   try {
     const f = new FormData(form),
       type = form.dataset.form;
-    if (type === "participant") {
+    if (type === 'reference-strategy') {
+      await api('/api/participant/reference',{reference:f.get('reference'),id:f.get('id')},true);
+      await refreshBoot(); $('#dialog').close(); await renderRoute(); toast('Reference participant created');
+    } else if (type === 'saved-strategy') {
+      await api('/api/participant/import',{run:S.run,session:form.dataset.session,id:f.get('id')},true);
+      await refreshBoot(); $('#dialog').close(); toast('Saved strategy participant created');
+    } else if (type === "participant") {
       const provider = f.get("provider"),
         spec = { id: f.get("id"), provider };
       if (provider === "mock") spec.profile = f.get("profile");
@@ -3490,7 +3515,10 @@ document.addEventListener("submit", async (event) => {
 document.addEventListener("change", async (event) => {
   const n = event.target;
   try {
-    if (n.name === "provider" && n.closest("[data-form=participant]")) {
+    if (n.name === 'reference' && n.closest('[data-form=reference-strategy]')) {
+      const id=n.form.elements.id;
+      if (id.value.startsWith('reference-')) id.value='reference-'+n.value;
+    } else if (n.name === "provider" && n.closest("[data-form=participant]")) {
       const old = [...new FormData(n.form)],
         provider = n.value;
       participantDialog(S.editParticipant, provider);

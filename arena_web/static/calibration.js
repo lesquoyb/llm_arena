@@ -87,7 +87,24 @@ function button(label, fn) {
   b.onclick = guard(fn);
   return b;
 }
+let referenceEdits = {}, referencePath = null;
+function saveReferenceEdit() {
+  if (referencePath) {
+    const text=$('reference-content').value;
+    if (text===boot.reference_documents[referencePath]) delete referenceEdits[referencePath];
+    else referenceEdits[referencePath]=text;
+  }
+}
+$('reference-path').onchange=()=>{
+  saveReferenceEdit(); referencePath=$('reference-path').value;
+  $('reference-content').value=referenceEdits[referencePath] ?? boot.reference_documents[referencePath];
+};
 function fill(config) {
+  referenceEdits=structuredClone(config.reference_documents || {});
+  $('reference-path').replaceChildren();
+  Object.keys(boot.reference_documents).forEach(path=>option($('reference-path'),path,path));
+  referencePath=$('reference-path').value;
+  $('reference-content').value=referenceEdits[referencePath] ?? boot.reference_documents[referencePath];
   $("name").value = config.name;
   $("round-stop").value =
     config.max_rounds === null
@@ -160,10 +177,12 @@ function fill(config) {
   updateRoundStop();
 }
 function config() {
+  saveReferenceEdit();
   const value = {
     ...structuredClone(boot.config),
     name: $("name").value,
     prompt: $("prompt").value,
+    reference_documents:structuredClone(referenceEdits),
     target: JSON.parse($("target-json").value),
     tools: [...$("tools").querySelectorAll("input:checked")].map(
       (el) => el.value,
@@ -869,7 +888,7 @@ $("show-prompt").onclick = guard(async () => {
     return;
   }
   const value = await api(qs("/api/candidate", { trial: selectedTrial }));
-  await reveal("Initial system prompt", value.config.prompt);
+  await reveal("Initial prompt and reference changes", {prompt:value.config.prompt,reference_documents:value.config.reference_documents || {},document_diffs:value.document_diffs || {}});
 });
 $("tool-requests").onclick = guard(async () => {
   const reports = await api(qs("/api/tool-requests"));

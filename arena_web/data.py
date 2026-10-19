@@ -125,6 +125,32 @@ class Store:
                 self.secrets[model["api_key_env"]] = secret
         return {"saved": model["id"]}
 
+    def import_strategy(self, identifier, sid, name):
+        from arena.core import submission, source_files
+        root=self.run_path(identifier)
+        state=self.session(identifier,sid)
+        info=state.get('submission')
+        if not info:
+            raise ArenaError('This conversation has no submitted strategy')
+        source=safe_path(root,'sessions/'+sid+'/submission')
+        if submission(source,info['entrypoint']) != info:
+            raise ArenaError('Submitted source no longer matches its frozen fingerprint')
+        with self.lock:
+            if any(m['id']==name for m in self.catalog()):
+                raise ArenaError('A participant with this name already exists')
+            metadata=self.json(root/'experiment.json')
+            spec={'id':name,'provider':'mock','profile':'saved-strategy','strategy':{
+                'files':{path:content.decode('utf-8') for path,content in source_files(source).items()},
+                'submission':info,'scenario_sha256':digest(metadata['config']['scenario']),
+                'origin':{'run':identifier,'session':sid,'model':state['model'],
+                          'round':state.get('generation',0)+1,'condition':state.get('condition','initial')}}}
+            # Validation uses the source scenario, rather than the default scenario.
+            config=copy.deepcopy(metadata['config']);config['models']=[spec]
+            config['spending']={'allow_paid_calls':False,'max_total_usd':0}
+            validate_config(config)
+            write_json(self.state/'participants.json',self.catalog()+[spec])
+        return {'saved':name}
+
     def delete_participant(self, identifier):
         with self.lock:
             write_json(self.state / "participants.json", [m for m in self.catalog() if m["id"] != identifier])
@@ -552,6 +578,16 @@ class Store:
 
     def starting_writes(self, identifier, sid, state=None):
         state = state or self.session(identifier, sid)
+        if state.get('saved_strategy_origin') is not None and state.get('submission'):
+            result=[]
+            for name,expected in sorted(state['submission']['files'].items()):
+                path=safe_path(self.run_path(identifier),f'sessions/{sid}/submission/{name}')
+                content=path.read_bytes()
+                if hashlib.sha256(content).hexdigest()!=expected:
+                    raise ArenaError('Saved strategy source changed')
+                result.append({'message':-1,'generation':state.get('generation',0),'saved_strategy':True,
+                               'path':name,'content':content.decode('utf-8'),'sha256':expected})
+            return result
         if state.get('history_policy') != 'fresh-round' or not state.get('parent'):
             return []
         from arena.submitted_versions import OwnSubmissions

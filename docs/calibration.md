@@ -199,3 +199,28 @@ calls checkbox and check the pricing and spending fields. To optimize final
 score alone, set both convergence and token penalties to zero; add them later
 if faster convergence or lower token use is part of the objective. A trial can
 still finish at its maximum without establishing a plateau.
+
+### Optimize the reference documents too
+
+The **Reference documents** editor changes the Markdown learning material served
+by `read_docs`, including `authoring.md`, component guidance, the language cheat
+sheet and tutorials. Selecting a document preserves edits to the previous one.
+Fork an existing candidate to carry its prompt and document edits into a new
+manual study. Exporting the configuration includes `reference_documents`, a map
+of paths to complete replacement text. Unlisted paths keep their original text.
+
+The automatic analyst receives the reference texts as well as the prompt and
+training trajectory. It can propose document replacements using the same
+`reference_documents` field. The existing paired candidate evaluation accepts or
+rejects the prompt/document package together. Candidate review exposes unified
+diffs for each changed document. Every trial freezes and fingerprints its own
+corpus; rejected candidates never edit the repository or the incumbent corpus.
+Generated API/equipment catalogs, rule JSON, opponents, seeds and executable tools
+are excluded from document editing. Tool changes remain structured requests for
+human review. The analyst receives additional input tokens for these documents;
+target usage counts only documents it actually reads.
+
+Static opponent IDs now include `turret` and `human-weapon` alongside `passive`,
+`single-shot` and `rush`. These are useful reference behaviors, not an established
+ordering of human ability. `human-weapon` ports one Apache-2.0 weapon-selection
+heuristic; it does not reproduce the upstream AI's full team and chip logic.

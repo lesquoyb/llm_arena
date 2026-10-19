@@ -72,6 +72,10 @@ def validate_config(value: dict) -> dict:
             raise ArenaError("Invalid or duplicate model ID")
         ids.add(model["id"])
         if model["provider"] == "mock":
+            if model.get("profile") == "saved-strategy":
+                from .saved_strategy import validate as validate_saved
+                validate_saved(model, value["scenario"])
+                continue
             if set(model) != {"id", "provider", "profile"} or model["profile"] not in PROFILES:
                 raise ArenaError("Invalid mock profile")
         else:
@@ -456,7 +460,8 @@ def verify_workspace(state, tools):
 def run_session(sid, model, config, out, journal, engine, interrupt=None):
     state = journal.state(sid) or initial_state(sid, model, config)
     from .reasoning import apply_overrides
-    model = apply_overrides(model, state)
+    if model["provider"] != "mock":
+        model = apply_overrides(model, state)
     directory = out / "sessions" / sid
     from .feedback import access_for
     from .submitted_versions import OwnSubmissions
@@ -465,6 +470,10 @@ def run_session(sid, model, config, out, journal, engine, interrupt=None):
     if state["status"] in TERMINAL:
         if "submission" in state and submission(directory / "submission", state["submission"]["entrypoint"]) != state["submission"]:
             raise ArenaError("Archived session submission changed")
+        return
+    if model.get("profile") == "saved-strategy" and model.get("provider") == "mock":
+        from .saved_strategy import restore
+        restore(model, tools, state, sid, journal)
         return
     verify_workspace(state, tools)
     budget = config["budget_per_session"]

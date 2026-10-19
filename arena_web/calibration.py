@@ -15,6 +15,7 @@ from urllib.parse import parse_qs, urlsplit
 from uuid import uuid4
 
 from arena.calibration import defaults, validate
+from arena.calibration_documents import effective as effective_documents, originals as original_documents
 from arena.core import ROOT, ArenaError, read_json, write_json, digest, file_hash
 from arena.preparation import local_path
 from arena.tool_schemas import TOOLS
@@ -45,7 +46,7 @@ class Workshop:
             if not running and state.get('status') == 'running': state['status']='stopped'
             if process and process.poll() not in (None,0) and state.get('status') not in {'blocked','completed'}:
                 state['status']='stopped' if directory.name in self.errors else 'worker_failed'
-            comparison = {k:v for k,v in config.items() if k not in {'name','prompt','tools','analyst','optimizer'}}
+            comparison = {k:v for k,v in config.items() if k not in {'name','prompt','tools','analyst','optimizer','reference_documents'}}
             comparison['objective']={k:v for k,v in config['optimizer'].items() if k in {'round_penalty','token_penalty_per_million','score_tolerance'}}
             first=directory/'trials/000/calibration.json'
             comparison['scientific_identity']=read_json(first).get('scientific_identity') if first.exists() else None
@@ -110,6 +111,7 @@ class Workshop:
             try: scenarios['dream-team']=dream_team_scenario()
             except (ArenaError,OSError): pass
             return {'token':self.token,'config':defaults(),'participants':self.store.participants(),
+                    'reference_documents':original_documents(),
                     'tools':available_tools({'calibration':{'tools':[t['name'] for t in TOOLS]}}),'scenarios':scenarios}
         if route == '/api/studies': return self.listing()
         directory = local_path(self.root,value('study'))
@@ -135,9 +137,12 @@ class Workshop:
             parent=state['trials'][row['parent']] if row and row.get('parent') is not None else None
             before=read_json(directory/parent['directory']/'calibration.json')['config'] if parent else state['config']
             import difflib
+            before_documents=effective_documents(before)
+            after_documents=effective_documents(frozen)
             return {'config':frozen,'rationale':row.get('rationale') if row else 'Running candidate',
                     'tool_requests':row.get('tool_requests',[]) if row else [],
                     'prompt_diff':''.join(difflib.unified_diff(before['prompt'].splitlines(True),frozen['prompt'].splitlines(True),fromfile='incumbent prompt',tofile='candidate prompt')),
+                    'document_diffs':{path:''.join(difflib.unified_diff(before_documents[path].splitlines(True),text.splitlines(True),fromfile='incumbent '+path,tofile='candidate '+path)) for path,text in after_documents.items() if text!=before_documents.get(path)},
                     'tools_before':before['tools'],'tools_after':frozen['tools'],
                     'parameters_before':before['target'].get('parameters',{}),'parameters_after':frozen['target'].get('parameters',{})}
         if route in {'/api/fights','/api/fight'}:
