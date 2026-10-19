@@ -397,7 +397,7 @@ class Store:
         from .tool_exchange import inspect
         history = self.session(identifier, sid).get('history', [])
         if not 0 <= index < len(history): raise ArenaError('Message not found')
-        result = inspect(history, index, list(history_writes(history[:index+1])))
+        result = inspect(history, index, self.starting_writes(identifier,sid) + list(history_writes(history[:index+1])))
         if result is None: raise ArenaError('No matching file tool request was recorded')
         return result
 
@@ -525,18 +525,36 @@ class Store:
             raise ArenaError("The event artifact hash no longer matches the journal")
         return self.json(path)
 
+    def starting_writes(self, identifier, sid, state=None):
+        state = state or self.session(identifier, sid)
+        if state.get('history_policy') != 'fresh-round' or not state.get('parent'):
+            return []
+        from arena.submitted_versions import OwnSubmissions
+        versions = OwnSubmissions(self.run_path(identifier), state).versions()
+        if not versions: return []
+        previous = versions[-1]
+        result = []
+        for name, expected in sorted(previous['submission']['files'].items()):
+            path = safe_path(self.run_path(identifier), f"sessions/{previous['session']}/submission/{name}")
+            content = path.read_bytes()
+            if hashlib.sha256(content).hexdigest() != expected:
+                raise ArenaError('Inherited submitted source changed')
+            result.append({'message':-1, 'generation':state['generation'], 'inherited_round':previous['round'],
+                           'path':name, 'content':content.decode('utf-8'), 'sha256':expected})
+        return result
+
     def versions(self, identifier, sid):
         history = self.session(identifier, sid).get("history", [])
         files, versions = {}, []
-        for write in history_writes(history):
+        for write in self.starting_writes(identifier,sid) + list(history_writes(history)):
             files[write["path"]] = write["sha256"]
             versions.append({k: v for k, v in write.items() if k != "content"} |
                             {"index": len(versions), "files": sorted(files), "tree_sha256": digest(files)})
-        return {"versions": versions, "basis": "Successful source writes and team configurations; failed proposals are excluded."}
+        return {"versions": versions, "basis": "Inherited submitted files followed by successful source writes and team configurations; failed proposals are excluded."}
 
     def source(self, identifier, sid, version, filename, previous=None):
         files, before, after = {}, {}, None
-        writes = list(history_writes(self.session(identifier, sid).get("history", [])))
+        writes = self.starting_writes(identifier,sid) + list(history_writes(self.session(identifier, sid).get("history", [])))
         if not 0 <= version < len(writes):
             raise ArenaError("Version introuvable")
         previous = version - 1 if previous is None else previous

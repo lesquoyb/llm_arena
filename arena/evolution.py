@@ -122,18 +122,24 @@ def run_generation(config, out, journal, engine, initial, interrupt=None, retry_
                 state.pop("submission_reminders", None)
                 prompt_path = ROOT / "prompts" / ("feedback.md" if condition == "feedback" else "control.md")
                 message = state['history'][0]
+                from .round_context import phase, source_context, progress_line
+                from .submitted_versions import OwnSubmissions
+                versions = OwnSubmissions(out, state).versions()
+                message['previous_submission'] = source_context(versions[-1])
                 message.update(generation=generation,condition=condition,
-                    content=f"You are preparing Round {generation+1}; {generation} competition rounds have elapsed.\n"
+                    content=phase(generation+1, config.get('generations', 2)) + f" {generation} competition rounds have elapsed.\n"
                         + prompt_path.read_text(encoding='utf-8') + '\nPreparation rules:\n' + PROMPT)
                 if condition == "feedback":
                     counts = feedback_for(parent["id"], out / "tournament")
                     state["previous_round_feedback"] = counts
-                    message["content"] += (f"\nYour Round {generation} tournament results: {counts['wins']} wins, {counts['draws']} draws, "
-                                           f"{counts['losses']} losses, {counts['failures']} unscored failures across {counts['matches']} fights. "
-                                           "Use list_past_fights to choose a fight, then read_past_fight to inspect its overview, actions, "
-                                           f"your per-turn metrics or your debug/error logs. These tools only expose your Round {generation} fights.\n")
+                    message["content"] += ("\nUse list_past_fights to choose a fight, then read_past_fight to inspect its overview, actions, "
+                                           f"your per-turn metrics or your debug/error logs. The default is Round {generation}; pass round to list_past_fights for an earlier round of this track.\n")
+                    message['content'] += 'Performance across your own earlier rounds in this track:\n' + '\n'.join(
+                        progress_line(v['round'], feedback_for(v['session'], out / 'tournament')) for v in versions)
                     write_json(out / "feedback" / (sid + ".json"), counts)
                 copy_submission(Path(parent["path"]), out / "sessions" / sid / "workspace", parent["submission"])
+                from .experiment import workspace_files
+                state['workspace_files'] = workspace_files(out / 'sessions' / sid / 'workspace')
                 journal.save(sid, state, "branch_created", {"parent": parent["id"],
                                                           "checkpoint_sha256": state["parent_checkpoint_sha256"],
                                                           "condition": condition})

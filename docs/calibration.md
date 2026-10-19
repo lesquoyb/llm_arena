@@ -59,7 +59,7 @@ starting sides and all opponents/seeds. A script that fails compilation forfeits
 its evaluation and scores zero. Its diagnostics return to the next round.
 
 Training results return to the target in readable text. Enabled past-fight tools
-can inspect only the previous training round, labeled in every response, in the same replicate and candidate. Source-version tools can read your own earlier submissions by round, without exposing results.
+can inspect any completed earlier training round in the same replicate and candidate. Omit `round` in `list_past_fights` for the previous round, or pass a round number from `available_rounds`. Every response identifies the round and provides the matching `read_submitted_file` call. Source-version tools can read your own earlier submissions by round, without exposing results.
 Validation and audit records remain inaccessible through those tools.
 Optional fights against earlier versions show whether the model beats its own
 older strategies; they do not change the fixed-panel training score.
@@ -96,7 +96,7 @@ candidates. Provider seeds do not guarantee identical remote outputs.
 
 Select **Automatic prompt editing** and an analyst participant. The analyst
 receives the incumbent prompt, permitted tools, training trajectory and bounded
-conversation evidence. It proposes a replacement prompt, tool set and rationale.
+conversation evidence. It proposes a replacement prompt, a set of existing registered tools and a rationale. It can also report missing tools, unclear documentation or inadequate error feedback through structured `tool_requests`.
 It cannot change opponents, evaluation seeds or the target model. Validation and
 audit results are omitted from its evidence. Evidence truncation is explicit;
 full source records remain available for human inspection.
@@ -171,3 +171,31 @@ to shell redirection, which can produce UTF-16 files.
 The workshop reuses Arena's registered tool contracts and permission checks.
 It does not connect arbitrary external MCP servers. Adding a new tool requires
 implementing and registering it in Arena before enabling it in a calibration.
+
+## Tool improvement reports
+
+The analyst can produce two independent outputs: an executable candidate (a new
+prompt and selection of registered tools), and recommendations for development.
+A recommendation has `kind` (`new_tool`, `tool_change`, `documentation` or
+`error_feedback`), `problem` and `proposed_change`; optional fields are `tool`,
+`evidence` (session/round/message references) and `expected_benefit`.
+
+Choose **Tool improvement report** in the study inspector to read recommendations
+from all proposals, including candidates that were rejected. **Review change**
+also includes that candidate's requests. Files are retained in
+`proposals/NNN/tool-requests.json` and `tool-requests.md`. Reports are advisory:
+they do not install tools, execute code or automatically alter the benchmark.
+The analyst may keep the prompt unchanged and report a tool limitation instead.
+
+A coding agent could implement a recommendation in a separate branch, followed
+by review and a fresh study. This integration is not implemented. Changing a
+tool changes the experimental environment; start a new study rather than treating
+that change as a prompt-only candidate or silently modifying a running study.
+
+For a first automatic run, select a real target and an analyst, keep the fixed
+opponents, choose finite rounds (for example 8), and set 3 candidates including
+the baseline. Two replicates give a first check of variability. Enable the API
+calls checkbox and check the pricing and spending fields. To optimize final
+score alone, set both convergence and token penalties to zero; add them later
+if faster convergence or lower token use is part of the objective. A trial can
+still finish at its maximum without establishing a plateau.

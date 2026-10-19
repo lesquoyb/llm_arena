@@ -119,6 +119,9 @@ class Workshop:
                     'active_reports':{p.parent.relative_to(directory).as_posix():read_json(p) for p in directory.glob('trials/*/report.json')},
                     'trial_directories':[p.parent.relative_to(directory).as_posix() for p in sorted(directory.glob('trials/*/journal.sqlite'))],
                     'proposal_directories':[p.parent.relative_to(directory).as_posix() for p in sorted(directory.glob('proposals/*/journal.sqlite'))]}
+        if route == '/api/tool-requests':
+            return [{'candidate':int(path.parent.name)+1, 'requests':read_json(path).get('tool_requests',[])}
+                    for path in sorted(directory.glob('proposals/*/proposal.json'))]
         if route == '/api/log':
             path = directory/'worker.log'
             with path.open('rb') as stream:
@@ -133,6 +136,7 @@ class Workshop:
             before=read_json(directory/parent['directory']/'calibration.json')['config'] if parent else state['config']
             import difflib
             return {'config':frozen,'rationale':row.get('rationale') if row else 'Running candidate',
+                    'tool_requests':row.get('tool_requests',[]) if row else [],
                     'prompt_diff':''.join(difflib.unified_diff(before['prompt'].splitlines(True),frozen['prompt'].splitlines(True),fromfile='incumbent prompt',tofile='candidate prompt')),
                     'tools_before':before['tools'],'tools_after':frozen['tools'],
                     'parameters_before':before['target'].get('parameters',{}),'parameters_after':frozen['target'].get('parameters',{})}

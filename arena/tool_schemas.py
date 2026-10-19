@@ -51,9 +51,9 @@ TOOLS.extend([
 ])
 
 TOOLS.extend([
-    {"name": "list_past_fights", "description": "Feedback branches only: list your frozen Round 1 tournament fights with readable win/draw/loss results and your metrics. Paginated by fight count; use next_offset until null. Cannot access other participants or future/reference fights.",
-     "input_schema": schema({"offset": {"type": "integer", "minimum": 0}, "limit": {"type": "integer", "minimum": 1, "maximum": 100}})},
-    {"name": "read_past_fight", "description": "Feedback branches only: inspect an opaque fight_id from list_past_fights. overview explains fields; actions provides chronological events and entity IDs; turns provides your per-leek metrics; logs provides only your debug/error output. Text pages use character offsets; follow next_offset. Opponent code and debug output are never available.",
+    {"name": "list_past_fights", "description": "Feedback branches only: list your own tournament fights from a selected earlier round of this track. Omit round for the previous round; available_rounds lists accessible rounds. Includes results, metrics and the own submitted source round. Paginated by fight count; use next_offset until null. Cannot access other participants or future/reference fights.",
+     "input_schema": schema({"round": {"type": "integer", "minimum": 1}, "offset": {"type": "integer", "minimum": 0}, "limit": {"type": "integer", "minimum": 1, "maximum": 100}})},
+    {"name": "read_past_fight", "description": "Feedback branches only: inspect an opaque fight_id from list_past_fights. The response identifies the executed own submission by round and provides a read_submitted_file call. overview explains fields; actions provides chronological events and entity IDs; turns provides your per-leek metrics; logs provides only your debug/error output. Text pages use character offsets; follow next_offset. Opponent code and debug output are never available.",
      "input_schema": schema({"fight_id": TEXT, "section": {"type": "string", "enum": ["overview", "actions", "turns", "logs"]}, **PAGE}, ["fight_id"])},
 ])
 

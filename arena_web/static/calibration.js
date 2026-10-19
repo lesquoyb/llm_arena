@@ -871,6 +871,12 @@ $("show-prompt").onclick = guard(async () => {
   const value = await api(qs("/api/candidate", { trial: selectedTrial }));
   await reveal("Initial system prompt", value.config.prompt);
 });
+$("tool-requests").onclick = guard(async () => {
+  const reports = await api(qs("/api/tool-requests"));
+  const text = reports.flatMap(report=>report.requests.map((request,index)=>
+    `Candidate ${report.candidate} · ${index+1}. ${request.kind} · ${request.tool || "Arena tools"}\nProblem: ${request.problem}\nProposed change: ${request.proposed_change}\nExpected benefit: ${request.expected_benefit || "Not specified"}\nEvidence:\n${(request.evidence || []).join("\n")}\n`)).join("\n");
+  await reveal("Tool improvement report", text || "No tool improvement requests recorded. Recommendations are reports only; they do not install or modify tools.");
+});
 $("log").onclick = guard(async () => {
   const data = await api(qs("/api/log"));
   await reveal("Run log · last 128 KB", data.content);

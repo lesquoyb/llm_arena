@@ -52,4 +52,4 @@ class OwnSubmissions:
         if not expected: raise ArenaError('File not present in that submission')
         source=local_path(self.out/'sessions'/row['session']/'submission',path)
         if file_hash(source)!=expected: raise ArenaError('Archived source version changed')
-        return page(source.read_text(encoding='utf-8'),arguments,name,{'round':number,'path':path})
+        return {**page(source.read_text(encoding='utf-8'),arguments,name,{'round':number,'path':path}), 'round':number, 'path':path}

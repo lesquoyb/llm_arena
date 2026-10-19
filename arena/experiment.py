@@ -395,9 +395,10 @@ def execute_tool(sid, state, tools, journal, call, call_id, budget):
 
 def initial_state(sid, model, config):
     from .briefing import briefing, participant_scenario
+    from .round_context import phase
     return {"model": model["id"], "replicate": int(sid.split("-r")[-1].split("-")[0]),
             "generation": 0, "condition": "initial", "status": "running",
-            "history": [{"role": "user", "content": PROMPT, "budgets": config["budget_per_session"],
+            "history": [{"role": "user", "content": phase(1, config.get('generations', 2)) + '\n' + PROMPT, "budgets": config["budget_per_session"],
                          "scenario": participant_scenario(config["scenario"]), "briefing": briefing(config["scenario"]), "equipment_ids": {"weapons": "Use the item field in leekscript-v1/weapons.json (for example pistol = 37), not its object key or template", "chips": "Use the object key/id in leekscript-v1/chips.json (for example shock = 1); replay chip actions use template IDs"}, **({"team_instructions":
                          "Choose 1..scenario.team_size members using configure_team after writing their sources. "
                          "Each member can use a different entrypoint and equipment. When independent_builds is true, freely choose each member level (1–301), capital and components; supply level and capital explicitly. Reference member stats and components are not imposed on your team; omitted components mean none. Use preview_build to calculate final stats and costs, then validate_team to check the complete draft without changing files. Read the pinned equipment catalogs; "

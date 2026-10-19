@@ -45,6 +45,8 @@ to compare system prompts, tool sets and model parameters in a separate workshop
 It supports manual revisions, automatic analyst proposals, fixed opponents,
 round-by-round inspection and held-out evaluation. See the
 [prompt calibration guide](docs/calibration.md).
+Round context, earlier source versions and feedback permissions are described in
+the [round feedback guide](docs/round-feedback.md).
 
 ## Command line
 
