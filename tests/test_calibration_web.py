@@ -76,3 +76,22 @@ class CalibrationWebTests(TestCase):
             self.assertIsNotNone(result['metrics_after'])
             detail=workshop.get('/api/study',{'study':['automatic']})
             self.assertEqual(detail['proposals'][0]['directory'],'proposals/001')
+
+class CalibrationSummaryTests(TestCase):
+    def test_fight_summary_uses_recorded_opponents_and_outcomes(self):
+        from arena.core import scratch_directory,write_json
+        from arena.calibration import defaults
+        from arena_web.calibration import Workshop
+        with scratch_directory() as out:
+            workshop=Workshop(out,store=object())
+            trial=out/'sample/trials/000'
+            write_json(trial/'calibration.json',{'config':defaults()})
+            for index,winner in enumerate((0,-1,1)):
+                write_json(trial/f'evaluations/training-target-r0-g0/records/{index}.json',{'session':'target-r0-g0','opponent':'passive','seed':101,'side':0,'result':{'status':'completed','winner_side':winner}})
+            result=workshop.get('/api/fight-summary',{'study':['sample'],'trial':['trials/000']})
+            self.assertEqual(len(result['rows']),1)
+            self.assertEqual(result['rows'][0]['wins'],1)
+            self.assertEqual(result['rows'][0]['draws'],1)
+            self.assertEqual(result['rows'][0]['losses'],1)
+            self.assertEqual(result['rows'][0]['round'],1)
+            self.assertEqual(result['rows'][0]['opponent'],'passive')

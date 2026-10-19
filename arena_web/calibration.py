@@ -141,13 +141,14 @@ class Workshop:
         if route == '/api/studies': return self.listing()
         directory = local_path(self.root,value('study'))
         if route == '/api/study':
+            proposal_paths={p.parent:(p.parent/'proposal.json' if (p.parent/'proposal.json').exists() else p) for pattern in ('proposals/*/proposal.json','proposals/*/proposal-draft.json') for p in directory.glob(pattern)}
             return {'runtime_status':next((row['status'] for row in self.listing() if row['id']==directory.name), 'stopped'), 'config':saved_config(directory), 'state':read_json(directory/'study.json') if (directory/'study.json').exists() else {},
                     'progress': [{'trial': p.parent.name, 'value':read_json(p)} for p in directory.glob('trials/*/progress.json')],
                     'active_reports':{p.parent.relative_to(directory).as_posix():read_json(p) for p in directory.glob('trials/*/report.json')},
                     'trial_directories':[p.parent.relative_to(directory).as_posix() for p in sorted(directory.glob('trials/*/journal.sqlite'),key=lambda p:int(p.parent.name))],
                     'proposal_directories':[p.parent.relative_to(directory).as_posix() for p in sorted(directory.glob('proposals/*/journal.sqlite'),key=lambda p:int(p.parent.name))],
                     'proposals':[{'directory':p.parent.relative_to(directory).as_posix(),'candidate':int(p.parent.name)+1,
-                                  'rationale':read_json(p).get('rationale','')} for p in sorted(directory.glob('proposals/*/proposal.json'),key=lambda p:int(p.parent.name))]}
+                                  'rationale':read_json(p).get('rationale',''),'guard_status':read_json(p.parent/'guard.json').get('status') if (p.parent/'guard.json').exists() else None} for p in sorted(proposal_paths.values(),key=lambda p:int(p.parent.name))]}
         if route == '/api/tool-requests':
             return [{'candidate':int(path.parent.name)+1, 'requests':read_json(path).get('tool_requests',[])}
                     for path in sorted(directory.glob('proposals/*/proposal.json'),key=lambda p:int(p.parent.name))]
@@ -167,18 +168,21 @@ class Workshop:
             comparison=state['trials'][comparison_index] if comparison_index is not None else None
             before=read_json(directory/parent['directory']/'calibration.json')['config'] if parent else state['config']
             if route=='/api/proposal':
-                proposal=read_json(trial/'proposal.json')
+                proposal=read_json(trial/'proposal.json' if (trial/'proposal.json').exists() else trial/'proposal-draft.json')
                 frozen={**before,**{k:proposal[k] for k in ('prompt','tools','reference_documents') if k in proposal}}
             else:
                 proposal_path=directory/'proposals'/f'{candidate:03}'/'proposal.json'
-                proposal=read_json(proposal_path) if proposal_path.exists() else {}
+                proposal=read_json(proposal_path) if proposal_path.exists() else read_json(proposal_path.with_name('proposal-draft.json')) if proposal_path.with_name('proposal-draft.json').exists() else {}
                 frozen=read_json(trial/'calibration.json')['config']
             import difflib
-            before_documents=effective_documents(before)
-            after_documents=effective_documents(frozen)
-            return {'config':frozen,'candidate':candidate+1,'baseline':candidate==0,
-                    'decision_reason':decision_reason(row,comparison,state['config'],candidate),
-                    'decision':'Baseline' if candidate==0 else 'Kept' if row and row['accepted'] else 'Rejected' if row else 'Pending evaluation',
+            before_root=directory/parent['directory'] if parent else directory/'trials/000'
+            before_documents={name:(before_root/'corpus'/name).read_text(encoding='utf-8') if (before_root/'corpus'/name).exists() else text for name,text in effective_documents(before).items()}
+            after_root=directory/'trials'/f'{candidate:03}'
+            after_documents={name:(after_root/'corpus'/name).read_text(encoding='utf-8') if (after_root/'corpus'/name).exists() else frozen.get('reference_documents',{}).get(name,before_documents.get(name,text)) for name,text in effective_documents(frozen).items()}
+            guard_path=directory/'proposals'/f'{candidate:03}'/'guard.json'
+            return {'guard':read_json(guard_path) if guard_path.exists() else None,'guard_enabled':state['config'].get('proposal_guard',{}).get('enabled',False), 'config':frozen,'current_best':state.get('incumbent')==candidate,'comparison_candidate':comparison_index+1 if comparison_index is not None else None,'candidate':candidate+1,'baseline':candidate==0,
+                    'decision_reason':('Not evaluated: the proposal check returned '+read_json(guard_path)['status']+'.') if not row and guard_path.exists() and read_json(guard_path)['status']!='approved' else decision_reason(row,comparison,state['config'],candidate),
+                    'decision':'Baseline' if candidate==0 else 'Kept' if row and row['accepted'] else 'Rejected' if row else 'Blocked by proposal check' if guard_path.exists() and read_json(guard_path)['status']!='approved' else 'Pending evaluation',
                     'rationale':proposal.get('rationale') or (row.get('rationale') if row else 'Candidate evaluation is in progress.'),
                     'source_candidate':parent_index+1 if parent_index is not None else 1, 'search':row.get('search') if row else None, 'rl':row.get('rl') if row else None, 'metrics_before':comparison.get('report') if comparison else None,'metrics_after':row.get('report') if row else None,
                     'tool_requests':proposal.get('tool_requests',[]) or (row.get('tool_requests',[]) if row else []),
@@ -186,6 +190,25 @@ class Workshop:
                     'document_diffs':{path:''.join(difflib.unified_diff(before_documents[path].splitlines(True),text.splitlines(True),fromfile='incumbent '+path,tofile='candidate '+path)) for path,text in after_documents.items() if text!=before_documents.get(path)},
                     'tools_before':before['tools'],'tools_after':frozen['tools'],
                     'parameters_before':before['target'].get('parameters',{}),'parameters_after':frozen['target'].get('parameters',{})}
+        if route == '/api/fight-summary':
+            groups={}
+            for path in sorted((trial/'evaluations').glob('*/records/*.json')):
+                record=read_json(path)
+                if value('session') and record['session']!=value('session'): continue
+                panel=path.parent.parent.name.split('-',1)[0]
+                import re
+                match=re.fullmatch(r'target-r(\d+)-g(\d+)',record['session'])
+                replicate,round_number=(int(match[1])+1,int(match[2])+1) if match else (None,None)
+                key=(panel,replicate,round_number,record['opponent'])
+                row=groups.setdefault(key,{'panel':panel,'replicate':replicate,'round':round_number,'opponent':record['opponent'],'wins':0,'draws':0,'losses':0,'failed':0,'seeds':set()})
+                row['seeds'].add(record['seed'])
+                result=record['result']
+                outcome='failed' if result['status']!='completed' else 'draws' if result['winner_side']==-1 else 'wins' if result['winner_side']==record['side'] else 'losses'
+                row[outcome]+=1
+            frozen=trial/'calibration.json'
+            config=read_json(frozen)['config'] if frozen.exists() else saved_config(directory)
+            return {'opponents':config['opponents'],'rows':[{**row,'seeds':sorted(row['seeds'])} for row in groups.values()],
+                    'scoring':'Win = 1 point; draw = 0.5; loss = 0. Both starting sides are evaluated for every seed. Preparation fights are excluded.'}
         if route in {'/api/fights','/api/fight'}:
             fights=[]
             for path in sorted((trial/'evaluations').glob('*/records/*.json')):
@@ -220,6 +243,15 @@ class Workshop:
             row = db.execute('SELECT state FROM sessions WHERE id=?',(sid,)).fetchone()
             if not row: raise ArenaError('Unknown session')
             state = json.loads(row[0])
+            if route == '/api/diagnostic-evidence':
+                from arena.calibration_transcript import export
+                path=trial/'diagnostics'/f'{sid}.json'
+                receipt=read_json(path) if path.exists() else {}
+                evidence=([{'summary':receipt['summary']}] if receipt.get('evidence_source')=='summary' and receipt.get('summary') else export(state)['readable_reasoning'])
+                return {'session':sid,'evidence_source':receipt.get('evidence_source'),'evidence':evidence,'input_wrapping':'Each reasoning/summary item is passed as {reasoning_or_summary: item}; questions are separate. Message indices are export annotations.',
+                        'questions':receipt.get('questions'),'observations':receipt.get('observations',[]),'aggregation':receipt.get('aggregation'),
+                        'measured_facts':{'final_compilation':state.get('validity'),'model_calls':state.get('calls'),
+                                          'note':'Compilation is a measured engine result. It was not included in reasoning-only Laya input. A valid final script does not establish whether earlier attempts failed.'}}
             if route == '/api/export-conversation':
                 from arena.calibration_transcript import export
                 return export(state) | {'study':directory.name,'trial':value('trial'),'session':sid}

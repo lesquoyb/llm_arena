@@ -15,6 +15,5 @@ Resolve ambiguities against generator commit
 `b99a174dd938260d9e47b2e65a208cb32230e26e` while preparing the corpus, not by
 accessing the web during an experimental session.
 
-- `showcase.leek`: weapons, chips, healing and a summon callback (requires the showcase loadout).
 
 - `components.md` and `component-levels.json`: per-leek base component rules and public item levels.

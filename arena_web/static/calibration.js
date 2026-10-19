@@ -144,12 +144,14 @@ async function reviewCandidate(directory) {
   const value=await api(qs(directory.startsWith('proposals/')?'/api/proposal':'/api/candidate',{trial:directory}));
   if(study!==selected || epoch!==reviewEpoch)return;
   const mount=$('analyst-content');mount.replaceChildren();
-  mount.append(node('span',`Candidate ${value.candidate} · ${value.decision}`,'decision'));
+  mount.append(node('span',`Candidate ${value.candidate} · ${value.current_best?"Current best":value.baseline?"Initial baseline":value.decision=== "Kept"?"Selected earlier":value.decision}`,'decision'));
+  if(!value.baseline){mount.append(node('p',`Proposal check: ${value.guard?.status || (value.guard_enabled?'Not checked yet':'Disabled')}. This is separate from independent trajectory diagnostics.`));if(value.guard)mount.append(button('Inspect proposal check',()=>reveal('Experimental proposal check',value.guard)));}
+  if(!value.baseline)mount.append(node('p',`Candidate ${value.source_candidate} → analyst changes → candidate ${value.candidate} → evaluation against ${value.comparison_candidate ? 'best candidate '+value.comparison_candidate : 'the baseline'}.`));
   if(value.decision_reason) mount.append(node('p',value.decision_reason));
   mount.append(formatted(value.baseline?'This is the baseline. No analyst changes have been proposed for it.':value.rationale || 'No rationale recorded.'));
   if(value.metrics_after){const metrics=node('div',undefined,'review-metrics');for(const [key,label,format] of [['validation_score','Evaluation score',pct],['judge_score','Laya score',pct],['utility','Objective utility',x=>typeof x==='number'?x.toFixed(4):'Unknown'],['convergence_round','Convergence round',x=>x??'Not reached'],['tokens','Target tokens',x=>x??'Unknown']]){if(key==='judge_score' && (value.metrics_after.evaluation_mode==='conversation' || value.metrics_after.judge_score==null))continue;const box=node('div');box.append(node('span',key==='validation_score' && value.metrics_after.evaluation_mode==='conversation'?'Laya reasoning score':label),node('strong',key==='convergence_round'&&value.metrics_after.converged===false?'Not reached':format(value.metrics_after[key])));if(value.metrics_before)box.append(node('small','Previous: '+(key==='convergence_round'&&value.metrics_before.converged===false?'Not reached':format(value.metrics_before[key]))));metrics.append(box)}mount.append(metrics)}
   if(value.search)mount.append(node('p',`${value.search.mode} · Starting candidate ${value.source_candidate} · The analyst chose the diagnosis and changes independently.`));
-  await renderDiagnostics(value,epoch);
+  await Promise.all([renderDiagnostics(value,epoch),renderFightSummary(value,epoch)]);
   if(study!==selected || epoch!==reviewEpoch)return;
   if(value.rl)mount.append(node('p',`RL action: ${value.rl.action} · Reward: ${value.rl.reward.toFixed(4)} · Learned value: ${value.rl.q_after.toFixed(4)}`));
   if(value.config.evaluation?.mode && value.config.evaluation.mode!=='fights')mount.append(button('Inspect Laya scores and rubric',async()=>reveal('Local Laya judge',await api(qs('/api/judge',{trial:'trials/'+String(value.candidate-1).padStart(3,'0')})))));
@@ -217,6 +219,7 @@ function fill(config) {
   $('rl-plateau').checked=learning.stop_on_plateau;
   const observation=config.diagnostics || {enabled:false,evidence:'reasoning',model:'convaiinnovations/laya',device:'cpu'};
   $('diagnostics-enabled').checked=observation.enabled;
+  $('proposal-guard').checked=config.proposal_guard?.enabled || false;
   const evaluation=config.evaluation || {mode:'fights',weight:0.05,model:'convaiinnovations/laya',device:'cpu'};
   $('judge-evidence').value=observation.evidence;$('reward-mode').value=evaluation.mode;$('judge-model').value=observation.model;$('judge-device').value=observation.device;$('judge-weight').value=evaluation.weight;
   $("stream-responses").checked=config.stream_responses!==false;
@@ -348,6 +351,7 @@ function config() {
   value.search={stop_on_plateau:$('rl-plateau').checked};
   for(const [id,key] of Object.entries({'rl-exploration':'exploration','rl-minimum':'minimum_episodes','rl-patience':'plateau_patience','rl-improvement':'minimum_improvement','rl-seed':'seed'}))value.search[key]=Number($(id).value);
   value.evaluation={mode:'fights',evidence:'reasoning',model:'convaiinnovations/laya',device:'cpu',weight:0};
+  value.proposal_guard={enabled:$('proposal-guard').checked,model:$('judge-model').value,device:$('judge-device').value,accept_max_risk:0.2,reject_min_risk:0.8};
   value.diagnostics={enabled:$('diagnostics-enabled').checked,evidence:$('judge-evidence').value,model:$('judge-model').value,device:$('judge-device').value};
   value.optimizer.parameter_grid = JSON.parse($("parameter-grid").value);
   if ($("mode").value === "manual") value.optimizer.parameter_grid = {};
@@ -471,7 +475,7 @@ async function inspect(identifier, retain = false) {
           : t.report.convergence_round,
         t.report.tokens ?? "Unknown",
         button(
-          t.accepted ? "Kept · review change" : "Rejected · review change",
+          (i===data.state.incumbent?"Current best":i===0?"Initial baseline":t.accepted?"Selected earlier":"Not selected")+" · review",
           async () => {
             await reviewCandidate(t.directory);
             $('analyst-review').scrollIntoView({behavior:'smooth',block:'start'});
@@ -486,7 +490,7 @@ async function inspect(identifier, retain = false) {
     option(
       $("trial"),
       t.directory,
-      "Candidate " + (i + 1) + (t.accepted ? " · Kept" : " · Rejected"),
+      "Candidate " + (i + 1) + (i===data.state.incumbent?" · Current best":i===0?" · Initial baseline":t.accepted?" · Selected earlier":" · Not selected"),
     ),
   );
   data.progress.forEach((p) => {
@@ -1196,6 +1200,8 @@ async function renderDiagnostics(review,epoch){
   const labels={task_understanding:'Task understanding',language_api:'Language and API',tool_use:'Tool use',use_of_results:'Use of results',progress:'Progress'};
   for(const receipt of receipts){
     mount.append(node('h4',receipt.session));
+    mount.append(node('p',`Mean per-message distribution across ${receipt.observations?.length || 0} reasoning item(s). This is not a session accuracy score or a probability that the code works.`));
+    mount.append(button('Inspect Laya input and per-message results',async()=>reveal('Actual diagnostic evidence',await api(qs('/api/diagnostic-evidence',{trial:'trials/'+String(source-1).padStart(3,'0'),session:receipt.session})))));
     if(receipt.status!=='completed'){mount.append(node('p',receipt.reason || 'Diagnostic unavailable'));continue;}
     for(const [dimension,probabilities]of Object.entries(receipt.distributions)){
       const detail=node('details'),ranked=Object.entries(probabilities).sort((a,b)=>b[1]-a[1]);
@@ -1218,4 +1224,13 @@ function renderOptimization(state){
   const span=Math.max(.01,max-min);
   const path=document.createElementNS(svg.namespaceURI,'polyline');path.setAttribute('fill','none');path.setAttribute('stroke','#6ecbb2');path.setAttribute('stroke-width','3');path.setAttribute('points',values.map((v,i)=>`${30+i*740/Math.max(1,values.length-1)},${140-(v-min)/span*110}`).join(' '));svg.append(path);mount.append(svg);
   mount.append(node('small','Measured objective across candidates. Independent Laya diagnostics are excluded.'));
+}
+
+async function renderFightSummary(review,epoch){
+  const study=selected,data=await api(qs('/api/fight-summary',{trial:'trials/'+String(review.candidate-1).padStart(3,'0')}));
+  if(study!==selected || epoch!==reviewEpoch)return;
+  const mount=$('fight-summary');mount.replaceChildren(node('p',`Candidate ${review.candidate} · Configured opponents: ${data.opponents.join(', ')}.`),node('small',data.scoring));
+  if(!data.rows.length){mount.append(node('p','No recorded evaluation fights for this candidate yet.'));return;}
+  const labels={training:'Training',validation:'Validation',audit:'Final audit',history:'Previous versions'};
+  mount.append(table(['Panel','Repetition','Round','Opponent','Wins','Draws','Losses','Failed'],data.rows.map(row=>[labels[row.panel]||row.panel,row.replicate??'',row.round??'',row.opponent,row.wins,row.draws,row.losses,row.failed])));
 }

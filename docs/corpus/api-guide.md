@@ -48,9 +48,8 @@ chip is equipped, enough AP remain, cooldown is zero and targeting is valid.
 `summon(chip, cell, callback, name)` creates
 an allied entity whose callback runs on its own turns. Use an empty reachable
 cell and a summon chip. The callback sees the summon's own equipment and resources;
-`getSummoner()` identifies its owner. Read `corpus/showcase.leek` for a complete
-working example; its equipment and scenario are documented in the repository's
-`examples/showcase/README.md`.
+`getSummoner()` identifies its owner. Choose callback behavior appropriate to
+the summon's available equipment and resources.
 
 Preparation tools run against the actual pinned Java engine. Use `analyze` to
 check source code, then `test` to play training matches. Training currently uses

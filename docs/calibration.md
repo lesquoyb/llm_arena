@@ -388,3 +388,46 @@ Previously saved studies retain their frozen settings. Fork/edit their
 configuration and choose Quick diagnosis to start the shorter protocol; changing
 the defaults does not alter an ongoing study. Manual editing remains available
 and does not call the analyst or start the next candidate automatically.
+
+
+## Interpreting diagnostics, opponents and proposal checks
+
+A displayed diagnostic percentage is the mean of Laya's per-message class
+weights. It is not the fraction of the task understood, a session success rate,
+or the probability that code is correct. Documentation-only reasoning messages
+have the same weight as a detailed task explanation. Reasoning-only input excludes
+compiler results, tool results and code. Long messages use Laya's most-confident
+window per question. The model has not been calibrated on Arena conversations.
+
+**Inspect Laya input and per-message results** exposes the saved questions,
+reasoning evidence, individual answers, windows and aggregation, including for
+older studies. Final compilation is shown separately as a measured engine fact,
+not inferred from Laya. A correct final script does not prove no previous errors.
+
+The default opponent panel is `passive`, `single-shot`, `rush`; `turret` and
+`human-weapon` are additional selectable references. Saved configurations may use
+other subsets. **Fight results for the evaluated candidate** shows the actual
+opponents, panel, repetition, round and win/draw/loss counts from recorded fights.
+Draws earn half a point, so score is not win rate. Preparation fights are excluded.
+
+New authoring material uses isolated language examples instead of a ready-made
+move-and-shoot strategy. The complete feature showcase remains available to humans
+under `examples/strategies/feature-showcase`, outside the model documentation corpus.
+Old studies retain their frozen copies, including any previous combat examples.
+
+The analyst is explicitly instructed not to insert complete combat implementations
+or fully prescribed tactical recipes into prompts/documents. An additional
+**experimental Laya proposal check** is optional and disabled by default. It checks
+cumulative added material against the initial study, covering successive edits.
+All detected risks must be at most 0.2 for approval; any risk at least 0.8 rejects;
+intermediate values require review. Unavailable or ambiguous checks never approve
+a proposal. The analyst can repair within its configured retry budget; otherwise
+the study blocks before evaluating that proposal, preserving completed work and
+the proposal draft. This guard is separate from human-only trajectory diagnostics;
+its rejection feedback can be sent to the analyst to revise its proposal.
+
+Local spot checks showed false alarms on general workflow instructions and moderate
+risk on complete code. This is not a validated detector or a guarantee against
+solution leakage. Inspect the stored `guard.json` and `guards/` receipts. The normal
+syntax/API examples in documentation remain allowed. Existing material in a study's
+initial baseline is not certified by this check.

@@ -177,6 +177,7 @@
             <label><input id="rl-plateau" type="checkbox">Stop on objective plateau</label>
           </div>
           <p>The analyst independently chooses all changes. Exploitation starts from the best candidate; exploration may revisit another valid archived candidate to try a different hypothesis. Combat results and configured penalties decide whether to keep the result. Leave the candidate limit blank and disable plateau stopping to continue until manually stopped.</p>
+          <h3>Analyst proposal check</h3><label class="inline-check"><input id="proposal-guard" type="checkbox">Require the experimental Laya check before evaluating a proposal</label><p>Checks for supplied combat solutions and prescribed tactical recipes. Ambiguous proposals are not approved. This uses the selected local Laya checkpoint. It can make mistakes; it is disabled by default.</p>
           <h3>Objective settings</h3>
           <div class="fields">
             <label hidden
@@ -286,6 +287,7 @@
         <div id="workflow-status" class="workflow-status" aria-live="polite"></div>
         <section><h3>Optimization progress</h3><div id="rl-progress"></div></section>
         <div class="diagnostic-comparison"><section id="analyst-review" class="review-panel"><h3>Analyst findings & changes</h3><div id="analyst-content"></div></section><section class="review-panel"><h3>Independent Laya observations</h3><div id="diagnostic-content"></div></section></div>
+        <section><h3>Fight results for the evaluated candidate</h3><div id="fight-summary"></div></section>
         <div id="trial-comparison"></div>
         <div class="fields">
           <label>Candidate<select id="trial"></select></label

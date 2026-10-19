@@ -49,7 +49,7 @@ def diagnose(out, sid, state, settings, config):
                         raise ArenaError('Laya returned invalid diagnostic probabilities')
                     total=sum(probabilities.values())
                     for label,p in probabilities.items(): totals[key][label]+=p/total
-                observations.append({'reasoning_message':index+1,'answers':answers,'usage':result.get('usage')})
+                observations.append({'reasoning_message':index+1,'evidence':item,'answers':answers,'usage':result.get('usage')})
             distributions={key:{label:p/len(observations) for label,p in values.items()} for key,values in totals.items()}
             receipt.update(status='completed',distributions=distributions,observations=observations,
                 revision=getattr(model,'revision',None),package_version=importlib.metadata.version('laya'),
