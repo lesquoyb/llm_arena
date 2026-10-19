@@ -249,3 +249,4 @@ dialog:has(form[data-form=participant]) .dialog-error:not([hidden]) { margin: 16
   .overview-filters { padding: 16px; }
   .roster-disclosure #stats-editor { padding: 14px; }
 }
+.overview-matrix abbr small { display: block; font-size: 10px; white-space: normal; font-weight: 400; margin-top: 5px; }

@@ -38,6 +38,11 @@ compatible experiments. No Node.js installation is needed to use it.
 See the [Windows](docs/windows.md), [Linux](docs/linux.md) and [interface](docs/ui.md)
 guides. Installation needs Internet access; mock experiments and matches run locally afterward.
 
+## Benchmark campaigns
+
+See the [multi-model experiment plan](docs/benchmark-plan.md) for batching, parameter
+variants, feedback ablations, provider-free strategy reuse and multi-run CSV exports.
+
 ## Prompt calibration
 
 Run `python -m arena calibrate serve --open` with the virtual environment activated

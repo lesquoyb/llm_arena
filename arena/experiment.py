@@ -377,10 +377,15 @@ def execute_tool(sid, state, tools, journal, call, call_id, budget):
         state["test_matches"] += 2 if call["name"] == "test" else 0
         state["reserved"] = call_id
         journal.save(sid, state, "tool_reserved", call)
+    tool_started = time.monotonic()
     try:
         result = tools.call(call["name"], call["arguments"], call_id)
     except (ArenaError, OSError, ValueError, KeyError, TypeError) as error:
         result = {"error": str(error)}
+    state['wall_seconds'] = state.get('wall_seconds',0) + time.monotonic() - tool_started
+    from .budget_context import progress
+    budget_progress = progress(state, budget)
+    if budget_progress and isinstance(result,dict): result = {**result, 'preparation_budget':budget_progress}
     state["history"].append({"role": "tool", "call_id": call_id,
                              "provider_call_id": call.get("id", call_id),
                              "name": call["name"], "result": result})
@@ -396,9 +401,14 @@ def execute_tool(sid, state, tools, journal, call, call_id, budget):
 def initial_state(sid, model, config):
     from .briefing import briefing, participant_scenario
     from .round_context import phase
+    from .budget_context import progress, NOTICE
+    limits = progress({}, config['budget_per_session'])
+    shared = config.get('spending',{}).get('max_total_usd') if model['provider'] != 'mock' else None
     return {"model": model["id"], "replicate": int(sid.split("-r")[-1].split("-")[0]),
             "generation": 0, "condition": "initial", "status": "running",
             "history": [{"role": "user", "content": phase(1, config.get('generations', 2)) + '\n' + PROMPT, "budgets": config["budget_per_session"],
+                         **({'preparation_budget':limits,'budget_instructions':NOTICE} if limits else {}),
+                         **({'shared_spending_limit_usd':shared,'shared_limit_instructions':'Other conversations share this competition spending limit. Its exhaustion can stop your preparation before session limits; latest saved files are frozen automatically.'} if shared is not None else {}),
                          "scenario": participant_scenario(config["scenario"]), "briefing": briefing(config["scenario"]), "equipment_ids": {"weapons": "Use the item field in leekscript-v1/weapons.json (for example pistol = 37), not its object key or template", "chips": "Use the object key/id in leekscript-v1/chips.json (for example shock = 1); replay chip actions use template IDs"}, **({"team_instructions":
                          "Choose 1..scenario.team_size members using configure_team after writing their sources. "
                          "Each member can use a different entrypoint and equipment. When independent_builds is true, freely choose each member level (1–301), capital and components; supply level and capital explicitly. Reference member stats and components are not imposed on your team; omitted components mean none. Use preview_build to calculate final stats and costs, then validate_team to check the complete draft without changing files. Read the pinned equipment catalogs; "

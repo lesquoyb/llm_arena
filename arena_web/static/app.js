@@ -1371,16 +1371,11 @@ function modelPicker(d, journal = false) {
     .join("")}</select>`;
 }
 function strategyName(id) {
-  const session = S.detail?.sessions.find((s) => s.id === id);
-  const match = String(id || "").match(
-    /^(.*)-r(\d+)(?:-g1-(control|feedback))?$/,
-  );
-  if (!session && !match) return id || "Competition";
-  const model = session?.model || match[1],
-    repetition = Number(session?.replicate ?? match?.[2] ?? 0) + 1;
-  const improved = session?.generation || match?.[3];
-  const condition = session?.condition || match?.[3];
-  return `Round ${improved ? 2 : 1} · ${model} · repetition ${repetition} · ${improved ? `improved ${condition === "feedback" ? "with" : "without"} feedback` : "initial strategy"}`;
+  const session=S.detail?.sessions.find(s=>s.id===id);
+  const origin=S.detail?.metadata.manifest?.strategies?.find(s=>s.id===id)?.origin;
+  if (!session && !origin && !/^(.*)-r\d+(?:-g\d+-(?:control|feedback))?$/.test(String(id || ""))) return id || "Competition";
+  const item=overviewIdentity(id);
+  return `Round ${item.generation+1} · ${item.model} · repetition ${item.replicate+1} · ${item.generation ? `improved ${item.condition === "feedback" ? "with" : "without"} feedback` : "initial strategy"}`;
 }
 function sessionLabel(session) {
   return `Repetition ${Number(session.replicate || 0) + 1} · ${generationLabel(session.generation)}${session.generation ? " · " + text(session.condition) : ""} · ${text(session.status)}`;
@@ -1578,19 +1573,21 @@ function overviewSettings() {
     round: "all",
     model: "",
     source: "competition",
+    matrix: "models",
   });
 }
 function overviewIdentity(id) {
   const session = S.detail?.sessions.find((s) => s.id === id);
+  const origin = S.detail?.metadata.manifest?.strategies?.find(s=>s.id===id)?.origin;
   const parts = String(id || "").match(
     /^(.*)-r(\d+)(?:-g(\d+)-(control|feedback))?$/,
   );
   return {
     id,
-    model: session?.model || parts?.[1] || id,
-    condition: session?.condition || parts?.[4] || "initial",
-    generation: Number(session?.generation ?? parts?.[3] ?? 0),
-    replicate: Number(session?.replicate ?? parts?.[2] ?? 0),
+    model: session?.model || origin?.variant || parts?.[1] || id,
+    condition: session?.condition || origin?.condition || parts?.[4] || "initial",
+    generation: Number(session?.generation ?? (origin ? origin.round-1 : undefined) ?? parts?.[3] ?? 0),
+    replicate: Number(session?.replicate ?? origin?.replicate ?? parts?.[2] ?? 0),
   };
 }
 const overviewRound = (condition, generation = 1) => {
@@ -1673,12 +1670,13 @@ function overviewData(d) {
           ...blank(),
         });
       add(history.get(key), match, item.side);
-      const other = overviewIdentity(match.sides[1 - item.side]).model;
-      if (scope.source === "competition" && other === item.model) continue;
-      const pair = JSON.stringify([item.model, other]);
+      const who = scope.matrix === "versions" ? item.id : item.model;
+      const other = scope.matrix === "versions" ? match.sides[1-item.side] : overviewIdentity(match.sides[1 - item.side]).model;
+      if (scope.matrix !== "versions" && scope.source === "competition" && other === item.model) continue;
+      const pair = JSON.stringify([who, other]);
       if (!matrix.has(pair))
         matrix.set(pair, {
-          who: item.model,
+          who,
           other,
           entrants: new Set(),
           opponents: new Set(),
@@ -1729,8 +1727,9 @@ function overviewFilters(d, data) {
           ),
         ),
       ];
+  const sourceVersions = [...d.sessions.map(s=>overviewIdentity(s.id)), ...(d.metadata.manifest?.strategies || []).filter(s=>s.origin).map(s=>overviewIdentity(s.id))];
   const hasImprovement =
-    d.sessions.some((s) => s.generation > 0) ||
+    sourceVersions.some((s) => s.generation > 0) ||
     (S.overviewMatches || []).some((m) => m.stage.includes("g1"));
   return `<div class="overview-filters" role="group" aria-label="Overview filters"><label>Round<select data-overview-filter="round" aria-label="Overview round">${options(
     [
@@ -1743,9 +1742,9 @@ function overviewFilters(d, data) {
         : []),
       ...[
         ...new Set(
-          d.sessions
+          sourceVersions
             .filter((v) => v.generation > 0)
-            .map((v) => overviewRoundKey(overviewIdentity(v.id))),
+            .map(overviewRoundKey),
         ),
       ]
         .sort(
@@ -1762,7 +1761,7 @@ function overviewFilters(d, data) {
       ["evaluation", "Reference tests"],
     ],
     data.scope.source,
-  )}</select></label><span class="overview-scope">${data.selected.length} fights · ${data.models.length} models</span></div>`;
+  )}</select></label><label>Matrix grouping<select data-overview-filter="matrix" aria-label="Matrix grouping">${options([["models","By model"],["versions","By strategy version"]],data.scope.matrix || "models")}</select></label><span class="overview-scope">${data.selected.length} fights · ${data.models.length} models</span></div>`;
 }
 function overviewRanking(data) {
   if (!data.models.length)
@@ -1836,7 +1835,7 @@ function overviewMatchLink(data, who, other, outcome, value, description) {
     ids.length === 1 &&
     opponents.length === 1 &&
     stages.length === 1 &&
-    ids[0] !== opponents[0]
+    (ids[0] !== opponents[0] || data.scope.matrix === "versions")
   )
     return matrixLink(
       stages[0],
@@ -1865,14 +1864,16 @@ function overviewMatrix(data) {
   if (!data.matrix.length)
     return '<div class="overview-empty">Head-to-head results appear after opponents meet.</div>';
   const names = [...new Set(data.matrix.map((r) => r.other))].sort();
-  const rows = data.models
-    .map((r) => r.model)
-    .filter((who) => data.matrix.some((r) => r.who === who))
-    .sort();
+  const rows = [...new Set(data.matrix.map(r=>r.who))].sort();
   const short = (name) => (name.length > 18 ? name.slice(0, 16) + "…" : name);
-  const label = (name) =>
-    `<abbr title="${e(name)}" tabindex="0">${e(short(name))}</abbr>`;
-  return `<div class="overview-matrix-wrap"><table class="overview-matrix" style="min-width:${names.length > 5 ? (names.length + 1) * 96 : 0}px" aria-label="Model head-to-head results"><thead><tr><th scope="col">vs</th>${names.map((name) => `<th scope="col">${label(name)}</th>`).join("")}</tr></thead><tbody>${rows
+  const label = (name) => {
+    if (data.scope.matrix === "versions" && (S.detail.sessions.some(s=>s.id===name) || S.detail.metadata.manifest?.strategies?.some(s=>s.id===name && s.origin))) {
+      const identity=overviewIdentity(name);
+      return `<abbr title="${e(strategyName(name))}" tabindex="0">${e(short(identity.model))}<small>${e(overviewRound(identity.condition,identity.generation))} · #${identity.replicate+1}</small></abbr>`;
+    }
+    return `<abbr title="${e(name)}" tabindex="0">${e(short(name))}</abbr>`;
+  };
+  return `<div class="overview-matrix-wrap"><table class="overview-matrix" style="min-width:${names.length > 5 ? (names.length + 1) * 96 : 0}px" aria-label="Head-to-head results by selected grouping"><thead><tr><th scope="col">vs</th>${names.map((name) => `<th scope="col">${label(name)}</th>`).join("")}</tr></thead><tbody>${rows
     .map(
       (who) =>
         `<tr><th scope="row">${label(who)}</th>${names
@@ -1887,7 +1888,7 @@ function overviewMatrix(data) {
     )
     .join(
       "",
-    )}</tbody></table></div><div class="overview-caption">Row vs column · score and wins / draws / losses</div>`;
+    )}</tbody></table></div><div class="overview-caption">Row vs column · score and wins / draws / losses${data.scope.matrix === "versions" ? " · Each entry is a frozen strategy, identified by round, track and repetition." : " · Switch to strategy versions to inspect fights between rounds or feedback tracks of the same model."}</div>`;
 }
 function overviewDetails(d, data, statistics) {
   const recorded = (S.overviewMatches || []).filter(
@@ -1964,8 +1965,8 @@ function summary(d, statistics = null) {
         "needs_reconciliation",
         "generation_failed",
         "no_submission",
-        "budget_exhausted",
       ].includes(s.status) ||
+      (s.status === "budget_exhausted" && (!s.submission || s.validation_status !== "valid")) ||
       (s.validation_status &&
         !["valid", "pending", "not_submitted"].includes(s.validation_status)),
   );
@@ -1985,7 +1986,7 @@ function summary(d, statistics = null) {
         Number(s.money_reserved || 0) > 0,
     ),
     cost = sessions.reduce((n, s) => n + Number(s.cost_spent || 0), 0);
-  return `<div class="competition-overview">${overviewFilters(d, data)}${failures.length ? `<div class="overview-alert">${failures.length} conversation${failures.length === 1 ? "" : "s"} need attention. <button class="table-button" data-action="overview-failures">Review & retry</button></div>` : ""}<div class="overview-kpis"><div><span>Completed fights</span><strong>${fmt(data.selected.filter((v) => v.match.result.status === "completed").length)}</strong><small>${data.selected.filter((v) => v.match.result.status !== "completed").length} failed</small></div><div><span>Submitted strategies</span><strong>${sessions.length ? sessions.filter((s) => s.submission || s.status === "submitted").length : data.models.length}${sessions.length ? `<small> / ${sessions.length}</small>` : ""}</strong><small>${new Set(sessions.map((s) => s.model)).size || data.models.length} models</small></div><div><span>Estimated API cost</span><strong>${sessions.length ? (costUnknown ? "Unknown" : money(cost)) : "N/A"}</strong><small>Selected versions</small></div><div><span>Tokens · selected versions</span><strong>${known.length ? fmt(tokens) : real.length ? "Unknown" : "N/A"}</strong><small>${known.length ? (known.length < real.length || known.some(u=>!u.complete) ? "Partial reported usage" : "Input + output") : real.length ? "Not reported by provider" : "No measured LLM usage"}</small></div></div>
+  return `<div class="competition-overview">${overviewFilters(d, data)}${failures.length ? `<div class="overview-alert">${failures.length} conversation${failures.length === 1 ? "" : "s"} need attention. <button class="table-button" data-action="overview-failures">Review & retry</button></div>` : ""}<div class="overview-kpis"><div><span>Completed fights</span><strong>${fmt(data.selected.filter((v) => v.match.result.status === "completed").length)}</strong><small>${data.selected.filter((v) => v.match.result.status !== "completed").length} failed</small></div><div><span>Submitted strategies</span><strong>${sessions.length ? sessions.filter((s) => s.submission || s.status === "submitted").length : d.metadata.manifest?.strategies?.filter(s=>overviewAccept(overviewIdentity(s.id),data.scope)).length ?? data.models.length}${sessions.length ? `<small> / ${sessions.length}</small>` : ""}</strong><small>${new Set(sessions.map((s) => s.model)).size || data.models.length} models</small></div><div><span>Estimated API cost</span><strong>${sessions.length ? (costUnknown ? "Unknown" : money(cost)) : "N/A"}</strong><small>Selected versions</small></div><div><span>Tokens · selected versions</span><strong>${known.length ? fmt(tokens) : real.length ? "Unknown" : "N/A"}</strong><small>${known.length ? (known.length < real.length || known.some(u=>!u.complete) ? "Partial reported usage" : "Input + output") : real.length ? "Not reported by provider" : "No measured LLM usage"}</small></div></div>
   <div class="overview-charts"><section class="overview-card"><div class="overview-section-head"><h2>Model ranking</h2><span>Score</span></div>${overviewRanking(data)}</section><section class="overview-card"><div class="overview-section-head"><h2>Evolution</h2><span>Score by version</span></div>${overviewEvolution(data)}</section></div>
   ${data.matrix.length ? `<section class="overview-card overview-head-to-head"><div class="overview-section-head"><h2>Match matrix</h2><span>Click a result to see fights</span></div>${overviewMatrix(data)}</section>` : `<div class="overview-empty">${data.selected.length ? "No head-to-head pairs in this selection." : `No ${data.scope.source === "competition" ? "tournament" : "reference"} matches yet.`}${statistics?.training_matches ? ` ${statistics.training_matches} preparation tests recorded; excluded from standings. ${btn("View preparation tests", "show-training")}` : ""}</div>`}
   ${overviewDetails(d, data, statistics)}</div>`;
@@ -2607,9 +2608,7 @@ function matchSubset() {
     if (
       f.opponent &&
       (!m.sides.includes(f.opponent) ||
-        m.mirror ||
-        m.sides[0] === m.sides[1] ||
-        (f.entrant && m.sides[1 - m.sides.indexOf(f.entrant)] !== f.opponent))
+        (f.entrant && !m.sides.some((id, side)=>id===f.entrant && m.sides[1-side]===f.opponent)))
     )
       return false;
     if (
@@ -2620,7 +2619,7 @@ function matchSubset() {
     )
       return false;
     const completed = m.result.status === "completed",
-      side = scopedSide ?? (f.entrant ? m.sides.indexOf(f.entrant) : 0);
+      side = scopedSide ?? (f.entrant ? (m.candidate === f.entrant && m.candidate_side != null ? m.candidate_side : m.sides.indexOf(f.entrant)) : 0);
     if (f.outcome === "failure") return !completed;
     if (f.outcome === "completed") return completed;
     if (f.outcome === "draw") return completed && m.result.winner_side === -1;
