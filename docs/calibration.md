@@ -491,3 +491,18 @@ provider-reported reasoning counts in output without being counted twice. The
 summary also shows the entire optimization's tokens and call counts. The default
 short observation uses one round and at most eight target calls, which can be
 much smaller than a full Arena competition.
+
+## Recover a blocked analyst response
+
+Malformed analyst JSON receives a correction request, up to `editor_retries`
+(default one). A completed text response is not automatically a valid proposal.
+After retries are exhausted, the study retains its conversations and evaluations.
+
+Open **Intervene in a blocked analyst proposal** after stopping the worker.
+Send instructions to ask the analyst for another complete answer, or paste the
+complete corrected JSON (`prompt`, `tools`, `rationale`, and optional
+`reference_documents`/`tool_requests`). Click **Resume** afterwards. This works
+in automatic studies and continues the same search. Manual replacements are
+marked in the journal and still undergo normal configuration validation and any
+enabled proposal guard. Provider usage is retained; an intervention cannot bypass
+billing reconciliation or rewrite a frozen proposal.

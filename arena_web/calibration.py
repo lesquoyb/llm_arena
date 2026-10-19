@@ -144,6 +144,44 @@ class Workshop:
                 else: os.killpg(process.pid, signal.SIGTERM)
             return {'stopped':identifier}
 
+    def intervene(self, identifier, text, replacement=False):
+        """Record an explicit human intervention; never overwrite provider receipts."""
+        from arena.experiment import Journal
+        if type(replacement) is not bool: raise ArenaError('Replacement must be a boolean')
+        if not isinstance(text,str) or not text.strip() or len(text)>500000:
+            raise ArenaError('Provide instructions or a corrected proposal (maximum 500000 characters)')
+        with self.lock:
+            if any(p.poll() is None for p in self.processes.values()):
+                raise ArenaError('Stop the running study before intervening')
+            directory=local_path(self.root,identifier)
+            manifest=read_json(directory/'study.json')
+            index=manifest.get('active_proposal')
+            if index is None or index<=manifest.get('active_trial',0):
+                raise ArenaError('No unfinished analyst proposal. Use the conversation controls for target model failures.')
+            folder=directory/'proposals'/f'{index:03}'
+            if (folder/'proposal.json').exists(): raise ArenaError('This proposal is already frozen')
+            if replacement:
+                proposal=json.loads(text)
+                if not isinstance(proposal,dict): raise ArenaError('Proposal must be a JSON object')
+            journal=Journal(folder)
+            try:
+                state=journal.state('analyst-r0')
+                if not state: raise ArenaError('No analyst conversation to recover')
+                if state.get('in_flight') or state.get('status')=='needs_reconciliation':
+                    raise ArenaError('Resolve billing reconciliation before intervening')
+                state.update(status='running',repair_attempts=0,pending=None)
+                state.pop('failure',None)
+                if replacement:
+                    response={'role':'assistant','content':text,'human_supplied':True}
+                    state['history'].append({'role':'user','content':'Human corrected proposal JSON:\n'+text,'human_supplied':True});state['pending']=response
+                else:
+                    state['history'].append({'role':'user','content':text+'\nReturn the complete corrected proposal as JSON, following the original analyst instructions.'})
+                journal.save('analyst-r0',state,'human_proposal_replacement' if replacement else 'human_analyst_instruction',{'text':text})
+            finally: journal.db.close()
+            manifest.update(status='stopped',error='Human intervention recorded. Resume to continue.')
+            write_json(directory/'study.json',manifest)
+            return {'recorded':True,'candidate':index+1}
+
     def get(self, route, query):
         value = lambda key, default='': query.get(key,[default])[0]
         if route == '/api/bootstrap':
@@ -395,6 +433,7 @@ def serve(root, port=8766, open_browser=False):
                 if not 0<size<=2000000: raise ArenaError('Invalid request size')
                 data = json.loads(self.rfile.read(size))
                 if self.path=='/api/start': result=workshop.start(data['config'],data.get('automatic',False),keys=data.get('keys'))
+                elif self.path=='/api/intervene': result=workshop.intervene(data['id'],data['text'],data.get('replacement',False))
                 elif self.path=='/api/resume':
                     directory=local_path(workshop.root,data['id'])
                     result=workshop.start(saved_config(directory),read_json(directory/'study.json').get('automatic',False) if (directory/'study.json').exists() else data.get('automatic',False),data['id'],data.get('keys'))

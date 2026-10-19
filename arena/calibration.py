@@ -506,7 +506,9 @@ def propose(config, report, incumbent_dir, proposal_dir, learning=None):
 
 def repair_proposal(config, report, incumbent_dir, proposal_dir, journal, sid, state, reason):
     if state.get('repair_attempts',0)>=config['optimizer']['editor_retries']:
-        raise ArenaError('Editor proposal rejected: '+reason+' Inspect its conversation and journal.')
+        state['proposal_error']=reason
+        journal.save(sid,state,'proposal_repair_exhausted',{'reason':reason})
+        raise ArenaError('Editor proposal rejected: '+reason+' Inspect its conversation and journal. Use analyst intervention to request a new response or supply corrected JSON, then resume.')
     state['repair_attempts']=state.get('repair_attempts',0)+1
     state['pending']=None
     state['history'].append({'role':'user','content':reason+' Correct your previous answer. Return only a JSON object with prompt (complete replacement string), tools (registered tool names including write_file and submit) and rationale (string), plus optional tool_requests (structured recommendations only). Do not change the task or evaluation rules.'})

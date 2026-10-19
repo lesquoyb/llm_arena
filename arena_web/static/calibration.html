@@ -286,7 +286,7 @@
           </div>
         </div>
         <div id="status"></div><div id="study-cost" class="budget-strip"></div>
-        <div id="workflow-status" class="workflow-status" aria-live="polite"></div>
+        <details><summary>Intervene in a blocked analyst proposal</summary><p>Stop the study first. Add instructions to request another answer, or paste a complete corrected JSON proposal. Resume afterwards. Finished trials and provider usage are preserved. Corrected proposals still pass normal validation and the configured proposal check.</p><label>Instructions or complete proposal JSON<textarea id="intervention-text" rows="8"></textarea></label><button id="intervention-instruct" class="secondary">Send instructions to analyst</button><button id="intervention-replace" class="secondary">Use corrected proposal JSON</button><p id="intervention-status" role="status"></p></details><div id="workflow-status" class="workflow-status" aria-live="polite"></div>
         <section><h3>Optimization progress</h3><div id="rl-progress"></div></section>
         <div class="diagnostic-comparison"><section id="analyst-review" class="review-panel"><h3>Analyst findings & changes</h3><div id="analyst-content"></div></section><section class="review-panel"><h3>Independent Laya observations</h3><div id="diagnostic-content"></div></section></div>
         <section><h3>Fight results for the evaluated candidate</h3><div id="fight-summary"></div></section>

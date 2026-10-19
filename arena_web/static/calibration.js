@@ -1264,3 +1264,7 @@ async function downloadMaterial(directory){
 $('export-material').onclick=guard(()=>downloadMaterial($('trial').value));
 
 $('prompt-history').onclick=()=>{if(selected)location.href='/prompt-history?'+new URLSearchParams({study:selected});};
+
+for(const [id,replacement] of [['intervention-instruct',false],['intervention-replace',true]]){
+ $(id).onclick=guard(async()=>{await api('/api/intervene',{id:selected,text:$('intervention-text').value,replacement});$('intervention-status').textContent='Intervention saved. Click Resume to continue this optimization.';await inspect(selected);});
+}
