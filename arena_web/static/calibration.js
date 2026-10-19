@@ -1166,3 +1166,15 @@ function renderLearning(state){
   if(episodes.length>30)mount.append(node('p','Showing the latest 30 episodes in the table; the chart covers the full history.'));
   const policy=node('details');policy.append(node('summary','Learned policy'),node('pre',json(state.policy),'record-code'));mount.append(policy);
 }
+
+async function exportedConversation(){
+  if(!selected || !$('trial').value || !$('session').value)throw Error('Select a study, candidate and session first.');
+  return api(qs('/api/export-conversation',{trial:$('trial').value,session:$('session').value}));
+}
+$('export-conversation').onclick=guard(async()=>{
+  const data=await exportedConversation(),blob=new Blob([json(data)+'\n'],{type:'application/json'}),link=node('a');
+  link.href=URL.createObjectURL(blob);link.download=`${data.study}-${data.session}-conversation.json`;link.click();URL.revokeObjectURL(link.href);
+});
+$('inspect-reasoning').onclick=guard(async()=>{
+  const data=await exportedConversation();await reveal('Available reasoning (no model calls)',{statistics:data.statistics,readable_reasoning:data.readable_reasoning});
+});

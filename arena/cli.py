@@ -71,6 +71,11 @@ def parser():
     action.add_argument("config", type=Path)
     action.add_argument("--out", type=Path, required=True)
     action.add_argument("--automatic", action="store_true")
+    action = ca.add_parser("score-conversation", help="Score an exported conversation's readable reasoning with local Laya")
+    action.add_argument("conversation", type=Path)
+    action.add_argument("--out", type=Path, required=True)
+    action.add_argument("--model", choices=['convaiinnovations/laya','convaiinnovations/laya-multilingual','convaiinnovations/laya-typed-decisions'], default='convaiinnovations/laya')
+    action.add_argument("--device", choices=['cpu','cuda','mps'], default='cpu')
     c = commands.add_parser("mcp", help="Preparation tools over MCP stdio")
     actions_mcp = c.add_subparsers(dest="mcp_action", required=True)
     action = actions_mcp.add_parser("serve")
@@ -99,6 +104,10 @@ def main(argv=None):
             if args.calibration_action == "serve":
                 from arena_web.calibration import serve
                 serve(args.out, args.port, args.open_browser)
+                return 0
+            if args.calibration_action == 'score-conversation':
+                from .calibration_transcript import score
+                print(json.dumps(score(args.conversation,args.out,args.model,args.device),ensure_ascii=False,indent=2))
                 return 0
             result = defaults() if args.calibration_action == "example" else study(read_json(args.config), args.out, args.automatic)
             print(json.dumps(result, ensure_ascii=False, indent=2))

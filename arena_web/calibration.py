@@ -45,6 +45,11 @@ def decision_reason(row, parent, config, candidate):
     return 'Rejected: the configured objective did not improve. It combines validation score, convergence speed and token use.'
 
 
+def saved_config(directory):
+    path=directory/'input.json'
+    return read_json(path) if path.exists() else read_json(directory/'study.json')['config']
+
+
 class Workshop:
     def __init__(self, root, store=None):
         self.root = Path(root).resolve()
@@ -57,12 +62,12 @@ class Workshop:
 
     def listing(self):
         rows = []
-        for path in sorted(self.root.glob('*/input.json'), reverse=True):
-            directory = path.parent
+        directories={p.parent for pattern in ('*/input.json','*/study.json') for p in self.root.glob(pattern)}
+        for directory in sorted(directories, reverse=True):
             state = read_json(directory/'study.json') if (directory/'study.json').exists() else {}
             process = self.processes.get(directory.name)
             running = bool(process and process.poll() is None)
-            config=read_json(path)
+            config=saved_config(directory)
             if not running and state.get('status') == 'running': state['status']='stopped'
             if process and process.poll() not in (None,0) and state.get('status') not in {'blocked','completed'}:
                 state['status']='stopped' if directory.name in self.errors else 'worker_failed'
@@ -136,7 +141,7 @@ class Workshop:
         if route == '/api/studies': return self.listing()
         directory = local_path(self.root,value('study'))
         if route == '/api/study':
-            return {'runtime_status':next((row['status'] for row in self.listing() if row['id']==directory.name), 'stopped'), 'config':read_json(directory/'input.json'), 'state':read_json(directory/'study.json') if (directory/'study.json').exists() else {},
+            return {'runtime_status':next((row['status'] for row in self.listing() if row['id']==directory.name), 'stopped'), 'config':saved_config(directory), 'state':read_json(directory/'study.json') if (directory/'study.json').exists() else {},
                     'progress': [{'trial': p.parent.name, 'value':read_json(p)} for p in directory.glob('trials/*/progress.json')],
                     'active_reports':{p.parent.relative_to(directory).as_posix():read_json(p) for p in directory.glob('trials/*/report.json')},
                     'trial_directories':[p.parent.relative_to(directory).as_posix() for p in sorted(directory.glob('trials/*/journal.sqlite'),key=lambda p:int(p.parent.name))],
@@ -211,12 +216,15 @@ class Workshop:
             row = db.execute('SELECT state FROM sessions WHERE id=?',(sid,)).fetchone()
             if not row: raise ArenaError('Unknown session')
             state = json.loads(row[0])
+            if route == '/api/export-conversation':
+                from arena.calibration_transcript import export
+                return export(state) | {'study':directory.name,'trial':value('trial'),'session':sid}
             if route == '/api/live-response':
                 from arena.budget_context import progress
                 snapshot=trial/'sessions'/sid/'live-response.json'
                 live=read_json(snapshot) if snapshot.exists() else None
                 if live and live.get('call') != state.get('calls'): live=None
-                config=read_json(directory/'input.json')
+                config=saved_config(directory)
                 model=config.get('analyst') if sid.startswith('analyst') else config['target']
                 return {'streaming_supported':bool(model and model['provider'] in {'openai','openai-compatible'} and config.get('stream_responses',True)),
                         'status':state['status'],'in_flight':state.get('in_flight',False),
@@ -299,7 +307,7 @@ def serve(root, port=8766, open_browser=False):
                 if self.path=='/api/start': result=workshop.start(data['config'],data.get('automatic',False),keys=data.get('keys'))
                 elif self.path=='/api/resume':
                     directory=local_path(workshop.root,data['id'])
-                    result=workshop.start(read_json(directory/'input.json'),read_json(directory/'study.json').get('automatic',False) if (directory/'study.json').exists() else data.get('automatic',False),data['id'],data.get('keys'))
+                    result=workshop.start(saved_config(directory),read_json(directory/'study.json').get('automatic',False) if (directory/'study.json').exists() else data.get('automatic',False),data['id'],data.get('keys'))
                 elif self.path=='/api/stop': result=workshop.stop(data['id'])
                 else: raise ArenaError('Unknown route')
                 self.send(200,result)

@@ -52,6 +52,45 @@ conversations, code, evaluation records and costs.
 Mock participants let you test the workflow offline. Their fixed responses do
 not measure learning or real model quality. Mock token usage is not measured.
 
+## Reopen and export a previous calibration
+
+Start `python -m arena calibrate serve --open` from the same repository. The study
+list reads the saved `calibrations/` directory, including studies created through
+the CLI. Click the study name, select a **Candidate**, then a **Round or analyst
+session**. **Conversation**, **Journal**, **Saved files** and **Fights** inspect the
+saved records without resuming the run or making model calls. Avoid **Resume** if
+you only want to inspect it.
+
+If you used another output location, pass its parent collection directory:
+
+```powershell
+.\.venv\Scripts\python.exe -m arena calibrate serve --out "D:\experiments\calibrations" --open
+```
+
+Each immediate child containing `input.json` or `study.json` is a study. Keep the
+whole study folder; the SQLite journal alone does not contain every code/replay
+artifact. Files in `calibrations/` are local and are not pushed to GitHub.
+
+**Export conversation JSON** downloads the selected session's complete committed
+conversation, including system/user prompts, model outputs, tool calls/results,
+timestamps, and a separate readable-reasoning array. It exports every page, not
+just the currently visible messages. Duplicated transport requests are excluded.
+**Inspect available reasoning** shows message/character counts and the actual
+readable reasoning without inference. Character counts are not token estimates.
+
+To measure what Laya actually reads from that export, install `.[calibration]`
+and run (adjust the downloaded filename):
+
+```powershell
+.\.venv\Scripts\python.exe -m arena calibrate score-conversation "conversation.json" --out "laya-review"
+```
+
+The command runs local Laya on readable reasoning only, reports score, input
+tokens, token windows and inference duration, and saves the detailed receipt in
+`laya-review/judge/conversation.json`. It makes no target/analyst calls, runs no
+fights and leaves the original study unchanged. Different exports need separate
+review output directories. OpenAI encrypted reasoning cannot be scored this way.
+
 ## Scores, convergence and held-out fights
 
 Each win earns 1 point, each draw 0.5 and each loss 0. Scores average the two
