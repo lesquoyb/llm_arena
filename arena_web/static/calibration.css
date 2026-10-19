@@ -290,3 +290,5 @@ section p {line-height:1.65}
 .budget-strip {display:flex;gap:16px;flex-wrap:wrap;padding:12px;background:#101722;border-radius:8px;font-size:13px}
 #dialog-content {max-height:70vh;overflow:auto;white-space:normal}
 @media(max-width:650px){main{padding:0 10px}section{padding:16px}.fields{grid-template-columns:1fr}.transcript-controls{top:70px}header{gap:12px;font-size:13px}}
+
+.diagnostic-comparison{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px}.diagnostic-comparison section{min-width:0}.diagnostic-probability{display:grid;grid-template-columns:minmax(0,1fr) 90px 50px;gap:8px;padding:6px 0;font-size:13px}.diagnostic-probability meter{width:100%}@media(max-width:1000px){.diagnostic-comparison{grid-template-columns:1fr}}

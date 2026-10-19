@@ -26,7 +26,7 @@
           ><label
             >Workflow<select id="mode">
               <option value="manual">Manual editing (no analyst)</option>
-              <option value="automatic">Reinforcement learning</option>
+              <option value="automatic">Automatic optimization</option>
               <option value="grid">Model parameter sweep</option>
             </select></label
           ><label id="analyst-label" hidden
@@ -156,28 +156,30 @@
           ><label
             >Scenario JSON<textarea id="scenario" rows="10"></textarea>
           </label>
-          <h3>Reward and reinforcement learning</h3>
+          <h3>Independent Laya diagnostics</h3>
+          <label class="inline-check"><input id="diagnostics-enabled" type="checkbox">Save independent Laya diagnostics for human inspection</label>
           <div class="fields">
-            <label>Reward source<select id="reward-mode"><option value="fights">Combat score</option><option value="hybrid">Combat score + Laya tie-break</option><option value="conversation">Laya conversation score (no evaluation fights)</option></select></label>
+            <label hidden>Legacy reward source<select id="reward-mode"><option value="fights">Combat score</option><option value="hybrid">Combat score + Laya tie-break</option><option value="conversation">Laya conversation score (no evaluation fights)</option></select></label>
             <label>Evidence sent to Laya<select id="judge-evidence"><option value="reasoning">Readable reasoning only</option><option value="summary">Analyst summary (adds analyst calls)</option></select></label>
             <label>Laya checkpoint<select id="judge-model"><option value="convaiinnovations/laya">English</option><option value="convaiinnovations/laya-multilingual">Multilingual</option><option value="convaiinnovations/laya-typed-decisions">Typed decisions</option></select></label>
             <label>Laya device<select id="judge-device"><option value="cpu">CPU (keeps GPU free for Ollama)</option><option value="cuda">CUDA</option><option value="mps">Apple MPS</option></select></label>
-            <label>Conversation reward weight<input id="judge-weight" type="number" min="0" max="1" step="0.01"></label>
+            <label hidden>Legacy conversation reward weight<input id="judge-weight" type="number" min="0" max="1" step="0.01"></label>
           </div>
-          <p>Laya receives reasoning or a factual analyst summary, never raw code. Encrypted reasoning is unavailable; choose summary mode for those targets. Laya runs locally after installing the optional calibration dependency. Scores range from 0 to 1. Invalid code cannot become the best candidate. Conversation-only scoring is a proxy, not measured combat strength. Preparation fights requested by the target remain available.</p>
+          <p>Laya diagnoses task understanding, language/API problems, tools, use of results and progress. Its probability distributions are saved for you, never sent to the analyst and never used to select candidates. Missing reasoning or an unavailable Laya installation does not block optimization.</p>
+          <h3>Exploration and exploitation</h3>
           <div class="fields">
-            <label>Learning rate<input id="rl-rate" type="number" min="0.001" max="1" step="0.01"></label>
+            <label hidden>Legacy learning rate<input id="rl-rate" type="number" min="0.001" max="1" step="0.01"></label>
             <label>Exploration probability<input id="rl-exploration" type="number" min="0" max="1" step="0.01"></label>
-            <label>Minimum learning episodes<input id="rl-minimum" type="number" min="1"></label>
-            <label>Reward plateau patience<input id="rl-patience" type="number" min="1"></label>
-            <label>Minimum reward improvement<input id="rl-improvement" type="number" min="0" max="1" step="0.001"></label>
-            <label>Learning seed<input id="rl-seed" type="number" min="0"></label>
-            <label><input id="rl-plateau" type="checkbox">Stop on reward plateau</label>
+            <label>Minimum optimization attempts<input id="rl-minimum" type="number" min="1"></label>
+            <label>Objective plateau patience<input id="rl-patience" type="number" min="1"></label>
+            <label>Minimum objective improvement<input id="rl-improvement" type="number" min="0" max="1" step="0.001"></label>
+            <label>Search seed<input id="rl-seed" type="number" min="0"></label>
+            <label><input id="rl-plateau" type="checkbox">Stop on objective plateau</label>
           </div>
-          <p>The controller learns which editing actions improve the prompt and reference documents. It explores all action types before plateau stopping. No model weights are trained. Disable plateau stopping and leave the candidate limit blank to run until manually stopped.</p>
+          <p>The analyst independently chooses all changes. Exploitation starts from the best candidate; exploration may revisit another valid archived candidate to try a different hypothesis. Combat results and configured penalties decide whether to keep the result. Leave the candidate limit blank and disable plateau stopping to continue until manually stopped.</p>
           <h3>Objective settings</h3>
           <div class="fields">
-            <label
+            <label hidden
               >Legacy search patience<input
                 id="search-patience"
                 type="number"
@@ -282,8 +284,8 @@
         </div>
         <div id="status"></div>
         <div id="workflow-status" class="workflow-status" aria-live="polite"></div>
-        <section><h3>Learning progress</h3><div id="rl-progress"></div></section>
-        <section id="analyst-review" class="review-panel"><h3>Analyst findings & changes</h3><div id="analyst-content"></div></section>
+        <section><h3>Optimization progress</h3><div id="rl-progress"></div></section>
+        <div class="diagnostic-comparison"><section id="analyst-review" class="review-panel"><h3>Analyst findings & changes</h3><div id="analyst-content"></div></section><section class="review-panel"><h3>Independent Laya observations</h3><div id="diagnostic-content"></div></section></div>
         <div id="trial-comparison"></div>
         <div class="fields">
           <label>Candidate<select id="trial"></select></label

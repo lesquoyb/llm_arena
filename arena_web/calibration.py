@@ -161,8 +161,10 @@ class Workshop:
             state=read_json(directory/'study.json')
             candidate=int(trial.name)
             row=next((t for t in state.get('trials',[]) if t['directory']==f'trials/{candidate:03}'),None)
-            parent_index=row.get('parent') if row else state.get('incumbent')
+            parent_index=row.get('parent') if row else state.get('active_parent',state.get('incumbent'))
             parent=state['trials'][parent_index] if parent_index is not None else None
+            comparison_index=row.get('comparison_parent',parent_index) if row else state.get('incumbent')
+            comparison=state['trials'][comparison_index] if comparison_index is not None else None
             before=read_json(directory/parent['directory']/'calibration.json')['config'] if parent else state['config']
             if route=='/api/proposal':
                 proposal=read_json(trial/'proposal.json')
@@ -175,10 +177,10 @@ class Workshop:
             before_documents=effective_documents(before)
             after_documents=effective_documents(frozen)
             return {'config':frozen,'candidate':candidate+1,'baseline':candidate==0,
-                    'decision_reason':decision_reason(row,parent,state['config'],candidate),
+                    'decision_reason':decision_reason(row,comparison,state['config'],candidate),
                     'decision':'Baseline' if candidate==0 else 'Kept' if row and row['accepted'] else 'Rejected' if row else 'Pending evaluation',
                     'rationale':proposal.get('rationale') or (row.get('rationale') if row else 'Candidate evaluation is in progress.'),
-                    'rl':row.get('rl') if row else None, 'metrics_before':parent.get('report') if parent else None,'metrics_after':row.get('report') if row else None,
+                    'source_candidate':parent_index+1 if parent_index is not None else 1, 'search':row.get('search') if row else None, 'rl':row.get('rl') if row else None, 'metrics_before':comparison.get('report') if comparison else None,'metrics_after':row.get('report') if row else None,
                     'tool_requests':proposal.get('tool_requests',[]) or (row.get('tool_requests',[]) if row else []),
                     'prompt_diff':''.join(difflib.unified_diff(before['prompt'].splitlines(True),frozen['prompt'].splitlines(True),fromfile='incumbent prompt',tofile='candidate prompt')),
                     'document_diffs':{path:''.join(difflib.unified_diff(before_documents[path].splitlines(True),text.splitlines(True),fromfile='incumbent '+path,tofile='candidate '+path)) for path,text in after_documents.items() if text!=before_documents.get(path)},
@@ -198,6 +200,8 @@ class Workshop:
             from .replay import describe
             return {'match':match,'team_metrics':outcome.get('team_metrics'),
                     'events':describe(outcome.get('fight',{}))['events'], 'logs':outcome.get('logs')}
+        if route == '/api/diagnostics':
+            return [read_json(path) for path in sorted((trial/'diagnostics').glob('*.json'))]
         if route == '/api/judge':
             return [read_json(path) | {'session':path.stem} for path in sorted((trial/'judge').glob('*.json'))]
         if route == '/api/files':

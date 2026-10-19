@@ -30,7 +30,7 @@ class ReinforcementLearningTests(TestCase):
         value=defaults()
         self.assertIsNone(value['optimizer']['max_trials'])
         validate(value)
-        value.pop('rl');value.pop('evaluation')
+        value.pop('search');value.pop('evaluation')
         validate(value)
 
     def test_hybrid_judge_only_breaks_equivalent_combat_scores(self):

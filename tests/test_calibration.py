@@ -37,7 +37,7 @@ class FixtureEngine:
 
 def config():
     value=defaults()
-    value.pop('rl')  # These fixtures exercise the legacy, frozen search protocol.
+    value.pop('search')  # These fixtures exercise the legacy, frozen search protocol.
     value.update(max_rounds=5,min_rounds=3,patience=2,replicates=1,stop_on_plateau=True,opponents=['passive'],
                  training_seeds=[101],validation_seeds=[301],audit_seeds=[701])
     value['budget_per_session']={}

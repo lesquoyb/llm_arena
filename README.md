@@ -47,8 +47,8 @@ variants, feedback ablations, provider-free strategy reuse and multi-run CSV exp
 
 Run `python -m arena calibrate serve --open` with the virtual environment activated
 to compare system prompts, tool sets and model parameters in a separate workshop.
-It supports manual revisions, reinforcement learning over prompt/document edits,
-fixed opponents, optional local Laya reasoning scores and round-by-round inspection. See the
+It supports manual revisions, analyst-led prompt/document optimization with exploration and exploitation,
+fixed opponents, independent local Laya diagnostics and round-by-round inspection. See the
 [prompt calibration guide](docs/calibration.md).
 Round context, earlier source versions and feedback permissions are described in
 the [round feedback guide](docs/round-feedback.md).

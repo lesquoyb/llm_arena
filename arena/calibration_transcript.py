@@ -41,3 +41,14 @@ def score(source, out, model='convaiinnovations/laya', device='cpu'):
             'seconds':receipt['seconds'],'model':receipt['model'],'revision':receipt['revision'],
             'receipt':str(out/'judge/conversation.json'),
             'note':'Local reasoning-quality proxy. No target calls, analyst calls, fights or changes to the original calibration.'}
+
+
+def diagnose_export(source,out,model='convaiinnovations/laya',device='cpu'):
+    from .calibration_diagnostics import defaults,diagnose
+    value=read_json(Path(source))
+    messages=value.get('messages') if isinstance(value,dict) else None
+    if not isinstance(messages,list) or not all(isinstance(m,dict) and m.get('role') in {'system','user','assistant','tool'} for m in messages):
+        raise ArenaError('Expected an exported conversation JSON with a messages array')
+    out=Path(out).resolve();out.mkdir(parents=True,exist_ok=True)
+    settings={**defaults(),'model':model,'device':device}
+    return diagnose(out,'conversation',{'history':messages},settings,{})

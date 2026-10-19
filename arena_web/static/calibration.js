@@ -147,7 +147,10 @@ async function reviewCandidate(directory) {
   mount.append(node('span',`Candidate ${value.candidate} · ${value.decision}`,'decision'));
   if(value.decision_reason) mount.append(node('p',value.decision_reason));
   mount.append(formatted(value.baseline?'This is the baseline. No analyst changes have been proposed for it.':value.rationale || 'No rationale recorded.'));
-  if(value.metrics_after){const metrics=node('div',undefined,'review-metrics');for(const [key,label,format] of [['validation_score','Evaluation score',pct],['judge_score','Laya score',pct],['utility','Objective utility',x=>typeof x==='number'?x.toFixed(4):'Unknown'],['convergence_round','Convergence round',x=>x??'Not reached'],['tokens','Target tokens',x=>x??'Unknown']]){if(key==='judge_score' && value.metrics_after.evaluation_mode==='conversation')continue;const box=node('div');box.append(node('span',key==='validation_score' && value.metrics_after.evaluation_mode==='conversation'?'Laya reasoning score':label),node('strong',key==='convergence_round'&&value.metrics_after.converged===false?'Not reached':format(value.metrics_after[key])));if(value.metrics_before)box.append(node('small','Previous: '+(key==='convergence_round'&&value.metrics_before.converged===false?'Not reached':format(value.metrics_before[key]))));metrics.append(box)}mount.append(metrics)}
+  if(value.metrics_after){const metrics=node('div',undefined,'review-metrics');for(const [key,label,format] of [['validation_score','Evaluation score',pct],['judge_score','Laya score',pct],['utility','Objective utility',x=>typeof x==='number'?x.toFixed(4):'Unknown'],['convergence_round','Convergence round',x=>x??'Not reached'],['tokens','Target tokens',x=>x??'Unknown']]){if(key==='judge_score' && (value.metrics_after.evaluation_mode==='conversation' || value.metrics_after.judge_score==null))continue;const box=node('div');box.append(node('span',key==='validation_score' && value.metrics_after.evaluation_mode==='conversation'?'Laya reasoning score':label),node('strong',key==='convergence_round'&&value.metrics_after.converged===false?'Not reached':format(value.metrics_after[key])));if(value.metrics_before)box.append(node('small','Previous: '+(key==='convergence_round'&&value.metrics_before.converged===false?'Not reached':format(value.metrics_before[key]))));metrics.append(box)}mount.append(metrics)}
+  if(value.search)mount.append(node('p',`${value.search.mode} · Starting candidate ${value.source_candidate} · The analyst chose the diagnosis and changes independently.`));
+  await renderDiagnostics(value,epoch);
+  if(study!==selected || epoch!==reviewEpoch)return;
   if(value.rl)mount.append(node('p',`RL action: ${value.rl.action} · Reward: ${value.rl.reward.toFixed(4)} · Learned value: ${value.rl.q_after.toFixed(4)}`));
   if(value.config.evaluation?.mode && value.config.evaluation.mode!=='fights')mount.append(button('Inspect Laya scores and rubric',async()=>reveal('Local Laya judge',await api(qs('/api/judge',{trial:'trials/'+String(value.candidate-1).padStart(3,'0')})))));
   let changes=0;
@@ -209,11 +212,13 @@ function fill(config) {
   referencePath=$('reference-path').value;
   $('reference-content').value=referenceEdits[referencePath] ?? boot.reference_documents[referencePath];
   $("name").value = config.name;
-  const learning=config.rl || {learning_rate:0.25,exploration:0.2,minimum_episodes:10,plateau_patience:8,minimum_improvement:0.001,seed:0,stop_on_plateau:true};
-  for(const [id,key] of Object.entries({'rl-rate':'learning_rate','rl-exploration':'exploration','rl-minimum':'minimum_episodes','rl-patience':'plateau_patience','rl-improvement':'minimum_improvement','rl-seed':'seed'}))$(id).value=learning[key];
+  const learning=config.search || config.rl || {learning_rate:0.25,exploration:0.2,minimum_episodes:10,plateau_patience:8,minimum_improvement:0.001,seed:0,stop_on_plateau:true};
+  for(const [id,key] of Object.entries({'rl-rate':'learning_rate','rl-exploration':'exploration','rl-minimum':'minimum_episodes','rl-patience':'plateau_patience','rl-improvement':'minimum_improvement','rl-seed':'seed'}))$(id).value=learning[key] ?? (key==='learning_rate'?0.25:'');
   $('rl-plateau').checked=learning.stop_on_plateau;
+  const observation=config.diagnostics || {enabled:false,evidence:'reasoning',model:'convaiinnovations/laya',device:'cpu'};
+  $('diagnostics-enabled').checked=observation.enabled;
   const evaluation=config.evaluation || {mode:'fights',weight:0.05,model:'convaiinnovations/laya',device:'cpu'};
-  $('judge-evidence').value=evaluation.evidence || 'reasoning';$('reward-mode').value=evaluation.mode;$('judge-model').value=evaluation.model;$('judge-device').value=evaluation.device;$('judge-weight').value=evaluation.weight;
+  $('judge-evidence').value=observation.evidence;$('reward-mode').value=evaluation.mode;$('judge-model').value=observation.model;$('judge-device').value=observation.device;$('judge-weight').value=evaluation.weight;
   $("stream-responses").checked=config.stream_responses!==false;
   $("round-stop").value =
     config.max_rounds === null
@@ -339,12 +344,14 @@ function config() {
   Object.entries(map).forEach(
     ([id, key]) => (value.optimizer[key] = id === "candidate-count" && $(id).value === "" ? null : Number($(id).value)),
   );
-  value.rl={stop_on_plateau:$('rl-plateau').checked};
-  for(const [id,key] of Object.entries({'rl-rate':'learning_rate','rl-exploration':'exploration','rl-minimum':'minimum_episodes','rl-patience':'plateau_patience','rl-improvement':'minimum_improvement','rl-seed':'seed'}))value.rl[key]=Number($(id).value);
-  value.evaluation={mode:$('reward-mode').value,evidence:$('judge-evidence').value,model:$('judge-model').value,device:$('judge-device').value,weight:Number($('judge-weight').value)};
+  delete value.rl;
+  value.search={stop_on_plateau:$('rl-plateau').checked};
+  for(const [id,key] of Object.entries({'rl-exploration':'exploration','rl-minimum':'minimum_episodes','rl-patience':'plateau_patience','rl-improvement':'minimum_improvement','rl-seed':'seed'}))value.search[key]=Number($(id).value);
+  value.evaluation={mode:'fights',evidence:'reasoning',model:'convaiinnovations/laya',device:'cpu',weight:0};
+  value.diagnostics={enabled:$('diagnostics-enabled').checked,evidence:$('judge-evidence').value,model:$('judge-model').value,device:$('judge-device').value};
   value.optimizer.parameter_grid = JSON.parse($("parameter-grid").value);
   if ($("mode").value === "manual") value.optimizer.parameter_grid = {};
-  if ($("mode").value === "automatic" || ($('reward-mode').value!=='fights' && $('judge-evidence').value==='summary')) {
+  if ($("mode").value === "automatic" || ($('diagnostics-enabled').checked && $('judge-evidence').value==='summary')) {
     value.analyst = JSON.parse($("analyst-json").value);
     if ($("mode").value === "automatic") value.optimizer.parameter_grid = {};
   }
@@ -1056,7 +1063,7 @@ $("copy").onclick = guard(() =>
 $("error").onclick = () => ($("error").hidden = true);
 function setMode() {
   updateLoopPlan();
-  const active = $("mode").value === "automatic" || ($('reward-mode').value!=='fights' && $('judge-evidence').value==='summary');
+  const active = $("mode").value === "automatic" || ($('diagnostics-enabled').checked && $('judge-evidence').value==='summary');
   $("analyst-label").hidden = !active;
   $("candidate-count-label").hidden=$("mode").value==='manual';
   $("analyst-key").closest("label").hidden = !active;
@@ -1065,7 +1072,7 @@ function setMode() {
     $("parameter-grid").value = json({ temperature: [0, 0.3, 0.7] });
 }
 $("mode").onchange = setMode;
-$("judge-evidence").onchange=setMode;$("reward-mode").onchange=setMode;
+$("diagnostics-enabled").onchange=setMode;$("judge-evidence").onchange=setMode;$("reward-mode").onchange=setMode;
 $("scenario-preset").onchange = () => {
   const preset = boot.scenarios[$("scenario-preset").value];
   if (preset) $("scenario").value = json(preset);
@@ -1125,7 +1132,7 @@ function updateLoopPlan() {
   const rounds=$('round-stop').value==='manual'?'until manually stopped':($('round-stop').value==='plateau'?'up to ':'')+$('rounds').value+' script round(s)';
   const repeats=Number($('replicates').value)||1, candidates=$('candidate-count').value || 'unlimited';
   $('loop-plan').textContent=$('mode').value==='automatic'
-    ? `${rounds} × ${repeats} fresh repetition(s) → RL-selected edit → analyst proposal → reward → policy update → repeat (${candidates} candidates). Stop on reward plateau if enabled, or manually. No manual relaunch between candidates.`
+    ? `${rounds} × ${repeats} fresh repetition(s) → analyst diagnosis and proposal → fresh evaluation → keep/reject → repeat with exploration/exploitation (${candidates} candidates). Stop on objective plateau if enabled, or manually. No manual relaunch between candidates.`
     : $('mode').value==='grid' ? `${rounds} × ${repeats} fresh repetition(s) per parameter configuration, up to ${candidates} configurations. No analyst editing.`
     : `${rounds} × ${repeats} fresh repetition(s) for this prompt. After evaluation, edit and launch the next candidate manually.`;
 }
@@ -1152,6 +1159,7 @@ $("round-stop").onchange = updateRoundStop;
 
 function renderLearning(state){
   const mount=$('rl-progress');mount.replaceChildren();
+  if(state.optimization){renderOptimization(state);return;}
   const episodes=(state.trials||[]).filter(t=>t.rl);
   mount.append(node('p',episodes.length?`${episodes.length} learning episodes · ${(state.stop_reason || 'Learning in progress').replaceAll('_',' ')} · Best candidate ${(state.incumbent??0)+1}`:'Baseline evaluation. Learning starts with the first prompt revision.'));
   if(!episodes.length)return;
@@ -1178,3 +1186,36 @@ $('export-conversation').onclick=guard(async()=>{
 $('inspect-reasoning').onclick=guard(async()=>{
   const data=await exportedConversation();await reveal('Available reasoning (no model calls)',{statistics:data.statistics,readable_reasoning:data.readable_reasoning});
 });
+
+async function renderDiagnostics(review,epoch){
+  const source=review.baseline?review.candidate:review.source_candidate,study=selected;
+  const receipts=await api(qs('/api/diagnostics',{trial:'trials/'+String(source-1).padStart(3,'0')}));
+  if(study!==selected || epoch!==reviewEpoch)return;
+  const mount=$('diagnostic-content');mount.replaceChildren(node('p',`Observed trajectory: candidate ${source}. These findings are not shown to the analyst and do not affect selection.`));
+  if(!receipts.length){mount.append(node('p',review.config.diagnostics?.enabled?'No saved diagnostic yet.':'Independent diagnostics were not enabled for this trajectory.'));return;}
+  const labels={task_understanding:'Task understanding',language_api:'Language and API',tool_use:'Tool use',use_of_results:'Use of results',progress:'Progress'};
+  for(const receipt of receipts){
+    mount.append(node('h4',receipt.session));
+    if(receipt.status!=='completed'){mount.append(node('p',receipt.reason || 'Diagnostic unavailable'));continue;}
+    for(const [dimension,probabilities]of Object.entries(receipt.distributions)){
+      const detail=node('details'),ranked=Object.entries(probabilities).sort((a,b)=>b[1]-a[1]);
+      detail.append(node('summary',`${labels[dimension] || dimension}: ${ranked[0][0].replaceAll('_',' ')} (${pct(ranked[0][1])})`));
+      for(const [label,probability]of ranked){const row=node('div',undefined,'diagnostic-probability');const meter=node('meter');meter.min=0;meter.max=1;meter.value=probability;row.append(node('span',label.replaceAll('_',' ')),meter,node('span',pct(probability)));detail.append(row)}
+      mount.append(detail);
+    }
+    mount.append(node('small','Diagnostic hypotheses, not verified findings or calibrated certainty.'));
+  }
+  mount.append(button('Inspect saved diagnostic records',()=>reveal('Independent Laya diagnostic records',receipts)));
+}
+function renderOptimization(state){
+  const mount=$('rl-progress'),rows=(state.trials||[]).filter(t=>t.search);
+  mount.append(node('p',`${rows.length} optimization attempts · ${(state.stop_reason || 'Running').replaceAll('_',' ')} · Best candidate ${(state.incumbent??0)+1}`));
+  if(rows.length)mount.append(table(['Attempt','Strategy','Starting candidate','Objective change','Decision'],rows.slice(-30).map((row,i)=>[Math.max(0,rows.length-30)+i+1,row.search.mode,row.search.parent+1,row.search.improvement.toFixed(4),row.accepted?'Kept':'Rejected'])));
+  const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');svg.setAttribute('viewBox','0 0 800 170');svg.setAttribute('aria-label','Measured objective by candidate');svg.setAttribute('role','img');
+  const values=(state.trials||[]).map(t=>t.report.utility);if(!values.length)return;
+  const min=Math.min(...values),max=Math.max(...values);
+  if(max-min<1e-12){mount.append(node('p',`Objective unchanged: ${min.toFixed(4)} across ${values.length} candidate(s).`));return;}
+  const span=Math.max(.01,max-min);
+  const path=document.createElementNS(svg.namespaceURI,'polyline');path.setAttribute('fill','none');path.setAttribute('stroke','#6ecbb2');path.setAttribute('stroke-width','3');path.setAttribute('points',values.map((v,i)=>`${30+i*740/Math.max(1,values.length-1)},${140-(v-min)/span*110}`).join(' '));svg.append(path);mount.append(svg);
+  mount.append(node('small','Measured objective across candidates. Independent Laya diagnostics are excluded.'));
+}

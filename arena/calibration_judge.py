@@ -34,7 +34,7 @@ def agent(model, device):
         raise ArenaError('Could not load the local Laya judge: '+str(error)) from error
 
 
-def evaluate(out, sid, state, settings, config):
+def evidence_for(state, settings, out, sid, config):
     from arena_web.provider_output import blocks
     evidence = []
     if settings['evidence']=='summary':
@@ -44,6 +44,12 @@ def evaluate(out, sid, state, settings, config):
             if message['role']!='assistant': continue
             values = [b['value'] for b in blocks(message) if b['kind']=='reasoning' and b['readable']]
             if values: evidence.append({'reasoning':values})
+    return evidence
+
+
+def evaluate(out, sid, state, settings, config):
+    from arena_web.provider_output import blocks
+    evidence = evidence_for(state, settings, out, sid, config)
     if not evidence:
         raise ArenaError('No readable reasoning returned by the target. Choose analyst summary as Laya evidence, or use combat scoring. Encrypted OpenAI reasoning cannot be scored.')
     identity = digest({'evidence': evidence, 'settings': settings, 'questions': QUESTIONS})
