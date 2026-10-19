@@ -149,7 +149,7 @@ async function reviewCandidate(directory) {
   if(!value.baseline)mount.append(node('p',`Candidate ${value.source_candidate} → analyst changes → candidate ${value.candidate} → evaluation against ${value.comparison_candidate ? 'best candidate '+value.comparison_candidate : 'the baseline'}.`));
   if(value.decision_reason) mount.append(node('p',value.decision_reason));
   mount.append(formatted(value.baseline?'This is the baseline. No analyst changes have been proposed for it.':value.rationale || 'No rationale recorded.'));
-  if(value.metrics_after){const metrics=node('div',undefined,'review-metrics');for(const [key,label,format] of [['validation_score','Evaluation score',pct],['judge_score','Laya score',pct],['utility','Objective utility',x=>typeof x==='number'?x.toFixed(4):'Unknown'],['convergence_round','Convergence round',x=>x??'Not reached'],['tokens','Target tokens',x=>x??'Unknown']]){if(key==='judge_score' && (value.metrics_after.evaluation_mode==='conversation' || value.metrics_after.judge_score==null))continue;const box=node('div');box.append(node('span',key==='validation_score' && value.metrics_after.evaluation_mode==='conversation'?'Laya reasoning score':label),node('strong',key==='convergence_round'&&value.metrics_after.converged===false?'Not reached':format(value.metrics_after[key])));if(value.metrics_before)box.append(node('small','Previous: '+(key==='convergence_round'&&value.metrics_before.converged===false?'Not reached':format(value.metrics_before[key]))));metrics.append(box)}mount.append(metrics)}
+  if(value.metrics_after){const metrics=node('div',undefined,'review-metrics');for(const [key,label,format] of [['validation_score','Evaluation score',pct],['judge_score','Laya score',pct],['utility','Objective utility',x=>typeof x==='number'?x.toFixed(4):'Unknown'],['convergence_round','Convergence round',x=>x??'Not reached'],['tokens','Target tokens (this candidate)',x=>x??'Unknown'],['cost_usd','Target cost (this candidate)',x=>x==null?'Unknown':'$'+x]]){if(key==='judge_score' && (value.metrics_after.evaluation_mode==='conversation' || value.metrics_after.judge_score==null))continue;const box=node('div');box.append(node('span',key==='validation_score' && value.metrics_after.evaluation_mode==='conversation'?'Laya reasoning score':label),node('strong',key==='convergence_round'&&value.metrics_after.converged===false?'Not reached':format(value.metrics_after[key])));if(value.metrics_before)box.append(node('small','Previous: '+(key==='convergence_round'&&value.metrics_before.converged===false?'Not reached':format(value.metrics_before[key]))));metrics.append(box)}mount.append(metrics)}
   if(value.search)mount.append(node('p',`${value.search.mode} · Starting candidate ${value.source_candidate} · The analyst chose the diagnosis and changes independently.`));
   await Promise.all([renderDiagnostics(value,epoch),renderFightSummary(value,epoch)]);
   if(study!==selected || epoch!==reviewEpoch)return;
@@ -399,8 +399,8 @@ async function listing() {
         "State",
         "Validation",
         "Convergence",
-        "Tokens",
-        "Target cost (USD)",
+        "Best candidate tokens",
+        "Optimization API cost (USD)",
         "Compared with baseline",
         "",
       ],
@@ -421,7 +421,7 @@ async function listing() {
             ? "Not reached"
             : (best?.convergence_round ?? ""),
           best?.tokens ?? (best?.simulated ? "Simulated" : "Unknown"),
-          best?.cost_usd ?? "",
+          row.accounting?.known_cost_subtotal_usd ?? "",
           compare,
           button(
             row.id === baselineId ? "Baseline" : "Use as baseline",
@@ -448,6 +448,13 @@ async function inspect(identifier, retain = false) {
   const keepSession = $("session").value;
   selectedState = data;
   $("study-title").textContent = data.config.name;
+  const usage=data.accounting || data.state.accounting;
+  $('study-cost').replaceChildren();
+  if(usage){
+    $('study-cost').append(node('strong',`Recorded optimization API cost (all attempts): $${usage.known_cost_subtotal_usd}`),node('span',`Target: $${usage.target_cost_usd} · Analyst/summaries: $${usage.analyst_cost_usd}`),node('span',`All provider tokens: ${usage.total_tokens??'Unknown'} · Target calls: ${usage.target_calls??'Unknown'} · Analyst calls: ${usage.analyst_calls??'Unknown'}`),node('small','Optimization totals include every candidate and rejected attempts. The token objective measures target input + output for one candidate, normalized by repetitions; it excludes the analyst. Cached input tokens count as input; reasoning is included in provider output usage. Unknown usage is not zero. Local Laya/engine execution has no API charge.'));
+    if(!usage.usage_complete)$('study-cost').append(node('small','Some usage is unknown. Costs above are the recorded subtotal, not an estimate of unreported charges.'));
+    if(usage.reserved_usd!=='0')$('study-cost').append(node('span',`Reserved: $${usage.reserved_usd}`));
+  }
   $("status").textContent =
     (data.runtime_status || data.state.status || "Starting") +
     (data.state.accounting
@@ -1105,6 +1112,16 @@ guard(async () => {
   fill(boot.config);
   setMode();
   await listing();
+  const locationParams=new URLSearchParams(location.search);
+  if(locationParams.has('study')){
+    await inspect(locationParams.get('study'));
+    if(locationParams.has('candidate')){
+      const directory=locationParams.get('candidate');
+      if(locationParams.get('reuse')==='1'){
+        const value=await api(qs('/api/reusable-config',{trial:directory}));fill(value);$('setup').open=true;$('name').value=value.name+' · candidate '+(Number(directory.split('/').pop())+1)+' choice';$('editor').scrollIntoView();
+      }else if([...$('trial').options].some(option=>option.value===directory)){$('trial').value=directory;await loadTrial();}
+    }
+  }
   setInterval(
     guard(async () => {
       if (
@@ -1245,3 +1262,5 @@ async function downloadMaterial(directory){
   link.click();URL.revokeObjectURL(link.href);
 }
 $('export-material').onclick=guard(()=>downloadMaterial($('trial').value));
+
+$('prompt-history').onclick=()=>{if(selected)location.href='/prompt-history?'+new URLSearchParams({study:selected});};

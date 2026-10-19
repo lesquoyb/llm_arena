@@ -139,7 +139,7 @@
             outputs may vary even with a seed.
           </p>
           <label
-            >Static opponents: passive, turret, single-shot, rush, human-weapon (comma separated)<input id="opponents"
+            >Static opponents: passive, turret, single-shot, rush, evasive, human-weapon (comma separated)<input id="opponents"
           /></label>
           <div class="fields">
             <label>Training seeds<input id="training" /></label
@@ -276,6 +276,7 @@
         <div class="title">
           <h2 id="study-title"></h2>
           <div>
+            <button id="prompt-history" class="secondary">Prompt version history</button>
             <button id="export-material" class="secondary">Download selected learning material</button>
             <button id="show-prompt" class="secondary">Inspect prompt</button
             ><button id="fork" class="secondary">Edit selected prompt</button
@@ -284,7 +285,7 @@
             ><button id="log" class="secondary">Run log</button><button id="tool-requests" class="secondary">Tool improvement report</button>
           </div>
         </div>
-        <div id="status"></div>
+        <div id="status"></div><div id="study-cost" class="budget-strip"></div>
         <div id="workflow-status" class="workflow-status" aria-live="polite"></div>
         <section><h3>Optimization progress</h3><div id="rl-progress"></div></section>
         <div class="diagnostic-comparison"><section id="analyst-review" class="review-panel"><h3>Analyst findings & changes</h3><div id="analyst-content"></div></section><section class="review-panel"><h3>Independent Laya observations</h3><div id="diagnostic-content"></div></section></div>

@@ -118,6 +118,19 @@ class CalibrationTests(TestCase):
         invalid=copy.deepcopy(lean);invalid['final_valid']=False
         self.assertFalse(accept(invalid,baseline,value))
 
+    def test_token_objective_counts_all_rounds_and_normalizes_repetitions(self):
+        value=config()
+        rounds=[{'training':{'score':.5},'validation':{'score':.5},'validity':'valid',
+                 'input_tokens':100,'output_tokens':20,'cost_usd':'0.01'} for _ in range(3)]
+        result=objective({'replicates':[{'rounds':rounds},{'rounds':rounds}]},value)
+        self.assertEqual(result['tokens'],720)
+        self.assertEqual(result['input_tokens'],600)
+        self.assertEqual(result['output_tokens'],120)
+        self.assertEqual(result['mean_tokens_per_replicate'],360)
+        self.assertAlmostEqual(result['utility'],.5-value['optimizer']['round_penalty']-value['optimizer']['token_penalty_per_million']*360/1_000_000)
+        rounds[0]['input_tokens']=None
+        self.assertIsNone(objective({'replicates':[{'rounds':rounds}]},value)['tokens'])
+
     def test_system_prompt_is_native_for_all_protocols_and_empty_editor_tools_are_omitted(self):
         history=[{'role':'system','content':'SYSTEM EXACT'},{'role':'user','content':'TASK'}]
         for provider in ('openai','openai-compatible','anthropic','gemini'):

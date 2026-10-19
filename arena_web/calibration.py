@@ -59,6 +59,23 @@ class Workshop:
         self.lock = threading.RLock()
         self.processes = {}
         self.errors = {}
+        self.usage_cache = {}
+
+    def usage(self,directory):
+        from arena.calibration import accounting
+        paths=[path for db in directory.glob('**/journal.sqlite') for path in (db,db.with_name(db.name+'-wal')) if path.exists()]
+        signature=[]
+        for path in sorted(paths):
+            try:
+                info=path.stat();signature.append((str(path),info.st_mtime_ns,info.st_size))
+            except FileNotFoundError: pass
+        signature=tuple(signature)
+        with self.lock:
+            previous=self.usage_cache.get(str(directory))
+        if previous and previous[0]==signature: return previous[1]
+        result=accounting(directory)
+        with self.lock: self.usage_cache[str(directory)]=(signature,result)
+        return result
 
     def listing(self):
         rows = []
@@ -78,7 +95,7 @@ class Workshop:
             rows.append({'id':directory.name, 'name':config['name'], 'comparison_key':digest(comparison), 'running':running,
                          'status':'running' if running else self.errors.get(directory.name) or state.get('status','stopped'),
                          'incumbent':state.get('incumbent'), 'trials':[{**t,'report':{k:v for k,v in t['report'].items() if k not in {'replicates'}}} for t in state.get('trials', [])], 'audit':state.get('audit'),
-                         'error':state.get('error'), 'automatic':state.get('automatic', False)})
+                         'accounting':self.usage(directory), 'error':state.get('error'), 'automatic':state.get('automatic', False)})
         return rows
 
     def start(self, config, automatic, identifier=None, keys=None):
@@ -142,13 +159,46 @@ class Workshop:
         directory = local_path(self.root,value('study'))
         if route == '/api/study':
             proposal_paths={p.parent:(p.parent/'proposal.json' if (p.parent/'proposal.json').exists() else p) for pattern in ('proposals/*/proposal.json','proposals/*/proposal-draft.json') for p in directory.glob(pattern)}
-            return {'runtime_status':next((row['status'] for row in self.listing() if row['id']==directory.name), 'stopped'), 'config':saved_config(directory), 'state':read_json(directory/'study.json') if (directory/'study.json').exists() else {},
+            return {'runtime_status':next((row['status'] for row in self.listing() if row['id']==directory.name), 'stopped'), 'config':saved_config(directory), 'state':read_json(directory/'study.json') if (directory/'study.json').exists() else {},'accounting':self.usage(directory),
                     'progress': [{'trial': p.parent.name, 'value':read_json(p)} for p in directory.glob('trials/*/progress.json')],
                     'active_reports':{p.parent.relative_to(directory).as_posix():read_json(p) for p in directory.glob('trials/*/report.json')},
                     'trial_directories':[p.parent.relative_to(directory).as_posix() for p in sorted(directory.glob('trials/*/journal.sqlite'),key=lambda p:int(p.parent.name))],
                     'proposal_directories':[p.parent.relative_to(directory).as_posix() for p in sorted(directory.glob('proposals/*/journal.sqlite'),key=lambda p:int(p.parent.name))],
                     'proposals':[{'directory':p.parent.relative_to(directory).as_posix(),'candidate':int(p.parent.name)+1,
                                   'rationale':read_json(p).get('rationale',''),'guard_status':read_json(p.parent/'guard.json').get('status') if (p.parent/'guard.json').exists() else None} for p in sorted(proposal_paths.values(),key=lambda p:int(p.parent.name))]}
+        if route == '/api/prompt-history':
+            state=read_json(directory/'study.json') if (directory/'study.json').exists() else {}
+            paths={}
+            for path in sorted(directory.glob('proposals/*/proposal-draft.json'))+sorted(directory.glob('proposals/*/proposal.json'))+sorted(directory.glob('trials/*/calibration.json')):
+                paths[int(path.parent.name)]=path
+            rows=[]
+            for index,path in sorted(paths.items()):
+                row=next((r for r in state.get('trials',[]) if r['directory']==f'trials/{index:03}'),None)
+                report=(row or {}).get('report',{})
+                guard_path=directory/'proposals'/f'{index:03}'/'guard.json'
+                rows.append({'candidate':index+1,'directory':path.parent.relative_to(directory).as_posix(),
+                             'source_candidate':row['parent']+1 if row and row.get('parent') is not None else (state.get('active_parent') or 0)+1 if not row and index else None,
+                             'status':'Current best' if state.get('incumbent')==index else 'Initial baseline' if index==0 else 'Selected earlier' if row and row['accepted'] else 'Not selected' if row else 'Blocked proposal' if guard_path.exists() and read_json(guard_path)['status']!='approved' else 'Untested proposal',
+                             'score':report.get('validation_score'),'tokens':report.get('tokens'),'cost_usd':report.get('cost_usd')})
+            return {'study':directory.name,'name':saved_config(directory)['name'],'versions':rows}
+        if route == '/api/reusable-config':
+            import io,zipfile
+            data=self.get('/api/export-material',query)
+            with zipfile.ZipFile(io.BytesIO(data)) as archive: return json.loads(archive.read('calibration.json'))
+        if route == '/api/prompt-diff':
+            after=self.get('/api/proposal' if value('trial').startswith('proposals/') else '/api/candidate',query)
+            base=value('base')
+            before=self.get('/api/proposal' if base.startswith('proposals/') else '/api/candidate',{**query,'trial':[base]}) if base else after
+            import difflib
+            after_config=self.get('/api/reusable-config',query)
+            before_config=self.get('/api/reusable-config',{**query,'trial':[base]}) if base else after_config
+            files=['system prompt',*sorted(set(after_config['reference_documents'])|set(before_config['reference_documents']))]
+            name=value('file','system prompt')
+            if name not in files: raise ArenaError('Unknown learning material file')
+            old=before_config['prompt'] if name=='system prompt' else before_config['reference_documents'].get(name,'')
+            new=after_config['prompt'] if name=='system prompt' else after_config['reference_documents'].get(name,'')
+            return {'before':old,'after':new,'files':files,'diff':''.join(difflib.unified_diff(old.splitlines(True),new.splitlines(True),fromfile='candidate '+str(before['candidate'])+'/'+name,tofile='candidate '+str(after['candidate'])+'/'+name)),
+                    'candidate':after['candidate'],'rationale':after['rationale']}
         if route == '/api/tool-requests':
             return [{'candidate':int(path.parent.name)+1, 'requests':read_json(path).get('tool_requests',[])}
                     for path in sorted(directory.glob('proposals/*/proposal.json'),key=lambda p:int(p.parent.name))]
@@ -329,8 +379,8 @@ def serve(root, port=8766, open_browser=False):
                 # Reject DNS rebinding and cross-origin browser access.
                 host = urlsplit('http://'+self.headers.get('Host','')).hostname
                 if host not in {'localhost','127.0.0.1','::1'}: raise ArenaError('Loopback host required')
-                if url.path in {'/','/calibration.js','/calibration.css','/favicon.png'}:
-                    name = 'calibration.html' if url.path=='/' else url.path[1:]
+                if url.path in {'/','/prompt-history','/calibration-history.js','/calibration.js','/calibration.css','/favicon.png'}:
+                    name = 'calibration.html' if url.path=='/' else 'calibration-history.html' if url.path=='/prompt-history' else url.path[1:]
                     mime = 'image/png' if name.endswith('.png') else 'text/html' if name.endswith('.html') else 'text/javascript' if name.endswith('.js') else 'text/css'
                     self.send(200,(STATIC/name).read_bytes(),mime)
                 else: self.send(200,workshop.get(url.path,parse_qs(url.query)),'application/zip' if url.path=='/api/export-material' else 'application/json')

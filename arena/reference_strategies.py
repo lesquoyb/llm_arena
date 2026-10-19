@@ -3,6 +3,7 @@ CATALOG = [
     {'id':'passive','name':'Passive','description':'Does nothing. Checks whether a strategy can reach and damage an opponent.'},
     {'id':'turret','name':'Stationary shooter','description':'Never moves; fires at most once per turn when an enemy is in range.'},
     {'id':'single-shot','name':'Pursuer, one shot','description':'Moves toward the nearest enemy, then fires at most once per turn.'},
+    {'id':'evasive','name':'Catchable evader','description':'Never attacks. Flees nearby enemies using at most two MP, and rests every fourth turn so a pursuer can catch it.'},
     {'id':'rush','name':'Aggressive shooter','description':'Moves toward the nearest enemy and spends available AP on attacks.'},
     {'id':'human-weapon','name':'Human weapon heuristic','description':'Apache-2.0 port of smarlhens: selects a legal weapon by expected burst damage. Weapons only.',
      'source':'https://github.com/smarlhens/leekwars-scripts/tree/0f58ff9641b0573f2757a93b5300b86ca3ab04cf','license':'Apache-2.0'},

@@ -28,7 +28,7 @@ def defaults():
     from .presets import simple_scenario
     return {"name": "Prompt calibration", "target": {"id": "mock-single", "provider": "mock", "profile": "single-shot"},
             "prompt": PROMPT, "tools": [t['name'] for t in TOOLS], "scenario": simple_scenario(),
-            "opponents": ['passive', 'single-shot', 'rush'], "training_seeds": [101, 102],
+            "opponents": ['passive', 'single-shot', 'rush', 'evasive'], "training_seeds": [101, 102],
             "validation_seeds": [301, 302], "audit_seeds": [701, 702], "replicates": 1, "evaluate_previous": True,
             "max_rounds": 1, "min_rounds": 1, "patience": 2, "min_improvement": 0.01, "stop_on_plateau": False,
             "budget_per_session": {"max_calls":8,"max_agent_steps":20,"max_test_matches":4}, "spending": {"allow_paid_calls": False, "max_total_usd": 0},
@@ -72,7 +72,7 @@ def validate(config):
     if (not isinstance(config['opponents'], list) or not config['opponents'] or
             len(set(config['opponents'])) != len(config['opponents']) or
             any(name not in {row['id'] for row in REFERENCE_STRATEGIES} for name in config['opponents'])):
-        raise ArenaError('Choose unique pinned static opponents: passive, turret, single-shot, rush, human-weapon')
+        raise ArenaError('Choose unique pinned static opponents: passive, turret, single-shot, rush, evasive, human-weapon')
     seen = {17}
     for key in ('training_seeds', 'validation_seeds', 'audit_seeds'):
         seeds = config[key]
@@ -379,7 +379,7 @@ def objective(report, config):
     judge_score = sum(r['rounds'][-1]['judge_score'] for r in reps)/len(reps) if evaluation['mode'] != 'fights' else None
     utility = score + (evaluation['weight']*judge_score if evaluation['mode']=='hybrid' else 0) - opt['round_penalty']*mean_round - (opt['token_penalty_per_million']*tokens/len(reps)/1_000_000 if tokens is not None else 0)
     from .usage import amount
-    return {'converged':all(plateau([row['training']['score'] for row in r['rounds']],config) for r in reps), 'final_valid':all(r['rounds'][-1].get('validity')=='valid' for r in reps), 'validation_score': score, 'judge_score':judge_score, 'evaluation_mode':evaluation['mode'], 'convergence_round': mean_round, 'tokens': tokens,
+    return {'converged':all(plateau([row['training']['score'] for row in r['rounds']],config) for r in reps), 'final_valid':all(r['rounds'][-1].get('validity')=='valid' for r in reps), 'validation_score': score, 'judge_score':judge_score, 'evaluation_mode':evaluation['mode'], 'convergence_round': mean_round, 'tokens': tokens, 'input_tokens':sum(r['input_tokens'] for r in allrows) if tokens is not None else None, 'output_tokens':sum(r['output_tokens'] for r in allrows) if tokens is not None else None, 'mean_tokens_per_replicate':tokens/len(reps) if tokens is not None else None, 'token_scope':'All target input + output tokens across all calls and rounds for this candidate; objective divides by repetitions. Analyst and other candidates excluded.',
             'cost_usd': str(sum(amount(r['cost_usd']) for r in allrows)), 'utility': utility,
             'simulated': config['target']['provider'] == 'mock'}
 
@@ -695,7 +695,7 @@ def study(config, out, automatic=False):
 def accounting(root):
     import sqlite3
     from .usage import amount
-    result={'target_cost_usd':'0','analyst_cost_usd':'0','input_tokens':0,'output_tokens':0,'usage_complete':True,'reserved_usd':'0'}
+    result={'target_cost_usd':'0','analyst_cost_usd':'0','input_tokens':0,'output_tokens':0,'usage_complete':True,'reserved_usd':'0','target_input_tokens':0,'target_output_tokens':0,'analyst_input_tokens':0,'analyst_output_tokens':0,'target_calls':0,'analyst_calls':0,'target_usage_complete':True,'analyst_usage_complete':True}
     for path in sorted(Path(root).glob('**/journal.sqlite')):
         db=sqlite3.connect(path.as_uri()+'?mode=ro',uri=True)
         try:
@@ -706,9 +706,16 @@ def accounting(root):
                 key='analyst_cost_usd' if any(part in path.relative_to(root).parts for part in ('proposals','judge_summaries')) else 'target_cost_usd'
                 result[key]=str(amount(result[key])+amount(state.get('cost_spent','0')))
                 result['reserved_usd']=str(amount(result['reserved_usd'])+amount(state.get('money_reserved','0')))
-                if state.get('calls') and not state.get('token_usage_known'): result['usage_complete']=False
+                role='analyst' if key=='analyst_cost_usd' else 'target'
+                result[role+'_calls']+=state.get('calls',0)
+                if state.get('calls') and not state.get('token_usage_known'):
+                    result['usage_complete']=False;result[role+'_usage_complete']=False
+                for metric in ('input_tokens','output_tokens'): result[role+'_'+metric]+=state.get(metric,0)
                 for metric in ('input_tokens','output_tokens'): result[metric]+=state.get(metric,0)
         finally: db.close()
     if not result['usage_complete']: result['input_tokens']=result['output_tokens']=None
+    for role in ('target','analyst'):
+        if not result[role+'_usage_complete']: result[role+'_input_tokens']=result[role+'_output_tokens']=None
+    result['total_tokens']=result['input_tokens']+result['output_tokens'] if result['usage_complete'] else None
     result['known_cost_subtotal_usd']=str(amount(result['target_cost_usd'])+amount(result['analyst_cost_usd']))
     return result

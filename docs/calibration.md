@@ -36,7 +36,10 @@ conversations, code, evaluation records and costs.
    dispatcher, including when the model guesses a tool name.
 3. Choose a scenario, fixed opponents, seeds, replicates and round settings.
    The included opponents are deterministic scripted strategies: `passive`,
-   `single-shot` and `rush`. Scenario JSON remains editable.
+   `single-shot`, `rush` and `evasive`. The evasive target never attacks, flees
+   at most two cells when an enemy is nearby and rests every fourth turn, so
+   it can still be caught. Existing studies keep their frozen opponent panel.
+   Scenario JSON remains editable.
 4. Run the calibration. Each replicate starts independently. Each strategy round uses a fresh conversation with the system prompt, scenario, explicit phase instruction and a short previous-round training summary; previous model messages are not resent. The previous submitted code stays in the workspace. The model
    prepares and submits one strategy per round. That frozen strategy plays both
    sides against the fixed panel; only then can the model revise it next round.
@@ -465,3 +468,26 @@ Skip these commands if the patch is empty. The check can fail if repository file
 changed after export. The system prompt is exported separately; it does not patch
 Python source or change global Arena defaults. Copy it into a new study, or use the
 exported configuration through `arena calibrate run` as described in the ZIP README.
+
+## Prompt history and accounting
+
+Open **Prompt history** in a study to compare any saved candidates, including
+rejected or blocked proposals. Select the system prompt or a reference document
+to see its diff and exact before/after contents. **Mark as my preferred version**
+saves a personal choice in this browser; it does not replace the algorithm's
+recorded winner. **Use this version in a new study** loads that candidate's frozen
+prompt, documents and configuration into the editor without starting a run.
+**Download learning material** exports the selected version for use elsewhere.
+
+The summary's **Recorded optimization API cost** includes all target candidates,
+rejected attempts, analyst calls and optional analyst summaries. Target and analyst
+subtotals appear separately. Local engine and Laya execution have no API charge;
+unreported usage is marked unknown rather than treated as zero.
+
+The token objective measures every target input and output token across all calls
+and rounds of one candidate, then divides by repetitions for its penalty. It
+excludes analyst calls and other candidates. Cached input remains part of input;
+provider-reported reasoning counts in output without being counted twice. The
+summary also shows the entire optimization's tokens and call counts. The default
+short observation uses one round and at most eight target calls, which can be
+much smaller than a full Arena competition.
