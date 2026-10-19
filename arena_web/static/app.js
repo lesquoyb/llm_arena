@@ -2030,7 +2030,7 @@ function callPerformance(message) {
 }
 function providerOutput(message, index) {
   const blocks = (message.output_blocks || []).filter(
-    (b) => !(message.file_exchange && b.kind === "tool_result"),
+    (b) => !b.hidden && !(message.file_exchange && b.kind === "tool_result"),
   );
   let requestIndex = 0;
   const label = (block) => {

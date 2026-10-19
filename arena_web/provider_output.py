@@ -49,8 +49,11 @@ def blocks(message):
         elif kind == 'function_call': add('tool_call', 'Arena tool request · ' + str(item.get('name')), item)
         elif kind == 'reasoning':
             if item.get('summary'): add('reasoning', 'Provider-exposed reasoning summary', item['summary'])
-            if item.get('encrypted_content'): add('opaque', 'Encrypted reasoning (not readable)', item['encrypted_content'])
+            if item.get('encrypted_content'):
+                add('opaque', 'Encrypted reasoning (not readable)', item['encrypted_content'])
+                result[-1]['hidden'] = True
             add('other', 'Reasoning item metadata', {k:v for k,v in item.items() if k not in {'summary','encrypted_content'}})
+            result[-1]['hidden'] = True
         else: add('provider_tool' if 'call' in str(kind) else 'other', 'Provider output · ' + str(kind), item)
     reasoning_keys = {'reasoning', 'reasoning_content', 'reasoning_details', 'thinking', 'analysis'}
     for key, value in native.items():

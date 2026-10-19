@@ -893,7 +893,7 @@ async function history(offset, refresh = false) {
       div.append(details);
     }
     message.blocks.forEach((block, index) => {
-      if (message.file_exchange && block.kind === "tool_result") return;
+      if (block.hidden || (message.file_exchange && block.kind === "tool_result")) return;
       const details = node("details"),
         summary = node("summary", block.label || block.kind);
       details.append(summary);
