@@ -16,21 +16,23 @@
       <details id="setup" class="setup-shell" open><summary>1 · Configure a study <small>Models, learning material and limits</small></summary><section id="editor">
         <h1>New calibration</h1>
         <p>
-          Compare initial prompts against fixed opponents. Each candidate starts
-          with a fresh conversation; only training results return to the target.
+          Each candidate tests one system prompt and its reference documents.
+          Rounds improve the script under that same prompt. In automatic mode,
+          the analyst revises the learning material between candidates.
         </p>
         <div class="fields">
           <label>Name<input id="name" /></label
           ><label>Target model<select id="target"></select></label
           ><label
             >Workflow<select id="mode">
-              <option value="manual">Manual prompt editing</option>
-              <option value="automatic">Automatic prompt editing</option>
+              <option value="manual">Manual editing (no analyst)</option>
+              <option value="automatic">Automatic learning loop</option>
               <option value="grid">Model parameter sweep</option>
             </select></label
           ><label id="analyst-label" hidden
             >Analyst model<select id="analyst"></select
           ></label>
+          <label id="candidate-count-label" hidden>Maximum prompt candidates (including baseline)<input id="candidate-count" type="number" min="1"></label>
         </div>
         <div class="fields">
           <label
@@ -85,10 +87,14 @@
           </p>
           <div id="tools"></div>
         </details>
+        <h3>One observation per prompt candidate</h3>
+        <p>Repetitions start from scratch. Within each repetition, rounds improve the same script using earlier results. The prompt changes only between candidates.</p>
+        <div class="actions"><button id="quick-observation" class="secondary" type="button">Quick diagnosis: 1 round, 1 repetition</button><button id="learning-observation" class="secondary" type="button">Learning curve: up to 10 rounds</button></div>
+        <p id="loop-plan" class="workflow-status" aria-live="polite"></p>
         <label class="inline-check"><input type="checkbox" id="stream-responses" checked>Stream responses for Ollama/OpenAI (disable if the compatible server does not support streaming)</label>
         <div class="fields">
           <label
-            >Round stopping rule<select id="round-stop">
+            >Script improvement stopping rule<select id="round-stop">
               <option value="plateau">
                 Stop on plateau, up to maximum rounds
               </option>
@@ -97,16 +103,16 @@
             </select></label
           >
           <label
-            >Maximum rounds<input id="rounds" type="number" min="1" /></label
+            >Maximum script rounds per candidate<input id="rounds" type="number" min="1" /></label
           ><label
-            >Minimum rounds<input id="minimum" type="number" min="1" /></label
+            >Minimum script rounds<input id="minimum" type="number" min="1" /></label
           ><label
             >Plateau patience<input
               id="patience"
               type="number"
               min="1" /></label
           ><label
-            >Replicates<input
+            >Fresh repetitions per candidate<input
               id="replicates"
               type="number"
               min="1"
@@ -153,11 +159,6 @@
           <h3>Search settings</h3>
           <div class="fields">
             <label
-              >Maximum candidates<input
-                id="candidate-count"
-                type="number"
-                min="1" /></label
-            ><label
               >Stop after rejected candidates<input
                 id="search-patience"
                 type="number"
@@ -233,7 +234,7 @@
               placeholder="Unlimited"
           /></label>
           <p>
-            No token or call limits apply by default. Remote API calls require
+            Quick diagnosis starts with a short call/tool budget. Clear limits for unlimited preparation. Remote API calls require
             allow_paid_calls=true. If set, max_total_usd covers the entire
             study, including the analyst.
           </p>

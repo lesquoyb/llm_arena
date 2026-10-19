@@ -146,8 +146,9 @@ come from saved participant settings, environment variables or the optional
 password fields. Password fields are passed to worker memory, not study JSON.
 Do not put API keys inside provider JSON.
 
-No token or call limits apply by default. Optional per-round budgets and a
-study spending ceiling are available. The ceiling includes target and analyst
+Quick diagnosis defaults to 8 model calls, 20 tool calls and 4 preparation fights
+per round. No token limit is set. Clear the limits for unlimited preparation. A
+study spending ceiling is also available. The ceiling includes target and analyst
 calls across candidates. Costs use participant pricing; unknown token usage
 stays unknown rather than becoming zero. Analyst and target usage are recorded
 separately. The convergence objective uses target tokens, not analyst tokens.
@@ -260,3 +261,38 @@ Anthropic and Gemini currently update after each complete response. Disable
 The live display uses a small, throttled worker snapshot rather than rewriting
 the full conversation for every token. Archived messages, token usage and cost
 accounting are committed through the normal journal after completion.
+
+
+### Script rounds, repetitions and prompt optimization iterations
+
+These are three separate loops:
+
+1. A **script round** prepares, freezes and evaluates a strategy. Later rounds
+   inherit its script and training feedback. The system prompt and reference
+   documents remain unchanged within that candidate, while the round instruction
+   and feedback change.
+2. A **fresh repetition** restarts that candidate from scratch, without the scripts
+   or feedback of other repetitions. It repeats the complete configured sequence
+   of script rounds.
+3. In **Automatic learning loop**, the analyst reviews that observation, proposes
+   prompt/document changes, then the tool evaluates a fresh candidate under the
+   same protocol. It keeps or rejects the candidate and continues automatically,
+   stopping at the candidate limit or search patience. The baseline counts as the
+   first candidate. A rejected proposal does not replace the incumbent.
+
+The new default is **Quick diagnosis**: one script round, one repetition and a
+short preparation budget. The analyst can propose a change immediately after
+that observation. This is useful for correcting the starting instructions. The
+convergence penalty is zero because a single round cannot establish convergence.
+Use **Learning curve** later to evaluate up to ten script-improvement rounds per
+prompt, with plateau stopping. Increase repetitions when checking robustness.
+
+For example, 10 rounds and 1 repetition means one candidate with ten successive
+script versions under the same system prompt, followed by an analyst proposal.
+It does not mean ten revisions of the system prompt. Five prompt candidates with
+those settings can require up to 50 target preparations, plus analyst calls.
+
+Previously saved studies retain their frozen settings. Fork/edit their
+configuration and choose Quick diagnosis to start the shorter protocol; changing
+the defaults does not alter an ongoing study. Manual editing remains available
+and does not call the analyst or start the next candidate automatically.

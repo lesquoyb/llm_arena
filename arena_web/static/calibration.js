@@ -1041,8 +1041,10 @@ $("copy").onclick = guard(() =>
 );
 $("error").onclick = () => ($("error").hidden = true);
 function setMode() {
+  updateLoopPlan();
   const active = $("mode").value === "automatic";
   $("analyst-label").hidden = !active;
+  $("candidate-count-label").hidden=$("mode").value==='manual';
   $("analyst-key").closest("label").hidden = !active;
   $("analyst-json").closest("label").hidden = !active;
   if ($("mode").value === "grid" && $("parameter-grid").value.trim() === "{}")
@@ -1104,6 +1106,24 @@ guard(async () => {
   );
 })();
 
+function updateLoopPlan() {
+  const rounds=$('round-stop').value==='manual'?'until manually stopped':($('round-stop').value==='plateau'?'up to ':'')+$('rounds').value+' script round(s)';
+  const repeats=Number($('replicates').value)||1, candidates=Number($('candidate-count').value)||1;
+  $('loop-plan').textContent=$('mode').value==='automatic'
+    ? `${rounds} × ${repeats} fresh repetition(s) → analyst proposal → fresh evaluation → keep/reject → repeat, up to ${candidates} prompt candidates including the baseline. No manual relaunch between candidates.`
+    : $('mode').value==='grid' ? `${rounds} × ${repeats} fresh repetition(s) per parameter configuration, up to ${candidates} configurations. No analyst editing.`
+    : `${rounds} × ${repeats} fresh repetition(s) for this prompt. After evaluation, edit and launch the next candidate manually.`;
+}
+function observationPreset(quick) {
+  $('round-stop').value=quick?'fixed':'plateau';
+  $('rounds').value=quick?'1':'10';$('minimum').value=quick?'1':'3';
+  if(quick){$('replicates').value='1';$('short-budget').click();}
+  $('round-penalty').value=quick?'0':'0.002';
+  updateRoundStop();
+}
+$('quick-observation').onclick=()=>observationPreset(true);
+$('learning-observation').onclick=()=>observationPreset(false);
+for(const id of ['rounds','replicates','candidate-count'])$(id).addEventListener('input',updateLoopPlan);
 function updateRoundStop() {
   const mode = $("round-stop").value;
   $("rounds").disabled = mode === "manual";
@@ -1111,5 +1131,6 @@ function updateRoundStop() {
     $(id).disabled = mode !== "plateau";
   if (mode === "manual") $("replicates").value = 1;
   $("replicates").disabled = mode === "manual";
+  updateLoopPlan();
 }
 $("round-stop").onchange = updateRoundStop;

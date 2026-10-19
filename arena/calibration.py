@@ -24,11 +24,11 @@ def defaults():
     return {"name": "Prompt calibration", "target": {"id": "mock-single", "provider": "mock", "profile": "single-shot"},
             "prompt": PROMPT, "tools": [t['name'] for t in TOOLS], "scenario": simple_scenario(),
             "opponents": ['passive', 'single-shot', 'rush'], "training_seeds": [101, 102],
-            "validation_seeds": [301, 302], "audit_seeds": [701, 702], "replicates": 2, "evaluate_previous": True,
-            "max_rounds": 10, "min_rounds": 3, "patience": 2, "min_improvement": 0.01,
-            "budget_per_session": {}, "spending": {"allow_paid_calls": False, "max_total_usd": 0},
+            "validation_seeds": [301, 302], "audit_seeds": [701, 702], "replicates": 1, "evaluate_previous": True,
+            "max_rounds": 1, "min_rounds": 1, "patience": 2, "min_improvement": 0.01, "stop_on_plateau": False,
+            "budget_per_session": {"max_calls":8,"max_agent_steps":20,"max_test_matches":4}, "spending": {"allow_paid_calls": False, "max_total_usd": 0},
             "optimizer": {"max_trials": 5, "patience": 3, "score_tolerance": 0.01,
-                          "round_penalty": 0.002, "token_penalty_per_million": 0.01,
+                          "round_penalty": 0, "token_penalty_per_million": 0.01,
                           "parameter_grid": {}, "evidence_characters": 100000, "editor_retries": 1}}
 
 
@@ -40,7 +40,7 @@ def experiment_config(config):
 
 
 def validate(config):
-    if not isinstance(config, dict) or set(config) - set(defaults()) - {'analyst', 'stop_on_plateau', 'reference_documents', 'stream_responses'} or set(defaults()) - set(config):
+    if not isinstance(config, dict) or set(config) - set(defaults()) - {'analyst', 'stop_on_plateau', 'reference_documents', 'stream_responses'} or set(defaults()) - {'stop_on_plateau'} - set(config):
         raise ArenaError('Invalid calibration configuration; start from the example')
     if type(config.get('stream_responses',True)) is not bool:
         raise ArenaError('stream_responses must be boolean')

@@ -37,12 +37,25 @@ class FixtureEngine:
 
 def config():
     value=defaults()
-    value.update(max_rounds=5,min_rounds=3,patience=2,replicates=1,opponents=['passive'],
+    value.update(max_rounds=5,min_rounds=3,patience=2,replicates=1,stop_on_plateau=True,opponents=['passive'],
                  training_seeds=[101],validation_seeds=[301],audit_seeds=[701])
+    value['budget_per_session']={}
+    value['optimizer']['round_penalty']=0.002
     return value
 
 
 class CalibrationTests(TestCase):
+    def test_defaults_start_with_one_short_observation_and_legacy_configs_still_load(self):
+        value=defaults()
+        self.assertEqual(value['max_rounds'],1)
+        self.assertEqual(value['replicates'],1)
+        self.assertFalse(value['stop_on_plateau'])
+        self.assertEqual(value['budget_per_session']['max_calls'],8)
+        self.assertEqual(value['optimizer']['round_penalty'],0)
+        validate(value)
+        value.pop('stop_on_plateau')
+        validate(value)
+
     def test_rounds_plateau_frozen_sources_and_exact_resume_without_recomputation(self):
         with scratch_directory() as tmp:
             engine=FixtureEngine();value=config();out=tmp/'trial'
