@@ -1391,6 +1391,14 @@ function strategyName(id) {
 function sessionLabel(session) {
   return `Repetition ${Number(session.replicate || 0) + 1} · ${generationLabel(session.generation)}${session.generation ? " · " + text(session.condition) : ""} · ${text(session.status)}`;
 }
+function canProbeProvider(d, sid) {
+  const session = d.sessions.find(s => s.id === sid);
+  const model = d.metadata.config?.models.find(m => m.id === session?.model);
+  if (!model || !["openai","openai-compatible"].includes(model.provider) || session.status !== "provider_unavailable") return false;
+  const parameters = {...model.parameters, ...session.provider_parameter_overrides};
+  return (model.endpoint || "").replace(/\/$/, "").endsWith("/responses") ||
+    (model.model.toLowerCase().startsWith("gpt-6") && parameters.reasoning_effort !== "none");
+}
 function sessionChooser(d) {
   const selected = d.sessions.find((s) => s.id === S.session);
   const models = runModels(d);
@@ -1401,7 +1409,7 @@ function sessionChooser(d) {
     S.session = sessions[0]?.id || null;
     S.offset = 0;
   }
-  return `<div class="toolbar">${modelPicker(d)}<label for="session-choice">Conversation</label><select id="session-choice" ${sessions.length ? "" : "disabled"}>${sessions.map((s) => `<option value="${e(s.id)}" ${s.id === S.session ? "selected" : ""}>${e(sessionLabel(s))}</option>`).join("") || "<option>No conversations yet</option>"}</select>${S.session ? btn("Conversation journal", "conversation-journal") + btn("Copy provider diagnostics", "copy-provider-diagnostics", `data-session="${e(S.session)}"`) : ""}${retryButton(d.sessions.find((s) => s.id === S.session))}<span class="spacer"></span></div>`;
+  return `<div class="toolbar">${modelPicker(d)}<label for="session-choice">Conversation</label><select id="session-choice" ${sessions.length ? "" : "disabled"}>${sessions.map((s) => `<option value="${e(s.id)}" ${s.id === S.session ? "selected" : ""}>${e(sessionLabel(s))}</option>`).join("") || "<option>No conversations yet</option>"}</select>${S.session ? btn("Conversation journal", "conversation-journal") + btn("Copy provider diagnostics", "copy-provider-diagnostics", `data-session="${e(S.session)}"`) + (canProbeProvider(d, S.session) ? btn("Test API", "test-provider", `data-session="${e(S.session)}"`) : "") : ""}${retryButton(d.sessions.find((s) => s.id === S.session))}<span class="spacer"></span></div>`;
 }
 async function renderRun(epoch) {
   const d = S.detail;
@@ -3180,6 +3188,10 @@ document.addEventListener("click", async (event) => {
         model: S.modelFilter,
         session: S.session,
       });
+    else if (a === "test-provider") {
+      openDialog("Test provider API", "One billed request; returned tools are never executed.",
+        `<form data-form="provider-probe" data-session="${e(node.dataset.session)}"><label>Request<select name="mode"><option value="minimal">Minimal prompt + one simple tool</option><option value="current">Current prompt + full arena tool set</option></select></label><p>Stop the competition first if it is running. Uses this conversation's saved model and reasoning settings. Output is capped at 1,024 tokens. Usage and charges count toward the existing limits; files, history and submitted strategies are preserved.</p><label class="check"><input type="checkbox" name="confirm_paid" required>I authorize this billed API diagnostic.</label><div class="form-footer">${btn("Cancel", "close-dialog")}<button class="button primary" type="submit">Run API test</button></div></form>`);
+    }
     else if (a === "copy-provider-diagnostics") {
       const data = await api("/api/provider-diagnostics", {run:S.run, session:node.dataset.session});
       const content = pretty(data);
@@ -3367,6 +3379,11 @@ document.addEventListener("submit", async (event) => {
       await refreshBoot();
       navigate("competitions");
       toast("Configuration saved. No API calls made.");
+    } else if (type === "provider-probe") {
+      const result = await api("/api/provider-probe", {run:S.run,session:form.dataset.session,
+        mode:f.get("mode"),confirm_paid:f.has("confirm_paid")},true);
+      openDialog("API test result", result.accepted ? "Request accepted" : "Request rejected",
+        `<textarea readonly rows="20">${e(pretty(result))}</textarea>`);
     } else if (type === "reconcile") {
       await api("/api/reconcile", {run:S.run, session:form.dataset.session,
         cost_usd:f.get("cost_usd"), note:f.get("note")}, true);

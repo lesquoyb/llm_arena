@@ -157,6 +157,9 @@ class Application:
         if route == "/api/launch":
             return self.jobs.launch(draft_id=data.get("draft_id"), run_id=data.get("run"),
                                     confirm_paid=data.get("confirm_paid", False), ceiling=data.get("ceiling"), retry_session=data.get("retry_session"), expected_config_sha256=data.get("expected_config_sha256"), allow_updated_runner=data.get("allow_updated_runner") is True, retry_reasoning_effort=data.get("retry_reasoning_effort"))
+        if route == "/api/provider-probe":
+            from .provider_probe import probe
+            return probe(self.jobs, data["run"], data["session"], data["mode"], data.get("confirm_paid"))
         if route == "/api/reconcile":
             return self.jobs.reconcile(data["run"], data["session"], data["cost_usd"], data["note"])
         if route == "/api/stop":

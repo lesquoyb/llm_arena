@@ -106,7 +106,7 @@ def run_generation(config, out, journal, engine, initial, interrupt=None, retry_
                 state.update(generation=generation, condition=condition, parent=parent["id"], lineage_root=root,
                              parent_checkpoint_sha256=digest(parent_state), status="running",
                              calls=0, steps=0, test_matches=0, wall_seconds=0, pending=None, cursor=0,
-                             in_flight=False, money_reserved="0", reservation_unbounded=False, cost_spent="0", input_tokens=0, output_tokens=0)
+                             in_flight=False, money_reserved="0", reservation_unbounded=False, cost_spent="0", input_tokens=0, output_tokens=0, diagnostic_calls=0, diagnostic_cost_usd="0")
                 state['history'] = initial_state(sid, models[parent_state['model']], config)['history']
                 state['message_times'] = []
                 state['history_policy'] = 'fresh-round'

@@ -288,6 +288,8 @@ class Store:
         recorded_failure = {k:v for k,v in (recorded_failure or {}).items() if k in {'error','error_type','uncertain','retryable','diagnostics'}}
         return {'session':sid, 'origin_session':current, 'provider':model.get('provider'), 'model':model.get('model'),
                 'status':state['status'], 'model_calls':state.get('calls',0),
+                'diagnostic_calls':state.get('diagnostic_calls',0),
+                'api_tests':[self.event(identifier,event['id']) for event in rows if event['kind']=='provider_probe_result'][-5:],
                 'session_parameter_overrides':state.get('provider_parameter_overrides', {}),
                 'endpoint':request.get('endpoint') or configured_endpoint,
                 'configured_parameters':{k:v for k,v in params.items() if k in {'reasoning_effort','temperature','top_p','top_k','seed','thinking','thinking_config'}},
