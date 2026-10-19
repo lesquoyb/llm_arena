@@ -111,6 +111,7 @@ def run_generation(config, out, journal, engine, initial, interrupt=None, retry_
                 state['message_times'] = []
                 state['history_policy'] = 'fresh-round'
                 state["token_usage_known"] = False
+                state["missing_usage_calls"] = 0
                 state.pop("submission", None)
                 state.pop("reserved", None)
                 state.pop("assessment_sha256", None)
@@ -168,7 +169,8 @@ def run_generation(config, out, journal, engine, initial, interrupt=None, retry_
             if journal.state(sid) is None:
                 skipped = copy.deepcopy(parent_state)
                 skipped.update(parent=parent_sid, generation=generation, lineage_root=root, condition=condition, status="no_submission",
-                               calls=0, steps=0, test_matches=0, cost_spent="0", money_reserved="0")
+                               calls=0, steps=0, test_matches=0, cost_spent="0", money_reserved="0",
+                               input_tokens=0, output_tokens=0, token_usage_known=False, missing_usage_calls=0, diagnostic_calls=0, diagnostic_cost_usd="0")
                 journal.save(sid, skipped, "branch_unavailable", {"reason": "No G0 submission"})
     contemporaries = evaluate_ready(engine, config, out, journal, generation)
     evolved = references(engine, config, out, journal, branches, f"g{generation}-panel", panel)

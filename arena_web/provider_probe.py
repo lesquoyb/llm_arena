@@ -80,13 +80,18 @@ def probe(jobs, run_id, sid, mode, confirm_paid):
                     if raw.get('error'):
                         detail=str(raw['error'])[:2000]
                         result['provider_error']=detail.replace(key,'[REDACTED]') if key else detail
+                    tokens_known = all(usage.get(field) is not None for field in ('input_tokens','output_tokens'))
+                    if tokens_known:
+                        for field in ('input_tokens','output_tokens'):
+                            state[field] = state.get(field,0) + usage[field]
+                    else:
+                        state['missing_usage_calls'] = state.get('missing_usage_calls',0) + 1
+                    state['token_usage_known'] = tokens_known and not state.get('missing_usage_calls') and bool(original.get('token_usage_known') or not any(m.get('role')=='assistant' for m in original.get('history',[])))
                     if charge is None:
                         state.update(in_flight=False,status='needs_reconciliation')
                     else:
                         state.update(in_flight=False,money_reserved='0',cost_spent=str(spent+amount(charge)))
                         state['diagnostic_cost_usd']=str(amount(state.get('diagnostic_cost_usd','0'))+amount(charge))
-                        for field in ('input_tokens','output_tokens'):state[field]=state.get(field,0)+(usage.get(field) or 0)
-                        state['token_usage_known']=bool(original.get('token_usage_known') or not any(m.get('role')=='assistant' for m in original.get('history',[])))
                 except ProviderFailure as error:
                     result = {'mode':mode,'accepted':False,'error':str(error),'diagnostics':error.diagnostics,
                               'uncertain':error.uncertain,'endpoint':url,'tool_count':len(tools),'reasoning':body.get('reasoning')}

@@ -237,6 +237,36 @@ class Store:
         stamps = [(p.relative_to(root).as_posix(), p.stat().st_mtime_ns, p.stat().st_size) for p in files if p.is_file()]
         return digest({'event_id':event_id, 'files':sorted(stamps)})
 
+    def usage_receipts(self, root):
+        """Each response is counted once; usage_event repeats model_response."""
+        from .accounting import summarize
+        path = root / 'journal.sqlite'
+        if not path.is_file():
+            return {}
+        with closing(sqlite3.connect(path.as_uri() + '?mode=ro', uri=True, timeout=2)) as connection:
+            rows = connection.execute("SELECT session,payload FROM events WHERE kind IN ('model_response','provider_probe_result') ORDER BY id").fetchall()
+        grouped = {}
+        for sid, reference in rows:
+            reference = json.loads(reference)
+            artifact = safe_path(root, reference['artifact'])
+            # Cache only the small usage receipt, not full model output, on live refresh.
+            stamp = (artifact.stat().st_mtime_ns, artifact.stat().st_size)
+            key = ('usage', artifact)
+            with self.lock:
+                cached = self._cache.get(key)
+            if cached and cached[0] == stamp:
+                receipt = cached[1]
+            else:
+                raw = artifact.read_bytes()
+                if hashlib.sha256(raw).hexdigest() != reference['sha256']:
+                    raise ArenaError('The usage artifact hash no longer matches the journal')
+                value = json.loads(raw)
+                receipt = {field: value.get(field) for field in ('usage', 'cost_usd')}
+                with self.lock:
+                    self._cache[key] = (stamp, receipt)
+            grouped.setdefault(sid, []).append(receipt)
+        return {sid: summarize(receipts) for sid, receipts in grouped.items()}
+
     def detail(self, identifier):
         root = self.run_path(identifier)
         metadata = self.json(root / "experiment.json")
@@ -248,12 +278,13 @@ class Store:
         from arena.recovery import needs_reconciliation
         external = {m['id'] for m in metadata.get('config', {}).get('models', []) if m['provider'] != 'mock'}
         states = self.states(root, keys)
+        receipts = self.usage_receipts(root)
         for sid, state in states.items():
             reason = 'Exported archives are read-only' if (root / 'export.json').exists() else retry_reason(state, metadata.get('config', {}).get('budget_per_session'), states.get(state.get('parent')))
             assessment = self.json(safe_path(root, f"sessions/{sid}/assessment.json"))
             validation = (assessment or {}).get('status') or state.get('validity')
             sessions.append({"validation_status": validation or ('pending' if state.get('submission') or state['status'] == 'submitted' else 'not_submitted'), "id": sid, **{k: state[k] for k in keys if k in state},
-                             "messages": state["messages"], "retry_allowed": reason is None, "retry_reason": reason,
+                             "usage_receipts": receipts.get(sid), "messages": state["messages"], "retry_allowed": reason is None, "retry_reason": reason,
                              "reconciliation_required": needs_reconciliation(state, state.get("model") in external)})
         sessions.sort(key=lambda s:(s.get('model',''),s.get('replicate',0),s.get('generation',0),s.get('condition','')))
         return {"id": identifier, "revision": self.revision(root), "metadata": metadata, "report": self.json(root / "report.json", {}),

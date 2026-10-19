@@ -336,12 +336,15 @@ def provider_response(sid, state, model, config, journal):
         'request_characters':len(json.dumps(request.get('body', request), ensure_ascii=False))}
     if paid:
         usage = response["usage"]
-        known = (response["cost_usd"] is not None and usage["input_tokens"] is not None
-                 and usage["output_tokens"] is not None)
-        if known:
-            state["token_usage_known"] = True
+        tokens_known = usage["input_tokens"] is not None and usage["output_tokens"] is not None
+        if tokens_known:
             state["input_tokens"] = state.get("input_tokens", 0) + usage["input_tokens"]
             state["output_tokens"] = state.get("output_tokens", 0) + usage["output_tokens"]
+        else:
+            state["missing_usage_calls"] = state.get("missing_usage_calls", 0) + 1
+        state["token_usage_known"] = tokens_known and not state.get("missing_usage_calls")
+        known = response["cost_usd"] is not None and tokens_known
+        if known:
             state["cost_spent"] = str(amount(state.get("cost_spent", "0")) + amount(response["cost_usd"]))
             state["money_reserved"] = "0"
             state["reservation_unbounded"] = False
@@ -350,7 +353,6 @@ def provider_response(sid, state, model, config, journal):
                     or ("max_cost_usd" in budget and amount(state["cost_spent"]) > amount(budget["max_cost_usd"]))):
                 state["status"] = "budget_exhausted"
         else:
-            state["token_usage_known"] = False
             state["status"] = "needs_reconciliation"
     state.pop("failure", None)
     state["history"].append(response)

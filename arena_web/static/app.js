@@ -1531,6 +1531,36 @@ async function renderRun(epoch) {
         S.files[0].path,
     );
 }
+function measuredUsage(session) {
+  const receipt = session.usage_receipts;
+  if (receipt?.responses) return {
+    ...receipt,
+    complete: !receipt.missing_usage && !session.in_flight && session.status !== "needs_reconciliation",
+  };
+  return {
+    input_tokens: session.input_tokens || 0,
+    output_tokens: session.output_tokens || 0,
+    cached_input_tokens: null,
+    reasoning_tokens: null,
+    complete: !!session.token_usage_known && !session.in_flight,
+  };
+}
+function usageAccounting(d) {
+  const models = d.metadata.config?.models || [];
+  const rows = models.filter(m => m.provider !== "mock").map(model => {
+    const sessions = d.sessions.filter(s => s.model === model.id);
+    const usages = sessions.map(measuredUsage);
+    const sum = key => usages.reduce((n, u) => n + (u[key] || 0), 0);
+    const input = sum("input_tokens"), cached = sum("cached_input_tokens");
+    const p = model.pricing || {};
+    return `<tr><td>${e(model.id)}</td><td>${fmt(input)}</td><td>${fmt(sum("output_tokens"))}</td><td>${usages.some(u => u.cached_input_tokens == null || u.missing_cache_usage) ? "Unknown / partial" : `${fmt(cached)} (${input ? (100*cached/input).toFixed(1) : 0}%)`}</td><td>${usages.some(u=>u.reasoning_tokens == null || u.missing_reasoning_usage) ? "Unknown / partial" : fmt(sum("reasoning_tokens"))}</td><td>${money(sessions.reduce((n,s) => n+Number(s.cost_spent || 0),0))}</td><td>${e([p.input_per_million, p.cached_input_per_million ?? p.input_per_million, p.output_per_million].join(" / "))}</td></tr>`;
+  });
+  const incomplete = d.sessions.some(s => s.calls && models.find(m=>m.id===s.model)?.provider !== "mock" && !measuredUsage(s).complete);
+  const paid = d.sessions.filter(s=>models.find(m=>m.id===s.model)?.provider !== "mock");
+  const totalTokens = paid.reduce((n,s)=>n+measuredUsage(s).input_tokens+measuredUsage(s).output_tokens,0);
+  const totalCost = paid.reduce((n,s)=>n+Number(s.cost_spent || 0),0);
+  return `<h3>Whole competition API usage</h3>${btn("Copy usage diagnostics", "copy-usage-diagnostics")}<p><strong>${fmt(totalTokens)} tokens · ${money(totalCost)} estimated${incomplete ? " (partial)" : ""}</strong></p><p>All rounds, both tracks, retries and API diagnostics. ${incomplete ? "Partial: requests are in progress or usage is missing." : ""}</p>${table(["Model", "Input", "Output", "Cached input", "Reasoning", "Estimated USD", "USD / 1M input / cached / output"], rows)}<p class="muted">Cached input is included in input; reasoning is included in output. Prices are frozen in this competition configuration. These are calculated estimates, not the provider's invoice. Compare the same project, model and time range in the provider dashboard; other competitions are separate.</p>`;
+}
 function tokenDisplay(d) {
   const models = new Map(
     (d.metadata?.config?.models || []).map((m) => [m.id, m.provider]),
@@ -1543,9 +1573,9 @@ function tokenDisplay(d) {
     return d.report.input_tokens == null
       ? "Unavailable"
       : `${fmt(d.report.input_tokens)} / ${fmt(d.report.output_tokens)}`;
-  const known = real.filter((s) => s.token_usage_known);
+  const known = real.map(measuredUsage).filter((u) => u.input_tokens || u.output_tokens || u.complete);
   if (!known.length) return "Unavailable from provider";
-  return `${fmt(known.reduce((n, s) => n + (s.input_tokens || 0), 0))} / ${fmt(known.reduce((n, s) => n + (s.output_tokens || 0), 0))}${known.length < real.length ? " (partial)" : ""}`;
+  return `${fmt(known.reduce((n, s) => n + (s.input_tokens || 0), 0))} / ${fmt(known.reduce((n, s) => n + (s.output_tokens || 0), 0))}${known.length < real.length || known.some(u=>!u.complete) ? " (partial)" : ""}`;
 }
 // One scope drives every section of the competition overview.
 function overviewSettings() {
@@ -1927,7 +1957,7 @@ function overviewDetails(d, data, statistics) {
         )
       : "<p>No conversations recorded.</p>"
   }</div></details>
-  <details class="overview-details"><summary>Usage & match accounting</summary><div class="overview-detail-body"><h3>Selected versions</h3><p>Tokens: ${e(tokenDisplay({ ...d, sessions: data.sessions }))} · ${fmt(data.sessions.reduce((n, s) => n + (s.calls || 0), 0))} model calls · ${fmt(data.sessions.reduce((n, s) => n + (s.steps || 0), 0))} tool calls</p><h3>Whole competition</h3><dl class="overview-accounting"><div><dt>All completed fights</dt><dd>${fmt(count((m) => m.kind !== "training"))}</dd></div><div><dt>Round 1 tournament</dt><dd>${fmt(count((m) => m.kind === "competition" && !/^g\d+-tournament$/.test(m.stage)))}</dd></div><div><dt>Improvement tournaments</dt><dd>${fmt(count((m) => /^g\d+-tournament$/.test(m.stage)))}</dd></div><div><dt>Reference evaluations</dt><dd>${fmt(count((m) => m.kind === "evaluation"))}</dd></div><div><dt>Preparation tests (unscored)</dt><dd>${fmt(statistics?.training_matches || 0)}</dd></div><div><dt>Diagnostic mirrors (included above)</dt><dd>${fmt(count((m) => m.mirror))}</dd></div></dl>${btn("View preparation tests", "show-training")}</div></details>
+  <details class="overview-details"><summary>Usage & match accounting</summary><div class="overview-detail-body">${usageAccounting(d)}<h3>Selected versions</h3><p>Tokens: ${e(tokenDisplay({ ...d, sessions: data.sessions }))} · ${fmt(data.sessions.reduce((n, s) => n + (s.calls || 0), 0))} model calls · ${fmt(data.sessions.reduce((n, s) => n + (s.steps || 0), 0))} tool calls</p><h3>Whole competition</h3><dl class="overview-accounting"><div><dt>All completed fights</dt><dd>${fmt(count((m) => m.kind !== "training"))}</dd></div><div><dt>Round 1 tournament</dt><dd>${fmt(count((m) => m.kind === "competition" && !/^g\d+-tournament$/.test(m.stage)))}</dd></div><div><dt>Improvement tournaments</dt><dd>${fmt(count((m) => /^g\d+-tournament$/.test(m.stage)))}</dd></div><div><dt>Reference evaluations</dt><dd>${fmt(count((m) => m.kind === "evaluation"))}</dd></div><div><dt>Preparation tests (unscored)</dt><dd>${fmt(statistics?.training_matches || 0)}</dd></div><div><dt>Diagnostic mirrors (included above)</dt><dd>${fmt(count((m) => m.mirror))}</dd></div></dl>${btn("View preparation tests", "show-training")}</div></details>
   <details class="overview-details"><summary>How to read these results</summary><div class="overview-detail-body"><p>Score = (wins + 0.5 × draws) / completed appearances. 50% can mean all draws. Failures do not earn points and remain visible separately.</p><p>The feedback and no-feedback tracks share the initial submission, then continue independently. Every round finishes its tournament before the next preparation begins. Tournament opponents change between rounds. Reference tests use the frozen Round 1 strategies and built-in scripts for a common comparison.</p><p>Filters apply to all charts, the matrix and details. The model filter selects the candidate; opponents remain visible. Tournament mirrors and preparation tests are excluded from scored results. Multiple versions of the same model are grouped; appearances can exceed the number of unique fights. Tournament diagonals are omitted.</p><p>Cost and tokens measure preparation of selected versions, independently of the match category. Unknown provider usage stays unknown. Zero configured prices still allow token measurement.</p></div></details>`;
 }
 function summary(d, statistics = null) {
@@ -1945,7 +1975,7 @@ function summary(d, statistics = null) {
       (s.validation_status &&
         !["valid", "pending", "not_submitted"].includes(s.validation_status)),
   );
-  const known = sessions.filter((s) => s.token_usage_known),
+  const known = sessions.map(measuredUsage).filter((u) => u.input_tokens || u.output_tokens || u.complete),
     tokens = known.reduce(
       (n, s) => n + (s.input_tokens || 0) + (s.output_tokens || 0),
       0,
@@ -1961,7 +1991,7 @@ function summary(d, statistics = null) {
         Number(s.money_reserved || 0) > 0,
     ),
     cost = sessions.reduce((n, s) => n + Number(s.cost_spent || 0), 0);
-  return `<div class="competition-overview">${overviewFilters(d, data)}${failures.length ? `<div class="overview-alert">${failures.length} conversation${failures.length === 1 ? "" : "s"} need attention. <button class="table-button" data-action="overview-failures">Review & retry</button></div>` : ""}<div class="overview-kpis"><div><span>Completed fights</span><strong>${fmt(data.selected.filter((v) => v.match.result.status === "completed").length)}</strong><small>${data.selected.filter((v) => v.match.result.status !== "completed").length} failed</small></div><div><span>Submitted strategies</span><strong>${sessions.length ? sessions.filter((s) => s.submission || s.status === "submitted").length : data.models.length}${sessions.length ? `<small> / ${sessions.length}</small>` : ""}</strong><small>${new Set(sessions.map((s) => s.model)).size || data.models.length} models</small></div><div><span>API cost</span><strong>${sessions.length ? (costUnknown ? "Unknown" : money(cost)) : "N/A"}</strong><small>Selected versions</small></div><div><span>Tokens</span><strong>${known.length ? fmt(tokens) : real.length ? "Unknown" : "N/A"}</strong><small>${known.length ? (known.length < real.length ? "Partial reported usage" : "Input + output") : real.length ? "Not reported by provider" : "No measured LLM usage"}</small></div></div>
+  return `<div class="competition-overview">${overviewFilters(d, data)}${failures.length ? `<div class="overview-alert">${failures.length} conversation${failures.length === 1 ? "" : "s"} need attention. <button class="table-button" data-action="overview-failures">Review & retry</button></div>` : ""}<div class="overview-kpis"><div><span>Completed fights</span><strong>${fmt(data.selected.filter((v) => v.match.result.status === "completed").length)}</strong><small>${data.selected.filter((v) => v.match.result.status !== "completed").length} failed</small></div><div><span>Submitted strategies</span><strong>${sessions.length ? sessions.filter((s) => s.submission || s.status === "submitted").length : data.models.length}${sessions.length ? `<small> / ${sessions.length}</small>` : ""}</strong><small>${new Set(sessions.map((s) => s.model)).size || data.models.length} models</small></div><div><span>Estimated API cost</span><strong>${sessions.length ? (costUnknown ? "Unknown" : money(cost)) : "N/A"}</strong><small>Selected versions</small></div><div><span>Tokens · selected versions</span><strong>${known.length ? fmt(tokens) : real.length ? "Unknown" : "N/A"}</strong><small>${known.length ? (known.length < real.length || known.some(u=>!u.complete) ? "Partial reported usage" : "Input + output") : real.length ? "Not reported by provider" : "No measured LLM usage"}</small></div></div>
   <div class="overview-charts"><section class="overview-card"><div class="overview-section-head"><h2>Model ranking</h2><span>Score</span></div>${overviewRanking(data)}</section><section class="overview-card"><div class="overview-section-head"><h2>Evolution</h2><span>Score by version</span></div>${overviewEvolution(data)}</section></div>
   ${data.matrix.length ? `<section class="overview-card overview-head-to-head"><div class="overview-section-head"><h2>Match matrix</h2><span>Click a result to see fights</span></div>${overviewMatrix(data)}</section>` : `<div class="overview-empty">${data.selected.length ? "No head-to-head pairs in this selection." : `No ${data.scope.source === "competition" ? "tournament" : "reference"} matches yet.`}${statistics?.training_matches ? ` ${statistics.training_matches} preparation tests recorded; excluded from standings. ${btn("View preparation tests", "show-training")}` : ""}</div>`}
   ${overviewDetails(d, data, statistics)}</div>`;
@@ -3195,8 +3225,14 @@ document.addEventListener("click", async (event) => {
       openDialog("Test provider API", "One billed request; returned tools are never executed.",
         `<form data-form="provider-probe" data-session="${e(node.dataset.session)}"><label>Request<select name="mode"><option value="minimal">Minimal prompt + one simple tool</option><option value="current">Current prompt + full arena tool set</option></select></label><p>Stop the competition first if it is running. Uses this conversation's saved model and reasoning settings. Output is capped at 1,024 tokens. Usage and charges count toward the existing limits; files, history and submitted strategies are preserved.</p><label class="check"><input type="checkbox" name="confirm_paid" required>I authorize this billed API diagnostic.</label><div class="form-footer">${btn("Cancel", "close-dialog")}<button class="button primary" type="submit">Run API test</button></div></form>`);
     }
-    else if (a === "copy-provider-diagnostics") {
-      const data = await api("/api/provider-diagnostics", {run:S.run, session:node.dataset.session});
+    else if (a === "copy-provider-diagnostics" || a === "copy-usage-diagnostics") {
+      const data = a === "copy-usage-diagnostics" ? {
+        run: S.run,
+        models: (S.detail.metadata.config?.models || []).map(m=>({id:m.id,provider:m.provider,model:m.model,pricing:m.pricing})),
+        sessions: S.detail.sessions.map(s=>({id:s.id,model:s.model,status:s.status,calls:s.calls,
+          input_tokens:s.input_tokens,output_tokens:s.output_tokens,token_usage_known:s.token_usage_known,
+          cost_spent:s.cost_spent,money_reserved:s.money_reserved,in_flight:s.in_flight,usage_receipts:s.usage_receipts})),
+      } : await api("/api/provider-diagnostics", {run:S.run, session:node.dataset.session});
       const content = pretty(data);
       let copied = false;
       try {
@@ -3205,7 +3241,7 @@ document.addEventListener("click", async (event) => {
           copied = true;
         }
       } catch (_) { /* Offer selectable text when clipboard access is denied. */ }
-      if (copied) toast("Provider diagnostics copied. No keys or prompt contents included.");
+      if (copied) toast("Diagnostics copied. No keys or prompt contents included.");
       else openDialog("Provider diagnostics", "No keys or prompt contents included", `<textarea readonly rows="18">${e(content)}</textarea>`);
     }
     else if (a === "conversation-top") {
