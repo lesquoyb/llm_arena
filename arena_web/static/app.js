@@ -1478,10 +1478,12 @@ async function renderRun(epoch) {
       };
       body =
         chooser +
-        '<div id="conversation-transcript">' +
+        '<section class="conversation-panel"><nav class="conversation-navigation" aria-label="Conversation navigation">' +
+        btn('↑ First message', 'conversation-top') + btn('↓ Latest message', 'conversation-bottom') +
+        '</nav><div id="conversation-scroll" role="region" aria-label="Conversation messages" tabindex="0"><div id="conversation-transcript">' +
         conversation(data) +
-        '</div><div id="conversation-live-status" aria-live="polite">' +
-        conversationLiveStatus(S.liveConversation, false) + '</div>';
+        '</div></div><div id="conversation-live-status" aria-live="polite">' +
+        conversationLiveStatus(S.liveConversation, false) + '</div></section>';
     } else {
       S.versions = await api("/api/versions", {
         run: S.run,
@@ -2055,30 +2057,22 @@ function cancelConversationAnimation() {
 }
 function animateConversationTail() {
   cancelConversationAnimation();
-  const target = Math.max(
-    0,
-    document.documentElement.scrollHeight - innerHeight,
-  );
+  const pane = $("#conversation-scroll");
+  if (!pane) return;
+  const target = Math.max(0, pane.scrollHeight - pane.clientHeight);
   if (matchMedia("(prefers-reduced-motion: reduce)").matches) {
-    window.scrollTo({ top: target, behavior: "instant" });
+    pane.scrollTop = target;
     return;
   }
-  const start = window.scrollY,
-    started = performance.now();
+  const start = pane.scrollTop, started = performance.now();
   let expected = start;
-  const tick = (now) => {
-    // A wheel, scrollbar drag or script moving the viewport cancels following.
-    if (Math.abs(window.scrollY - expected) > 2) {
-      cancelConversationAnimation();
-      return;
+  const tick = now => {
+    if (pane !== $("#conversation-scroll") || Math.abs(pane.scrollTop - expected) > 2) {
+      cancelConversationAnimation(); return;
     }
-    const progress = Math.min(1, (now - started) / 320),
-      eased = 1 - Math.pow(1 - progress, 3);
-    window.scrollTo({
-      top: start + (target - start) * eased,
-      behavior: "instant",
-    });
-    expected = window.scrollY;
+    const progress = Math.min(1, (now - started) / 320);
+    pane.scrollTop = start + (target - start) * (1 - Math.pow(1 - progress, 3));
+    expected = pane.scrollTop;
     conversationAnimation = progress < 1 ? requestAnimationFrame(tick) : null;
   };
   conversationAnimation = requestAnimationFrame(tick);
@@ -2087,7 +2081,7 @@ window.addEventListener(
   "wheel",
   (event) => {
     cancelConversationAnimation();
-    if (event.deltaY < 0 && S.tab === "conversation" && S.liveConversation)
+    if (event.deltaY < 0 && event.target.closest?.("#conversation-scroll") && S.tab === "conversation" && S.liveConversation)
       S.liveConversation.userPaused = true;
   },
   { passive: true },
@@ -2102,6 +2096,7 @@ window.addEventListener("keydown", (event) => {
   if (
     ["ArrowUp", "PageUp", "Home"].includes(event.key) &&
     S.tab === "conversation" &&
+    event.target.closest?.("#conversation-scroll") &&
     S.liveConversation
   )
     S.liveConversation.userPaused = true;
@@ -2119,14 +2114,13 @@ window.addEventListener("keydown", (event) => {
     cancelConversationAnimation();
 });
 function nearConversationEnd() {
-  return (
-    document.documentElement.scrollHeight - window.scrollY - innerHeight < 100
-  );
+  const pane = $("#conversation-scroll");
+  return !!pane && pane.scrollHeight - pane.scrollTop - pane.clientHeight < 100;
 }
 function conversationLiveStatus(live, following) {
   const remaining = Math.max(0, live.total - live.next);
   return remaining
-    ? `${remaining} new message${remaining === 1 ? "" : "s"} ${btn("Follow latest", "conversation-latest")}`
+    ? `${remaining} ${live.armed ? "new" : "later"} message${remaining === 1 ? "" : "s"} ${btn("Follow latest", "conversation-latest")}`
     : following
       ? "<small>Following new messages</small>"
       : "<small>Reading history. Return to the bottom to follow new messages.</small>";
@@ -2190,7 +2184,8 @@ async function refreshLiveConversation(epoch, force = false) {
       following &&
       (force || nearConversationEnd()) &&
       (force || !$(".chat-message details[open]"));
-    const preservedScroll = window.scrollY;
+    const pane = $("#conversation-scroll");
+    const preservedScroll = pane.scrollTop;
     live.total = data.total;
     if (following && data.messages.length) {
       const template = document.createElement("template");
@@ -2236,22 +2231,30 @@ async function refreshLiveConversation(epoch, force = false) {
     const chrome = $("#run-chrome");
     if (chrome) chrome.innerHTML = runHeader(S.detail);
     if (!scrollWithMessages)
-      window.scrollTo({ top: preservedScroll, behavior: "instant" });
+      pane.scrollTop = preservedScroll;
     return true;
   } finally {
     live.refreshing = false;
   }
 }
 let conversationScrollTimer;
-window.addEventListener(
+document.addEventListener(
   "scroll",
-  () => {
+  event => {
+    if (event.target.id !== "conversation-scroll") return;
+    const pane = event.target;
+    const live = S.liveConversation;
+    if (live) {
+      if (conversationAnimation == null && pane.scrollTop < (live.lastScrollTop ?? pane.scrollTop) - 2)
+        live.userPaused = true;
+      live.lastScrollTop = pane.scrollTop;
+    }
     clearTimeout(conversationScrollTimer);
     conversationScrollTimer = setTimeout(async () => {
       const live = S.liveConversation;
       if (
         live?.userPaused &&
-        document.documentElement.scrollHeight - window.scrollY - innerHeight < 4
+        pane.scrollHeight - pane.scrollTop - pane.clientHeight < 4
       )
         live.userPaused = false;
       if (
@@ -2271,7 +2274,7 @@ window.addEventListener(
       }
     }, 150);
   },
-  { passive: true },
+  { passive: true, capture: true },
 );
 
 function conversation(data, append = false) {
@@ -3205,6 +3208,25 @@ document.addEventListener("click", async (event) => {
       if (copied) toast("Provider diagnostics copied. No keys or prompt contents included.");
       else openDialog("Provider diagnostics", "No keys or prompt contents included", `<textarea readonly rows="18">${e(content)}</textarea>`);
     }
+    else if (a === "conversation-top") {
+      cancelConversationAnimation();
+      if (S.offset > 0) {
+        S.offset = 0; S.explicitOffset = true;
+        const url = new URL(location.href), q = new URLSearchParams(url.hash.slice(1));
+        q.set("offset", "0"); url.hash = q.toString(); history.replaceState(null, "", url);
+        await renderRun(S.epoch);
+      }
+      if (S.liveConversation) S.liveConversation.userPaused = true;
+      $("#conversation-scroll")?.scrollTo({top:0, behavior:matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth"});
+    }
+    else if (a === "conversation-bottom") {
+      if (S.liveConversation?.next < S.liveConversation?.total) {
+        S.offset = 0; S.explicitOffset = false;
+        await renderRun(S.epoch);
+      }
+      if (S.liveConversation) { S.liveConversation.armed = true; S.liveConversation.userPaused = false; }
+      animateConversationTail();
+    }
     else if (a === "conversation-latest") {
       await refreshLiveConversation(S.epoch, true);
     } else if (a === "session-diagnostics") {
@@ -3299,10 +3321,12 @@ document.addEventListener("click", async (event) => {
       toast("Log copied");
     } else if (a === "message-anchor") {
       event.preventDefault();
-      $("#message-" + node.dataset.index)?.scrollIntoView({
-        behavior: "smooth",
-        block: "center",
-      });
+      const message = $("#message-" + node.dataset.index), pane = $("#conversation-scroll");
+      if (message && pane) {
+        if (S.liveConversation) S.liveConversation.userPaused = true;
+        pane.scrollTo({top:pane.scrollTop + message.getBoundingClientRect().top - pane.getBoundingClientRect().top - pane.clientHeight/2,
+          behavior:matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth"});
+      }
     } else if (a === "job-log") {
       S.logJob = node.dataset.id;
       const data = await api("/api/job", { id: S.logJob });

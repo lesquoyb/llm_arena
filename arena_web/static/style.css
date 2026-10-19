@@ -2056,23 +2056,45 @@ dialog::backdrop {
     transform: translateY(0);
   }
 }
-#conversation-live-status {
-  position: sticky;
-  bottom: 12px;
-  width: fit-content;
-  margin: 12px auto;
-  padding: 8px 12px;
-  background: var(--surface, #fff);
+.conversation-panel {
   border: 1px solid var(--border, #dce3eb);
-  border-radius: 8px;
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--surface, #fff);
+  min-width: 0;
+}
+.conversation-navigation {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border, #dce3eb);
+}
+#conversation-scroll {
+  height: clamp(320px, calc(100dvh - 300px), 900px);
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  overflow-anchor: none;
+  padding: 12px;
+}
+#conversation-scroll:focus-visible {
+  outline: 2px solid #5278e5;
+  outline-offset: -2px;
+}
+#conversation-transcript { min-width: 0; }
+#conversation-live-status {
+  box-sizing: border-box;
+  height: 60px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow: auto;
+  padding: 8px 12px;
+  border-top: 1px solid var(--border, #dce3eb);
 }
 @media (prefers-reduced-motion: reduce) {
   .message-arrival {
     animation: none;
   }
-}
-/* The conversation manages following explicitly. Browser scroll anchoring can
-   otherwise move a historical viewport while new cards animate below it. */
-html:has(#conversation-transcript) {
-  overflow-anchor: none;
 }
