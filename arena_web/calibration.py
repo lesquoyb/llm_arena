@@ -144,6 +144,48 @@ class Workshop:
                 else: os.killpg(process.pid, signal.SIGTERM)
             return {'stopped':identifier}
 
+    def recover_target(self, identifier, instructions='', reconciliation=None):
+        from arena.experiment import Journal
+        from arena.recovery import needs_reconciliation,reconcile
+        if not isinstance(instructions,str) or len(instructions)>100000:
+            raise ArenaError('Instructions must be text, maximum 100000 characters')
+        with self.lock:
+            if any(p.poll() is None for p in self.processes.values()):
+                raise ArenaError('Stop the study before recovering its target conversation')
+            directory=local_path(self.root,identifier)
+            manifest=read_json(directory/'study.json')
+            index=manifest.get('active_trial',0)
+            folder=directory/'trials'/f'{index:03}'
+            report=read_json(folder/'report.json') if (folder/'report.json').exists() else {}
+            journal=Journal(folder)
+            try:
+                sid=report.get('session')
+                if not sid:
+                    candidates=[sid for sid,state in journal.states().items() if not state.get('submission')]
+                    if len(candidates)!=1: raise ArenaError('Cannot identify the unfinished target conversation')
+                    sid=candidates[0]
+                state=journal.state(sid)
+                if not state or state.get('submission'): raise ArenaError('No unfinished target conversation')
+                if state.get('pending') and instructions.strip():
+                    raise ArenaError('Pending tools must finish before new instructions can be added. Continue without instructions first.')
+                if needs_reconciliation(state):
+                    if not isinstance(reconciliation,dict):
+                        raise ArenaError('This response needs billing reconciliation. Enter its confirmed additional cost and a note before continuing.')
+                    state=reconcile(journal,sid,reconciliation.get('cost_usd'),reconciliation.get('note'))
+                if state['status'] not in {'running','no_submission','generation_failed','provider_unavailable'}:
+                    raise ArenaError('This conversation cannot be continued: '+state['status'])
+                state.update(status='running',submission_reminders=0)
+                state.pop('failure',None)
+                if not state.get('pending'):
+                    state['history'].append({'role':'user','content':
+                        'The preparation round is still open. You have not submitted a strategy. Continue from your saved workspace, fix any invalid tool arguments, analyze your LeekScript and explicitly call submit. '+instructions,
+                        'human_supplied':True})
+                journal.save(sid,state,'human_target_continue',{'instructions':instructions,'pending_tools_preserved':bool(state.get('pending'))})
+            finally: journal.db.close()
+            manifest.update(status='stopped',error='Target conversation ready. Resume to continue.')
+            write_json(directory/'study.json',manifest)
+            return {'session':sid,'recorded':True}
+
     def intervene(self, identifier, text, replacement=False):
         """Record an explicit human intervention; never overwrite provider receipts."""
         from arena.experiment import Journal
@@ -433,6 +475,7 @@ def serve(root, port=8766, open_browser=False):
                 if not 0<size<=2000000: raise ArenaError('Invalid request size')
                 data = json.loads(self.rfile.read(size))
                 if self.path=='/api/start': result=workshop.start(data['config'],data.get('automatic',False),keys=data.get('keys'))
+                elif self.path=='/api/recover-target': result=workshop.recover_target(data['id'],data.get('instructions',''),data.get('reconciliation'))
                 elif self.path=='/api/intervene': result=workshop.intervene(data['id'],data['text'],data.get('replacement',False))
                 elif self.path=='/api/resume':
                     directory=local_path(workshop.root,data['id'])

@@ -468,7 +468,7 @@ async function inspect(identifier, retain = false) {
   const trials = data.state.trials || [];
   renderLearning(data.state);
   const automatic=data.state.automatic ?? false;
-  $('workflow-status').textContent=!automatic ? 'Manual study: inspect results, then use Edit selected prompt to create the next candidate. No analyst is run automatically.' : data.state.active_proposal != null && data.state.status==='running' && data.state.active_trial < data.state.active_proposal ? 'Analyst is reviewing the completed trajectory and proposing a new candidate.' : data.state.status==='completed' ? 'Study complete. Review the learning rewards, proposed changes and evaluation decisions below.' : 'Target model is preparing and evaluating rounds. The analyst starts only after the candidate finishes all configured rounds/replicates or reaches its plateau.';
+  $('workflow-status').textContent=data.state.status==='blocked' ? 'Study blocked: '+(data.state.error||'Inspect the active target conversation and journal.')+' Use the target continuation controls for a stopped tested model; analyst intervention is separate.' : !automatic ? 'Manual study: inspect results, then use Edit selected prompt to create the next candidate. No analyst is run automatically.' : data.state.active_proposal != null && data.state.status==='running' && data.state.active_trial < data.state.active_proposal ? 'Analyst is reviewing the completed trajectory and proposing a new candidate.' : data.state.status==='completed' ? 'Study complete. Review the learning rewards, proposed changes and evaluation decisions below.' : 'Target model is preparing and evaluating rounds. The analyst starts only after the candidate finishes all configured rounds/replicates or reaches its plateau.';
   const reviewKey=selected+'|'+JSON.stringify([data.proposals, trials.map(t=>[t.directory,t.accepted]),data.state.active_proposal]);
   if(reviewKey!==lastReviewKey){lastReviewKey=reviewKey;const latest=data.proposals?.at(-1);if(latest)await reviewCandidate(latest.directory);else{ $('analyst-content').replaceChildren(node('p',automatic?'No analyst proposal yet. Completing one target conversation does not finish the full candidate evaluation.':'Manual mode does not generate analyst findings. Review scores and edit the learning material yourself.')); }}
   $("trial-comparison").replaceChildren(
@@ -709,7 +709,7 @@ async function refreshSessions(keepSession) {
       $("session"),
       s.id,
       s.id.startsWith("analyst")
-        ? "Analyst"
+        ? "Analyst · "+s.status
         : `Round ${s.generation + 1} · Replicate ${Number(s.id.match(/-r(\d+)/)?.[1] || 0) + 1} · ${s.status}`,
     ),
   );
@@ -741,6 +741,8 @@ async function reveal(title, value) {
   if (!$("dialog").open) $("dialog").showModal();
 }
 async function history(offset, refresh = false) {
+  const session=sessionRows.find(row=>row.id===$('session').value);
+  $('session-identity').textContent=session ? `${session.id.startsWith('analyst')?'Prompt analyst':'Tested model'} · ${selectedTrial} · ${session.id} · ${session.status}${session.failure?.message?' · '+session.failure.message:''}` : '';
   const requestedStudy=selected;
   const params = { trial: selectedTrial, session: $("session").value },
     view = $("view").value;
@@ -1268,3 +1270,9 @@ $('prompt-history').onclick=()=>{if(selected)location.href='/prompt-history?'+ne
 for(const [id,replacement] of [['intervention-instruct',false],['intervention-replace',true]]){
  $(id).onclick=guard(async()=>{await api('/api/intervene',{id:selected,text:$('intervention-text').value,replacement});$('intervention-status').textContent='Intervention saved. Click Resume to continue this optimization.';await inspect(selected);});
 }
+
+$('target-continue').onclick=guard(async()=>{
+ const cost=$('target-reconciliation-cost').value;
+ await api('/api/recover-target',{id:selected,instructions:$('target-instructions').value,...(cost!==''?{reconciliation:{cost_usd:cost,note:$('target-reconciliation-note').value}}:{})});
+ $('target-recovery-status').textContent='Target conversation ready. Click Resume to continue with the existing workspace and history.';await inspect(selected);
+});

@@ -339,6 +339,9 @@ def provider_response(sid, state, model, config, journal):
         return None
     except (KeyError, ValueError, TypeError, ArenaError) as error:
         state["status"] = "needs_reconciliation" if paid else "generation_failed"
+        if paid:
+            state["missing_usage_calls"] = state.get("missing_usage_calls", 0) + 1
+            state["token_usage_known"] = False
         state["in_flight"] = paid
         state["failure"] = {"message": "The provider returned an unreadable response (" + type(error).__name__ + "). Inspect the recorded response in the journal; billing may need reconciliation.", "phase": "provider response", "at": time.time()}
         journal.save(sid, state, "malformed_provider_response", {"error_type": type(error).__name__,

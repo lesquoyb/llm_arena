@@ -307,7 +307,7 @@ def trial(config, out, resume=False, engine=None):
                     run_session(sid, replica_model, exp, out, journal, engine)
                     state = journal.state(sid)
                     if state['status'] not in {'submitted','budget_exhausted'} or not state.get('submission'):
-                        report.update(status='blocked', error=state.get('failure', {}).get('message', state['status']), session=sid)
+                        report.update(status='blocked', error=state.get('failure', {}).get('message', 'Target conversation stopped with status '+state['status']+'. No strategy was submitted. Inspect the journal and use target continuation before resuming.'), session=sid)
                         write_json(out/'report.json', report)
                         return report
                     entrant = {'id': sid, 'path': str(out/'sessions'/sid/'submission'), 'submission': state['submission']}

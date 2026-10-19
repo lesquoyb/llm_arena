@@ -40,6 +40,51 @@ class CalibrationWebTests(TestCase):
                                  ('/api/message', {'session':['other'], 'index':['0'], 'block':['0']})]:
                 with self.assertRaises(ArenaError): workshop.get(route, {**query, **extra})
 
+    def test_target_continuation_preserves_pending_tools_and_rejects_uncertain_requests(self):
+        from arena.experiment import Journal,initial_state
+        from arena.calibration import experiment_config
+        with scratch_directory() as tmp:
+            workshop=Workshop(tmp/'studies',Store(tmp/'runs',tmp/'settings'))
+            value=config();directory=workshop.root/'blocked';folder=directory/'trials/000'
+            write_json(directory/'input.json',value)
+            write_json(directory/'study.json',{'active_trial':0,'status':'blocked'})
+            write_json(folder/'report.json',{'session':'target-r0-g0','status':'blocked'})
+            journal=Journal(folder)
+            try:
+                state=initial_state('target-r0-g0',value['target'],experiment_config(value))
+                state.update(status='no_submission',submission_reminders=3)
+                journal.save('target-r0-g0',state,'fixture')
+            finally: journal.db.close()
+            workshop.recover_target('blocked','Inspect the saved code first.')
+            journal=Journal(folder)
+            try:
+                state=journal.state('target-r0-g0')
+                self.assertEqual(state['status'],'running')
+                self.assertEqual(state['submission_reminders'],0)
+                self.assertIn('Inspect the saved code first.',state['history'][-1]['content'])
+                self.assertNotIn('submission',state)
+                pending={'tool_calls':[{'name':'read_file','arguments':{'path':'main.leek'},'id':'pending'}]}
+                state.update(pending=pending,cursor=0)
+                journal.save('target-r0-g0',state,'fixture_pending')
+            finally: journal.db.close()
+            workshop.recover_target('blocked')
+            journal=Journal(folder)
+            try:
+                state=journal.state('target-r0-g0');self.assertEqual(state['pending'],pending)
+                state.update(status='needs_reconciliation',in_flight=True,money_reserved='0.1')
+                journal.save('target-r0-g0',state,'fixture_uncertain')
+            finally: journal.db.close()
+            with self.assertRaisesRegex(ArenaError,'billing reconciliation'):
+                workshop.recover_target('blocked')
+            workshop.recover_target('blocked',reconciliation={'cost_usd':'0.02','note':'Checked provider receipt'})
+            journal=Journal(folder)
+            try:
+                state=journal.state('target-r0-g0')
+                self.assertFalse(state['in_flight'])
+                self.assertEqual(state['cost_spent'],'0.02')
+                self.assertEqual(state['pending'],pending)
+            finally: journal.db.close()
+
     def test_worker_receives_credentials_without_saving_them(self):
         with scratch_directory() as tmp:
             workshop = Workshop(tmp/'studies', Store(tmp/'runs', tmp/'settings'))

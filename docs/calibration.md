@@ -506,3 +506,19 @@ in automatic studies and continues the same search. Manual replacements are
 marked in the journal and still undergo normal configuration validation and any
 enabled proposal guard. Provider usage is retained; an intervention cannot bypass
 billing reconciliation or rewrite a frozen proposal.
+
+### Recover the tested model
+
+The target uses the same preparation loop as Arena. A response ending without
+tool calls triggers up to three explicit submission reminders, subject to the
+configured budget. After that the conversation stops without submitting.
+Malformed tool arguments are returned as tool errors; an unreadable provider
+response can instead require billing reconciliation.
+
+Use **Continue a stopped target conversation**, not analyst intervention. Stop
+the study, optionally add instructions, click **Prepare target continuation**,
+then **Resume**. The saved conversation, workspace, counters, completed trials and
+pending tool calls remain intact. Submission reminders reset; budgets do not.
+New instructions cannot be inserted while tools are pending. For an unresolved
+provider request, first enter its confirmed additional charge and how you checked
+it in the reconciliation fields. Unknown token usage remains unknown.
