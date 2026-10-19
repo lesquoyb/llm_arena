@@ -147,7 +147,9 @@ async function reviewCandidate(directory) {
   mount.append(node('span',`Candidate ${value.candidate} · ${value.decision}`,'decision'));
   if(value.decision_reason) mount.append(node('p',value.decision_reason));
   mount.append(formatted(value.baseline?'This is the baseline. No analyst changes have been proposed for it.':value.rationale || 'No rationale recorded.'));
-  if(value.metrics_after){const metrics=node('div',undefined,'review-metrics');for(const [key,label,format] of [['validation_score','Validation score',pct],['utility','Objective utility',x=>typeof x==='number'?x.toFixed(4):'Unknown'],['convergence_round','Convergence round',x=>x??'Not reached'],['tokens','Target tokens',x=>x??'Unknown']]){const box=node('div');box.append(node('span',label),node('strong',key==='convergence_round'&&value.metrics_after.converged===false?'Not reached':format(value.metrics_after[key])));if(value.metrics_before)box.append(node('small','Previous: '+(key==='convergence_round'&&value.metrics_before.converged===false?'Not reached':format(value.metrics_before[key]))));metrics.append(box)}mount.append(metrics)}
+  if(value.metrics_after){const metrics=node('div',undefined,'review-metrics');for(const [key,label,format] of [['validation_score','Evaluation score',pct],['judge_score','Laya score',pct],['utility','Objective utility',x=>typeof x==='number'?x.toFixed(4):'Unknown'],['convergence_round','Convergence round',x=>x??'Not reached'],['tokens','Target tokens',x=>x??'Unknown']]){if(key==='judge_score' && value.metrics_after.evaluation_mode==='conversation')continue;const box=node('div');box.append(node('span',key==='validation_score' && value.metrics_after.evaluation_mode==='conversation'?'Laya reasoning score':label),node('strong',key==='convergence_round'&&value.metrics_after.converged===false?'Not reached':format(value.metrics_after[key])));if(value.metrics_before)box.append(node('small','Previous: '+(key==='convergence_round'&&value.metrics_before.converged===false?'Not reached':format(value.metrics_before[key]))));metrics.append(box)}mount.append(metrics)}
+  if(value.rl)mount.append(node('p',`RL action: ${value.rl.action} · Reward: ${value.rl.reward.toFixed(4)} · Learned value: ${value.rl.q_after.toFixed(4)}`));
+  if(value.config.evaluation?.mode && value.config.evaluation.mode!=='fights')mount.append(button('Inspect Laya scores and rubric',async()=>reveal('Local Laya judge',await api(qs('/api/judge',{trial:'trials/'+String(value.candidate-1).padStart(3,'0')})))));
   let changes=0;
   const addDiff=(title,text)=>{if(!text)return;changes++;const d=node('details');d.append(node('summary',title),diffView(text));mount.append(d)};
   addDiff('System prompt changes',value.prompt_diff);
@@ -207,6 +209,11 @@ function fill(config) {
   referencePath=$('reference-path').value;
   $('reference-content').value=referenceEdits[referencePath] ?? boot.reference_documents[referencePath];
   $("name").value = config.name;
+  const learning=config.rl || {learning_rate:0.25,exploration:0.2,minimum_episodes:10,plateau_patience:8,minimum_improvement:0.001,seed:0,stop_on_plateau:true};
+  for(const [id,key] of Object.entries({'rl-rate':'learning_rate','rl-exploration':'exploration','rl-minimum':'minimum_episodes','rl-patience':'plateau_patience','rl-improvement':'minimum_improvement','rl-seed':'seed'}))$(id).value=learning[key];
+  $('rl-plateau').checked=learning.stop_on_plateau;
+  const evaluation=config.evaluation || {mode:'fights',weight:0.05,model:'convaiinnovations/laya',device:'cpu'};
+  $('judge-evidence').value=evaluation.evidence || 'reasoning';$('reward-mode').value=evaluation.mode;$('judge-model').value=evaluation.model;$('judge-device').value=evaluation.device;$('judge-weight').value=evaluation.weight;
   $("stream-responses").checked=config.stream_responses!==false;
   $("round-stop").value =
     config.max_rounds === null
@@ -269,7 +276,7 @@ function fill(config) {
     "editor-retries": "editor_retries",
   };
   Object.entries(map).forEach(
-    ([id, key]) => ($(id).value = config.optimizer[key]),
+    ([id, key]) => ($(id).value = (config.optimizer[key] ?? "")),
   );
   $("parameter-grid").value = json(config.optimizer.parameter_grid);
   $("simulation-note").textContent =
@@ -330,13 +337,16 @@ function config() {
     "editor-retries": "editor_retries",
   };
   Object.entries(map).forEach(
-    ([id, key]) => (value.optimizer[key] = Number($(id).value)),
+    ([id, key]) => (value.optimizer[key] = id === "candidate-count" && $(id).value === "" ? null : Number($(id).value)),
   );
+  value.rl={stop_on_plateau:$('rl-plateau').checked};
+  for(const [id,key] of Object.entries({'rl-rate':'learning_rate','rl-exploration':'exploration','rl-minimum':'minimum_episodes','rl-patience':'plateau_patience','rl-improvement':'minimum_improvement','rl-seed':'seed'}))value.rl[key]=Number($(id).value);
+  value.evaluation={mode:$('reward-mode').value,evidence:$('judge-evidence').value,model:$('judge-model').value,device:$('judge-device').value,weight:Number($('judge-weight').value)};
   value.optimizer.parameter_grid = JSON.parse($("parameter-grid").value);
   if ($("mode").value === "manual") value.optimizer.parameter_grid = {};
-  if ($("mode").value === "automatic") {
+  if ($("mode").value === "automatic" || ($('reward-mode').value!=='fights' && $('judge-evidence').value==='summary')) {
     value.analyst = JSON.parse($("analyst-json").value);
-    value.optimizer.parameter_grid = {};
+    if ($("mode").value === "automatic") value.optimizer.parameter_grid = {};
   }
   if (
     $("mode").value === "grid" &&
@@ -434,19 +444,21 @@ async function inspect(identifier, retain = false) {
     (data.state.error ? ": " + data.state.error : "") +
     (data.state.audit
       ? " · Final audit: " +
-        data.state.audit.map((a) => pct(a.score)).join(", ")
+        (Array.isArray(data.state.audit)?data.state.audit.map((a) => pct(a.score)).join(", "):"Not measured (conversation-only reward)")
       : "");
   const trials = data.state.trials || [];
+  renderLearning(data.state);
   const automatic=data.state.automatic ?? false;
-  $('workflow-status').textContent=!automatic ? 'Manual study: inspect results, then use Edit selected prompt to create the next candidate. No analyst is run automatically.' : data.state.active_proposal != null && data.state.status==='running' && data.state.active_trial < data.state.active_proposal ? 'Analyst is reviewing the completed trajectory and proposing a new candidate.' : data.state.status==='completed' ? 'Study complete. Review the proposed changes and the final validation decision below.' : 'Target model is preparing and evaluating rounds. The analyst starts only after the candidate finishes all configured rounds/replicates or reaches its plateau.';
+  $('workflow-status').textContent=!automatic ? 'Manual study: inspect results, then use Edit selected prompt to create the next candidate. No analyst is run automatically.' : data.state.active_proposal != null && data.state.status==='running' && data.state.active_trial < data.state.active_proposal ? 'Analyst is reviewing the completed trajectory and proposing a new candidate.' : data.state.status==='completed' ? 'Study complete. Review the learning rewards, proposed changes and evaluation decisions below.' : 'Target model is preparing and evaluating rounds. The analyst starts only after the candidate finishes all configured rounds/replicates or reaches its plateau.';
   const reviewKey=selected+'|'+JSON.stringify([data.proposals, trials.map(t=>[t.directory,t.accepted]),data.state.active_proposal]);
   if(reviewKey!==lastReviewKey){lastReviewKey=reviewKey;const latest=data.proposals?.at(-1);if(latest)await reviewCandidate(latest.directory);else{ $('analyst-content').replaceChildren(node('p',automatic?'No analyst proposal yet. Completing one target conversation does not finish the full candidate evaluation.':'Manual mode does not generate analyst findings. Review scores and edit the learning material yourself.')); }}
   $("trial-comparison").replaceChildren(
     table(
-      ["Candidate", "Validation", "Convergence", "Tokens", "Decision"],
+      ["Candidate", "Evaluation", "Laya", "Convergence", "Tokens", "Decision"],
       trials.map((t, i) => [
         String(i + 1),
         pct(t.report.validation_score),
+        t.report.judge_score==null?"Not used":pct(t.report.judge_score),
         t.report.converged === false
           ? "Not reached"
           : t.report.convergence_round,
@@ -516,6 +528,7 @@ function currentReport() {
 }
 function draw() {
   const report = currentReport();
+  const conversationOnly=(report?.evaluation_mode || selectedState?.config.evaluation?.mode)==='conversation';
   const active = selectedState?.progress.find(
     (p) => "trials/" + p.trial === $("trial").value,
   )?.value;
@@ -548,7 +561,7 @@ function draw() {
   svg.setAttribute("role", "img");
   svg.setAttribute(
     "aria-label",
-    "Score by round: green training, blue validation",
+    conversationOnly ? "Laya reasoning score by round" : "Score by round: green training, blue validation",
   );
   function add(tag, attrs, text) {
     const el = document.createElementNS(NS, tag);
@@ -567,10 +580,10 @@ function draw() {
       pct(v),
     );
   });
-  for (const [key, color] of [
+  for (const [key, color] of (conversationOnly ? [["training", "#94e1c4"]] : [
     ["training", "#94e1c4"],
     ["validation", "#83b9ff"],
-  ]) {
+  ])) {
     add("polyline", {
       points: rounds.map((r, i) => `${x(i)},${y(r[key].score)}`).join(" "),
       fill: "none",
@@ -602,17 +615,17 @@ function draw() {
       r.round,
     ),
   );
-  add("text", { x: 50, y: 18, fill: "#94e1c4", "font-size": 13 }, "Training");
+  add("text", { x: 50, y: 18, fill: "#94e1c4", "font-size": 13 }, conversationOnly ? "Laya reasoning score (not combat performance)" : "Training");
   add(
     "text",
     { x: 160, y: 18, fill: "#83b9ff", "font-size": 13 },
-    "Validation (hidden from target)",
+    conversationOnly ? "" : "Validation (hidden from target)",
   );
   add("text", { x: 370, y: 252, fill: "#b7c9e0", "font-size": 13 }, "Round");
   $("chart").append(svg);
   $("rounds-table").append(
     table(
-      [
+      conversationOnly ? ["Round","Laya score","Validity","Calls","Tokens"] : [
         "Round",
         "Training W/D/L",
         "Training",
@@ -627,10 +640,10 @@ function draw() {
           $("session").value = r.session;
           await history();
         }),
-        `${r.training.wins}/${r.training.draws}/${r.training.losses}`,
+        ...(conversationOnly ? [pct(r.training.score)] : [`${r.training.wins}/${r.training.draws}/${r.training.losses}`,
         pct(r.training.score),
         pct(r.validation.score),
-        pct(r.previous_versions?.score),
+        pct(r.previous_versions?.score)]),
         r.validity,
         r.calls,
         r.input_tokens === null ? "Unknown" : r.input_tokens + r.output_tokens,
@@ -645,6 +658,7 @@ async function loadTrial() {
   $("fork").disabled = selectedTrial.startsWith("proposals/");
   $("replicate").replaceChildren();
   const report = currentReport();
+  const conversationOnly=(report?.evaluation_mode || selectedState?.config.evaluation?.mode)==='conversation';
   (report?.replicates || [{ replicate: 0 }]).forEach((r) =>
     option(
       $("replicate"),
@@ -1042,7 +1056,7 @@ $("copy").onclick = guard(() =>
 $("error").onclick = () => ($("error").hidden = true);
 function setMode() {
   updateLoopPlan();
-  const active = $("mode").value === "automatic";
+  const active = $("mode").value === "automatic" || ($('reward-mode').value!=='fights' && $('judge-evidence').value==='summary');
   $("analyst-label").hidden = !active;
   $("candidate-count-label").hidden=$("mode").value==='manual';
   $("analyst-key").closest("label").hidden = !active;
@@ -1051,6 +1065,7 @@ function setMode() {
     $("parameter-grid").value = json({ temperature: [0, 0.3, 0.7] });
 }
 $("mode").onchange = setMode;
+$("judge-evidence").onchange=setMode;$("reward-mode").onchange=setMode;
 $("scenario-preset").onchange = () => {
   const preset = boot.scenarios[$("scenario-preset").value];
   if (preset) $("scenario").value = json(preset);
@@ -1108,9 +1123,9 @@ guard(async () => {
 
 function updateLoopPlan() {
   const rounds=$('round-stop').value==='manual'?'until manually stopped':($('round-stop').value==='plateau'?'up to ':'')+$('rounds').value+' script round(s)';
-  const repeats=Number($('replicates').value)||1, candidates=Number($('candidate-count').value)||1;
+  const repeats=Number($('replicates').value)||1, candidates=$('candidate-count').value || 'unlimited';
   $('loop-plan').textContent=$('mode').value==='automatic'
-    ? `${rounds} × ${repeats} fresh repetition(s) → analyst proposal → fresh evaluation → keep/reject → repeat, up to ${candidates} prompt candidates including the baseline. No manual relaunch between candidates.`
+    ? `${rounds} × ${repeats} fresh repetition(s) → RL-selected edit → analyst proposal → reward → policy update → repeat (${candidates} candidates). Stop on reward plateau if enabled, or manually. No manual relaunch between candidates.`
     : $('mode').value==='grid' ? `${rounds} × ${repeats} fresh repetition(s) per parameter configuration, up to ${candidates} configurations. No analyst editing.`
     : `${rounds} × ${repeats} fresh repetition(s) for this prompt. After evaluation, edit and launch the next candidate manually.`;
 }
@@ -1134,3 +1149,20 @@ function updateRoundStop() {
   updateLoopPlan();
 }
 $("round-stop").onchange = updateRoundStop;
+
+function renderLearning(state){
+  const mount=$('rl-progress');mount.replaceChildren();
+  const episodes=(state.trials||[]).filter(t=>t.rl);
+  mount.append(node('p',episodes.length?`${episodes.length} learning episodes · ${(state.stop_reason || 'Learning in progress').replaceAll('_',' ')} · Best candidate ${(state.incumbent??0)+1}`:'Baseline evaluation. Learning starts with the first prompt revision.'));
+  if(!episodes.length)return;
+  const NS='http://www.w3.org/2000/svg',svg=document.createElementNS(NS,'svg');svg.setAttribute('viewBox','0 0 800 170');svg.setAttribute('role','img');svg.setAttribute('aria-label','Reward per prompt revision, zero at the middle line');
+  const line=document.createElementNS(NS,'line');for(const [k,v]of Object.entries({x1:30,x2:770,y1:85,y2:85,stroke:'currentColor',opacity:'.3'}))line.setAttribute(k,v);svg.append(line);
+  const max=Math.max(.01,...episodes.map(t=>Math.abs(t.rl.reward)));
+  const path=document.createElementNS(NS,'polyline');path.setAttribute('fill','none');path.setAttribute('stroke','#6ecbb2');path.setAttribute('stroke-width','3');path.setAttribute('points',episodes.map((t,i)=>`${30+i*740/Math.max(1,episodes.length-1)},${85-t.rl.reward/max*65}`).join(' '));svg.append(path);
+  episodes.forEach((t,i)=>{const dot=document.createElementNS(NS,'circle');dot.setAttribute('cx',30+i*740/Math.max(1,episodes.length-1));dot.setAttribute('cy',85-t.rl.reward/max*65);dot.setAttribute('r','4');dot.setAttribute('fill','#6ecbb2');const title=document.createElementNS(NS,'title');title.textContent=`Episode ${i+1}: ${t.rl.reward.toFixed(4)}`;dot.append(title);svg.append(dot)});
+  for(const [label,y]of [[`+${max.toFixed(3)}`,16],['0',82],[`−${max.toFixed(3)}`,165]]){const text=document.createElementNS(NS,'text');text.textContent=label;text.setAttribute('x','4');text.setAttribute('y',y);text.setAttribute('fill','currentColor');text.setAttribute('font-size','11');svg.append(text)}
+  mount.append(svg);
+  mount.append(table(['Episode','Edit action','Exploration','Reward','Learned value'],episodes.slice(-30).map((t,i)=>[Math.max(0,episodes.length-30)+i+1,t.rl.action,t.rl.exploring?'Yes':'No',t.rl.reward.toFixed(4),t.rl.q_after.toFixed(4)])));
+  if(episodes.length>30)mount.append(node('p','Showing the latest 30 episodes in the table; the chart covers the full history.'));
+  const policy=node('details');policy.append(node('summary','Learned policy'),node('pre',json(state.policy),'record-code'));mount.append(policy);
+}

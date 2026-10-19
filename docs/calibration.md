@@ -94,36 +94,99 @@ candidates. Provider seeds do not guarantee identical remote outputs.
 
 ## Automatic prompt editing
 
-Select **Automatic prompt editing** and an analyst participant. The analyst
+Select **Reinforcement learning** and an analyst participant. The analyst
 receives the incumbent prompt, permitted tools, training trajectory and bounded
 conversation evidence. It proposes a replacement prompt, a set of existing registered tools and a rationale. It can also report missing tools, unclear documentation or inadequate error feedback through structured `tool_requests`.
-It cannot change opponents, evaluation seeds or the target model. Validation and
-audit results are omitted from its evidence. Evidence truncation is explicit;
+It cannot change opponents, evaluation seeds or the target model. Validation match details and audit results are omitted from its evidence. The controller and analyst receive aggregate learning rewards from prior revisions. Evidence truncation is explicit;
 full source records remain available for human inspection.
 
-The search is a `(1+1)` elitist algorithm: evaluate a baseline, propose one
-candidate from the accepted incumbent, evaluate it with fresh conversations,
-then keep or reject it. The utility is:
+The automatic workflow now uses a **contextual bandit**, a one-step reinforcement
+learning controller. It learns which editing action to ask the analyst to take:
+language/API guidance, strategy, tools, compression or exploration. Context is the
+incumbent's validity and performance band. The analyst edits the prompt and/or
+reference documents; the target runs a fresh observation; the measured reward
+updates the selected action value:
 
 ```text
-mean validation score
-  - round_penalty * mean convergence round
-  - token_penalty_per_million * mean target tokens / 1,000,000
+reward = candidate utility - incumbent utility  # combat/conversation modes
+# Hybrid: combat gain first, Laya gain for equivalent combat scores.
+Q(context, action) += learning_rate * (reward - Q(context, action))
 ```
 
-A candidate must remain within `score_tolerance` of the incumbent for every
-paired replicate and improve utility. An invalid candidate cannot replace a
-valid incumbent. A score gain can therefore trade against convergence speed or
-token use; set the two penalties to zero to optimize score alone. Token penalties
-apply only to measured usage, and candidates with incomparable usage are not
-ranked on fabricated token counts. All accepted and rejected trials are retained.
+Invalid code receives reward -1; restoring validity receives +1. All action types
+are explored at least once in a context, then epsilon-greedy selection balances
+learned values and random exploration. The seed, action, reward, learned values,
+accepted/rejected candidates and recent failed hypotheses are saved. Resume does
+not apply rewards twice. This trains the editing controller, not the target or
+analyst model weights; it is not PPO or a fine-tuning pipeline.
 
-`max_trials` includes the baseline. Search `patience` stops after that many
-consecutive rejections. Round patience is a separate setting. Analyst
-`editor_retries` controls repairs of malformed proposals; these are real calls
-and count toward costs. **Review change** shows the rationale, prompt diff and
-tool/parameter changes. Select a proposal in the candidate menu to inspect the
-analyst's own conversation and journal.
+The default has **no candidate limit** (`optimizer.max_trials: null`). It stops
+on a reward plateau after at least 10 editing episodes, with no reward improvement
+over 0.001 in the latest 8 episodes and every action explored in the current
+context. These thresholds, learning rate and exploration probability are editable.
+Disable **Stop on reward plateau** to run until manually stopped. An optional
+candidate limit includes the baseline; the study spending ceiling still applies.
+A plateau is a practical stopping rule, not proof of an optimum.
+
+The best candidate remains protected by validity and paired score checks. Utility
+uses evaluation score, optional Laya reward, convergence penalty and token penalty.
+All trials remain inspectable even when the incumbent does not change. Old saved
+configurations without `rl` keep the original rejection/patience search.
+
+**Learning progress** shows rewards, editing actions, exploration and learned
+values. **Review change** shows rationale, diffs and tool requests. Select a
+proposal to inspect the analyst conversation. Recommendations do not modify
+executable tools automatically.
+
+## Optional local Laya reward
+
+Install into the same virtual environment as Arena:
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install ".[calibration]"
+```
+
+```bash
+.venv/bin/python -m pip install '.[calibration]'
+```
+
+This pins the Python Laya package. Its first use downloads model weights from
+Hugging Face. The selected checkpoint, resolved model revision, package version,
+rubric, evidence fingerprint, scores and elapsed inference time are recorded.
+CPU is the default, leaving GPU memory for Ollama. There are no hosted Laya calls.
+
+Choose a reward source:
+
+- **Combat score**: actual matches, with no Laya inference.
+- **Combat score + Laya tie-break**: Laya breaks combat-score ties within the
+  configured tolerance. A judge preference cannot override a combat regression
+  outside that tolerance.
+- **Laya conversation score**: no automatic training/validation/audit fights.
+  Compilation still runs; invalid code cannot replace valid code. Preparation
+  tests explicitly requested by the target can still run. This mode measures a
+  reasoning-quality proxy, not combat performance or held-out validation.
+
+Laya receives either **readable reasoning only**, excluding code/tool payloads,
+or a **factual trajectory summary** written by the configured analyst. Summary
+mode adds real analyst calls with their usual tokens/costs, also for local
+providers. Those calls have their own journal under `judge_summaries/`. OpenAI's
+encrypted reasoning is never decoded or scored. If no readable reasoning is
+available, scoring blocks with an explanation: choose summary mode or combat
+scoring instead of inventing a score.
+
+The ordinal rubric rates unproductive, partially productive or productive
+reasoning. Laya returns the expected level in [0, 2], divided by 2 for [0, 1].
+Only provider-exposed reasoning is available; hidden internal reasoning is never reconstructed. Every reasoning message is scanned with `predict_long`; Laya selects the most
+confident window within each message, and Arena averages messages. Summary mode
+scores the summary the same way. This avoids silent long-input truncation, but
+is not a holistic code review or an explanation-generating judge. Scores can
+reward plausible reasoning that is wrong. Compare them against actual fights
+before relying on them as the sole learning signal.
+
+**Inspect Laya scores and rubric** exposes the per-message scores, windows,
+confidence and aggregation. Full receipts are in each trial's `judge/` directory.
+Analyst summaries are retained next to their journals. Local Laya inference uses
+no provider output tokens; its elapsed time is recorded separately.
 
 ## Parameter sweeps
 
@@ -274,10 +337,10 @@ These are three separate loops:
 2. A **fresh repetition** restarts that candidate from scratch, without the scripts
    or feedback of other repetitions. It repeats the complete configured sequence
    of script rounds.
-3. In **Automatic learning loop**, the analyst reviews that observation, proposes
+3. In **Reinforcement learning**, the analyst reviews that observation, proposes
    prompt/document changes, then the tool evaluates a fresh candidate under the
    same protocol. It keeps or rejects the candidate and continues automatically,
-   stopping at the candidate limit or search patience. The baseline counts as the
+   stopping on a reward plateau, an optional candidate limit or manual stop. The baseline counts as the
    first candidate. A rejected proposal does not replace the incumbent.
 
 The new default is **Quick diagnosis**: one script round, one repetition and a

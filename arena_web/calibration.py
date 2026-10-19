@@ -36,6 +36,8 @@ def decision_reason(row, parent, config, candidate):
     if not after.get('final_valid'): return 'Rejected: the candidate did not finish with valid submitted strategies.'
     if (after.get('tokens') is None)!=(before.get('tokens') is None):
         return 'Rejected: target token measurements are not comparable between candidate and incumbent.'
+    if config.get('evaluation',{}).get('mode')=='hybrid':
+        return 'Rejected: the candidate did not improve combat performance or the Laya tie-break within the allowed combat tolerance.'
     tolerance=config['optimizer']['score_tolerance']
     for new,old in zip(after.get('replicates',[]),before.get('replicates',[])):
         if new['rounds'][-1]['validation']['score'] < old['rounds'][-1]['validation']['score']-tolerance:
@@ -137,13 +139,13 @@ class Workshop:
             return {'runtime_status':next((row['status'] for row in self.listing() if row['id']==directory.name), 'stopped'), 'config':read_json(directory/'input.json'), 'state':read_json(directory/'study.json') if (directory/'study.json').exists() else {},
                     'progress': [{'trial': p.parent.name, 'value':read_json(p)} for p in directory.glob('trials/*/progress.json')],
                     'active_reports':{p.parent.relative_to(directory).as_posix():read_json(p) for p in directory.glob('trials/*/report.json')},
-                    'trial_directories':[p.parent.relative_to(directory).as_posix() for p in sorted(directory.glob('trials/*/journal.sqlite'))],
-                    'proposal_directories':[p.parent.relative_to(directory).as_posix() for p in sorted(directory.glob('proposals/*/journal.sqlite'))],
+                    'trial_directories':[p.parent.relative_to(directory).as_posix() for p in sorted(directory.glob('trials/*/journal.sqlite'),key=lambda p:int(p.parent.name))],
+                    'proposal_directories':[p.parent.relative_to(directory).as_posix() for p in sorted(directory.glob('proposals/*/journal.sqlite'),key=lambda p:int(p.parent.name))],
                     'proposals':[{'directory':p.parent.relative_to(directory).as_posix(),'candidate':int(p.parent.name)+1,
-                                  'rationale':read_json(p).get('rationale','')} for p in sorted(directory.glob('proposals/*/proposal.json'))]}
+                                  'rationale':read_json(p).get('rationale','')} for p in sorted(directory.glob('proposals/*/proposal.json'),key=lambda p:int(p.parent.name))]}
         if route == '/api/tool-requests':
             return [{'candidate':int(path.parent.name)+1, 'requests':read_json(path).get('tool_requests',[])}
-                    for path in sorted(directory.glob('proposals/*/proposal.json'))]
+                    for path in sorted(directory.glob('proposals/*/proposal.json'),key=lambda p:int(p.parent.name))]
         if route == '/api/log':
             path = directory/'worker.log'
             with path.open('rb') as stream:
@@ -171,7 +173,7 @@ class Workshop:
                     'decision_reason':decision_reason(row,parent,state['config'],candidate),
                     'decision':'Baseline' if candidate==0 else 'Kept' if row and row['accepted'] else 'Rejected' if row else 'Pending evaluation',
                     'rationale':proposal.get('rationale') or (row.get('rationale') if row else 'Candidate evaluation is in progress.'),
-                    'metrics_before':parent.get('report') if parent else None,'metrics_after':row.get('report') if row else None,
+                    'rl':row.get('rl') if row else None, 'metrics_before':parent.get('report') if parent else None,'metrics_after':row.get('report') if row else None,
                     'tool_requests':proposal.get('tool_requests',[]) or (row.get('tool_requests',[]) if row else []),
                     'prompt_diff':''.join(difflib.unified_diff(before['prompt'].splitlines(True),frozen['prompt'].splitlines(True),fromfile='incumbent prompt',tofile='candidate prompt')),
                     'document_diffs':{path:''.join(difflib.unified_diff(before_documents[path].splitlines(True),text.splitlines(True),fromfile='incumbent '+path,tofile='candidate '+path)) for path,text in after_documents.items() if text!=before_documents.get(path)},
@@ -191,6 +193,8 @@ class Workshop:
             from .replay import describe
             return {'match':match,'team_metrics':outcome.get('team_metrics'),
                     'events':describe(outcome.get('fight',{}))['events'], 'logs':outcome.get('logs')}
+        if route == '/api/judge':
+            return [read_json(path) | {'session':path.stem} for path in sorted((trial/'judge').glob('*.json'))]
         if route == '/api/files':
             return [{'path':p.relative_to(trial).as_posix(), 'bytes':p.stat().st_size} for p in sorted(trial.rglob('*'))
                     if p.is_file() and not p.is_symlink() and p.name not in {'journal.sqlite','journal.sqlite-wal','journal.sqlite-shm'}]
