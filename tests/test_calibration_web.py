@@ -121,6 +121,10 @@ class CalibrationWebTests(TestCase):
             self.assertIsNotNone(result['metrics_after'])
             detail=workshop.get('/api/study',{'study':['automatic']})
             self.assertEqual(detail['proposals'][0]['directory'],'proposals/001')
+            live=workshop.get('/api/live-response',{'study':['automatic'],'trial':['proposals/001'],'session':['analyst-r0']})
+            self.assertEqual(live['role'],'analyst')
+            self.assertIsNone(live['budget'])
+            self.assertEqual(live['proposal_phase']['phase'],'ready')
 
 class CalibrationSummaryTests(TestCase):
     def test_fight_summary_uses_recorded_opponents_and_outcomes(self):

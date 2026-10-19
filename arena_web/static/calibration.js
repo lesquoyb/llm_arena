@@ -188,6 +188,7 @@ async function refreshLiveOutput() {
     if(previousLiveIdentity===identity && previousInFlight && !data.in_flight) await history(undefined,true);
     previousLiveIdentity=identity;previousInFlight=!!data.in_flight;
     const budget=$('session-budget');budget.replaceChildren();
+    if(data.role==='analyst'){budget.append(node('p',`Prompt analyst · ${data.calls} provider call(s) · ${data.repair_attempts} correction attempt(s). Returns proposal JSON; no submit, preparation tools or fights are expected.`));if(data.proposal_phase)budget.append(node('p',data.proposal_phase.message));if(data.proposal_error||data.failure?.message)budget.append(node('p',data.proposal_error||data.failure.message));}
     if(data.budget){const strip=node('div',undefined,'budget-strip');for(const [key,value] of Object.entries(data.budget.limits))strip.append(node('span',`${({calls:'Model calls',steps:'Tool calls',test_matches:'Preparation fights'})[key]||key}: ${value.used??'?'} / ${value.limit} · ${value.remaining??'?'} left`));budget.append(strip)}
     $('live-status').textContent=data.in_flight?'Model request in progress'+(data.live?.phase==='streaming'?' · receiving output':(data.streaming_supported?' · waiting for output':' · this provider updates after each complete response')):data.status;
     const mount=$('live-output');

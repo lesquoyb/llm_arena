@@ -459,14 +459,19 @@ def propose(config, report, incumbent_dir, proposal_dir, learning=None):
             state['status'] = 'running'
         if state.get('in_flight') or state.get('status') == 'needs_reconciliation':
             raise ArenaError('Analyst request needs billing reconciliation; it will not be repeated automatically')
+        def proposal_phase(phase, message):
+            state['proposal_phase']={'phase':phase,'message':message}
+            journal.save(sid,state,'proposal_phase',state['proposal_phase'])
         if analyst['provider'] == 'mock':
             result = {'prompt': config['prompt']+'\nPrefer simple, validated changes.', 'tools': config['tools'],
                       'rationale': 'Offline fixture proposal; not a learned recommendation.', 'simulated': True}
             journal.save(sid, state, 'simulated_proposal', result)
         else:
+            proposal_phase('response','Reading the saved analyst response' if state.get('pending') else 'Waiting for the analyst response')
             response = state.get('pending') or provider_response(sid, state, analyst,
                 {**experiment_config(config), 'models': [analyst]}, journal)
             if not response or state['status'] != 'running': raise ArenaError(state.get('failure', {}).get('message', state['status']))
+            proposal_phase('parsing','Parsing the analyst proposal JSON')
             from arena_web.provider_output import blocks
             text = '\n'.join(b['value'] if isinstance(b['value'], str) else b['value'].get('text', '') if isinstance(b['value'], dict) else '' for b in blocks(response) if b['kind'] == 'text')
             text = text.strip()
@@ -480,6 +485,7 @@ def propose(config, report, incumbent_dir, proposal_dir, learning=None):
         if not isinstance(result.get('reference_documents',{}),dict):
             return repair_proposal(config,report,incumbent_dir,proposal_dir,journal,sid,state,'reference_documents must be a map of paths to complete text.')
         result['reference_documents']={**config.get('reference_documents',{}),**result.get('reference_documents',{})}
+        proposal_phase('validation','Checking the proposed prompt, tool names and documents')
         test = {**config, 'prompt': result['prompt'], 'tools': result['tools'],'reference_documents':result['reference_documents']}
         try:
             validate(test)
@@ -491,6 +497,7 @@ def propose(config, report, incumbent_dir, proposal_dir, learning=None):
         if config.get('proposal_guard',{}).get('enabled') and analyst['provider']!='mock':
             manifest=proposal_dir.parent.parent/'study.json'
             baseline=read_json(manifest)['config'] if manifest.exists() else config
+            proposal_phase('guard','Running the local Laya proposal check; this can take time on CPU')
             reviewed=guard.review(baseline,test,proposal_dir,config['proposal_guard'])
             if reviewed['status']=='unavailable': raise ArenaError('Proposal guard unavailable: '+reviewed.get('error','unknown error')+'. Proposal retained; resume after fixing the local Laya installation.')
             if reviewed['status']!='approved':
@@ -498,7 +505,8 @@ def propose(config, report, incumbent_dir, proposal_dir, learning=None):
         write_json(saved, result)
         from .tool_requests import write_report
         write_report(proposal_dir,result.get('tool_requests',[]))
-        state.update(status='submitted',pending=None,proposal_sha256=file_hash(saved))
+        state.pop('proposal_error',None)
+        state.update(status='submitted',pending=None,proposal_sha256=file_hash(saved),proposal_phase={'phase':'ready','message':'Proposal validated; ready for target evaluation'})
         journal.save(sid,state,'proposal_selected',result)
         return result
     finally: journal.db.close()
@@ -507,8 +515,10 @@ def propose(config, report, incumbent_dir, proposal_dir, learning=None):
 def repair_proposal(config, report, incumbent_dir, proposal_dir, journal, sid, state, reason):
     if state.get('repair_attempts',0)>=config['optimizer']['editor_retries']:
         state['proposal_error']=reason
+        state['proposal_phase']={'phase':'blocked','message':reason}
         journal.save(sid,state,'proposal_repair_exhausted',{'reason':reason})
         raise ArenaError('Editor proposal rejected: '+reason+' Inspect its conversation and journal. Use analyst intervention to request a new response or supply corrected JSON, then resume.')
+    state['proposal_phase']={'phase':'repair','message':reason}
     state['repair_attempts']=state.get('repair_attempts',0)+1
     state['pending']=None
     state['history'].append({'role':'user','content':reason+' Correct your previous answer. Return only a JSON object with prompt (complete replacement string), tools (registered tool names including write_file and submit) and rationale (string), plus optional tool_requests (structured recommendations only). Do not change the task or evaluation rules.'})

@@ -397,9 +397,10 @@ class Workshop:
                 config=saved_config(directory)
                 model=config.get('analyst') if sid.startswith('analyst') else config['target']
                 return {'streaming_supported':bool(model and model['provider'] in {'openai','openai-compatible'} and config.get('stream_responses',True)),
-                        'status':state['status'],'in_flight':state.get('in_flight',False),
+                        'status':state['status'],'in_flight':state.get('in_flight',False),'role':'analyst' if sid.startswith('analyst') else 'target',
+                        'calls':state.get('calls',0),'repair_attempts':state.get('repair_attempts',0),'proposal_phase':state.get('proposal_phase'),'proposal_error':state.get('proposal_error'),'failure':state.get('failure'),
                         'live':live if state.get('in_flight') or (live and live.get('phase')=='interrupted') else None,
-                        'budget':progress(state,config['budget_per_session'])}
+                        'budget':None if sid.startswith('analyst') else progress(state,config['budget_per_session'])}
             if route == '/api/tool-exchange':
                 from .tool_exchange import inspect
                 from .data import history_writes
