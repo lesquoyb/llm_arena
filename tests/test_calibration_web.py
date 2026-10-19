@@ -85,6 +85,26 @@ class CalibrationWebTests(TestCase):
                 self.assertEqual(state['pending'],pending)
             finally: journal.db.close()
 
+    def test_human_acceptance_is_bound_to_the_blocked_proposal(self):
+        from arena.core import read_json,file_hash
+        with scratch_directory() as tmp:
+            workshop=Workshop(tmp/'studies',Store(tmp/'runs',tmp/'settings'))
+            directory=workshop.root/'blocked';folder=directory/'proposals/001'
+            write_json(directory/'study.json',{'active_trial':0,'active_proposal':1,'status':'blocked'})
+            write_json(folder/'proposal-draft.json',{'prompt':'General authoring instructions'})
+            write_json(folder/'guard.json',{'identity':'specific-check','status':'rejected'})
+            self.assertTrue(workshop.active_work(directory,read_json(directory/'study.json'))['guard_override_available'])
+            workshop.accept_proposal('blocked')
+            decision=read_json(folder/'guard-override.json')
+            self.assertEqual(decision['draft_sha256'],file_hash(folder/'proposal-draft.json'))
+            self.assertEqual(decision['guard_identity'],'specific-check')
+            self.assertFalse((folder/'proposal.json').exists())
+            write_json(folder/'proposal-draft.json',{'prompt':'A different proposal'})
+            self.assertNotEqual(decision['draft_sha256'],file_hash(folder/'proposal-draft.json'))
+            write_json(folder/'guard.json',{'identity':'failed-check','status':'unavailable'})
+            with self.assertRaisesRegex(ArenaError,'No rejected proposal check'):
+                workshop.accept_proposal('blocked')
+
     def test_worker_receives_credentials_without_saving_them(self):
         with scratch_directory() as tmp:
             workshop = Workshop(tmp/'studies', Store(tmp/'runs', tmp/'settings'))

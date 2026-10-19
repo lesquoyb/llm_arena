@@ -144,6 +144,22 @@ class Workshop:
                 else: os.killpg(process.pid, signal.SIGTERM)
             return {'stopped':identifier}
 
+    def accept_proposal(self,identifier):
+        with self.lock:
+            if any(p.poll() is None for p in self.processes.values()):
+                raise ArenaError('Stop the study before accepting a blocked proposal')
+            directory=local_path(self.root,identifier);state=read_json(directory/'study.json')
+            index=state.get('active_proposal',0)
+            if index<=state.get('active_trial',0): raise ArenaError('No pending prompt proposal')
+            folder=directory/'proposals'/f'{index:03}'
+            if (folder/'proposal.json').exists(): raise ArenaError('Proposal already frozen')
+            guard=read_json(folder/'guard.json')
+            if guard.get('status') not in {'rejected','needs_review'}: raise ArenaError('No rejected proposal check to override')
+            draft=folder/'proposal-draft.json'
+            # Scope the decision to this exact proposal and this exact guard result.
+            write_json(folder/'guard-override.json',{'draft_sha256':file_hash(draft),'guard_identity':guard['identity'],'at':time.time(),'reason':'User accepted the saved proposal despite the experimental semantic check.'})
+            return {'accepted':True,'candidate':index+1}
+
     def recover_target(self, identifier, instructions='', reconciliation=None):
         from arena.experiment import Journal
         from arena.recovery import needs_reconciliation,reconcile
@@ -224,6 +240,28 @@ class Workshop:
             write_json(directory/'study.json',manifest)
             return {'recorded':True,'candidate':index+1}
 
+    def active_work(self,directory,state):
+        proposal=state.get('active_proposal',0)>state.get('active_trial',0)
+        index=state.get('active_proposal',0) if proposal else state.get('active_trial',0)
+        folder=directory/('proposals' if proposal else 'trials')/f'{index:03}'
+        result={'kind':'analyst' if proposal else 'target','candidate':index+1,'directory':folder.relative_to(directory).as_posix(),'message':state.get('error','')}
+        guard=folder/'guard.json'
+        if proposal and guard.exists():
+            result['guard_status']=read_json(guard).get('status')
+            result['guard_override_available']=result['guard_status'] in {'rejected','needs_review'} and (folder/'proposal-draft.json').exists() and not (folder/'proposal.json').exists()
+        dbpath=folder/'journal.sqlite'
+        if dbpath.exists():
+            db=sqlite3.connect(dbpath.as_uri()+'?mode=ro',uri=True)
+            try:
+                rows=db.execute("SELECT json_extract(state,'$.status','$.proposal_phase','$.proposal_error','$.in_flight','$.failure.message') FROM sessions ORDER BY id").fetchall()
+                for (raw,) in rows:
+                    status,phase,error,in_flight,failure=json.loads(raw)
+                    if proposal or status not in {'submitted','budget_exhausted'}:
+                        result.update(session_status=status,phase=phase,proposal_error=error,requires_reconciliation=bool(in_flight or status=='needs_reconciliation'))
+                        if error or failure: result['message']=error or failure
+            finally: db.close()
+        return result
+
     def get(self, route, query):
         value = lambda key, default='': query.get(key,[default])[0]
         if route == '/api/bootstrap':
@@ -239,7 +277,7 @@ class Workshop:
         directory = local_path(self.root,value('study'))
         if route == '/api/study':
             proposal_paths={p.parent:(p.parent/'proposal.json' if (p.parent/'proposal.json').exists() else p) for pattern in ('proposals/*/proposal.json','proposals/*/proposal-draft.json') for p in directory.glob(pattern)}
-            return {'runtime_status':next((row['status'] for row in self.listing() if row['id']==directory.name), 'stopped'), 'config':saved_config(directory), 'state':read_json(directory/'study.json') if (directory/'study.json').exists() else {},'accounting':self.usage(directory),
+            return {'runtime_status':next((row['status'] for row in self.listing() if row['id']==directory.name), 'stopped'), 'config':saved_config(directory), 'state':read_json(directory/'study.json') if (directory/'study.json').exists() else {},'accounting':self.usage(directory),'active_work':self.active_work(directory,read_json(directory/'study.json') if (directory/'study.json').exists() else {}),
                     'progress': [{'trial': p.parent.name, 'value':read_json(p)} for p in directory.glob('trials/*/progress.json')],
                     'active_reports':{p.parent.relative_to(directory).as_posix():read_json(p) for p in directory.glob('trials/*/report.json')},
                     'trial_directories':[p.parent.relative_to(directory).as_posix() for p in sorted(directory.glob('trials/*/journal.sqlite'),key=lambda p:int(p.parent.name))],
@@ -314,7 +352,7 @@ class Workshop:
             after_root=directory/'trials'/f'{candidate:03}'
             after_documents={name:(after_root/'corpus'/name).read_text(encoding='utf-8') if (after_root/'corpus'/name).exists() else frozen.get('reference_documents',{}).get(name,before_documents.get(name,text)) for name,text in effective_documents(frozen).items()}
             guard_path=directory/'proposals'/f'{candidate:03}'/'guard.json'
-            return {'guard':read_json(guard_path) if guard_path.exists() else None,'guard_enabled':state['config'].get('proposal_guard',{}).get('enabled',False), 'config':frozen,'current_best':state.get('incumbent')==candidate,'comparison_candidate':comparison_index+1 if comparison_index is not None else None,'candidate':candidate+1,'baseline':candidate==0,
+            return {'guard_override':read_json(guard_path.with_name('guard-override.json')) if guard_path.with_name('guard-override.json').exists() else None,'guard':read_json(guard_path) if guard_path.exists() else None,'guard_enabled':state['config'].get('proposal_guard',{}).get('enabled',False), 'config':frozen,'current_best':state.get('incumbent')==candidate,'comparison_candidate':comparison_index+1 if comparison_index is not None else None,'candidate':candidate+1,'baseline':candidate==0,
                     'decision_reason':('Not evaluated: the proposal check returned '+read_json(guard_path)['status']+'.') if not row and guard_path.exists() and read_json(guard_path)['status']!='approved' else decision_reason(row,comparison,state['config'],candidate),
                     'decision':'Baseline' if candidate==0 else 'Kept' if row and row['accepted'] else 'Rejected' if row else 'Blocked by proposal check' if guard_path.exists() and read_json(guard_path)['status']!='approved' else 'Pending evaluation',
                     'rationale':proposal.get('rationale') or (row.get('rationale') if row else 'Candidate evaluation is in progress.'),
@@ -476,6 +514,7 @@ def serve(root, port=8766, open_browser=False):
                 if not 0<size<=2000000: raise ArenaError('Invalid request size')
                 data = json.loads(self.rfile.read(size))
                 if self.path=='/api/start': result=workshop.start(data['config'],data.get('automatic',False),keys=data.get('keys'))
+                elif self.path=='/api/accept-proposal': result=workshop.accept_proposal(data['id'])
                 elif self.path=='/api/recover-target': result=workshop.recover_target(data['id'],data.get('instructions',''),data.get('reconciliation'))
                 elif self.path=='/api/intervene': result=workshop.intervene(data['id'],data['text'],data.get('replacement',False))
                 elif self.path=='/api/resume':

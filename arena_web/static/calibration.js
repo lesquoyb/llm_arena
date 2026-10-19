@@ -145,7 +145,7 @@ async function reviewCandidate(directory) {
   if(study!==selected || epoch!==reviewEpoch)return;
   const mount=$('analyst-content');mount.replaceChildren();
   mount.append(node('span',`Candidate ${value.candidate} · ${value.current_best?"Current best":value.baseline?"Initial baseline":value.decision=== "Kept"?"Selected earlier":value.decision}`,'decision'));
-  if(!value.baseline){mount.append(node('p',`Proposal check: ${value.guard?.status || (value.guard_enabled?'Not checked yet':'Disabled')}. This is separate from independent trajectory diagnostics.`));if(value.guard)mount.append(button('Inspect proposal check',()=>reveal('Experimental proposal check',value.guard)));}
+  if(!value.baseline){mount.append(node('p',`Proposal check: ${value.guard_override?'Accepted manually despite the experimental check':value.guard?.status || (value.guard_enabled?'Not checked yet':'Disabled')}. This is separate from independent trajectory diagnostics.`));if(value.guard)mount.append(button('Inspect proposal check',()=>reveal('Experimental proposal check',value.guard)));}
   if(!value.baseline)mount.append(node('p',`Candidate ${value.source_candidate} → analyst changes → candidate ${value.candidate} → evaluation against ${value.comparison_candidate ? 'best candidate '+value.comparison_candidate : 'the baseline'}.`));
   if(value.decision_reason) mount.append(node('p',value.decision_reason));
   mount.append(formatted(value.baseline?'This is the baseline. No analyst changes have been proposed for it.':value.rationale || 'No rationale recorded.'));
@@ -164,7 +164,7 @@ async function reviewCandidate(directory) {
   if(!changes)mount.append(node('p',value.baseline?'The original prompt and documents are unchanged.':'No prompt, document, tool-selection or parameter changes.'));
   if(value.tool_requests?.length){mount.append(node('h4','Tool improvement requests'));value.tool_requests.forEach(request=>mount.append(formatted(`**${request.kind}: ${request.tool || 'Tools/documentation'}**\n${request.problem}\n${request.proposed_change}\n${request.expected_benefit || ''}`)))}
   if(!value.baseline)mount.append(node('p','The analyst proposes changes. Kept/rejected is decided by paired validation results and the configured objective, not by the analyst’s opinion.'));
-  const actions=node('div',undefined,'review-actions');actions.append(button('Inspect analyst conversation',async()=>{const proposal='proposals/'+String(value.candidate-1).padStart(3,'0');if(![...$('trial').options].some(o=>o.value===proposal))option($('trial'),proposal,'Analyst for candidate '+value.candidate);$('trial').value=proposal;await loadTrial();$('history').scrollIntoView({behavior:'smooth',block:'center'})}),button('Raw review data',()=>reveal('Candidate review data',value)));
+  const actions=node('div',undefined,'review-actions');actions.append(button('Inspect analyst conversation',async()=>{studyTab('inspect');const proposal='proposals/'+String(value.candidate-1).padStart(3,'0');if(![...$('trial').options].some(o=>o.value===proposal))option($('trial'),proposal,'Analyst for candidate '+value.candidate);$('trial').value=proposal;await loadTrial();$('history').scrollIntoView({behavior:'smooth',block:'center'})}),button('Raw review data',()=>reveal('Candidate review data',value)));
   actions.append(button('Download this candidate’s learning material',()=>downloadMaterial(directory)));
   mount.append(actions);
 }
@@ -448,6 +448,7 @@ async function inspect(identifier, retain = false) {
   if (selected !== identifier) return;
   const keepSession = $("session").value;
   selectedState = data;
+  commandCenter(data);
   $("study-title").textContent = data.config.name;
   const usage=data.accounting || data.state.accounting;
   $('study-cost').replaceChildren();
@@ -516,19 +517,21 @@ async function inspect(identifier, retain = false) {
       option(
         $("trial"),
         path,
-        "Candidate " + (Number(path.split("/").pop()) + 1) + " · Preparing",
+        "Candidate " + (Number(path.split("/").pop()) + 1) + " · Target strategy",
       );
   for (const path of data.proposal_directories || [])
     option(
       $("trial"),
       path,
-      "Analyst proposal " + (Number(path.split("/").pop()) + 1),
+      "Candidate " + (Number(path.split("/").pop()) + 1) + " · Prompt proposal",
     );
   const activeDirectory=data.state.active_proposal>data.state.active_trial ? 'proposals/'+String(data.state.active_proposal).padStart(3,'0') : 'trials/'+String(data.state.active_trial??0).padStart(3,'0');
   if(retain && !pinnedCandidate && $('follow-live').checked && data.runtime_status==='running' && [...$('trial').options].some(o=>o.value===activeDirectory))
     $('trial').value=activeDirectory;
   else if (retain && [...$("trial").options].some((o) => o.value === previous))
     $("trial").value = previous;
+  else if (!retain && ['blocked','running'].includes(data.state.status) && [...$('trial').options].some(o=>o.value===activeDirectory))
+    $('trial').value=activeDirectory;
   else if (data.state.incumbent !== undefined && trials[data.state.incumbent])
     $("trial").value = trials[data.state.incumbent].directory;
   if (!retain) {
@@ -1277,3 +1280,31 @@ $('target-continue').onclick=guard(async()=>{
  await api('/api/recover-target',{id:selected,instructions:$('target-instructions').value,...(cost!==''?{reconciliation:{cost_usd:cost,note:$('target-reconciliation-note').value}}:{})});
  $('target-recovery-status').textContent='Target conversation ready. Click Resume to continue with the existing workspace and history.';await inspect(selected);
 });
+
+function studyTab(name){
+ for(const panel of document.querySelectorAll('[data-study-panel]'))panel.hidden=panel.dataset.studyPanel!==name;
+ for(const tab of document.querySelectorAll('[data-study-tab]')){const active=tab.dataset.studyTab===name;tab.setAttribute('aria-pressed',String(active));tab.classList.toggle('active',active);}
+}
+for(const tab of document.querySelectorAll('[data-study-tab]'))tab.onclick=()=>studyTab(tab.dataset.studyTab);
+studyTab('overview');
+async function focusActive(tab){
+ const work=selectedState?.active_work;
+ if(work && [...$('trial').options].some(o=>o.value===work.directory)){$('trial').value=work.directory;await loadTrial();}
+ studyTab(tab);
+}
+function commandCenter(data){
+ const mount=$('study-command'),work=data.active_work||{},running=data.runtime_status==='running',blocked=data.state.status==='blocked',completed=data.state.status==='completed';
+ mount.replaceChildren();mount.classList.toggle('blocked',blocked);
+ const title=completed?'Optimization complete':blocked?(work.kind==='analyst'?'Prompt proposal blocked':'Tested model stopped'):running?(work.kind==='analyst'?'Analyst is preparing a prompt proposal':'Tested model is preparing a strategy'):'Optimization paused';
+ mount.append(node('span',`Candidate ${work.candidate||1} · ${work.kind==='analyst'?'Prompt analyst':'Tested model'}`,'eyebrow'),node('h3',title));
+ let explanation=completed?'Review the results or choose another saved prompt version.':blocked?(work.guard_status && work.guard_status!=='approved'?'The proposal check returned '+work.guard_status+'. This prompt has not been evaluated. Review the changes before requesting a correction.':work.requires_reconciliation?'An interrupted provider request needs its charge checked before it can continue.':work.kind==='analyst'?'The proposed prompt could not be accepted. Completed evaluations are preserved. Review the reason, then correct the proposal or ask the analyst to revise it.':'No strategy is ready for evaluation. Continue the saved target conversation to finish this candidate.'):running?(work.phase?.message || (work.kind==='analyst'?'The analyst returns a prompt proposal as JSON. No strategy submission or preparation fights are expected here.':'The model writes and tests its strategy before submitting it.')):'Resume the existing optimization to continue; completed work is preserved.';
+ mount.append(node('p',explanation));
+ if(blocked && work.message){const reason=node('div',undefined,'block-reason');reason.append(node('strong','Reason'),node('p',work.message));mount.append(reason)}
+ const actions=node('div',undefined,'actions');
+ if(blocked && work.guard_override_available && !running)actions.append(button('Accept proposal & continue',async()=>{await api('/api/accept-proposal',{id:selected});await api('/api/resume',{id:selected,keys:keys()});await inspect(selected);}));
+ if(blocked){actions.append(button(work.kind==='analyst'?'Review proposed changes':'Inspect target conversation',()=>focusActive(work.kind==='analyst'?'changes':'inspect')));actions.append(button('Resolve & continue',async()=>{await focusActive('inspect');const summary=[...document.querySelectorAll('[data-study-panel="inspect"] details>summary')].find(el=>el.textContent===(work.kind==='analyst'?'Intervene in a blocked analyst proposal':'Continue a stopped target conversation'));if(summary){summary.parentElement.open=true;summary.scrollIntoView({behavior:'smooth',block:'center'})}}));}
+ else if(running)actions.append(button('View active conversation',()=>focusActive('inspect')));
+ if(!running&&!completed)actions.append(button('Resume optimization',()=>$('resume').click()));
+ if(running)actions.append(button('Stop',()=>$('stop').click()));
+ mount.append(actions);
+}

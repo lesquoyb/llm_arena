@@ -522,3 +522,18 @@ pending tool calls remain intact. Submission reminders reset; budgets do not.
 New instructions cannot be inserted while tools are pending. For an unresolved
 provider request, first enter its confirmed additional charge and how you checked
 it in the reconciliation fields. Unknown token usage remains unknown.
+
+## Study navigation and blocked proposal checks
+
+The study header identifies the active candidate, whether the target or analyst
+is working, and the blocking reason. **Overview** contains results and cost,
+**Prompt changes** contains the analyst's changes and independent observations,
+and **Conversations & files** contains the full records and recovery controls.
+The saved-version selector applies to all three views.
+
+A rejected experimental Laya proposal check means that the new prompt has not
+been evaluated. It is not a target compilation failure. Inspect **Review proposed
+changes**. If the prompt is acceptable, **Accept proposal & continue** records a
+human override for that exact draft and check, then resumes the optimization.
+Configuration and tool validation still apply. Alternatively use **Resolve &
+continue** to ask the analyst for a revision or supply corrected JSON.

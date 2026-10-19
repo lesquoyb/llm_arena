@@ -275,7 +275,7 @@
       <section id="inspection" hidden>
         <div class="title">
           <h2 id="study-title"></h2>
-          <div>
+          <details class="study-tools"><summary>Study tools & exports</summary><div>
             <button id="prompt-history" class="secondary">Prompt version history</button>
             <button id="export-material" class="secondary">Download selected learning material</button>
             <button id="show-prompt" class="secondary">Inspect prompt</button
@@ -283,21 +283,17 @@
             ><button id="resume" class="secondary">Resume</button
             ><button id="stop" class="secondary">Stop</button
             ><button id="log" class="secondary">Run log</button><button id="tool-requests" class="secondary">Tool improvement report</button>
-          </div>
+          </div></details>
         </div>
-        <div id="status"></div><div id="study-cost" class="budget-strip"></div>
-        <details><summary>Continue a stopped target conversation</summary><p>Stop the study, then continue the tested model from its saved workspace and conversation. This resets the submission reminders, preserves completed trials and does not submit files for the model. Configured budgets still apply.</p><label>Optional instructions to the tested model<textarea id="target-instructions" rows="4"></textarea></label><details><summary>Reconcile an interrupted or unreadable provider response</summary><p>Only fill these fields when billing reconciliation is required. Check the provider's charge for the unresolved request; enter 0 only if no API charge occurred. Usage that was not reported stays unknown.</p><label>Confirmed additional cost (USD)<input id="target-reconciliation-cost" type="number" min="0" step="any"></label><label>How was the charge checked?<input id="target-reconciliation-note"></label></details><button id="target-continue" class="secondary">Prepare target continuation</button><p id="target-recovery-status" role="status"></p></details><details><summary>Intervene in a blocked analyst proposal</summary><p>Stop the study first. Add instructions to request another answer, or paste a complete corrected JSON proposal. Resume afterwards. Finished trials and provider usage are preserved. Corrected proposals still pass normal validation and the configured proposal check.</p><label>Instructions or complete proposal JSON<textarea id="intervention-text" rows="8"></textarea></label><button id="intervention-instruct" class="secondary">Send instructions to analyst</button><button id="intervention-replace" class="secondary">Use corrected proposal JSON</button><p id="intervention-status" role="status"></p></details><div id="workflow-status" class="workflow-status" aria-live="polite"></div>
+        <div id="status" hidden></div><div id="study-command" class="study-command" aria-live="polite"></div><nav class="study-tabs" aria-label="Study sections"><button data-study-tab="overview">Overview</button><button data-study-tab="changes">Prompt changes</button><button data-study-tab="inspect">Conversations & files</button></nav><div class="fields study-selection"><label>Saved version<select id="trial"></select></label><label>Replicate<select id="replicate"></select></label></div><div data-study-panel="overview"><div id="study-cost" class="budget-strip"></div>
+<div id="workflow-status" class="workflow-status" hidden></div>
         <section><h3>Optimization progress</h3><div id="rl-progress"></div></section>
-        <div class="diagnostic-comparison"><section id="analyst-review" class="review-panel"><h3>Analyst findings & changes</h3><div id="analyst-content"></div></section><section class="review-panel"><h3>Independent Laya observations</h3><div id="diagnostic-content"></div></section></div>
-        <section><h3>Fight results for the evaluated candidate</h3><div id="fight-summary"></div></section>
+        </div><div data-study-panel="changes" hidden><div class="diagnostic-comparison"><section id="analyst-review" class="review-panel"><h3>Analyst findings & changes</h3><div id="analyst-content"></div></section><section class="review-panel"><h3>Independent Laya observations</h3><div id="diagnostic-content"></div></section></div>
+        </div><div data-study-panel="overview"><section><h3>Fight results for the evaluated candidate</h3><div id="fight-summary"></div></section>
         <div id="trial-comparison"></div>
-        <div class="fields">
-          <label>Candidate<select id="trial"></select></label
-          ><label>Replicate<select id="replicate"></select></label>
-        </div>
         <div id="chart"></div>
         <div id="rounds-table"></div>
-        <h3>Inspect trajectory</h3>
+        </div><div data-study-panel="inspect" hidden><h3>Conversation & records</h3>
         <div class="fields">
           <label>Round or analyst session<select id="session"></select></label
           ><label
@@ -313,7 +309,7 @@
         <div id="session-budget"></div>
         <div class="actions transcript-controls"><label class="inline-check"><input type="checkbox" id="follow-live" checked>Follow live</label><span id="live-status" role="status"></span><button id="history-top" class="secondary">Top</button><button id="history-bottom" class="secondary">Latest</button></div>
         <p id="session-identity" role="status"></p><div id="history" tabindex="0" aria-label="Conversation and records"></div>
-        <div id="live-output" aria-live="off"></div>
+        <div id="live-output" aria-live="off"></div>        <details><summary>Continue a stopped target conversation</summary><p>Stop the study, then continue the tested model from its saved workspace and conversation. This resets the submission reminders, preserves completed trials and does not submit files for the model. Configured budgets still apply.</p><label>Optional instructions to the tested model<textarea id="target-instructions" rows="4"></textarea></label><details><summary>Reconcile an interrupted or unreadable provider response</summary><p>Only fill these fields when billing reconciliation is required. Check the provider's charge for the unresolved request; enter 0 only if no API charge occurred. Usage that was not reported stays unknown.</p><label>Confirmed additional cost (USD)<input id="target-reconciliation-cost" type="number" min="0" step="any"></label><label>How was the charge checked?<input id="target-reconciliation-note"></label></details><button id="target-continue" class="secondary">Prepare target continuation</button><p id="target-recovery-status" role="status"></p></details><details><summary>Intervene in a blocked analyst proposal</summary><p>Stop the study first. Add instructions to request another answer, or paste a complete corrected JSON proposal. Resume afterwards. Finished trials and provider usage are preserved. Corrected proposals still pass normal validation and the configured proposal check.</p><label>Instructions or complete proposal JSON<textarea id="intervention-text" rows="8"></textarea></label><button id="intervention-instruct" class="secondary">Send instructions to analyst</button><button id="intervention-replace" class="secondary">Use corrected proposal JSON</button><p id="intervention-status" role="status"></p></details></div>
       </section>
     </main>
     <dialog id="dialog">

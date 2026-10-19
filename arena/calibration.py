@@ -500,7 +500,12 @@ def propose(config, report, incumbent_dir, proposal_dir, learning=None):
             proposal_phase('guard','Running the local Laya proposal check; this can take time on CPU')
             reviewed=guard.review(baseline,test,proposal_dir,config['proposal_guard'])
             if reviewed['status']=='unavailable': raise ArenaError('Proposal guard unavailable: '+reviewed.get('error','unknown error')+'. Proposal retained; resume after fixing the local Laya installation.')
-            if reviewed['status']!='approved':
+            override_path=proposal_dir/'guard-override.json'
+            override=read_json(override_path) if override_path.exists() else {}
+            manually_accepted=(override.get('draft_sha256')==file_hash(proposal_dir/'proposal-draft.json') and override.get('guard_identity')==reviewed.get('identity'))
+            if manually_accepted:
+                journal.save(sid,state,'proposal_guard_human_override',override)
+            if reviewed['status']!='approved' and not manually_accepted:
                 return repair_proposal(config,report,incumbent_dir,proposal_dir,journal,sid,state,'The proposal check returned '+reviewed['status']+'. Remove complete combat implementations and prescribed tactical recipes from added instructions; keep general authoring guidance and isolated syntax examples. See saved guard.json for the experimental review.')
         write_json(saved, result)
         from .tool_requests import write_report
