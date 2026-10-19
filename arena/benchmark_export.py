@@ -1,6 +1,7 @@
 """Flat, read-only multi-run tables. A fight and a model appearance are distinct."""
 import csv
 import json
+from decimal import Decimal
 from tempfile import TemporaryDirectory
 from collections import defaultdict
 from pathlib import Path
@@ -52,11 +53,15 @@ def export(runs, out):
                 'has_submission':bool(state.get('submission')),'submission_mode':'automatic_budget' if state.get('submission') and state.get('status')=='budget_exhausted' else 'explicit' if state.get('submission') else 'none',
                 'preparation_limits_json':json.dumps(config.get('budget_per_session',{}),sort_keys=True),
                 'shared_spending_limit_usd':config.get('spending',{}).get('max_total_usd'),'calls':state.get('calls',0),'tool_calls':state.get('steps',0),
-                'preparation_matches':state.get('test_matches',0),'wall_seconds':state.get('wall_seconds'),**tokens,
+                'preparation_matches':state.get('test_matches',0),'wall_seconds':state.get('wall_seconds'),
+                'messages':len(state.get('history', [])),
+                **{role+'_messages':sum(m.get('role')==role for m in state.get('history', [])) for role in ('system','user','assistant','tool')}, **tokens,
+                'cache_creation_input_tokens':receipt.get('cache_creation_input_tokens') if measured and not receipt.get('missing_cache_creation_usage') else None,
                 'cached_input_tokens':receipt.get('cached_input_tokens') if measured and not receipt.get('missing_cache_usage') else None,
                 'reasoning_tokens':receipt.get('reasoning_tokens') if measured and not receipt.get('missing_reasoning_usage') else None,
                 'usage_complete':bool(measured if has_receipts else state.get('token_usage_known')) and not state.get('in_flight') and state.get('status')!='needs_reconciliation',
-                'cost_usd':None if state.get('status')=='needs_reconciliation' else state.get('cost_spent','0'),
+                'cost_usd':None if state.get('status')=='needs_reconciliation' else str(Decimal(state.get('cost_spent','0')) + Decimal(receipt.get('cost_adjustment_usd','0'))),
+                'recorded_cost_usd':state.get('cost_spent','0'),
                 'reserved_usd':state.get('money_reserved','0')})
         for sid,strategy in frozen.items():
             origin=strategy.get('origin',{})
@@ -90,12 +95,22 @@ def export(runs, out):
                 'completed':len(done),'failed':len(rows)-len(done),'wins':sum(r['outcome']=='win' for r in done),
                 'draws':sum(r['outcome']=='draw' for r in done),'losses':sum(r['outcome']=='loss' for r in done),
                 'score':sum(r['points'] for r in done)/len(done) if done else None})
+    resource_fields = ('cost_usd','recorded_cost_usd','input_tokens','output_tokens','cached_input_tokens',
+                       'cache_creation_input_tokens','reasoning_tokens','calls','tool_calls','messages',
+                       'system_messages','user_messages','assistant_messages','tool_messages','wall_seconds','usage_complete')
+    resources = {(row['run_id'],row['participant']):row for row in sessions}
+    results = []
+    for score in scores:
+        resource = resources.get((score.get('source_run_id'),score.get('source_session')), {})
+        results.append({**score, **{key:resource.get(key) for key in resource_fields}})
     out=Path(out).resolve();out.mkdir(parents=True,exist_ok=False)
     write_json(out/'runs.json',run_index)
     _csv(out/'sessions.csv',sessions,['run','participant'])
     _csv(out/'fights.csv',appearances,['run','fight_id','side'])
     _csv(out/'scores.csv',scores,['run','participant','kind','stage'])
+    _csv(out/'results.csv',results,['run','participant','kind','stage','score','cost_usd'])
     (out/'README.txt').write_text('UTF-8 CSV with BOM. Blank means unknown, not zero. runs.json maps run_id to original directories.\n'
+        'results: participant/stage results joined to generation cost, tokens, messages and preparation wall seconds. Resource columns repeat across stages: never sum them across stages. Frozen origins require the source run in the export.\n'
         'sessions: one generated conversation. Costs and tokens belong here; join frozen origins via source_run_id/source_session, and do not sum costs after joining onto fights.\n'
         'fights: two rows per actual fight, one per side. Count distinct fight_id for unique fights.\n'
         'scores: one participant and stage; mirrors excluded. Training is separate; reference results count only the candidate.\n'

@@ -6,7 +6,7 @@ import re
 import time
 from urllib import request, error, parse
 from .core import ArenaError, digest
-from .usage import normalize, cost
+from .usage import normalize, cost, effective_pricing
 from .endpoints import validate_endpoint, optional_local_key
 
 
@@ -188,7 +188,7 @@ class APIProvider:
                 "adapter_notes": (["Responses API does not support seed; configured seed was not sent."] if uses_responses(m) and 'seed' in m.get('parameters', {}) else []),
                 "api_protocol": "responses" if uses_responses(m) else "native",
                 "model_version": raw.get("modelVersion") or raw.get("model"), "retries": retries,
-                "cost_usd": cost(usage, m["pricing"]), "cost_status": "calculated_from_reported_usage"}
+                "cost_usd": cost(usage, effective_pricing(m)), "cost_status": "calculated_from_reported_usage"}
 
 
 DEFAULT_ENDPOINTS = {"openai": "https://api.openai.com/v1/chat/completions",

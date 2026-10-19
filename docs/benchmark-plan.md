@@ -230,3 +230,37 @@ last successfully saved files, mark truncation/invalid outputs, and do not claim
 the last version was validated. Unknown provider usage cannot support an exact
 remaining-token estimate. A later last-valid-checkpoint mode would be a separate
 submission policy; it is not the current latest-saved-file policy.
+
+### Export results for analysis
+
+Use **More > Download match results CSV** for individual matches, or
+**More > Download results CSV** on a competition for participant results by
+match category and stage, joined to the cost of generating each strategy.
+For several competitions, use `scripts/export_benchmark.py` as described above.
+The export contains:
+
+- `results.csv`: wins, draws, losses, score, generation cost, tokens, preparation
+  time and message counts for each participant/category/stage.
+- `fights.csv`: match results and metrics, with one row per side. Count distinct
+  `fight_id` values for the number of fights.
+- `sessions.csv`: one preparation conversation per row, suitable for summing
+  costs and tokens without counting them repeatedly across match stages.
+
+`calls` counts provider calls; `messages` counts stored conversation messages,
+including tool responses, with separate columns by role. `wall_seconds` is
+recorded preparation time, including model and tool work, rather than the elapsed
+calendar time of the whole competition. Unknown measurements remain blank.
+Generation costs repeat across result stages: do not sum these repeated costs.
+Include source competitions when exporting frozen strategies to join their
+original generation costs. Static matches do not incur new model charges.
+
+OpenAI Responses usage can distinguish regular input, cache reads and cache
+writes. Cache writes are included in total input, not added to it. GPT-6.1 uses
+a default cache-write price of 1.25 times the configured input price unless an
+explicit cache-creation price is configured. Archived response receipts containing
+`cache_write_tokens` are repriced in the UI and CSV without changing original
+journals or spending checkpoints. This display correction does not retroactively
+change historical budget decisions. Other provider pricing premiums still need
+to be reflected in the configured prices.
+
+Cache-write pricing reference: https://developers.openai.com/api/docs/models/gpt-6.1-sol

@@ -246,6 +246,11 @@ class Store:
         with closing(sqlite3.connect(path.as_uri() + '?mode=ro', uri=True, timeout=2)) as connection:
             rows = connection.execute("SELECT session,payload FROM events WHERE kind IN ('model_response','provider_probe_result') ORDER BY id").fetchall()
         grouped = {}
+        from arena.usage import normalize, cost, effective_pricing
+        from decimal import Decimal
+        metadata = self.json(root / 'experiment.json', {})
+        models = {m['id']: m for m in metadata.get('config', {}).get('models', [])}
+        states = self.states(root, ('model', 'provider_parameter_overrides'))
         for sid, reference in rows:
             reference = json.loads(reference)
             artifact = safe_path(root, reference['artifact'])
@@ -264,6 +269,17 @@ class Store:
                 receipt = {field: value.get(field) for field in ('usage', 'cost_usd')}
                 with self.lock:
                     self._cache[key] = (stamp, receipt)
+            receipt = copy.deepcopy(receipt)
+            model = models.get(states.get(sid, {}).get('model'), {})
+            usage = receipt.get('usage') or {}
+            raw_usage = usage.get('raw') or {}
+            details = raw_usage.get('input_tokens_details') or raw_usage.get('prompt_tokens_details') or {}
+            if 'cache_write_tokens' in details:
+                provider = 'openai-responses' if 'input_tokens' in raw_usage else 'openai'
+                receipt['usage'] = normalize(provider, raw_usage)
+                recalculated = cost(receipt['usage'], effective_pricing(model))
+                if recalculated is not None and receipt.get('cost_usd') is not None:
+                    receipt['cost_adjustment_usd'] = str(Decimal(recalculated) - Decimal(receipt['cost_usd']))
             grouped.setdefault(sid, []).append(receipt)
         return {sid: summarize(receipts) for sid, receipts in grouped.items()}
 
@@ -286,6 +302,12 @@ class Store:
             sessions.append({"validation_status": validation or ('pending' if state.get('submission') or state['status'] == 'submitted' else 'not_submitted'), "id": sid, **{k: state[k] for k in keys if k in state},
                              "usage_receipts": receipts.get(sid), "messages": state["messages"], "retry_allowed": reason is None, "retry_reason": reason,
                              "reconciliation_required": needs_reconciliation(state, state.get("model") in external)})
+        from decimal import Decimal
+        for session in sessions:
+            session['recorded_cost_spent'] = session.get('cost_spent')
+            adjustment = (session.get('usage_receipts') or {}).get('cost_adjustment_usd', '0')
+            if session.get('cost_spent') is not None:
+                session['cost_spent'] = str(Decimal(session['cost_spent']) + Decimal(adjustment))
         sessions.sort(key=lambda s:(s.get('model',''),s.get('replicate',0),s.get('generation',0),s.get('condition','')))
         return {"id": identifier, "revision": self.revision(root), "metadata": metadata, "report": self.json(root / "report.json", {}),
                 "analysis": self.json(root / "analysis.json"), "sessions": sessions,
@@ -312,6 +334,7 @@ class Store:
         request = (intent_data or {}).get('request') or {}
         body = request.get('body') or {}
         from arena.api_providers import connection
+        from arena.usage import effective_pricing
         try: configured_endpoint = connection(model, None)[0] if model else None
         except ArenaError: configured_endpoint = None
         params = model.get('parameters') or {}
@@ -319,6 +342,8 @@ class Store:
         recorded_failure = {k:v for k,v in (recorded_failure or {}).items() if k in {'error','error_type','uncertain','retryable','diagnostics'}}
         return {'session':sid, 'origin_session':current, 'provider':model.get('provider'), 'model':model.get('model'),
                 'status':state['status'], 'model_calls':state.get('calls',0),
+                'usage_receipts': self.usage_receipts(root).get(current),
+                'pricing': effective_pricing(model),
                 'diagnostic_calls':state.get('diagnostic_calls',0),
                 'api_tests':[self.event(identifier,event['id']) for event in rows if event['kind']=='provider_probe_result'][-5:],
                 'session_parameter_overrides':state.get('provider_parameter_overrides', {}),

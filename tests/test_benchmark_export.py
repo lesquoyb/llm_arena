@@ -28,6 +28,13 @@ class CampaignExportTests(unittest.TestCase):
             with (out/'csv/sessions.csv').open(encoding='utf-8-sig',newline='') as stream: sessions=list(csv.DictReader(stream))
             self.assertTrue(all(r['input_tokens']=='' for r in sessions))
             self.assertTrue(all(r['usage_complete']=='False' for r in sessions))
+            self.assertTrue(all(r['messages']=='0' for r in sessions))
+            with (out/'csv/results.csv').open(encoding='utf-8-sig',newline='') as stream:
+                results=list(csv.DictReader(stream))
+            candidates=[row for row in results if row['participant']=='variant-r0']
+            self.assertEqual(len(candidates),2)
+            self.assertTrue(all(row['wins']=='1' and row['cost_usd']=='0' for row in candidates))
+            self.assertTrue(all(row['input_tokens']=='' for row in candidates))
 
     def test_limit_receipts_distinguish_unknown_from_zero_and_unlimited(self):
         self.assertIsNone(progress({},{}))

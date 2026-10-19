@@ -220,7 +220,20 @@ class Handler(BaseHTTPRequestHandler):
             parsed = urlsplit(self.path)
             query = parse_qs(parsed.query)
             app = self.server.app
-            if parsed.path == "/api/file":
+            if parsed.path == "/api/results.csv":
+                from tempfile import TemporaryDirectory
+                from arena.benchmark_export import export
+                root = app.store.run_path(query['run'][0])
+                table = query.get('table', ['results'])[0]
+                if table not in {'results', 'fights', 'sessions'}:
+                    raise ArenaError('Unknown results table')
+                with TemporaryDirectory(prefix='arena-results-') as directory:
+                    target = Path(directory) / 'export'
+                    export([root], target)
+                    body = (target / (table + '.csv')).read_bytes()
+                self.headers_for(200, 'text/csv; charset=utf-8', len(body), table + '.csv')
+                self.wfile.write(body)
+            elif parsed.path == "/api/file":
                 root = app.store.run_path(query["run"][0])
                 path = safe_path(root, query["path"][0])
                 if not path.is_file() or path.name.startswith("journal.sqlite") or path.name == ".lock":

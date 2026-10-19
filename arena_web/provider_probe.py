@@ -10,7 +10,7 @@ from arena.openai_responses import uses_responses
 from arena.reasoning import apply_overrides
 from arena.recovery import needs_reconciliation
 from arena.feedback import available_tools
-from arena.usage import amount, reservation, normalize, cost
+from arena.usage import amount, reservation, normalize, cost, effective_pricing
 
 
 def probe(jobs, run_id, sid, mode, confirm_paid):
@@ -71,7 +71,7 @@ def probe(jobs, run_id, sid, mode, confirm_paid):
                 try:
                     raw,request_id = http_json(url,body,headers,model.get('timeout_seconds',60))
                     usage = normalize('openai-responses',raw.get('usage'))
-                    charge = cost(usage,model['pricing'])
+                    charge = cost(usage,effective_pricing(model))
                     received = isinstance(raw.get('output'),list) and not raw.get('error') and raw.get('status') not in {'failed','cancelled'}
                     result = {'mode':mode,'accepted':received,'endpoint':url,'request_id':request_id or raw.get('id'),
                         'status':raw.get('status'),'usage':usage,'cost_usd':charge,'tool_count':len(tools),
