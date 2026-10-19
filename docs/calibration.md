@@ -431,3 +431,37 @@ risk on complete code. This is not a validated detector or a guarantee against
 solution leakage. Inspect the stored `guard.json` and `guards/` receipts. The normal
 syntax/API examples in documentation remain allowed. Existing material in a study's
 initial baseline is not certified by this check.
+
+## Recover the analyst's changes
+
+Calibration writes isolated candidate snapshots, not repository source files.
+The default `calibrations/` directory is ignored by Git. For candidate 3, for example:
+
+- `calibrations/STUDY/trials/002/calibration.json`: configuration, including `config.prompt` and reference-document overrides.
+- `calibrations/STUDY/trials/002/corpus/`: actual frozen documents used by the target.
+- `calibrations/STUDY/proposals/002/proposal.json`: analyst proposal; a blocked proposal can instead have `proposal-draft.json`.
+
+Open the study and candidate, then choose **Download this candidate's learning
+material** in its review card, or **Download selected learning material** above
+the candidate selector. This downloads a ZIP with:
+
+- `system-prompt.txt`, `tools.json` and a reusable `calibration.json`.
+- `docs/` containing documents changed since the study's initial candidate,
+  including inherited edits rather than only the last proposal's changes.
+- `documents.patch`, generated against the current local repository contents.
+- `manifest.json` identifying the candidate, evaluation status and current-best flag.
+
+Exporting a rejected or untested proposal does not certify it as the best version.
+The export makes no model calls and applies nothing to the repository. After
+extracting the ZIP, inspect its files. To apply its document patch from the
+repository root:
+
+```powershell
+git apply --check "C:\path\to\export\documents.patch"
+git apply "C:\path\to\export\documents.patch"
+```
+
+Skip these commands if the patch is empty. The check can fail if repository files
+changed after export. The system prompt is exported separately; it does not patch
+Python source or change global Arena defaults. Copy it into a new study, or use the
+exported configuration through `arena calibrate run` as described in the ZIP README.

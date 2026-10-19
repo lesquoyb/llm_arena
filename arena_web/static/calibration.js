@@ -165,7 +165,8 @@ async function reviewCandidate(directory) {
   if(value.tool_requests?.length){mount.append(node('h4','Tool improvement requests'));value.tool_requests.forEach(request=>mount.append(formatted(`**${request.kind}: ${request.tool || 'Tools/documentation'}**\n${request.problem}\n${request.proposed_change}\n${request.expected_benefit || ''}`)))}
   if(!value.baseline)mount.append(node('p','The analyst proposes changes. Kept/rejected is decided by paired validation results and the configured objective, not by the analyst’s opinion.'));
   const actions=node('div',undefined,'review-actions');actions.append(button('Inspect analyst conversation',async()=>{const proposal='proposals/'+String(value.candidate-1).padStart(3,'0');if(![...$('trial').options].some(o=>o.value===proposal))option($('trial'),proposal,'Analyst for candidate '+value.candidate);$('trial').value=proposal;await loadTrial();$('history').scrollIntoView({behavior:'smooth',block:'center'})}),button('Raw review data',()=>reveal('Candidate review data',value)));
-  if(!value.baseline)mount.append(actions);
+  actions.append(button('Download this candidate’s learning material',()=>downloadMaterial(directory)));
+  mount.append(actions);
 }
 function budgetFields(value) {
   for(const [id,key] of [['limit-calls','max_calls'],['limit-tools','max_agent_steps'],['limit-fights','max_test_matches']])$(id).value=value[key]??'';
@@ -1234,3 +1235,13 @@ async function renderFightSummary(review,epoch){
   const labels={training:'Training',validation:'Validation',audit:'Final audit',history:'Previous versions'};
   mount.append(table(['Panel','Repetition','Round','Opponent','Wins','Draws','Losses','Failed'],data.rows.map(row=>[labels[row.panel]||row.panel,row.replicate??'',row.round??'',row.opponent,row.wins,row.draws,row.losses,row.failed])));
 }
+
+async function downloadMaterial(directory){
+  if(!selected || !directory)throw Error('Select a study and candidate first.');
+  const response=await fetch(qs('/api/export-material',{trial:directory}));
+  if(!response.ok){const error=await response.json();throw Error(error.error || 'Export failed');}
+  const blob=await response.blob(),link=node('a');link.href=URL.createObjectURL(blob);
+  link.download=`${selected}-candidate-${Number(directory.split('/').pop())+1}-learning-material.zip`;
+  link.click();URL.revokeObjectURL(link.href);
+}
+$('export-material').onclick=guard(()=>downloadMaterial($('trial').value));

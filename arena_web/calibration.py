@@ -158,6 +158,10 @@ class Workshop:
                 stream.seek(max(0,path.stat().st_size-128000))
                 return {'content':stream.read().decode('utf-8',errors='replace')}
         trial = local_path(directory,value('trial'))
+        if route == '/api/export-material':
+            from arena.calibration_export import bundle
+            review=self.get('/api/proposal' if value('trial').startswith('proposals/') else '/api/candidate',query)
+            return bundle(directory,review)
         if route in {'/api/candidate','/api/proposal'}:
             state=read_json(directory/'study.json')
             candidate=int(trial.name)
@@ -329,7 +333,7 @@ def serve(root, port=8766, open_browser=False):
                     name = 'calibration.html' if url.path=='/' else url.path[1:]
                     mime = 'image/png' if name.endswith('.png') else 'text/html' if name.endswith('.html') else 'text/javascript' if name.endswith('.js') else 'text/css'
                     self.send(200,(STATIC/name).read_bytes(),mime)
-                else: self.send(200,workshop.get(url.path,parse_qs(url.query)))
+                else: self.send(200,workshop.get(url.path,parse_qs(url.query)),'application/zip' if url.path=='/api/export-material' else 'application/json')
             except (ArenaError,OSError,ValueError,KeyError,IndexError,TypeError,sqlite3.Error) as error:
                 self.send(400,{'error':str(error)})
         def do_POST(self):
