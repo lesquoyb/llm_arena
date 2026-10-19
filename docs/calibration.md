@@ -561,3 +561,10 @@ candidate, without a new target trial; the conclusion is saved. A blocked
 proposal also offers **Finish with current best** for the same explicit human
 decision. A proposal rejected by Laya is never promoted just because the analyst
 has no further idea.
+
+In **Prompt changes**, open **Laya input & exact output** to select any saved
+proposal check attempt. It displays the exact input, questions, returned
+probabilities, thresholds, model revision and complete library response. **Copy**
+copies all saved checks. Older receipts expose the answers and usage originally
+saved; additional output discarded by older versions cannot be recovered. Laya
+returns structured scores, not a textual explanation or hidden reasoning.

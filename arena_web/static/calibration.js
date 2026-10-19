@@ -145,7 +145,7 @@ async function reviewCandidate(directory) {
   if(study!==selected || epoch!==reviewEpoch)return;
   const mount=$('analyst-content');mount.replaceChildren();
   mount.append(node('span',`Candidate ${value.candidate} · ${value.current_best?"Current best":value.baseline?"Initial baseline":value.decision=== "Kept"?"Selected earlier":value.decision}`,'decision'));
-  if(!value.baseline && !value.no_change){mount.append(node('p',`Proposal check: ${value.guard_override?'Accepted manually despite the experimental check':value.guard?.status || (value.guard_enabled?'Not checked yet':'Disabled')}. This is separate from independent trajectory diagnostics.`));if(value.guard)mount.append(button('Inspect proposal check',()=>reveal('Experimental proposal check',value.guard)));}
+  if(!value.baseline && !value.no_change){mount.append(node('p',`Proposal check: ${value.guard_override?'Accepted manually despite the experimental check':value.guard?.status || (value.guard_enabled?'Not checked yet':'Disabled')}. This is separate from independent trajectory diagnostics.`));if(value.guard)mount.append(button('Laya input & exact output',()=>inspectProposalChecks(directory)));}
   if(!value.baseline && !value.no_change)mount.append(node('p',`Candidate ${value.source_candidate} → analyst changes → candidate ${value.candidate} → evaluation against ${value.comparison_candidate ? 'best candidate '+value.comparison_candidate : 'the baseline'}.`));
   if(value.decision_reason) mount.append(node('p',value.decision_reason));
   mount.append(formatted(value.baseline?'This is the baseline. No analyst changes have been proposed for it.':value.rationale || 'No rationale recorded.'));
@@ -1308,4 +1308,31 @@ function commandCenter(data){
  if(!running&&!completed)actions.append(button('Resume optimization',()=>$('resume').click()));
  if(running)actions.append(button('Stop',()=>$('stop').click()));
  mount.append(actions);
+}
+
+async function inspectProposalChecks(directory){
+ const data=await api(qs('/api/proposal-checks',{trial:directory}));
+ await reveal('Laya proposal checks',data);
+ const mount=$('dialog-content');mount.replaceChildren(node('p',data.note));
+ if(!data.checks.length){mount.append(node('p','No saved proposal check.'));return;}
+ const selector=node('select'),label=node('label','Check attempt');label.append(selector);mount.append(label);
+ data.checks.forEach((row,index)=>option(selector,String(index),`${row.attempt==null?'Saved check':'Analyst call '+row.attempt} · ${row.receipt.status}`));
+ const content=node('div');mount.append(content);
+ function show(){
+  const receipt=data.checks[Number(selector.value)].receipt;content.replaceChildren(node('h3',`Decision: ${receipt.status}`));
+  if(receipt.error)content.append(node('p',receipt.error));
+  content.append(node('small',`Model: ${receipt.settings?.model??'Unknown'} · Revision: ${receipt.revision??'Unknown'} · Accept ≤ ${receipt.settings?.accept_max_risk??'?'}; reject ≥ ${receipt.settings?.reject_min_risk??'?'}. Intermediate values require review.`));
+  const detail=(title,value,open=false)=>{const d=node('details');d.open=open;d.append(node('summary',title),node('pre',json(value),'record-code'));content.append(d)};
+  detail('Exact questions',receipt.questions);
+  for(const source of receipt.sources||[]){
+   const observation=(receipt.observations||[]).find(row=>row.source===source.source);
+   content.append(node('h4',source.source));detail('Exact input sent to Laya',source);
+   if(observation){
+    if(observation.risks)content.append(table(['Question','Risk'],Object.entries(observation.risks).map(([key,value])=>[key,pct(value)])));
+    detail(observation.response!==undefined?'Exact output returned by Laya':'Saved output (legacy: complete response was not retained)',observation.response??{answers:observation.answers,usage:observation.usage},true);
+   }else content.append(node('p','No returned output was recorded for this input.'));
+  }
+  detail('Complete saved receipt',receipt);
+ }
+ selector.onchange=show;const current=data.checks.findLastIndex(row=>row.receipt.identity===data.current_identity);selector.value=String(current<0?data.checks.length-1:current);show();
 }

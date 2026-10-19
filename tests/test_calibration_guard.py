@@ -10,13 +10,14 @@ class ProposalGuardTests(TestCase):
             revision='fixture'
             def __init__(self,value): self.value=value
             def predict_long(self,state,questions,**kwargs):
-                return {'answers':{key:{'noul':self.value} for key in questions},'usage':{'windows':1}}
+                return {'answers':{key:{'noul':self.value} for key in questions},'usage':{'windows':1},'extra_metadata':{'preserved':True}}
         before=defaults();after={**before,'prompt':before['prompt']+'\nA candidate addition.'}
         for probability,status in [(.1,'approved'),(.5,'needs_review'),(.9,'rejected')]:
             with self.subTest(probability=probability),scratch_directory() as out,mock.patch('arena.calibration_guard.agent',return_value=Judge(probability)) as loader:
                 settings={**guard_defaults(),'enabled':True}
                 result=review(before,after,out,settings)
                 self.assertEqual(result['status'],status)
+                self.assertEqual(result['observations'][0]['response']['extra_metadata'],{'preserved':True})
                 self.assertEqual(review(before,after,out,settings),result)
                 self.assertEqual(loader.call_count,1)
 

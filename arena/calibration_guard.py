@@ -27,16 +27,20 @@ def review(before,after,directory,settings):
     path=directory/'guards'/f'{identity}.json'
     if path.exists():
         result=read_json(path);write_json(directory/'guard.json',result);return result
-    result={'identity':identity,'questions':QUESTIONS,'sources':sources,'settings':settings,
+    result={'receipt_version':2,'identity':identity,'questions':QUESTIONS,'sources':sources,'settings':settings,
             'note':'Experimental semantic check of cumulative additions against the study baseline, not a guarantee. Trajectory diagnostics are not used here.'}
     try:
         model=agent(settings['model'],settings['device']) if sources else None
         observations=[]
+        result['observations']=observations
+        result['revision']=getattr(model,'revision',None)
         for source in sources:
             response=model.predict_long(source,QUESTIONS,batch_size=4)
+            observation={'source':source['source'],'response':response}
+            observations.append(observation)
             risks={key:response.get('answers',{}).get(key,{}).get('noul') for key in QUESTIONS}
             if any(type(p) not in (float,int) or not math.isfinite(p) or not 0<=p<=1 for p in risks.values()): raise ValueError('Invalid proposal risk response')
-            observations.append({'source':source['source'],'risks':risks,'answers':response['answers'],'usage':response.get('usage')})
+            observation.update(risks=risks,answers=response['answers'],usage=response.get('usage'))
         risks=[p for row in observations for p in row['risks'].values()]
         status='rejected' if any(p>=settings['reject_min_risk'] for p in risks) else 'approved' if all(p<=settings['accept_max_risk'] for p in risks) else 'needs_review'
         result.update(status=status,observations=observations,revision=getattr(model,'revision',None))

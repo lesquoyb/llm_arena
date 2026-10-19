@@ -326,6 +326,19 @@ class Workshop:
                 stream.seek(max(0,path.stat().st_size-128000))
                 return {'content':stream.read().decode('utf-8',errors='replace')}
         trial = local_path(directory,value('trial'))
+        if route == '/api/proposal-checks':
+            folder=trial if value('trial').startswith('proposals/') else directory/'proposals'/trial.name
+            checks={}
+            for path in sorted((folder/'guards').glob('*.json')):
+                receipt=read_json(path);checks[receipt.get('identity',path.name)]={'attempt':None,'receipt':receipt}
+            for path in sorted((folder/'attempts').glob('*-guard.json')):
+                receipt=read_json(path);checks.pop(receipt.get('identity'),None)
+                checks[path.name]={'attempt':int(path.name.split('-')[0]),'receipt':receipt}
+            current=read_json(folder/'guard.json') if (folder/'guard.json').exists() else {}
+            if current and not any(row['receipt'].get('identity')==current.get('identity') for row in checks.values()):
+                checks['current']={'attempt':None,'receipt':current}
+            return {'current_identity':current.get('identity'),'checks':sorted(checks.values(),key=lambda row:(row['attempt'] is not None,row['attempt'] or 0)),
+                    'note':'Inputs and questions are recorded exactly as passed to predict_long. response contains the complete returned library object when available. Older receipts retain answers and usage only; missing output cannot be reconstructed. Laya returns structured scores, not a hidden reasoning transcript.'}
         if route == '/api/export-material':
             from arena.calibration_export import bundle
             review=self.get('/api/proposal' if value('trial').startswith('proposals/') else '/api/candidate',query)
