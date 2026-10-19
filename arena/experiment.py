@@ -274,6 +274,9 @@ def provider_response(sid, state, model, config, journal):
     from .feedback import available_tools
     session_tools = available_tools(state)
     paid = model["provider"] != "mock"
+    stream_progress=None
+    if state.get('calibration') is not None and state['calibration'].get('stream_responses',True) and model['provider'] in {'openai','openai-compatible'}:
+        model={**model,'_stream':True}
     if state.get("in_flight") and paid:
         state["status"] = "needs_reconciliation"
         journal.save(sid, state, "remote_state_unknown")
@@ -316,7 +319,10 @@ def provider_response(sid, state, model, config, journal):
     output_limit = bound["output_bound"] if paid else model.get("max_output_tokens")
     request = request_snapshot(model, state["history"], session_tools, output_limit)
     journal.save(sid, state, "model_intent", {"model": model, "reservation": bound, "request": request})
-    provider = APIProvider(model) if paid else MockProvider(model["profile"])
+    if model.get('_stream'):
+        from .streaming import LiveResponse
+        stream_progress=LiveResponse(journal.out,sid,state['calls'])
+    provider = (APIProvider(model,stream_progress=stream_progress) if stream_progress else APIProvider(model)) if paid else MockProvider(model["profile"])
     started = time.monotonic()
     try:
         response = (provider.respond(state["history"], session_tools, bound["output_bound"]) if paid

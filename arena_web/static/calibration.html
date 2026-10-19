@@ -13,7 +13,7 @@
       ><span id="connection"></span>
     </header>
     <main>
-      <section id="editor">
+      <details id="setup" class="setup-shell" open><summary>1 · Configure a study <small>Models, learning material and limits</small></summary><section id="editor">
         <h1>New calibration</h1>
         <p>
           Compare initial prompts against fixed opponents. Each candidate starts
@@ -85,6 +85,7 @@
           </p>
           <div id="tools"></div>
         </details>
+        <label class="inline-check"><input type="checkbox" id="stream-responses" checked>Stream responses for Ollama/OpenAI (disable if the compatible server does not support streaming)</label>
         <div class="fields">
           <label
             >Round stopping rule<select id="round-stop">
@@ -209,12 +210,18 @@
             Parameter grid replaces analyst editing with a deterministic
             Cartesian sweep.
           </p>
-          <label
+        </details>
+          <h3>Preparation budget per round</h3>
+          <p>The target sees these limits and the remaining budget in tool results. Empty fields mean unlimited. Saved files are frozen when a limit is exhausted.</p>
+          <div class="fields"><label>Model calls<input id="limit-calls" type="number" min="1" placeholder="Unlimited"></label><label>Tool calls<input id="limit-tools" type="number" min="1" placeholder="Unlimited"></label><label>Preparation fights<input id="limit-fights" type="number" min="0" step="2" placeholder="Unlimited"></label></div>
+          <button id="short-budget" class="secondary" type="button">Use short trial: 8 calls, 20 tools, 4 fights</button>
+          <p id="budget-preview"></p>
+          <details><summary>Other limits and budget JSON</summary><label
             >Optional per-round limits JSON<textarea
               id="budget"
               rows="3"
             ></textarea></label
-          ><label
+          ></details><label
             ><input id="api-enabled" type="checkbox" /> Enable API requests,
             including local servers</label
           ><label
@@ -230,16 +237,15 @@
             allow_paid_calls=true. If set, max_total_usd covers the entire
             study, including the analyst.
           </p>
-        </details>
         <p id="simulation-note"></p>
         <div class="actions">
           <button id="start">Run calibration</button
           ><button id="export" class="secondary">Export configuration</button>
         </div>
-      </section>
+      </section></details>
       <section>
         <div class="title">
-          <h2>Studies</h2>
+          <h2>2 · Studies</h2>
           <button id="refresh" class="secondary">Refresh</button>
         </div>
         <p id="comparison-note"></p>
@@ -257,6 +263,8 @@
           </div>
         </div>
         <div id="status"></div>
+        <div id="workflow-status" class="workflow-status" aria-live="polite"></div>
+        <section id="analyst-review" class="review-panel"><h3>Analyst findings & changes</h3><div id="analyst-content"></div></section>
         <div id="trial-comparison"></div>
         <div class="fields">
           <label>Candidate<select id="trial"></select></label
@@ -276,7 +284,10 @@
             </select></label
           >
         </div>
-        <div id="history"></div>
+        <div id="session-budget"></div>
+        <div class="actions transcript-controls"><label class="inline-check"><input type="checkbox" id="follow-live" checked>Follow live</label><span id="live-status" role="status"></span><button id="history-top" class="secondary">Top</button><button id="history-bottom" class="secondary">Latest</button></div>
+        <div id="history" tabindex="0" aria-label="Conversation and records"></div>
+        <div id="live-output" aria-live="off"></div>
       </section>
     </main>
     <dialog id="dialog">
@@ -285,7 +296,7 @@
         <button id="close" class="secondary">Close</button>
       </div>
       <button id="copy" class="secondary">Copy</button>
-      <pre id="dialog-content"></pre>
+      <div id="dialog-content"></div>
     </dialog>
     <div id="error" role="alert" hidden></div>
   </body>

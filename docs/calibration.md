@@ -224,3 +224,39 @@ Static opponent IDs now include `turret` and `human-weapon` alongside `passive`,
 `single-shot` and `rush`. These are useful reference behaviors, not an established
 ordering of human ability. `human-weapon` ports one Apache-2.0 weapon-selection
 heuristic; it does not reproduce the upstream AI's full team and chip logic.
+
+### Follow a study and find the analyst's conclusions
+
+Preparation budgets have separate model-call, tool-call and preparation-fight
+fields. A short-trial preset fills 8 calls, 20 tools and 4 fights. The first target
+message contains these limits and instructions to save a complete strategy early.
+Tool results return the remaining budget. The inspection view displays the same
+counters; an empty field means unlimited.
+
+After launch, setup collapses to make room for study progress. In automatic mode,
+the analyst runs after a complete candidate trajectory, including its configured
+rounds and replicates or plateau stopping. Finishing one conversation does not
+necessarily finish that trajectory. Manual mode never runs an analyst by itself.
+
+**Analyst findings & changes** shows the proposal rationale, system-prompt and
+Markdown-document diffs, tool requests, validation metrics and the kept/rejected
+decision. The analyst proposes changes; the paired validation objective makes the
+decision. Candidate review buttons select another review. **Inspect analyst
+conversation** opens its complete recorded exchanges. Raw review data remains
+available for copying.
+
+The conversation has a bounded scrolling area, Markdown text formatting and
+**Top**, **Latest** and **Follow live** controls. Streaming is enabled by default
+for OpenAI Chat Completions, OpenAI Responses and compatible Ollama servers in
+calibration. Exposed reasoning is separately expandable; encrypted or unexposed
+reasoning cannot be displayed as readable thoughts. Partial tool arguments are
+previewed but never executed until the provider completes its response. Final
+usage and the received stream events are retained in the normal response archive.
+Interrupted streams keep a bounded partial preview and require reconciliation
+when the remote outcome is uncertain; they are not silently repeated.
+
+Anthropic and Gemini currently update after each complete response. Disable
+**Stream responses** for a compatible endpoint that does not implement streaming.
+The live display uses a small, throttled worker snapshot rather than rewriting
+the full conversation for every token. Archived messages, token usage and cost
+accounting are committed through the normal journal after completion.

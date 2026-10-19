@@ -99,6 +99,107 @@ $('reference-path').onchange=()=>{
   saveReferenceEdit(); referencePath=$('reference-path').value;
   $('reference-content').value=referenceEdits[referencePath] ?? boot.reference_documents[referencePath];
 };
+let dialogPayload='', livePolling=false, lastReviewKey='', pinnedCandidate=false, previousLiveIdentity='', previousInFlight=false, reviewEpoch=0;
+function inlineText(parent,text) {
+  for (const part of String(text).split(/(\*\*[^*]+\*\*|`[^`]+`|\[[^\]]+\]\(https?:\/\/[^\s)]+\))/g)) {
+    if (part.startsWith('**') && part.endsWith('**')) parent.append(node('strong',part.slice(2,-2)));
+    else if (part.startsWith('`') && part.endsWith('`')) parent.append(node('code',part.slice(1,-1)));
+    else {
+      const link=part.match(/^\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)$/);
+      if(link){const a=node('a',link[1]);a.href=link[2];a.target='_blank';a.rel='noreferrer';parent.append(a)}
+      else parent.append(document.createTextNode(part));
+    }
+  }
+}
+function formatted(value) {
+  const wrap=node('div',undefined,'formatted-text');
+  if (typeof value!=='string') {
+    if(value && typeof value==='object' && typeof (value.text ?? value.content)==='string') {
+      wrap.append(formatted(value.text ?? value.content));
+      const extra=Object.fromEntries(Object.entries(value).filter(([k])=>!['text','content','type','role'].includes(k)));
+      if(Object.keys(extra).length){const d=node('details');d.append(node('summary','Structured fields'),node('pre',json(extra),'record-code'));wrap.append(d)}
+    } else wrap.append(node('pre',json(value),'record-code'));
+    return wrap;
+  }
+  let code=null,list=null;
+  for(const line of value.split('\n')) {
+    if(/^\s*```/.test(line)){if(code){wrap.append(code);code=null}else code=node('pre','','record-code');list=null;continue}
+    if(code){code.textContent+=line+'\n';continue}
+    const heading=line.match(/^(#{1,4})\s+(.*)$/), item=line.match(/^\s*(?:[-*]|\d+\.)\s+(.*)$/);
+    if(heading){const h=node('h'+Math.min(heading[1].length+1,4));inlineText(h,heading[2]);wrap.append(h);list=null}
+    else if(item){if(!list){list=node('ul');wrap.append(list)}const li=node('li');inlineText(li,item[1]);list.append(li)}
+    else if(line.trim()){const p=node('p');inlineText(p,line);wrap.append(p);list=null}
+    else list=null;
+  }
+  if(code)wrap.append(code);
+  return wrap;
+}
+function diffView(text) {
+  const pre=node('pre',undefined,'record-code');
+  for(const line of text.split('\n')) pre.append(node('span',line+'\n','diff-line '+(line.startsWith('+')&&!line.startsWith('+++')?'diff-add':line.startsWith('-')&&!line.startsWith('---')?'diff-remove':'')));
+  return pre;
+}
+async function reviewCandidate(directory) {
+  const epoch=++reviewEpoch, study=selected;
+  const value=await api(qs(directory.startsWith('proposals/')?'/api/proposal':'/api/candidate',{trial:directory}));
+  if(study!==selected || epoch!==reviewEpoch)return;
+  const mount=$('analyst-content');mount.replaceChildren();
+  mount.append(node('span',`Candidate ${value.candidate} · ${value.decision}`,'decision'));
+  if(value.decision_reason) mount.append(node('p',value.decision_reason));
+  mount.append(formatted(value.baseline?'This is the baseline. No analyst changes have been proposed for it.':value.rationale || 'No rationale recorded.'));
+  if(value.metrics_after){const metrics=node('div',undefined,'review-metrics');for(const [key,label,format] of [['validation_score','Validation score',pct],['utility','Objective utility',x=>typeof x==='number'?x.toFixed(4):'Unknown'],['convergence_round','Convergence round',x=>x??'Not reached'],['tokens','Target tokens',x=>x??'Unknown']]){const box=node('div');box.append(node('span',label),node('strong',key==='convergence_round'&&value.metrics_after.converged===false?'Not reached':format(value.metrics_after[key])));if(value.metrics_before)box.append(node('small','Previous: '+(key==='convergence_round'&&value.metrics_before.converged===false?'Not reached':format(value.metrics_before[key]))));metrics.append(box)}mount.append(metrics)}
+  let changes=0;
+  const addDiff=(title,text)=>{if(!text)return;changes++;const d=node('details');d.append(node('summary',title),diffView(text));mount.append(d)};
+  addDiff('System prompt changes',value.prompt_diff);
+  Object.entries(value.document_diffs || {}).forEach(([path,text])=>addDiff('Document: '+path,text));
+  if(json([...value.tools_before].sort())!==json([...value.tools_after].sort())){changes++;mount.append(node('h4','Enabled tools'),node('pre',json({before:value.tools_before,after:value.tools_after}),'record-code'))}
+  if(json(value.parameters_before)!==json(value.parameters_after)){changes++;mount.append(node('h4','Model parameters'),node('pre',json({before:value.parameters_before,after:value.parameters_after}),'record-code'))}
+  if(!changes)mount.append(node('p',value.baseline?'The original prompt and documents are unchanged.':'No prompt, document, tool-selection or parameter changes.'));
+  if(value.tool_requests?.length){mount.append(node('h4','Tool improvement requests'));value.tool_requests.forEach(request=>mount.append(formatted(`**${request.kind}: ${request.tool || 'Tools/documentation'}**\n${request.problem}\n${request.proposed_change}\n${request.expected_benefit || ''}`)))}
+  if(!value.baseline)mount.append(node('p','The analyst proposes changes. Kept/rejected is decided by paired validation results and the configured objective, not by the analyst’s opinion.'));
+  const actions=node('div',undefined,'review-actions');actions.append(button('Inspect analyst conversation',async()=>{const proposal='proposals/'+String(value.candidate-1).padStart(3,'0');if(![...$('trial').options].some(o=>o.value===proposal))option($('trial'),proposal,'Analyst for candidate '+value.candidate);$('trial').value=proposal;await loadTrial();$('history').scrollIntoView({behavior:'smooth',block:'center'})}),button('Raw review data',()=>reveal('Candidate review data',value)));
+  if(!value.baseline)mount.append(actions);
+}
+function budgetFields(value) {
+  for(const [id,key] of [['limit-calls','max_calls'],['limit-tools','max_agent_steps'],['limit-fights','max_test_matches']])$(id).value=value[key]??'';
+  $('budget-preview').textContent=Object.keys(value).length?'These limits are sent to the target at the start of every round. One test runs two preparation fights.':'No preparation limits. Add a limit for quick diagnostic trials.';
+}
+$('short-budget').onclick=()=>{const value={...JSON.parse($('budget').value || '{}'),max_calls:8,max_agent_steps:20,max_test_matches:4};$('budget').value=json(value);budgetFields(value)};
+$('budget').oninput=()=>{try{budgetFields(JSON.parse($('budget').value))}catch{}};
+for(const [id,key] of [['limit-calls','max_calls'],['limit-tools','max_agent_steps'],['limit-fights','max_test_matches']])$(id).oninput=()=>{try{const value=JSON.parse($('budget').value||'{}');if($(id).value==='')delete value[key];else value[key]=Number($(id).value);$('budget').value=json(value);budgetFields(value)}catch(error){showError(error)}};
+$('history-top').onclick=()=>{$('follow-live').checked=false;$('history').scrollTo({top:0,behavior:'smooth'})};
+$('history-bottom').onclick=guard(async()=>{$('follow-live').checked=true;await history(Math.max(0,(lastConversationTotal||25)-25));$('history').scrollTo({top:$('history').scrollHeight,behavior:'smooth'})});
+let lastConversationTotal=0;
+async function refreshLiveOutput() {
+  if(livePolling || !selected || !selectedTrial || !$('session').value || document.hidden || $('inspection').hidden)return;
+  livePolling=true;
+  const identity=[selected,selectedTrial,$('session').value].join('|');
+  try {
+    const data=await api(qs('/api/live-response',{trial:selectedTrial,session:$('session').value}));
+    if(identity!==[selected,selectedTrial,$('session').value].join('|'))return;
+    if(previousLiveIdentity===identity && previousInFlight && !data.in_flight) await history(undefined,true);
+    previousLiveIdentity=identity;previousInFlight=!!data.in_flight;
+    const budget=$('session-budget');budget.replaceChildren();
+    if(data.budget){const strip=node('div',undefined,'budget-strip');for(const [key,value] of Object.entries(data.budget.limits))strip.append(node('span',`${({calls:'Model calls',steps:'Tool calls',test_matches:'Preparation fights'})[key]||key}: ${value.used??'?'} / ${value.limit} · ${value.remaining??'?'} left`));budget.append(strip)}
+    $('live-status').textContent=data.in_flight?'Model request in progress'+(data.live?.phase==='streaming'?' · receiving output':(data.streaming_supported?' · waiting for output':' · this provider updates after each complete response')):data.status;
+    const mount=$('live-output');
+    if(!data.live || !data.in_flight && data.live.phase!=='interrupted'){mount.replaceChildren();delete mount.dataset.signature;return}
+    if(!$('follow-live').checked)return;
+    const live=data.live, signature=identity+'|'+live.call+'|'+live.updated_at+'|'+live.phase;
+    if(mount.dataset.signature===signature)return;
+    mount.dataset.signature=signature;
+    const atBottom=mount.scrollHeight-mount.scrollTop-mount.clientHeight<60;
+    mount.replaceChildren(node('strong',`Live response · call ${live.call}${live.phase==='interrupted'?' · interrupted, partial output':''}`));
+    if(live.reasoning){const details=node('details');details.open=mount.dataset.reasoningOpen==='1';details.append(node('summary','Provider-exposed reasoning'),node('pre',live.reasoning,'record-code'));details.ontoggle=()=>mount.dataset.reasoningOpen=details.open?'1':'';mount.append(details)}
+    if(live.text)mount.append(formatted(live.text));
+    if(live.tools?.length)mount.append(node('pre',json(live.tools),'record-code'));
+    if(!live.text&&!live.reasoning&&!live.tools?.length)mount.append(node('p','Waiting for the provider’s first output.'));
+    if(live.preview_truncated)mount.append(node('p','Live preview shows the latest text. Full output is retained in the completed record.'));
+    if(atBottom)mount.scrollTop=mount.scrollHeight;
+  } catch(error){$('live-status').textContent='Live preview unavailable; retrying.'}finally{livePolling=false}
+}
+setInterval(refreshLiveOutput,700);
+
 function fill(config) {
   referenceEdits=structuredClone(config.reference_documents || {});
   $('reference-path').replaceChildren();
@@ -106,6 +207,7 @@ function fill(config) {
   referencePath=$('reference-path').value;
   $('reference-content').value=referenceEdits[referencePath] ?? boot.reference_documents[referencePath];
   $("name").value = config.name;
+  $("stream-responses").checked=config.stream_responses!==false;
   $("round-stop").value =
     config.max_rounds === null
       ? "manual"
@@ -174,6 +276,7 @@ function fill(config) {
     config.target.provider === "mock"
       ? "Mock models are offline fixtures. Their scores do not measure a real model’s learning."
       : "";
+  budgetFields(config.budget_per_session);
   updateRoundStop();
 }
 function config() {
@@ -182,6 +285,7 @@ function config() {
     ...structuredClone(boot.config),
     name: $("name").value,
     prompt: $("prompt").value,
+    stream_responses:$("stream-responses").checked,
     reference_documents:structuredClone(referenceEdits),
     target: JSON.parse($("target-json").value),
     tools: [...$("tools").querySelectorAll("input:checked")].map(
@@ -313,8 +417,10 @@ async function listing() {
   return studies;
 }
 async function inspect(identifier, retain = false) {
+  if (selected!==identifier) pinnedCandidate=false;
   selected = identifier;
   $("inspection").hidden = false;
+  $("setup").open = false;
   const data = await api(qs("/api/study"));
   if (selected !== identifier) return;
   const keepSession = $("session").value;
@@ -331,6 +437,10 @@ async function inspect(identifier, retain = false) {
         data.state.audit.map((a) => pct(a.score)).join(", ")
       : "");
   const trials = data.state.trials || [];
+  const automatic=data.state.automatic ?? false;
+  $('workflow-status').textContent=!automatic ? 'Manual study: inspect results, then use Edit selected prompt to create the next candidate. No analyst is run automatically.' : data.state.active_proposal != null && data.state.status==='running' && data.state.active_trial < data.state.active_proposal ? 'Analyst is reviewing the completed trajectory and proposing a new candidate.' : data.state.status==='completed' ? 'Study complete. Review the proposed changes and the final validation decision below.' : 'Target model is preparing and evaluating rounds. The analyst starts only after the candidate finishes all configured rounds/replicates or reaches its plateau.';
+  const reviewKey=selected+'|'+JSON.stringify([data.proposals, trials.map(t=>[t.directory,t.accepted]),data.state.active_proposal]);
+  if(reviewKey!==lastReviewKey){lastReviewKey=reviewKey;const latest=data.proposals?.at(-1);if(latest)await reviewCandidate(latest.directory);else{ $('analyst-content').replaceChildren(node('p',automatic?'No analyst proposal yet. Completing one target conversation does not finish the full candidate evaluation.':'Manual mode does not generate analyst findings. Review scores and edit the learning material yourself.')); }}
   $("trial-comparison").replaceChildren(
     table(
       ["Candidate", "Validation", "Convergence", "Tokens", "Decision"],
@@ -344,13 +454,8 @@ async function inspect(identifier, retain = false) {
         button(
           t.accepted ? "Kept · review change" : "Rejected · review change",
           async () => {
-            const candidate = await api(
-              qs("/api/candidate", { trial: t.directory }),
-            );
-            await reveal(
-              "Candidate " + (i + 1) + " · change review",
-              candidate,
-            );
+            await reviewCandidate(t.directory);
+            $('analyst-review').scrollIntoView({behavior:'smooth',block:'start'});
           },
         ),
       ]),
@@ -387,7 +492,10 @@ async function inspect(identifier, retain = false) {
       path,
       "Analyst proposal " + (Number(path.split("/").pop()) + 1),
     );
-  if (retain && [...$("trial").options].some((o) => o.value === previous))
+  const activeDirectory=data.state.active_proposal>data.state.active_trial ? 'proposals/'+String(data.state.active_proposal).padStart(3,'0') : 'trials/'+String(data.state.active_trial??0).padStart(3,'0');
+  if(retain && !pinnedCandidate && $('follow-live').checked && data.runtime_status==='running' && [...$('trial').options].some(o=>o.value===activeDirectory))
+    $('trial').value=activeDirectory;
+  else if (retain && [...$("trial").options].some((o) => o.value === previous))
     $("trial").value = previous;
   else if (data.state.incumbent !== undefined && trials[data.state.incumbent])
     $("trial").value = trials[data.state.incumbent].directory;
@@ -531,6 +639,8 @@ function draw() {
   );
 }
 async function loadTrial() {
+  $("live-output").replaceChildren();
+  $("session-budget").replaceChildren();
   selectedTrial = $("trial").value;
   $("fork").disabled = selectedTrial.startsWith("proposals/");
   $("replicate").replaceChildren();
@@ -544,6 +654,8 @@ async function loadTrial() {
   );
   draw();
   if (!selectedTrial) return;
+  if(selectedTrial.startsWith('trials/')) await reviewCandidate(selectedTrial);
+  else if(selectedState?.proposals?.some(p=>p.directory===selectedTrial)) await reviewCandidate(selectedTrial);
   await refreshSessions();
 }
 async function refreshSessions(keepSession) {
@@ -591,11 +703,12 @@ async function refreshSessions(keepSession) {
 }
 async function reveal(title, value) {
   $("dialog-title").textContent = title;
-  $("dialog-content").textContent =
-    typeof value === "string" ? value : json(value);
+  dialogPayload=typeof value === 'string' ? value : json(value);
+  $('dialog-content').replaceChildren(formatted(value));
   if (!$("dialog").open) $("dialog").showModal();
 }
 async function history(offset, refresh = false) {
+  const requestedStudy=selected;
   const params = { trial: selectedTrial, session: $("session").value },
     view = $("view").value;
   const identity =
@@ -603,8 +716,8 @@ async function history(offset, refresh = false) {
   const same = refresh && historyIdentity === identity;
   const following =
     same &&
-    document.documentElement.scrollHeight - window.scrollY - innerHeight < 100;
-  if (same && view === "conversation" && !following) return;
+    $('follow-live').checked && $('history').scrollHeight-$('history').scrollTop-$('history').clientHeight<100;
+  if (same && view === "conversation" && !following) { $("live-status").textContent="Reading earlier messages · use Latest to follow"; return; }
   if (same && view === "conversation" && following) {
     const indices = [
       ...$("history").querySelectorAll("[data-message-index]"),
@@ -698,9 +811,11 @@ async function history(offset, refresh = false) {
   const data = await api(
     qs("/api/conversation", {
       ...params,
-      ...(offset !== undefined ? { offset } : {}),
+      ...(offset !== undefined ? { offset } : $("follow-live").checked ? {tail:1} : {}),
     }),
   );
+  if(requestedStudy!==selected || identity!==historyIdentity)return;
+  lastConversationTotal=data.total;
   if (!same) historyOffset = data.offset;
   historyNext = data.next;
   const existing = new Map(
@@ -711,8 +826,8 @@ async function history(offset, refresh = false) {
   );
   const controls = node("div", undefined, "actions");
   controls.append(
-    button("Initial prompt", () => history(0)),
-    button("This round", () => history(data.round_start)),
+    button("Initial prompt", () => {$("follow-live").checked=false;return history(0)}),
+    button("This round", () => {$("follow-live").checked=false;return history(data.round_start)}),
   );
   if (data.offset > 0)
     controls.append(
@@ -795,7 +910,7 @@ async function history(offset, refresh = false) {
             }),
           );
           details.append(
-            node("pre", typeof value === "string" ? value : json(value)),
+            formatted(value),
           );
         } catch (error) {
           loaded = false;
@@ -823,13 +938,7 @@ async function history(offset, refresh = false) {
         .messageIndex || historyOffset,
     );
   }
-  if (same && following)
-    window.scrollTo({
-      top: document.documentElement.scrollHeight,
-      behavior: matchMedia("(prefers-reduced-motion: reduce)").matches
-        ? "instant"
-        : "smooth",
-    });
+  if (same && following) $('history').scrollTo({top:$('history').scrollHeight,behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'instant':'smooth'});
 }
 $("start").onclick = guard(async () => {
   $("start").disabled = true;
@@ -870,6 +979,7 @@ $("fork").onclick = guard(async () => {
   baselineId = selected;
   localStorage.setItem("arena-calibration-baseline", selected);
   fill(value);
+  $("setup").open=true;
   $("name").value = value.name + " · revised";
   $("editor").scrollIntoView({ behavior: "smooth" });
   $("prompt").focus();
@@ -912,7 +1022,7 @@ $("refresh").onclick = guard(async () => {
   await listing();
   if (selected) await inspect(selected, true);
 });
-$("trial").onchange = guard(loadTrial);
+$("trial").onchange = guard(async()=>{pinnedCandidate=true;await loadTrial()});
 $("session").onchange = guard(() => history());
 $("view").onchange = guard(() => history());
 $("replicate").onchange = guard(async () => {
@@ -927,7 +1037,7 @@ $("replicate").onchange = guard(async () => {
 });
 $("close").onclick = () => $("dialog").close();
 $("copy").onclick = guard(() =>
-  navigator.clipboard.writeText($("dialog-content").textContent),
+  navigator.clipboard.writeText(dialogPayload),
 );
 $("error").onclick = () => ($("error").hidden = true);
 function setMode() {
@@ -969,9 +1079,8 @@ guard(async () => {
   setInterval(
     guard(async () => {
       if (
-        polling ||
-        $("dialog").open ||
-        $("history").querySelector("details[open]")
+        polling || document.hidden ||
+        $("dialog").open
       )
         return;
       polling = true;

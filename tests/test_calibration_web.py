@@ -55,3 +55,24 @@ class CalibrationWebTests(TestCase):
                 self.assertEqual(launch.call_args.kwargs['env']['CALIBRATION_TEST_KEY'], 'private-test-key')
                 self.assertNotIn('private-test-key', (workshop.root/'local-study/input.json').read_text())
                 with self.assertRaisesRegex(ArenaError, 'running'): workshop.start(value, False)
+
+    def test_analyst_proposal_has_readable_decision_and_comparison_data(self):
+        with scratch_directory() as tmp, mock.patch('arena.calibration.Engine', FixtureEngine):
+            workshop=Workshop(tmp/'studies',Store(tmp/'runs',tmp/'settings'))
+            value=config()
+            value.update(max_rounds=1,min_rounds=1)
+            value['optimizer']['max_trials']=2
+            value['analyst']={'id':'analyst','provider':'mock','profile':'single-shot'}
+            directory=workshop.root/'automatic'
+            write_json(directory/'input.json',value)
+            study(value,directory,automatic=True)
+            result=workshop.get('/api/proposal',{'study':['automatic'],'trial':['proposals/001']})
+            self.assertFalse(result['baseline'])
+            self.assertEqual(result['candidate'],2)
+            self.assertEqual(result['decision'],'Rejected')
+            self.assertIn('Offline fixture',result['rationale'])
+            self.assertIn('Prefer simple',result['prompt_diff'])
+            self.assertIsNotNone(result['metrics_before'])
+            self.assertIsNotNone(result['metrics_after'])
+            detail=workshop.get('/api/study',{'study':['automatic']})
+            self.assertEqual(detail['proposals'][0]['directory'],'proposals/001')

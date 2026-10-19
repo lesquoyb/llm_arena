@@ -25,6 +25,24 @@ from .provider_output import blocks
 STATIC = Path(__file__).parent/'static'
 
 
+def decision_reason(row, parent, config, candidate):
+    if candidate==0: return 'Reference candidate. The analyst has not edited this baseline.'
+    if not row: return 'The proposal has not completed its paired validation yet.'
+    after=row['report'];before=(parent or {}).get('report',{})
+    if row['accepted']:
+        if after.get('final_valid') and not before.get('final_valid'):
+            return 'Kept: the candidate restored valid submitted strategies.'
+        return 'Kept: the candidate passed the validity and paired score checks and improved the configured objective.'
+    if not after.get('final_valid'): return 'Rejected: the candidate did not finish with valid submitted strategies.'
+    if (after.get('tokens') is None)!=(before.get('tokens') is None):
+        return 'Rejected: target token measurements are not comparable between candidate and incumbent.'
+    tolerance=config['optimizer']['score_tolerance']
+    for new,old in zip(after.get('replicates',[]),before.get('replicates',[])):
+        if new['rounds'][-1]['validation']['score'] < old['rounds'][-1]['validation']['score']-tolerance:
+            return 'Rejected: at least one paired replicate lost more validation score than the permitted tolerance.'
+    return 'Rejected: the configured objective did not improve. It combines validation score, convergence speed and token use.'
+
+
 class Workshop:
     def __init__(self, root, store=None):
         self.root = Path(root).resolve()
@@ -120,7 +138,9 @@ class Workshop:
                     'progress': [{'trial': p.parent.name, 'value':read_json(p)} for p in directory.glob('trials/*/progress.json')],
                     'active_reports':{p.parent.relative_to(directory).as_posix():read_json(p) for p in directory.glob('trials/*/report.json')},
                     'trial_directories':[p.parent.relative_to(directory).as_posix() for p in sorted(directory.glob('trials/*/journal.sqlite'))],
-                    'proposal_directories':[p.parent.relative_to(directory).as_posix() for p in sorted(directory.glob('proposals/*/journal.sqlite'))]}
+                    'proposal_directories':[p.parent.relative_to(directory).as_posix() for p in sorted(directory.glob('proposals/*/journal.sqlite'))],
+                    'proposals':[{'directory':p.parent.relative_to(directory).as_posix(),'candidate':int(p.parent.name)+1,
+                                  'rationale':read_json(p).get('rationale','')} for p in sorted(directory.glob('proposals/*/proposal.json'))]}
         if route == '/api/tool-requests':
             return [{'candidate':int(path.parent.name)+1, 'requests':read_json(path).get('tool_requests',[])}
                     for path in sorted(directory.glob('proposals/*/proposal.json'))]
@@ -130,17 +150,29 @@ class Workshop:
                 stream.seek(max(0,path.stat().st_size-128000))
                 return {'content':stream.read().decode('utf-8',errors='replace')}
         trial = local_path(directory,value('trial'))
-        if route == '/api/candidate':
-            frozen=read_json(trial/'calibration.json')['config']
+        if route in {'/api/candidate','/api/proposal'}:
             state=read_json(directory/'study.json')
-            row=next((t for t in state['trials'] if t['directory']==value('trial')),None)
-            parent=state['trials'][row['parent']] if row and row.get('parent') is not None else None
+            candidate=int(trial.name)
+            row=next((t for t in state.get('trials',[]) if t['directory']==f'trials/{candidate:03}'),None)
+            parent_index=row.get('parent') if row else state.get('incumbent')
+            parent=state['trials'][parent_index] if parent_index is not None else None
             before=read_json(directory/parent['directory']/'calibration.json')['config'] if parent else state['config']
+            if route=='/api/proposal':
+                proposal=read_json(trial/'proposal.json')
+                frozen={**before,**{k:proposal[k] for k in ('prompt','tools','reference_documents') if k in proposal}}
+            else:
+                proposal_path=directory/'proposals'/f'{candidate:03}'/'proposal.json'
+                proposal=read_json(proposal_path) if proposal_path.exists() else {}
+                frozen=read_json(trial/'calibration.json')['config']
             import difflib
             before_documents=effective_documents(before)
             after_documents=effective_documents(frozen)
-            return {'config':frozen,'rationale':row.get('rationale') if row else 'Running candidate',
-                    'tool_requests':row.get('tool_requests',[]) if row else [],
+            return {'config':frozen,'candidate':candidate+1,'baseline':candidate==0,
+                    'decision_reason':decision_reason(row,parent,state['config'],candidate),
+                    'decision':'Baseline' if candidate==0 else 'Kept' if row and row['accepted'] else 'Rejected' if row else 'Pending evaluation',
+                    'rationale':proposal.get('rationale') or (row.get('rationale') if row else 'Candidate evaluation is in progress.'),
+                    'metrics_before':parent.get('report') if parent else None,'metrics_after':row.get('report') if row else None,
+                    'tool_requests':proposal.get('tool_requests',[]) or (row.get('tool_requests',[]) if row else []),
                     'prompt_diff':''.join(difflib.unified_diff(before['prompt'].splitlines(True),frozen['prompt'].splitlines(True),fromfile='incumbent prompt',tofile='candidate prompt')),
                     'document_diffs':{path:''.join(difflib.unified_diff(before_documents[path].splitlines(True),text.splitlines(True),fromfile='incumbent '+path,tofile='candidate '+path)) for path,text in after_documents.items() if text!=before_documents.get(path)},
                     'tools_before':before['tools'],'tools_after':frozen['tools'],
@@ -175,6 +207,17 @@ class Workshop:
             row = db.execute('SELECT state FROM sessions WHERE id=?',(sid,)).fetchone()
             if not row: raise ArenaError('Unknown session')
             state = json.loads(row[0])
+            if route == '/api/live-response':
+                from arena.budget_context import progress
+                snapshot=trial/'sessions'/sid/'live-response.json'
+                live=read_json(snapshot) if snapshot.exists() else None
+                if live and live.get('call') != state.get('calls'): live=None
+                config=read_json(directory/'input.json')
+                model=config.get('analyst') if sid.startswith('analyst') else config['target']
+                return {'streaming_supported':bool(model and model['provider'] in {'openai','openai-compatible'} and config.get('stream_responses',True)),
+                        'status':state['status'],'in_flight':state.get('in_flight',False),
+                        'live':live if state.get('in_flight') or (live and live.get('phase')=='interrupted') else None,
+                        'budget':progress(state,config['budget_per_session'])}
             if route == '/api/tool-exchange':
                 from .tool_exchange import inspect
                 from .data import history_writes
@@ -192,7 +235,7 @@ class Workshop:
             if route == '/api/conversation':
                 history = state['history']
                 start = max((i for i,m in enumerate(history) if m['role']=='user' and m.get('generation')==state['generation']),default=0)
-                offset = max(0,int(value('offset',str(start))))
+                offset = max(0,int(value('offset',str(max(start,len(history)-25) if value('tail')=='1' else start))))
                 page = []
                 for index in range(offset,min(len(history),offset+25)):
                     message = history[index]

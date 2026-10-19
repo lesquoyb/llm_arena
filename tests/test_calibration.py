@@ -199,6 +199,25 @@ class CalibrationTests(TestCase):
                     self.assertEqual(state['status'],'budget_exhausted');respond.assert_not_called()
             finally:journal.db.close()
 
+    def test_preparation_limits_are_explained_and_returned_in_calibration_tools(self):
+        with scratch_directory() as tmp:
+            value=config()
+            value.update(max_rounds=1,min_rounds=1)
+            value['budget_per_session']={'max_calls':8,'max_agent_steps':20,'max_test_matches':4}
+            trial(value,tmp/'trial',engine=FixtureEngine())
+            journal=Journal(tmp/'trial')
+            try:
+                history=journal.state('target-r0-g0')['history']
+                instruction=next(message for message in history if message['role']=='user')
+                self.assertEqual(instruction['preparation_budget']['limits']['calls']['remaining'],8)
+                self.assertIn('Save a complete strategy early',instruction['budget_instructions'])
+                receipts=[message['result'] for message in history if message['role']=='tool']
+                self.assertTrue(receipts)
+                self.assertTrue(all('preparation_budget' in result for result in receipts))
+                self.assertLess(receipts[-1]['preparation_budget']['limits']['calls']['remaining'],8)
+            finally:
+                journal.db.close()
+
 
 class NativeCalibrationTests(TestCase):
     def test_native_rounds_and_history_fights_resume_without_rewriting_completed_matches(self):

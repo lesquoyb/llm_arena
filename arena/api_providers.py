@@ -40,42 +40,55 @@ def http_json(url, payload, headers, timeout):
                 raise ProviderFailure("Provider response exceeded quota", uncertain=True)
             return json.loads(body), response.headers.get("x-request-id") or response.headers.get("request-id")
     except error.HTTPError as exc:
-        # Extract public validation fields, including proxy/FastAPI error formats.
-        try: body = exc.read(16000).decode('utf-8', errors='replace')
-        except OSError: body = ''
-        def public(value):
-            if isinstance(value, str): return value
-            if isinstance(value, list): return ' · '.join(public(item) for item in value[:8])
-            if isinstance(value, dict):
-                parts = []
-                for field in ('status', 'type', 'code', 'param', 'message', 'msg', 'detail', 'error', 'errors', 'loc'):
-                    if field in value:
-                        part = public(value[field])
-                        if part: parts.append(field + ': ' + part)
-                return ' · '.join(parts)
-            return str(value) if isinstance(value, (int, float)) else ''
-        try: detail = public(json.loads(body))
-        except ValueError:
-            detail = body.strip() if '<html' not in body.lower() and '<!doctype' not in body.lower() else ''
-        for header, value in headers.items():
-            if header.lower() in {'authorization', 'x-api-key', 'x-goog-api-key'} and value:
-                detail = detail.replace(value, '[REDACTED]').replace(value.removeprefix('Bearer '), '[REDACTED]')
-        detail = re.sub(r'(?i)(key|api_key|token)=([^\s&]+)', r'\1=[REDACTED]', detail)[:2000]
-        parsed = parse.urlsplit(url)
-        diagnostics = {'http_status':exc.code, 'endpoint':parse.urlunsplit((parsed.scheme, parsed.netloc, parsed.path, '', '')),
-                       'request_id':(exc.headers or {}).get('x-request-id') or (exc.headers or {}).get('request-id'),
-                       'provider_detail':detail or 'No public error detail was returned by the endpoint'}
-        raise ProviderFailure(f"Provider HTTP {exc.code}" + (": " + detail if detail else ""), uncertain=exc.code >= 500,
-                              retryable=exc.code == 429, diagnostics=diagnostics) from None
+        raise_http_error(exc,url,headers)
     except (error.URLError, TimeoutError, OSError, ValueError) as exc:
         raise ProviderFailure(f"Provider response unavailable ({type(exc).__name__})", uncertain=True) from None
 
 
+def raise_http_error(exc,url,headers):
+    # Extract public validation fields, including proxy/FastAPI error formats.
+    try: body = exc.read(16000).decode('utf-8', errors='replace')
+    except OSError: body = ''
+    def public(value):
+        if isinstance(value, str): return value
+        if isinstance(value, list): return ' · '.join(public(item) for item in value[:8])
+        if isinstance(value, dict):
+            parts = []
+            for field in ('status', 'type', 'code', 'param', 'message', 'msg', 'detail', 'error', 'errors', 'loc'):
+                if field in value:
+                    part = public(value[field])
+                    if part: parts.append(field + ': ' + part)
+            return ' · '.join(parts)
+        return str(value) if isinstance(value, (int, float)) else ''
+    try: detail = public(json.loads(body))
+    except ValueError:
+        detail = body.strip() if '<html' not in body.lower() and '<!doctype' not in body.lower() else ''
+    for header, value in headers.items():
+        if header.lower() in {'authorization', 'x-api-key', 'x-goog-api-key'} and value:
+            detail = detail.replace(value, '[REDACTED]').replace(value.removeprefix('Bearer '), '[REDACTED]')
+    detail = re.sub(r'(?i)(key|api_key|token)=([^\s&]+)', r'\1=[REDACTED]', detail)[:2000]
+    parsed = parse.urlsplit(url)
+    diagnostics = {'http_status':exc.code, 'endpoint':parse.urlunsplit((parsed.scheme, parsed.netloc, parsed.path, '', '')),
+                   'request_id':(exc.headers or {}).get('x-request-id') or (exc.headers or {}).get('request-id'),
+                   'provider_detail':detail or 'No public error detail was returned by the endpoint'}
+    raise ProviderFailure(f"Provider HTTP {exc.code}" + (": " + detail if detail else ""), uncertain=exc.code >= 500,
+                          retryable=exc.code == 429, diagnostics=diagnostics) from None
+
+
 class APIProvider:
-    def __init__(self, model, transport=http_json):
+    def __init__(self, model, transport=http_json, stream_progress=None):
         self.model, self.transport = model, transport
+        self.stream_progress = stream_progress
 
     def payload(self, history, tools, output_limit):
+        result=self._payload(history,tools,output_limit)
+        if self.model.get('_stream'):
+            result['stream']=True
+            from .openai_responses import uses_responses
+            if not uses_responses(self.model): result['stream_options']={'include_usage':True}
+        return result
+
+    def _payload(self, history, tools, output_limit):
         from .openai_responses import uses_responses, payload as responses_payload
         if uses_responses(self.model):
             return responses_payload(self.model, history, tools, output_limit)
@@ -135,7 +148,11 @@ class APIProvider:
         retries = []
         for attempt in range(m.get("max_retries", 0) + 1):
             try:
-                raw, request_id = self.transport(endpoint, payload, headers, m.get("timeout_seconds", 60))
+                if m.get('_stream') and self.stream_progress is not None:
+                    from .streaming import stream_json
+                    raw,request_id=stream_json(endpoint,payload,headers,m.get('timeout_seconds',60),self.stream_progress)
+                else:
+                    raw, request_id = self.transport(endpoint, payload, headers, m.get("timeout_seconds", 60))
                 break
             except ProviderFailure as failure:
                 if not failure.retryable or failure.uncertain or attempt == m.get("max_retries", 0):
