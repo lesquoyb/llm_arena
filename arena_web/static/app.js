@@ -305,6 +305,7 @@ function navigate(view, values = {}) {
   location.hash = query({ view, ...values });
 }
 function route() {
+  const previousPage = `${S.view}/${S.run}/${S.tab}`;
   const q = new URLSearchParams(location.hash.slice(1));
   S.view = q.get("view") || "dashboard";
   S.run = q.get("run");
@@ -332,7 +333,11 @@ function route() {
   S.previous = null;
   S.file = null;
   S.matchPath = null;
-  renderRoute().catch(showError);
+  const nextPage = `${S.view}/${S.run}/${S.tab}`;
+  renderRoute().then(() => {
+    if (nextPage !== previousPage && nextPage === `${S.view}/${S.run}/${S.tab}`)
+      window.scrollTo({top:0, behavior:"instant"});
+  }).catch(showError);
 }
 function showError(error) {
   toast(error.message, true);
@@ -376,13 +381,15 @@ function updateChrome() {
     : (S.boot.engine.error || "Engine validation failed.") +
       " Existing match results remain readable. Refresh to recheck.";
   $("#active-count").textContent = activeJobs().length || "";
-  $$("[data-nav]").forEach((n) =>
+  $$("[data-nav]").forEach((n) => {
+    const current = n.dataset.nav === (S.view === "run" || S.view === "editor" ? "competitions" : S.view);
+    if (current) n.setAttribute("aria-current", "page"); else n.removeAttribute("aria-current");
     n.classList.toggle(
       "active",
       n.dataset.nav ===
         (S.view === "run" || S.view === "editor" ? "competitions" : S.view),
-    ),
-  );
+    );
+  });
   $("#breadcrumb").textContent =
     "" +
     ({
@@ -397,6 +404,7 @@ function updateChrome() {
 }
 async function renderRoute() {
   hideHelp();
+  document.body.dataset.view = S.view;
   const epoch = ++S.epoch;
   clearInterval(replayTimer);
   replayTimer = null;
@@ -475,6 +483,13 @@ function runTable(runs) {
         btn("＋ Create competition", "new-competition", "", true),
       );
 }
+function recentRuns(runs) {
+  return runs.length ? `<div class="recent-runs">${runs.map(r=>{
+    const job=S.boot.jobs.find(j=>j.run===r.id);
+    const state=job?.status || (r.error ? "failed" : r.complete ? "completed" : "incomplete");
+    return `<article class="recent-run"><div class="run-mark ${["running","stopping"].includes(state) ? "is-active" : ""}" aria-hidden="true">${["running","stopping"].includes(state) ? "◉" : "⚑"}</div><div class="recent-run-name"><button class="card-title" data-action="open-run" data-run="${e(r.id)}">${e(r.name)}</button><small>${e(r.id)} · ${date(r.created_at)}</small></div>${status(state)}<div class="recent-run-stat"><strong>${fmt(completed(r.report))}</strong><small>fights</small></div><button class="icon-button" data-action="open-run" data-run="${e(r.id)}" aria-label="Open ${e(r.name)}">→</button></article>`;
+  }).join("")}</div>` : empty("Your first competition", "Add participants, choose a scenario, then launch a run.", btn("Create competition","new-competition","",true));
+}
 function dashboard() {
   const runs = S.boot.runs.filter((r) => !r.archived),
     known = runs.filter((r) => r.report?.cost_usd != null),
@@ -482,45 +497,32 @@ function dashboard() {
   return (
     head(
       "Overview",
-      "Competitions, participants and results.",
+      "Your experiments at a glance.",
       btn("＋ New competition", "new-competition", "", true),
     ) +
-    `<div class="metrics">${metric("Competitions", fmt(runs.length), `${activeJobs().length} running`, "⚑")}${metric("Configured participants", fmt(S.boot.participants.length), "Reusable profiles", "♧")}${metric("Completed matches", fmt(runs.reduce((n, r) => n + completed(r.report), 0)), "All evaluation stages", "⚔")}${metric("Known API cost", money(known.reduce((n, r) => n + Number(r.report.cost_usd), 0)), unknown ? `${unknown} costs still unknown` : "Excludes infrastructure; includes mock runs", "↗")}</div>` +
+    `<div class="metrics">${metric("Competitions", fmt(runs.length), `${activeJobs().length} running`, "⚑")}${metric("Configured participants", fmt(S.boot.participants.length), "Reusable profiles", "♧")}${metric("Completed matches", fmt(runs.reduce((n, r) => n + completed(r.report), 0)), "All evaluation stages", "⚔")}${metric("Estimated API cost", money(known.reduce((n, r) => n + Number(r.report.cost_usd), 0)), unknown ? `${unknown} costs still unknown` : "Configured token prices", "↗")}</div>` +
     (!S.boot.engine.ready
       ? notice(
           `The engine is not ready. Existing results are still readable. Run <code>python scripts/bootstrap.py</code> after installing JDK 25. ${e(S.boot.engine.error)}`,
           "warn",
         )
       : "") +
-    `<section class="panel flush"><div class="panel-head"><div><h2>Recent competitions</h2><p>Original runs. Exported copies are excluded.</p></div>${btn("View all", "go", 'data-view="competitions"')}</div>${runTable(runs.slice(0, 8))}</section>` +
-    `<div class="grid two"><section class="panel"><h2>Try the offline demo</h2><p class="muted">Mock participants, real matches, no API calls.</p>${btn("Configure demo", "new-demo")}</section><section class="panel"><h2>Reading scores</h2><p class="muted">A win earns 1 point, a draw 0.5, a loss 0. A score of 70% means 70% of available points, excluding mirrors.</p>${btn("Scoring guide", "go", 'data-view="help"')}</section></div>`
+    `<section class="panel flush"><div class="panel-head"><div><h2>Recent competitions</h2><p>Latest activity across your workspace.</p></div>${btn("View all", "go", 'data-view="competitions"')}</div>${recentRuns([...runs].sort((a,b)=>Number(activeJobs().some(j=>j.run===b.id))-Number(activeJobs().some(j=>j.run===a.id))).slice(0,6))}</section>` +
+    `<div class="workspace-shortcuts"><div><strong>Try a local run</strong><span>Built-in scripts, real engine, no API calls.</span></div>${btn("Configure demo", "new-demo")}<a href="#view=help">Scoring & setup guide →</a></div>`
   );
 }
+const PROVIDER_NAMES = {mock: "Built-in strategy", openai: "OpenAI", anthropic: "Anthropic", gemini: "Google Gemini", "openai-compatible": "Compatible API / local"};
+function participantCards(term = "") {
+  const profiles = S.boot.participants.filter(({spec:m}) => `${m.id} ${m.provider} ${m.model || m.profile}`.toLowerCase().includes(term.toLowerCase()));
+  return profiles.length ? profiles.map(({spec:m,key_configured,key_optional}) => `<article class="profile-card">
+    <div class="profile-card-top"><span class="provider-mark provider-${e(m.provider)}" aria-hidden="true">${e((PROVIDER_NAMES[m.provider] || m.provider)[0])}</span>${badge(PROVIDER_NAMES[m.provider] || m.provider)}<span class="spacer"></span><button class="icon-button" data-action="delete-participant" data-id="${e(m.id)}" title="Remove profile" aria-label="Remove ${e(m.id)}">×</button></div>
+    <h2><button class="card-title" data-action="edit-participant" data-id="${e(m.id)}">${e(m.id)}</button></h2><p class="profile-model mono">${e(m.model || m.profile)}</p>
+    <dl class="profile-facts"><div><dt>Reasoning</dt><dd>${m.provider === "mock" ? "Scripted" : e(reasoningLabel(m.parameters))}</dd></div><div><dt>Input / output · $ / 1M</dt><dd>${m.pricing ? `${e(m.pricing.input_per_million)} / ${e(m.pricing.output_per_million)}` : "No API cost"}</dd></div></dl>
+    <div class="profile-card-footer">${m.provider === "mock" ? badge("Ready", "green") : badge(key_optional && !key_configured ? "Local · no key required" : key_configured ? "Key configured" : "API key missing", key_configured || key_optional ? "green" : "orange")}${btn("Configure", "edit-participant", `data-id="${e(m.id)}"`)}</div></article>`).join("") : empty("No participants found", term ? "Try a different name, model or provider." : "Add a model provider or a built-in strategy.", term ? "" : btn("Add participant","new-participant","",true));
+}
 function participants() {
-  return (
-    head(
-      "Participants",
-      "Models, parameters and prices used by competitions.",
-      btn("＋ Add participant", "new-participant", "", true),
-    ) +
-    `<section class="panel flush">${table(
-      [
-        "Participant",
-        "Provider / model",
-        "Input / output price",
-        "API key",
-        "",
-      ],
-      S.boot.participants.map(
-        ({ spec: m, key_configured, key_optional }) =>
-          `<tr><td><strong>${e(m.id)}</strong><small>${m.provider === "mock" ? "Mock participant" : "Configured model"}</small></td><td>${e(m.provider)}<small>${e(m.model || m.profile)}</small>${m.provider !== "mock" ? `<small>Reasoning: ${e(reasoningLabel(m.parameters))}</small>` : ""}</td><td>${m.pricing ? `${e(m.pricing.input_per_million)} / ${e(m.pricing.output_per_million)} $<small>Per million tokens · ${e(m.pricing.date)}</small>` : "No API calls"}</td><td>${m.provider === "mock" ? "N/A" : badge(key_optional && !key_configured ? "Not required (local)" : key_configured ? "Configured" : "Missing", key_configured || key_optional ? "green" : "orange")}</td><td><div class="actions">${btn("Edit", "edit-participant", `data-id="${e(m.id)}"`)}<button class="icon-button" data-action="delete-participant" data-id="${e(m.id)}" title="Remove this profile" aria-label="Remove ${e(m.id)}">×</button></div></td></tr>`,
-      ),
-    )}</section>` +
-    notice(
-      "Enter dated prices in USD per million tokens. Keys entered here stay in server memory and are not saved to files.",
-    ) +
-    `<section class="panel"><h2>Profiles and submissions</h2><p class="muted">A profile selects a model and its settings. Each repetition starts an independent conversation and produces a strategy. Mock profiles use predefined scripts.</p></section>`
-  );
+  return head("Participants", "Reusable model profiles for your competitions.", btn("＋ Add participant", "new-participant", "", true)) +
+    `<div class="collection-toolbar"><span id="participant-count" aria-live="polite">${S.boot.participants.length} profiles</span><input type="search" id="participant-search" placeholder="Search name, model or provider" aria-label="Search participants"></div><div class="profile-grid" id="participant-cards">${participantCards()}</div><details class="quiet-details"><summary>API keys and pricing</summary><p>Keys entered in the interface stay in server memory. Prices are entered in USD per million tokens. Existing competitions retain the settings saved at launch.</p></details>`;
 }
 function freshConfig() {
   const config = structuredClone(S.boot.default_config),
@@ -542,13 +544,7 @@ function competitions() {
     ) +
     `<section class="panel flush"><div class="panel-head"><div><h2>Saved configurations</h2><p>Editable until launch. Each run keeps its own copy.</p></div></div>${
       S.boot.drafts.length
-        ? table(
-            ["Configuration", "Participants", "Repetitions", "Stages", ""],
-            S.boot.drafts.map(
-              (d) =>
-                `<tr><td><strong>${e(d.config.name)}</strong><small>Updated ${date(d.updated_at)}</small></td><td>${d.config.models.map((m) => e(m.id)).join(", ")}</td><td>${d.config.replicates}</td><td>${d.config.generations === null ? "Until manual stop" : `${d.config.generations || 1} round(s)`}</td><td><div class="actions">${btn("Configure", "edit-draft", `data-id="${e(d.id)}"`)}${btn("▷ Launch", "launch", `data-id="${e(d.id)}"`, true)}${btn("Remove", "delete-draft", `data-id="${e(d.id)}"`)}</div></td></tr>`,
-            ),
-          )
+        ? `<div class="draft-grid">${S.boot.drafts.map(d=>`<article class="draft-card"><span class="eyebrow">Saved configuration</span><h3>${e(d.config.name)}</h3><p>${d.config.models.length} participants · ${d.config.replicates} repetitions · ${d.config.generations === null ? "Manual stop" : `${d.config.generations || 1} rounds`}</p><div class="draft-models">${d.config.models.map(m=>badge(m.id)).join("")}</div><div class="draft-card-actions">${btn("Edit", "edit-draft", `data-id="${e(d.id)}"`)}${btn("Launch", "launch", `data-id="${e(d.id)}"`, true)}<button class="icon-button" data-action="delete-draft" data-id="${e(d.id)}" aria-label="Remove ${e(d.config.name)}" title="Remove configuration">×</button></div></article>`).join("")}</div>`
         : empty(
             "No saved configurations",
             "Use the demo settings or create a configuration.",
@@ -557,7 +553,7 @@ function competitions() {
     }</section>` +
     `<section class="panel flush"><div class="panel-head"><div><h2>Run history</h2><p>Exported copies are excluded from aggregates.</p></div><input type="search" id="run-search" placeholder="Search competitions..." aria-label="Search competitions"></div><div id="run-table">${runTable(S.boot.runs)}</div></section>` +
     (S.boot.jobs.length
-      ? `<section class="panel flush"><div class="panel-head"><h2>Runs started from this interface</h2></div>${table(
+      ? `<details class="panel history-details"><summary>Process history <span>${S.boot.jobs.length}</span></summary>${table(
           ["Name", "Status", "Started", ""],
           S.boot.jobs
             .slice(0, 12)
@@ -565,14 +561,14 @@ function competitions() {
               (j) =>
                 `<tr><td>${e(j.name)}<small>${e(j.run)}</small></td><td>${status(j.status)}</td><td>${date(j.started_at)}</td><td>${btn("Journal", "job-log", `data-id="${e(j.id)}"`)}</td></tr>`,
             ),
-        )}</section>`
+        )}</details>`
       : "")
   );
 }
 function openDialog(title, subtitle, body) {
   hideHelp();
   $("#dialog-content").innerHTML =
-    `<div class="dialog-head"><div><h2>${e(title)}</h2><p>${e(subtitle)}</p></div><button class="icon-button" data-action="close-dialog" aria-label="Close">×</button></div><div id="dialog-error" class="notice error dialog-error" role="alert" tabindex="-1" hidden></div>${body}`;
+    `<div class="dialog-head"><div><h2 id="dialog-title">${e(title)}</h2><p>${e(subtitle)}</p></div><button class="icon-button" data-action="close-dialog" aria-label="Close">×</button></div><div id="dialog-error" class="notice error dialog-error" role="alert" tabindex="-1" hidden></div>${body}`;
   if (!$("#dialog").open) $("#dialog").showModal();
 }
 function renderModelCatalog() {
@@ -602,7 +598,7 @@ function reasoningField(provider, parameters = {}, model = "") {
   const restricted = model.toLowerCase() === "gpt-6.1-sol";
   const levels = ["", "none", "minimal", "low", "medium", "high", "xhigh"];
   if (!levels.includes(selected)) levels.push(selected);
-  return `<label class="field full">Reasoning effort<select name="reasoning_effort" data-initial="${e(selected)}">${levels.map(value => `<option value="${e(value)}" ${restricted && ["none", "minimal"].includes(value) ? "disabled" : ""} ${value === selected ? "selected" : ""}>${e(value || "Provider default (do not send)")}</option>`).join("")}</select><small>For gpt-6.1-sol, use low, medium, high or xhigh; none and minimal are unsupported. Supported levels depend on the exact model and endpoint. Default omits reasoning_effort; it does not mean medium. An endpoint may reject or ignore unsupported levels. The journal records the requested value, not proof that the server applied it. GPT-6 models with reasoning use the Responses API automatically, retaining function tools. Responses does not support seed. This does not expose hidden reasoning.</small></label>`;
+  return `<label class="field full">${fieldHeading("Reasoning effort", "Supported levels depend on the model and endpoint. For gpt-6.1-sol use low, medium, high or xhigh. Default omits the parameter; it does not mean medium. The journal records the requested value. GPT-6 reasoning uses Responses with function tools; Responses does not support seed. This does not expose hidden reasoning.")}<select name="reasoning_effort" data-initial="${e(selected)}">${levels.map(value => `<option value="${e(value)}" ${restricted && ["none", "minimal"].includes(value) ? "disabled" : ""} ${value === selected ? "selected" : ""}>${e(value || "Provider default (do not send)")}</option>`).join("")}</select></label>`;
 }
 function participantDialog(identifier = null, provider = null) {
   const m = identifier
@@ -614,7 +610,7 @@ function participantDialog(identifier = null, provider = null) {
   openDialog(
     identifier ? "Edit participant" : "New participant",
     "",
-    `<form data-form="participant"><div class="form-grid">${field("Participant ID", "id", m.id || "", "text", "Letters, digits and hyphens; up to 40 characters.", `required pattern="[a-zA-Z0-9][a-zA-Z0-9_-]{0,39}" ${identifier ? "readonly" : ""}`)}${selectField(
+    `<form data-form="participant"><section class="form-section"><h3>Profile</h3><div class="form-grid">${field("Participant ID", "id", m.id || "", "text", "Letters, digits and hyphens; up to 40 characters.", `required pattern="[a-zA-Z0-9][a-zA-Z0-9_-]{0,39}" ${identifier ? "readonly" : ""}`)}${selectField(
       "Provider",
       "provider",
       [
@@ -635,8 +631,8 @@ function participantDialog(identifier = null, provider = null) {
          m.profile || "single-shot",
          "single-shot submits a simple strategy; repair-and-submit fixes a script and submits rush.",
        )
-     : `<h3 class="field full">API connection</h3>${field("API key environment variable", "api_key_env", m.api_key_env || (p === "anthropic" ? "ARENA_ANTHROPIC_KEY" : p === "gemini" ? "ARENA_GEMINI_KEY" : "ARENA_OPENAI_KEY"), "text", "Name of the server environment variable containing the key, or the name under which to store a session key entered below.", "required")}<label class="field full">API key (this server session only)<input name="secret" type="password" autocomplete="new-password" placeholder="Optional for local compatible servers; otherwise leave blank to keep the key"><small>Not returned to the browser or written to configuration files.</small></label>${p === "openai-compatible" ? field("Full API endpoint", "endpoint", m.endpoint || "", "url", "Ollama: http://localhost:11434/v1/chat/completions. HTTP is allowed on loopback; remote servers require HTTPS. API keys are optional for local compatible servers.", "required") : m.endpoint ? field("HTTPS endpoint", "endpoint", m.endpoint, "url") : ""}<h3 class="field full">Model</h3><div class="field full">${btn("Load models", "list-models")}<label class="field" hidden id="model-search-field">Search models<input type="search" id="model-search" placeholder="Filter by model name or ID"></label><div id="available-models" class="model-catalog" role="group" aria-label="Available models" hidden></div><small id="model-list-status">Load models available to the configured API key. You can also enter an ID manually.</small><details id="excluded-models" hidden><summary>Excluded models</summary><div id="excluded-model-list"></div></details></div>${field("Exact model ID", "model", m.model || "", "text", "The exact ID accepted by the API.", "required")}${reasoningField(p, m.parameters || {}, m.model || "")}${field("Input price / million tokens ($)", "input_price", pricing.input_per_million ?? "", "number", "", 'required min="0" step="any"')}${field("Output price / million tokens ($)", "output_price", pricing.output_per_million ?? "", "number", "", 'required min="0" step="any"')}${field("Price date", "pricing_date", pricing.date || new Date().toISOString().slice(0, 10), "date", "", "required")}${field("Cache read price / million ($), optional", "cached_price", pricing.cached_input_per_million ?? "", "number", "Blank uses the standard input price.", 'min="0" step="any"')}${field("Cache write price / million ($), optional", "creation_price", pricing.cache_creation_per_million ?? "", "number", "", 'min="0" step="any"')}${field("Maximum input per call (tokens)", "max_input_tokens_per_call", m.max_input_tokens_per_call ?? "", "number", "Optional. Blank disables local input admission limits.", 'min="1"')}${field("Maximum output per call (tokens)", "max_output_tokens", m.max_output_tokens ?? "", "number", p === "anthropic" ? "Required by Anthropic (max_tokens)." : "Optional. Blank uses the API default; one call may exceed the remaining financial budget.", p === "anthropic" ? 'required min="1"' : 'min="1"')}${field("Call timeout (seconds)", "timeout_seconds", m.timeout_seconds || 60, "number", "", 'required min="1" max="3600"')}${field("Retries on HTTP 429", "max_retries", m.max_retries ?? 1, "number", "Calls with unknown outcomes are not retried automatically.", 'required min="0" max="3"')}${p === "anthropic" ? `<p class="muted">Seed: not available in the Anthropic API.</p>` : field("Model seed", "model_seed", m.parameters?.seed ?? (identifier ? "" : 0), "number", p === "openai-compatible" ? "Server support varies. Identical output is not guaranteed." : "Sent with every call when supported by the model. Identical output is not guaranteed.", 'min="0" max="2147483647"')}<label class="field full">Model parameters (JSON)<textarea name="parameters" class="mono">${e(pretty(m.parameters || {}))}</textarea><small>API-specific options such as temperature and top_p. Use the seed and reasoning controls above. The reasoning selector is authoritative; it overrides reasoning_effort in this JSON.</small></label>`
- }</div><div class="form-footer">${btn("Cancel", "close-dialog")}<button type="submit" class="button primary">Save participant</button></div></form>`,
+     : `</div></section><section class="form-section"><h3>Connection</h3><div class="form-grid">${field("API key environment variable", "api_key_env", m.api_key_env || (p === "anthropic" ? "ARENA_ANTHROPIC_KEY" : p === "gemini" ? "ARENA_GEMINI_KEY" : "ARENA_OPENAI_KEY"), "text", "Name of the server environment variable containing the key, or the name under which to store a session key entered below.", "required")}<label class="field full">API key (this server session only)<input name="secret" type="password" autocomplete="new-password" placeholder="Optional for local compatible servers; otherwise leave blank to keep the key"><small>Not returned to the browser or written to configuration files.</small></label>${p === "openai-compatible" ? field("Full API endpoint", "endpoint", m.endpoint || "", "url", "Ollama: http://localhost:11434/v1/chat/completions. HTTP is allowed on loopback; remote servers require HTTPS. API keys are optional for local compatible servers.", "required") : m.endpoint ? field("HTTPS endpoint", "endpoint", m.endpoint, "url") : ""}</div></section><section class="form-section"><h3>Model</h3><div class="form-grid"><div class="field full">${btn("Load models", "list-models")}<label class="field" hidden id="model-search-field">Search models<input type="search" id="model-search" placeholder="Filter by model name or ID"></label><div id="available-models" class="model-catalog" role="group" aria-label="Available models" hidden></div><small id="model-list-status">Load models available to the configured API key. You can also enter an ID manually.</small><details id="excluded-models" hidden><summary>Excluded models</summary><div id="excluded-model-list"></div></details></div>${field("Exact model ID", "model", m.model || "", "text", "The exact ID accepted by the API.", "required")}${reasoningField(p, m.parameters || {}, m.model || "")}</div></section><details class="form-section form-disclosure" ${!identifier ? "open" : ""}><summary>Token pricing <span>USD per million</span></summary><div class="form-grid">${field("Input price / million tokens ($)", "input_price", pricing.input_per_million ?? "", "number", "", 'required min="0" step="any"')}${field("Output price / million tokens ($)", "output_price", pricing.output_per_million ?? "", "number", "", 'required min="0" step="any"')}${field("Price date", "pricing_date", pricing.date || new Date().toISOString().slice(0, 10), "date", "", "required")}${field("Cache read price / million ($), optional", "cached_price", pricing.cached_input_per_million ?? "", "number", "Blank uses the standard input price.", 'min="0" step="any"')}${field("Cache write price / million ($), optional", "creation_price", pricing.cache_creation_per_million ?? "", "number", "", 'min="0" step="any"')}</div></details><details class="form-section form-disclosure"><summary>Advanced settings <span>Limits, retries & parameters</span></summary><div class="form-grid">${field("Maximum input per call (tokens)", "max_input_tokens_per_call", m.max_input_tokens_per_call ?? "", "number", "Optional. Blank disables local input admission limits.", 'min="1"')}${field("Maximum output per call (tokens)", "max_output_tokens", m.max_output_tokens ?? "", "number", p === "anthropic" ? "Required by Anthropic (max_tokens)." : "Optional. Blank uses the API default; one call may exceed the remaining financial budget.", p === "anthropic" ? 'required min="1"' : 'min="1"')}${field("Call timeout (seconds)", "timeout_seconds", m.timeout_seconds || 60, "number", "", 'required min="1" max="3600"')}${field("Retries on HTTP 429", "max_retries", m.max_retries ?? 1, "number", "Calls with unknown outcomes are not retried automatically.", 'required min="0" max="3"')}${p === "anthropic" ? `<p class="muted">Seed: not available in the Anthropic API.</p>` : field("Model seed", "model_seed", m.parameters?.seed ?? (identifier ? "" : 0), "number", p === "openai-compatible" ? "Server support varies. Identical output is not guaranteed." : "Sent with every call when supported by the model. Identical output is not guaranteed.", 'min="0" max="2147483647"')}<label class="field full">Model parameters (JSON)<textarea name="parameters" class="mono">${e(pretty(m.parameters || {}))}</textarea><small>API-specific options such as temperature and top_p. Use the seed and reasoning controls above. The reasoning selector is authoritative; it overrides reasoning_effort in this JSON.</small></label>`
+ }</div>${p === "mock" ? "</section>" : "</details>"}<div class="form-footer">${btn("Cancel", "close-dialog")}<button type="submit" class="button primary">Save participant</button></div></form>`,
   );
 }
 const ENTITY_FIELDS = [
@@ -1147,7 +1143,7 @@ function competitionEditor() {
       "Shared game rules; optional preparation limits. Saving settings does not call an API.",
       btn("Settings guide", "reference", 'data-document="ui"'),
     ) +
-    `<form data-form="competition" id="competition-form"><div class="grid asymmetric"><div><section class="panel"><h2>Name and participants</h2><p class="muted">Each repetition starts an independent conversation.</p><div class="form-grid">${field("Competition name", "name", c.name, "text", "", "required")}${field("Repetitions per participant", "replicates", c.replicates, "number", "", 'required min="1" max="20"')}${selectField(
+    `<form data-form="competition" id="competition-form"><div class="grid asymmetric"><div><section class="panel editor-section" id="editor-participants"><div class="section-heading"><span>01</span><h2>Participants & rounds</h2></div><p class="muted">Each repetition starts an independent conversation.</p><div class="form-grid">${field("Competition name", "name", c.name, "text", "", "required")}${field("Repetitions per participant", "replicates", c.replicates, "number", "", 'required min="1" max="20"')}${selectField(
       "Round stopping rule",
       "round_stop",
       [
@@ -1156,7 +1152,7 @@ function competitionEditor() {
       ],
       c.generations === null ? "manual" : "fixed",
     )}${field("Number of rounds", "generations", c.generations ?? 2, "number", "Includes the initial round. Each later round continues both improvement tracks.", c.generations === null ? 'disabled min="1" step="1"' : 'min="1" step="1"')}</div><h3 class="section-label">Selected participants</h3>${S.choiceModels.map((m) => `<label class="choice"><input type="checkbox" name="participant" value="${e(m.id)}" ${c.models.some((v) => v.id === m.id) ? "checked" : ""}><span><strong>${e(m.id)}</strong><small>${e(m.provider)} · ${e(m.model || m.profile)}</small></span></label>`).join("")}${btn("Manage profiles", "go", 'data-view="participants"')}</section>
- <section class="panel"><h2>Scenario</h2><div class="scenario-presets">${btn("Simple duel · level 300", "preset-simple")}${btn("Dream team · saved preset", "preset-dream")}${btn("LLM builds its team", "preset-llm")}</div><p id="preset-status" role="status" class="muted">${c.scenario.source ? `Based on public team · original snapshot ${e(c.scenario.source.snapshot_sha256.slice(0, 12))}. The roster below can be edited. Published final stats include component bonuses; component selections and alteration deltas are preserved without adding bonuses twice.` : c.scenario.preset === "llm-team" ? "Each LLM freely chooses 1–4 leeks, their levels (1–301), stats, scripts, equipment and component alterations. preview_build and validate_team check official game rules. No character stats or equipment lists are imposed." : "Starting preset: one level-300 gunner per team, direct-damage weapons, no chips. Edit each character independently below."}</p>${c.scenario.source ? raw(c.scenario.source, "Public source and frozen snapshot") : ""}<details><summary>Refresh or replace the saved Dream team</summary>${btn("Refetch current top farmer", "preset-dream-refresh")}<p class="muted">Only this button reads the current farmer ranking and fetches four leeks of its first player. The saved preset is reused until an explicit refresh; existing competitions keep their frozen roster.</p><p class="muted">Use scripts/import_dream_team.py on a machine with access to leekwars.com, then paste its snapshot JSON here.</p><textarea id="dream-snapshot" class="mono" aria-label="Public team snapshot JSON" rows="4"></textarea>${btn("Import snapshot", "preset-dream-json")}</details></section><section class="panel"><h2>Match rules</h2><p class="muted">Matches alternate sides. Use a shared roster or let each LLM build its own team under official game rules.</p><div class="form-grid">${selectField(
+ <section class="panel editor-section" id="editor-scenario"><div class="section-heading"><span>02</span><h2>Scenario</h2></div><div class="scenario-presets">${btn("<strong>Simple duel</strong><small>1 level-300 leek · weapons only</small>", "preset-simple", `aria-pressed="${!c.scenario.source && c.scenario.preset !== 'llm-team'}"`)}${btn("<strong>Dream team</strong><small>4 complex builds · saved roster</small>", "preset-dream", `aria-pressed="${!!c.scenario.source}"`)}${btn("<strong>AI-built team</strong><small>Each model builds its own roster</small>", "preset-llm", `aria-pressed="${c.scenario.preset === 'llm-team'}"`)}</div><p id="preset-status" role="status" class="muted">${c.scenario.source ? `Based on public team · original snapshot ${e(c.scenario.source.snapshot_sha256.slice(0, 12))}. The roster below can be edited. Published final stats include component bonuses; component selections and alteration deltas are preserved without adding bonuses twice.` : c.scenario.preset === "llm-team" ? "Each LLM freely chooses 1–4 leeks, their levels (1–301), stats, scripts, equipment and component alterations. preview_build and validate_team check official game rules. No character stats or equipment lists are imposed." : "Starting preset: one level-300 gunner per team, direct-damage weapons, no chips. Edit each character independently below."}</p>${c.scenario.source ? raw(c.scenario.source, "Public source and frozen snapshot") : ""}<details><summary>Refresh or replace the saved Dream team</summary>${btn("Refetch current top farmer", "preset-dream-refresh")}<p class="muted">Only this button reads the current farmer ranking and fetches four leeks of its first player. The saved preset is reused until an explicit refresh; existing competitions keep their frozen roster.</p><p class="muted">Use scripts/import_dream_team.py on a machine with access to leekwars.com, then paste its snapshot JSON here.</p><textarea id="dream-snapshot" class="mono" aria-label="Public team snapshot JSON" rows="4"></textarea>${btn("Import snapshot", "preset-dream-json")}</details></section><section class="panel editor-section" id="editor-rules"><div class="section-heading"><span>03</span><h2>Match rules & roster</h2></div><p class="muted">Matches alternate sides. Use a shared roster or let each LLM build its own team under official game rules.</p><div class="form-grid">${selectField(
    "Team setup",
    "team_mode",
    [
@@ -1164,10 +1160,10 @@ function competitionEditor() {
      ["participant", "Participants choose teams and equipment"],
    ],
    c.scenario.team_selection ? "participant" : "fixed",
- )}${field("Team size", "team_size", c.scenario.team_size, "number", "Exact size in shared mode; maximum size when participants choose.", 'required min="1" max="8"')}${field("Maximum turns", "max_turns", c.scenario.max_turns, "number", "", 'required min="1" max="1000"')}${field("Initial / feedback seeds", "seeds", c.seeds.join(", "), "text", "Map generation seeds, for example 101, 202.", "required")}${field("Final evaluation seeds", "final_seeds", (c.final_seeds || []).join(", "), "text", "Separate from initial strategy seeds and training seed 17.")}</div><div id="team-selection-rules" ${c.scenario.team_selection ? "" : "hidden"}><p class="muted">Each LLM freely chooses 1–4 leeks: levels from 1 to 301, names, scripts, capital allocations, weapons, chips, components and alterations. Only official game rules apply. Character stats below are not imposed on its team. Preparation tests use a separate fixed reference team.</p></div><label class="check" style="margin-top:15px"><input type="checkbox" name="include_mirrors" ${c.include_mirrors ? "checked" : ""}>Include mirror matches (excluded from score)</label><fieldset id="fixed-roster" style="border:0;padding:0;margin-top:15px" ${c.scenario.team_selection ? "hidden disabled" : ""}>${statsEditor(c.scenario)}</fieldset><details><summary>Custom map</summary><div class="form-grid" style="margin-top:15px"><label class="field full">Custom map (JSON, optional)<textarea name="map" class="mono">${c.scenario.map ? e(pretty(c.scenario.map)) : ""}</textarea><small>Without a custom map, the seed determines the map and starting positions.</small></label></div></details></section>
- <section class="panel"><h2>Optional limits</h2><p class="muted">Leave blank to let each model work until submission. Calls, tools, matches, tokens, elapsed time and costs are recorded regardless. Improvement branches use the same optional limits.</p><div class="form-grid">${field("Model calls", "max_calls", b.max_calls ?? "", "number", "Maximum API responses, including responses after tool results. Blank means unlimited.", 'min="1"')}${field("Tool calls", "max_agent_steps", b.max_agent_steps ?? "", "number", "Maximum tool invocations. Blank means unlimited.", 'min="1"')}${field("Preparation matches", "max_test_matches", b.max_test_matches ?? "", "number", "One test runs two matches, one per side. Blank means unlimited.", 'min="0"')}${field("Preparation time (seconds)", "max_wall_seconds", b.max_wall_seconds ?? "", "number", "Blank means no session time limit.", 'min="1"')}${field("Total input tokens", "max_input_tokens", b.max_input_tokens ?? "", "number", "Optional. Blank means no conversation token limit.", 'min="1"')}${field("Total output tokens", "max_output_tokens", b.max_output_tokens ?? "", "number", "Optional. Blank means no conversation token limit.", 'min="1"')}${field("API spending limit per conversation ($)", "max_cost_usd", b.max_cost_usd ?? "", "number", "Blank means no financial limit.", 'min="0" step="any"')}${field("API spending limit for the experiment ($)", "max_total_usd", c.models.every((m) => m.provider === "mock") ? "" : (c.spending.max_total_usd ?? ""), "number", "Includes all branches. Blank means no financial limit.", 'min="0" step="any"')}</div><label class="check" style="margin-top:15px"><input type="checkbox" name="allow_paid_calls" ${c.spending.allow_paid_calls ? "checked" : ""}>Authorize API calls for this configuration</label><small>Mock runs have no API cost. API runs require this authorization even when an API key is saved; when unchecked, the configuration is rejected before any API call. Optional financial limits are checked between calls. Without an output cap, a call can exceed a configured financial limit.</small></section>
+ )}${field("Team size", "team_size", c.scenario.team_size, "number", "Exact size in shared mode; maximum size when participants choose.", 'required min="1" max="8"')}${field("Maximum turns", "max_turns", c.scenario.max_turns, "number", "", 'required min="1" max="1000"')}${field("Initial / feedback seeds", "seeds", c.seeds.join(", "), "text", "Map generation seeds, for example 101, 202.", "required")}${field("Final evaluation seeds", "final_seeds", (c.final_seeds || []).join(", "), "text", "Separate from initial strategy seeds and training seed 17.")}</div><div id="team-selection-rules" ${c.scenario.team_selection ? "" : "hidden"}><p class="muted">Each LLM freely chooses 1–4 leeks: levels from 1 to 301, names, scripts, capital allocations, weapons, chips, components and alterations. Only official game rules apply. Character stats below are not imposed on its team. Preparation tests use a separate fixed reference team.</p></div><label class="check" style="margin-top:15px"><input type="checkbox" name="include_mirrors" ${c.include_mirrors ? "checked" : ""}>Include mirror matches (excluded from score)</label><fieldset id="fixed-roster" style="border:0;padding:0;margin-top:15px" ${c.scenario.team_selection ? "hidden disabled" : ""}><details class="roster-disclosure"><summary><strong>Character builds & equipment</strong><small>${c.scenario.team_size} leek${c.scenario.team_size === 1 ? "" : "s"} · customize stats, weapons, chips & components</small></summary>${statsEditor(c.scenario)}</details></fieldset><details><summary>Custom map</summary><div class="form-grid" style="margin-top:15px"><label class="field full">Custom map (JSON, optional)<textarea name="map" class="mono">${c.scenario.map ? e(pretty(c.scenario.map)) : ""}</textarea><small>Without a custom map, the seed determines the map and starting positions.</small></label></div></details></section>
+ <details class="panel editor-disclosure" id="editor-limits" ${Object.keys(b).length ? "open" : ""}><summary><span class="section-heading"><span>04</span><strong>Optional limits</strong></span><small>Tokens, time & spending</small></summary><p class="muted">Leave blank to let each model work until submission. Calls, tools, matches, tokens, elapsed time and costs are recorded regardless. Improvement branches use the same optional limits.</p><div class="form-grid">${field("Model calls", "max_calls", b.max_calls ?? "", "number", "Maximum API responses, including responses after tool results. Blank means unlimited.", 'min="1"')}${field("Tool calls", "max_agent_steps", b.max_agent_steps ?? "", "number", "Maximum tool invocations. Blank means unlimited.", 'min="1"')}${field("Preparation matches", "max_test_matches", b.max_test_matches ?? "", "number", "One test runs two matches, one per side. Blank means unlimited.", 'min="0"')}${field("Preparation time (seconds)", "max_wall_seconds", b.max_wall_seconds ?? "", "number", "Blank means no session time limit.", 'min="1"')}${field("Total input tokens", "max_input_tokens", b.max_input_tokens ?? "", "number", "Optional. Blank means no conversation token limit.", 'min="1"')}${field("Total output tokens", "max_output_tokens", b.max_output_tokens ?? "", "number", "Optional. Blank means no conversation token limit.", 'min="1"')}${field("API spending limit per conversation ($)", "max_cost_usd", b.max_cost_usd ?? "", "number", "Blank means no financial limit.", 'min="0" step="any"')}${field("API spending limit for the experiment ($)", "max_total_usd", c.models.every((m) => m.provider === "mock") ? "" : (c.spending.max_total_usd ?? ""), "number", "Includes all branches. Blank means no financial limit.", 'min="0" step="any"')}</div><small>Financial limits are checked between calls. Without an output cap, a call can exceed the configured limit.</small></details>
  <section class="panel"><details><summary>Import a JSON configuration</summary><textarea id="import-config" class="mono" style="width:100%;margin-top:12px" placeholder="Paste an experiment manifest"></textarea><div style="margin-top:10px">${btn("Apply configuration", "import-config")}</div></details></section></div>
- <aside class="panel sticky"><div class="eyebrow">Before launching</div><h2>Schedule</h2><p class="muted">Review the schedule and spending limit before launching.</p><div id="plan-preview">${notice("Both improvement branches start from the same initial history. One receives match feedback.")}</div>${btn("Calculate schedule", "preview-plan")}<div class="divider"></div><button type="submit" class="button primary" style="width:100%">Save configuration</button><p class="muted" style="font-size:10px;margin-top:12px">Saving does not start a run.</p></aside></div></form>`
+ <aside class="panel sticky editor-review"><h2>Competition setup</h2><nav class="editor-section-nav" aria-label="Configuration sections"><button type="button" data-action="editor-section" data-section="editor-participants"><span>01</span> Participants & rounds</button><button type="button" data-action="editor-section" data-section="editor-scenario"><span>02</span> Scenario</button><button type="button" data-action="editor-section" data-section="editor-rules"><span>03</span> Match rules & roster</button><button type="button" data-action="editor-section" data-section="editor-limits"><span>04</span> Optional limits</button></nav><div class="divider"></div><h3>Schedule preview</h3><div id="plan-preview">${notice("Each round freezes submissions before scoring. Later rounds split into feedback and no-feedback tracks.")}</div>${btn("Calculate schedule", "preview-plan")}<div class="divider"></div><label class="check paid-authorization"><input type="checkbox" name="allow_paid_calls" ${c.spending.allow_paid_calls ? "checked" : ""}>Allow API calls</label><p class="muted">Required for external models. Saving does not call an API.</p><button type="submit" class="button primary" style="width:100%">Save configuration</button><p class="muted" style="font-size:10px;margin-top:12px">Saving does not start a run.</p></aside></div></form>`
   );
 }
 function readCompetition(form) {
@@ -1337,19 +1333,17 @@ function runHeader(d) {
     job = S.boot.jobs.find((j) => j.run === S.run),
     active = job && ["running", "stopping"].includes(job.status),
     experiment = !!d.metadata.config;
-  return (
-    head(
-      config.name,
-      "Results, conversations and files.",
-      `${active ? btn("■ Stop", "stop-job", `data-id="${e(job.id)}"`) : experiment && !d.archived ? btn("Resume", "resume") : ""}${experiment ? btn("Clone configuration", "clone-run") : ""}${experiment ? btn("Export", "export-run") : ""}`,
-    ) +
-    (d.sessions.some(s => s.continuation_identity) ? notice("Continued after an application update. Version changes are recorded in the journal.") : "") +
-    (d.sessions.filter(s => ["provider_unavailable", "generation_failed", "no_submission"].includes(s.status)).map(s =>
-      notice(`${e(s.model)} · ${e(sessionLabel(s))}: this round needs recovery before the next round can start. ${btn("Open conversation", "session-conversation", `data-session="${e(s.id)}"`)}${!active ? retryButton(s) : ""}`, "warn")).join("")) +
-    (!active && !d.archived ? d.sessions.filter(s => s.reconciliation_required).map(s =>
-      notice(`${e(s.model)} · ${e(sessionLabel(s))}: request billing needs review. ${btn("Resolve billing", "reconcile-session", `data-session="${e(s.id)}"`)}`, "warn")).join("") : "") +
-    `<div class="toolbar">${config.models ? (config.models.every((m) => m.provider === "mock") ? badge("MOCK RUN (no LLM calls)", "blue") : badge("REAL API CALLS", "orange")) : badge("Provided strategies")}${d.archived ? badge("Exported copy", "orange") : ""}${job ? status(job.status === "failed" && d.report?.incomplete ? "incomplete" : job.status) : ""}<span class="mono muted" style="font-size:10px">${e(S.run)}</span><span class="spacer"></span>${job && ["running", "stopping"].includes(job.status) ? badge(runningPhase(d), "blue") : ""}<label class="check"><input id="follow-live" type="checkbox" ${S.follow ? "checked" : ""}>Live updates</label>${job ? btn("Run log", "job-log", `data-id="${e(job.id)}"`) : ""}</div><div class="tabs">${TABS.map(([key, label]) => `<button class="tab ${S.tab === key ? "active" : ""}" data-action="tab" data-tab="${key}">${label}</button>`).join("")}</div>`
-  );
+  const problems = d.sessions.filter(s=>["provider_unavailable","generation_failed","no_submission"].includes(s.status) || s.reconciliation_required);
+  const recovery = problems.length ? `<details class="recovery-panel"><summary><span class="recovery-count">${problems.length}</span><strong>Conversations need attention</strong><span>Review & recover</span></summary><div>${problems.map(s=>`<div class="recovery-row"><div><strong>${e(s.model)}</strong><small>${e(sessionLabel(s))} · ${e(text(s.status))}</small></div><div class="actions">${btn("Open conversation","session-conversation",`data-session="${e(s.id)}"`)}${!active ? (s.reconciliation_required ? btn("Resolve billing","reconcile-session",`data-session="${e(s.id)}"`) : retryButton(s)) : ""}</div></div>`).join("")}</div></details>` : "";
+  return `<a class="back-link" href="#view=competitions">← Competitions</a>` + head(config.name, "", `${active ? btn("■ Stop", "stop-job", `data-id="${e(job.id)}"`) : experiment && !d.archived ? btn("Resume", "resume", "", true) : ""}${experiment ? `<details class="action-menu"><summary class="button">More <span aria-hidden="true">⌄</span></summary><div>${btn("Clone configuration", "clone-run")}${btn("Export competition", "export-run")}</div></details>` : ""}`) +
+    `<div class="toolbar run-toolbar">${job ? status(job.status === "failed" && d.report?.incomplete ? "incomplete" : job.status) : ""}${config.models ? badge(config.models.every(m=>m.provider==="mock") ? "Built-in strategies" : "Model competition") : badge("Provided strategies")}${d.archived ? badge("Exported copy", "orange") : ""}<span class="run-id mono" title="Competition ID">${e(S.run)}</span><span class="spacer"></span>${active ? badge(runningPhase(d), "blue") : ""}<label class="check live-toggle"><input id="follow-live" type="checkbox" ${S.follow ? "checked" : ""}>Live</label>${job ? btn("Run log", "job-log", `data-id="${e(job.id)}"`) : ""}</div>` + recovery +
+    (d.sessions.some(s=>s.continuation_identity) ? `<details class="quiet-details"><summary>Continued after an application update</summary><p>Version changes are recorded in the journal.</p></details>` : "") +
+    `<nav class="tabs" aria-label="Competition views">${TABS.map(([key,label])=>`<button class="tab ${S.tab===key ? "active" : ""}" ${S.tab===key ? 'aria-current="page"' : ""} data-action="tab" data-tab="${key}">${label}</button>`).join("")}</nav>`;
+}
+function configurationView(d) {
+  const c = d.metadata.config;
+  if (!c) return `<section class="panel"><h2>Competition configuration</h2>${raw(d.metadata,"Full configuration")}</section>`;
+  return `<div class="grid two"><section class="panel"><h2>Format</h2><dl class="configuration-facts"><div><dt>Rounds</dt><dd>${c.generations === null ? "Until manual stop" : c.generations || 1}</dd></div><div><dt>Repetitions per model</dt><dd>${c.replicates}</dd></div><div><dt>Team size</dt><dd>${c.scenario.team_size}</dd></div><div><dt>Maximum turns</dt><dd>${fmt(c.scenario.max_turns)}</dd></div><div><dt>Team selection</dt><dd>${c.scenario.team_selection ? "Chosen by each model" : "Shared roster"}</dd></div></dl></section><section class="panel"><h2>Participants</h2><div class="configuration-models">${c.models.map(m=>`<div><strong>${e(m.id)}</strong><small>${e(PROVIDER_NAMES[m.provider] || m.provider)} · ${e(m.model || m.profile)}</small></div>`).join("")}</div></section></div><section class="panel"><div class="panel-title"><div><h2>Saved settings</h2><p class="muted">Frozen when launched. Clone to edit and run a new competition.</p></div>${btn("Clone configuration", "clone-run")}</div>${raw(d.metadata,"Full JSON & provenance")}</section>`;
 }
 function runModels(d) {
   const configured = d.metadata?.config?.models || [];
@@ -1424,7 +1418,7 @@ async function renderRun(epoch) {
     S.statistics = statistics;
     body = summary(d, statistics);
   } else if (S.tab === "config")
-    body = `<section class="panel"><h2>Frozen configuration and provenance</h2><p class="muted">These settings are frozen. Clone the configuration to run a different experiment.</p><pre>${e(pretty(d.metadata))}</pre></section>`;
+    body = configurationView(d);
   else if (S.tab === "conversation" || S.tab === "code") {
     const chooser = sessionChooser(d);
     if (d.sessions.length && !S.session)
@@ -3244,6 +3238,13 @@ document.addEventListener("click", async (event) => {
       if (copied) toast("Diagnostics copied. No keys or prompt contents included.");
       else openDialog("Provider diagnostics", "No keys or prompt contents included", `<textarea readonly rows="18">${e(content)}</textarea>`);
     }
+    else if (a === "editor-section") {
+      const section = document.getElementById(node.dataset.section);
+      if (section?.tagName === "DETAILS") section.open = true;
+      section?.scrollIntoView({behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth", block:"start"});
+      section?.setAttribute("tabindex", "-1");
+      section?.focus({preventScroll:true});
+    }
     else if (a === "conversation-top") {
       cancelConversationAnimation();
       if (S.offset > 0) {
@@ -3620,8 +3621,32 @@ document.addEventListener("change", async (event) => {
     showError(error);
   }
 });
+document.addEventListener("click", event => {
+  if (event.target.closest(".skip-link")) {
+    event.preventDefault();
+    $("#main").focus({preventScroll:true});
+    window.scrollTo({top:0,behavior:"instant"});
+  }
+  $$(".action-menu[open]").forEach(menu=>{
+    if (!menu.contains(event.target) || event.target.closest("[data-action]")) menu.open=false;
+  });
+});
+document.addEventListener("keydown", event => {
+  if (event.key === "Escape") $$(".action-menu[open]").forEach(menu=>{menu.open=false; menu.querySelector("summary").focus();});
+});
+document.addEventListener("invalid", event => {
+  let parent = event.target.parentElement;
+  while (parent) {
+    if (parent.tagName === "DETAILS") parent.open = true;
+    parent = parent.parentElement;
+  }
+}, true);
 document.addEventListener("input", (event) => {
   const n = event.target;
+  if (n.id === "participant-search") {
+    $("#participant-cards").innerHTML = participantCards(n.value);
+    $("#participant-count").textContent = `${$$("#participant-cards .profile-card").length} of ${S.boot.participants.length} profiles`;
+  }
   if (n.id === "run-search")
     $("#run-table").innerHTML = runTable(
       S.boot.runs.filter((r) =>
