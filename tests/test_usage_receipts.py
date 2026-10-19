@@ -94,3 +94,23 @@ class UsageReceiptTests(unittest.TestCase):
                 self.assertEqual(receipt['cost_adjustment_usd'],'0.0636965')
                 self.assertEqual(receipt['reported_cost_usd'],'0.6026764')
             self.assertTrue(all(path.read_bytes()==value for path,value in before.items()))
+
+    def test_missing_reasoning_is_not_mistaken_for_a_reported_value(self):
+        result=summarize([{'usage':{'input_tokens':100,'output_tokens':10}}])
+        self.assertEqual(result['missing_reasoning_usage'],1)
+
+    def test_metadata_cache_eviction_does_not_discard_usage_receipts(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory)
+            journal=Journal(root)
+            try:
+                journal.save('one',{'history':[]},'model_response',{
+                    'usage':{'input_tokens':100,'output_tokens':10},'cost_usd':'0'})
+            finally:
+                journal.db.close()
+            store=Store(root/'runs',root/'ui')
+            first=store.usage_receipts(root)
+            store._cache.clear()
+            from unittest import mock
+            with mock.patch.object(Path,'read_bytes',side_effect=AssertionError('Do not reread transport artifacts')):
+                self.assertEqual(store.usage_receipts(root),first)

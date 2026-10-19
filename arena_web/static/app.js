@@ -264,6 +264,7 @@ let S = {
   epoch: 0,
 };
 let toastTimer, replayTimer, R;
+let pageRequests = new AbortController();
 async function api(path, args = {}, post = false) {
   const response = await fetch(
     path + (post ? "" : Object.keys(args).length ? "?" + query(args) : ""),
@@ -276,7 +277,7 @@ async function api(path, args = {}, post = false) {
           },
           body: JSON.stringify(args),
         }
-      : {},
+      : {signal:pageRequests.signal},
   );
   const value = await response.json();
   if (!response.ok)
@@ -305,6 +306,9 @@ function navigate(view, values = {}) {
   location.hash = query({ view, ...values });
 }
 function route() {
+  pageRequests.abort();
+  pageRequests = new AbortController();
+  S.liveConversation = null;
   const previousPage = `${S.view}/${S.run}/${S.tab}`;
   const q = new URLSearchParams(location.hash.slice(1));
   S.view = q.get("view") || "dashboard";
@@ -335,12 +339,15 @@ function route() {
   S.file = null;
   S.matchPath = null;
   const nextPage = `${S.view}/${S.run}/${S.tab}`;
+  if (S.view==='run' && S.detail?.id===S.run)
+    $('#main').innerHTML=runHeader(S.detail)+'<section class="panel" aria-busy="true">Loading…</section>';
   renderRoute().then(() => {
     if (nextPage !== previousPage && nextPage === `${S.view}/${S.run}/${S.tab}`)
       window.scrollTo({top:0, behavior:"instant"});
   }).catch(showError);
 }
 function showError(error) {
+  if (error.name === "AbortError") return;
   toast(error.message, true);
   $("#main").classList.remove("busy");
 }
@@ -414,6 +421,7 @@ async function renderRoute() {
   if (S.view === "run") {
     syncLiveMode();
     const d = await api("/api/run", { run: S.run }).catch(async (error) => {
+      if (error.name === "AbortError") throw error;
       if (activeJobs().some((j) => j.run === S.run)) {
         setTimeout(() => renderRoute().catch(showError), 800);
         return null;
@@ -1411,10 +1419,8 @@ async function renderRun(epoch) {
   const d = S.detail;
   let body = "";
   if (S.tab === "summary") {
-    const [statistics, fights] = await Promise.all([
-      api("/api/statistics", { run: S.run }),
-      api("/api/matches", { run: S.run }),
-    ]);
+    const fights = await api("/api/matches", { run: S.run });
+    const statistics={training_matches:fights.matches.filter(m=>m.kind==='training').length};
     if (epoch !== S.epoch) return;
     S.overviewMatches = fights.matches;
     S.statistics = statistics;
@@ -2017,6 +2023,11 @@ function feedbackView(value) {
     ),
   )}</section>`;
 }
+function callPerformance(message) {
+  if (message.role !== 'assistant' || message.elapsed_seconds == null) return '';
+  const usage=message.usage || {}, metrics=message.request_metrics;
+  return `<details class="quiet-details"><summary>Call performance · ${fmt(usage.input_tokens)} input tokens · ${fmt(message.elapsed_seconds,1)} s</summary><p>${fmt(usage.output_tokens)} output tokens${message.elapsed_seconds > 0 && usage.output_tokens != null ? ` · ${fmt(usage.output_tokens/message.elapsed_seconds,2)} output tokens/s across the full request` : ''}. This rate includes prompt processing and request time; it is not the provider's decode-only speed.</p>${metrics ? `<p>${fmt(metrics.history_messages)} context messages · ${fmt(metrics.request_characters)} request characters · ${fmt(metrics.request_setup_seconds,2)} s preparing the request.</p>` : ''}</details>`;
+}
 function providerOutput(message, index) {
   const blocks = (message.output_blocks || []).filter(
     (b) => !(message.file_exchange && b.kind === "tool_result"),
@@ -2372,7 +2383,7 @@ function conversation(data, append = false) {
           )
           .join("");
         const snippet = String(content || "").slice(0, 1800);
-        return `${data.generation > 0 && absolute === data.instruction_index ? `<div class="notice"><strong>Round ${data.generation + 1} starts here · ${e(text(data.condition))}</strong></div>` : ""}<article class="chat-message ${e(m.role)} ${resultError ? "tool-error" : ""}" id="message-${absolute}"><div class="message-head"><strong>${e(direction)}${m.simulated ? " · predefined strategy" : ""}</strong><span>Message ${absolute + 1} · ${data.times?.[index] ? date(data.times[index]) : "Time not recorded"}</span></div>${display.reply_to != null ? `<p class="message-reply">Result of tool request in message ${display.reply_to + 1}${display.reply_to >= S.offset && display.reply_to < S.offset + 25 ? ` · <a href="#message-${display.reply_to}" data-action="message-anchor" data-index="${display.reply_to}">Go to request</a>` : ""}${m.call_id ? " · " + e(m.call_id) : ""}</p>` : ""}${resultError ? badge("Tool error", "red") : ""}${snippet ? `<div class="message-content">${e(snippet)}${m.output_text_truncated || content.length > 1800 ? "\n[Preview truncated; open the full record below.]" : ""}</div>` : m.role === "assistant" && calls ? '<p class="muted">The model requested tools without a text response.</p>' : ""}${m.briefing ? `<div class="game-brief"><strong>Game briefing sent to the model</strong><p>${e(m.briefing.game)}</p><p>${e(m.briefing.objective)}</p><p>${e(m.briefing.team_mode)}</p></div>` : ""}${m.role === "user" ? feedbackView(m.feedback) : ""}${calls}${fileExchange(m, absolute)}${providerOutput(m, absolute)}${m.role === "user" ? conversationData(Object.fromEntries(Object.entries(m).filter(([key]) => !["role", "content", "request_recorded", "request_seed"].includes(key))), m.generation ? "Full improvement instruction and supplied feedback" : "Scenario, roster, ID guide and preparation rules sent to the model") : ""}${m.usage ? `<small>Input ${fmt(m.usage.input_tokens)} · Output ${fmt(m.usage.output_tokens)} · Cost ${money(m.cost_usd)} · Response took ${fmt(m.elapsed_seconds, 3)} s</small>` : ""}${m.request_metrics ? `<small>Context: ${fmt(m.request_metrics.history_messages)} messages · ${fmt(m.request_metrics.request_characters)} request characters · ${fmt(m.request_metrics.request_setup_seconds, 2)} s local request setup${m.usage?.output_tokens != null && m.elapsed_seconds > 0 ? ` · ${fmt(m.usage.output_tokens / m.elapsed_seconds, 2)} output tokens/s including input processing and API waits` : ""}</small>` : ""}${(m.adapter_notes || []).map(note => `<small>${e(note)}</small>`).join("")}${m.request_recorded ? `<p class="muted">Reasoning requested: ${e(reasoningLabel(m.request_reasoning))} · Sent seed: ${e(m.request_seed ?? "not set")}${m.stop_reason ? " · Stop reason: " + e(m.stop_reason) : ""}</p>` : ""}<details data-message-record="${absolute}" data-record-run="${e(S.run)}" data-record-session="${e(S.session)}"><summary>Full record: exact request, native response and metadata</summary><pre></pre></details></article>`;
+        return `${data.generation > 0 && absolute === data.instruction_index ? `<div class="notice"><strong>Round ${data.generation + 1} starts here · ${e(text(data.condition))}</strong></div>` : ""}<article class="chat-message ${e(m.role)} ${resultError ? "tool-error" : ""}" id="message-${absolute}"><div class="message-head"><strong>${e(direction)}${m.simulated ? " · predefined strategy" : ""}</strong><span>Message ${absolute + 1} · ${data.times?.[index] ? date(data.times[index]) : "Time not recorded"}</span></div>${display.reply_to != null ? `<p class="message-reply">Result of tool request in message ${display.reply_to + 1}${display.reply_to >= S.offset && display.reply_to < S.offset + 25 ? ` · <a href="#message-${display.reply_to}" data-action="message-anchor" data-index="${display.reply_to}">Go to request</a>` : ""}${m.call_id ? " · " + e(m.call_id) : ""}</p>` : ""}${resultError ? badge("Tool error", "red") : ""}${callPerformance(m)}${snippet ? `<div class="message-content">${e(snippet)}${m.output_text_truncated || content.length > 1800 ? "\n[Preview truncated; open the full record below.]" : ""}</div>` : m.role === "assistant" && calls ? '<p class="muted">The model requested tools without a text response.</p>' : ""}${m.briefing ? `<div class="game-brief"><strong>Game briefing sent to the model</strong><p>${e(m.briefing.game)}</p><p>${e(m.briefing.objective)}</p><p>${e(m.briefing.team_mode)}</p></div>` : ""}${m.role === "user" ? feedbackView(m.feedback) : ""}${calls}${fileExchange(m, absolute)}${providerOutput(m, absolute)}${m.role === "user" ? conversationData(Object.fromEntries(Object.entries(m).filter(([key]) => !["role", "content", "request_recorded", "request_seed"].includes(key))), m.generation ? "Full improvement instruction and supplied feedback" : "Scenario, roster, ID guide and preparation rules sent to the model") : ""}${m.usage ? `<small>Input ${fmt(m.usage.input_tokens)} · Output ${fmt(m.usage.output_tokens)} · Cost ${money(m.cost_usd)} · Response took ${fmt(m.elapsed_seconds, 3)} s</small>` : ""}${m.request_metrics ? `<small>Context: ${fmt(m.request_metrics.history_messages)} messages · ${fmt(m.request_metrics.request_characters)} request characters · ${fmt(m.request_metrics.request_setup_seconds, 2)} s local request setup${m.usage?.output_tokens != null && m.elapsed_seconds > 0 ? ` · ${fmt(m.usage.output_tokens / m.elapsed_seconds, 2)} output tokens/s including input processing and API waits` : ""}</small>` : ""}${(m.adapter_notes || []).map(note => `<small>${e(note)}</small>`).join("")}${m.request_recorded ? `<p class="muted">Reasoning requested: ${e(reasoningLabel(m.request_reasoning))} · Sent seed: ${e(m.request_seed ?? "not set")}${m.stop_reason ? " · Stop reason: " + e(m.stop_reason) : ""}</p>` : ""}<details data-message-record="${absolute}" data-record-run="${e(S.run)}" data-record-session="${e(S.session)}"><summary>Full record: exact request, native response and metadata</summary><pre></pre></details></article>`;
       })
       .join("")
   );

@@ -212,6 +212,11 @@ class Journal:
             write_json(artifact, payload)
         reference = {"at": time.time(), "artifact": artifact.relative_to(self.out).as_posix(),
                      "sha256": file_hash(artifact)}
+        from .response_archive import compact as compact_response
+        if 'history' in state:
+            state['history']=[compact_response(self.out,message) for message in state['history']]
+        if state.get('pending'):
+            state['pending']=compact_response(self.out,state['pending'])
         checkpoint = self.out / "artifacts" / (digest(state) + ".json")
         if not checkpoint.exists():
             write_json(checkpoint, state)

@@ -67,6 +67,7 @@ class Store:
         self.lock = threading.RLock()
         self.secrets = {}
         self._cache = {}
+        self._usage_cache = {}
 
     def json(self, path, default=None):
         if any(is_link(p) for p in [path, *path.parents]):
@@ -77,15 +78,17 @@ class Store:
         stamp = (stat.st_mtime_ns, stat.st_size)
         with self.lock:
             cached = self._cache.get(path)
-            if cached and cached[0] == stamp:
-                return copy.deepcopy(cached[1])
-            value = read_json(path)
-            # Do not retain large replay/history objects in the metadata cache.
-            if stat.st_size < 200_000:
+        if cached and cached[0] == stamp:
+            return copy.deepcopy(cached[1])
+        # Replay parsing must not hold the lock used by unrelated navigation requests.
+        value = read_json(path)
+        if stat.st_size < 200_000:
+            with self.lock:
                 if len(self._cache) > 256:
                     self._cache.clear()
                 self._cache[path] = (stamp, value)
             return copy.deepcopy(value)
+        return value
 
     def catalog(self):
         with self.lock:
@@ -284,7 +287,7 @@ class Store:
             stamp = (artifact.stat().st_mtime_ns, artifact.stat().st_size)
             key = ('usage', artifact)
             with self.lock:
-                cached = self._cache.get(key)
+                cached = self._usage_cache.get(key)
             if cached and cached[0] == stamp:
                 receipt = cached[1]
             else:
@@ -294,7 +297,7 @@ class Store:
                 value = json.loads(raw)
                 receipt = {field: value.get(field) for field in ('usage', 'cost_usd')}
                 with self.lock:
-                    self._cache[key] = (stamp, receipt)
+                    self._usage_cache[key] = (stamp, receipt)
             receipt = copy.deepcopy(receipt)
             model = models.get(states.get(sid, {}).get('model'), {})
             usage = receipt.get('usage') or {}
@@ -442,7 +445,14 @@ class Store:
         history = self.session(identifier, sid).get("history", [])
         if not 0 <= index < len(history):
             raise ArenaError("Message not found")
-        return {"message": history[index]}
+        message=history[index]
+        if message.get('response_artifact'):
+            reference=message['response_artifact']
+            path=safe_path(self.run_path(identifier),reference['artifact'])
+            if file_hash(path)!=reference['sha256']:
+                raise ArenaError('Archived model response changed')
+            message={**message,**self.json(path)}
+        return {"message": message}
 
     def tool_exchange(self, identifier, sid, index):
         from .tool_exchange import inspect
@@ -516,14 +526,14 @@ class Store:
                     'arguments': {k:(v[:200] if isinstance(v,str) else v) for k,v in (c.get('arguments') or {}).items()
                                   if k != 'content' and isinstance(v,(str,int,float,bool))}}
                     for c in item.get('tool_calls', []) if isinstance(c.get('arguments'),dict)]
-            parameters = item.get("sent_parameters") or {}
+            parameters = item.get("sent_parameters") or item.get("request_summary") or {}
             visible["request_reasoning"] = {key:value for key,value in parameters.items()
                 if key in {'reasoning_effort', 'thinking', 'output_config'}}
             if parameters.get('reasoning', {}).get('effort') is not None:
                 visible['request_reasoning']['reasoning_effort'] = parameters['reasoning']['effort']
             if parameters.get('generationConfig', {}).get('thinkingConfig') is not None:
                 visible['request_reasoning']['thinking_config'] = parameters['generationConfig']['thinkingConfig']
-            visible["request_recorded"] = "sent_parameters" in item
+            visible["request_recorded"] = "sent_parameters" in item or "response_artifact" in item
             visible["request_seed"] = parameters.get("seed", parameters.get("generationConfig", {}).get("seed"))
             if item.get("role") == "user" and "scenario" in visible:
                 from arena.briefing import participant_scenario

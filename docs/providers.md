@@ -221,3 +221,45 @@ After a definitive HTTP 400 rejection, update the application and click **Retry 
 For `gpt-6.1-sol`, the API reports `low`, `medium`, `high` and `xhigh`. Neither `none` nor `minimal` is supported. The editor disables these choices for that exact model and rejects unsupported profile saves before an API call.
 
 A running competition retains its original profile settings. **Retry conversation** now has an effort selector that explicitly overrides the saved effort for that failed conversation. The override is audited, does not rewrite the original configuration or affect other participants, and is inherited by future improvement branches from the recovered conversation. CLI equivalent: `python -m arena experiment retry RUN --session SESSION --reasoning-effort low --allow-updated-runner`. Use `--reasoning-effort provider-default` to explicitly omit an earlier effort setting.
+
+## Ollama memory and context troubleshooting
+
+During generation, run `ollama ps`. Its PROCESSOR column reports model placement,
+not instantaneous utilization. `66%/34% CPU/GPU` means CPU offloading is active.
+A context of 262144 reserves a large KV cache even before that many prompt tokens
+are used. With 8 GB of VRAM, this can force model layers onto CPU. The SIZE column
+includes the loaded allocation, so it is not by itself the model weight size.
+A growing prompt then increases work per request; message counts alone do not
+measure token work. The arena starts a fresh history at each improvement round,
+then retains messages within that round.
+
+Create a separate model with a smaller context for a pilot. In PowerShell:
+
+```powershell
+@'
+FROM code-agent:latest
+PARAMETER num_ctx 32768
+'@ | Set-Content -Encoding utf8 Modelfile.arena
+ollama create code-agent-32k -f Modelfile.arena
+ollama stop code-agent:latest
+```
+
+Select `code-agent-32k` in a new participant and run a short pilot. Inspect
+`ollama ps` again while it generates. A smaller context can improve placement;
+full GPU placement is not guaranteed if the weights still do not fit. If needed,
+try a smaller model or quantization. Do not treat a context change as the same
+benchmark variant. Retain the original model for comparisons.
+
+Check that the chosen context accommodates the real prompts, tool schemas,
+tool results and output. Ollama can truncate prompts exceeding its context;
+reducing context is not a lossless optimization. Each conversation's **Call
+performance** disclosure shows reported input/output tokens, request time and
+context message/character counts. The displayed tokens/s divides output tokens
+by full request time, including prompt processing, and is not decode-only speed.
+Compare calls with similar input/output lengths; total round time also includes
+compilation, tests, file writes and checkpoint work.
+
+See https://docs.ollama.com/context-length and https://docs.ollama.com/faq for
+context memory, model placement and KV-cache settings. Cache quantization and
+Flash Attention may help supported models, but should be recorded as separate
+runtime settings when benchmarking.

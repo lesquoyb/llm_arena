@@ -21,7 +21,7 @@ def summarize(receipts):
             result['missing_usage'] += 1
         if usage.get('cached_input_tokens') is None:
             result['missing_cache_usage'] += 1
-        if usage.get('reasoning_tokens', 'cache_creation_input_tokens') is None:
+        if usage.get('reasoning_tokens') is None:
             result['missing_reasoning_usage'] += 1
         for field in FIELDS:
             result[field] += usage.get(field) or 0
