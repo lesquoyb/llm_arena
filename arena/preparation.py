@@ -52,22 +52,9 @@ class Preparation:
             return self.versions.call(name, arguments)
         entry = arguments.get("entrypoint", "main.leek")
         if name == "lookup_api":
-            self._fields(arguments, {"query"})
-            query = arguments.get('query')
-            if not isinstance(query, str) or not query.strip():
-                raise ArenaError('query must be a nonempty function name or name fragment')
-            query = query.strip().removesuffix('()')
-            catalog = read_json(self.docs / 'leekscript-v1/api.json')
-            matches = [(kind, key, value) for kind in ('functions', 'constants')
-                       for key,value in catalog[kind].items() if query.casefold() in key.casefold()]
-            exact = [row for row in matches if row[1].casefold() == query.casefold()]
-            matches = exact or matches
-            result = {'matches':len(matches), 'results':[{'kind':kind, 'name':key, 'definition':value}
-                      for kind,key,value in matches[:20]],
-                      'guide':'LeekScript 4 only. f[integer] => integer means f(argument). Types ending in ? are nullable. Use separate overloads to determine argument count.'}
-            if len(matches) > 20: result['hint'] = 'Only the first 20 matches are shown; use a more specific query.'
-            if query == 'getLeek': result['hint'] = 'getLeek() was removed after version 3. Use getEntity() for your runtime ID; getLeekID() returns the persistent website ID.'
-            return result
+            self._fields(arguments, {'query','queries','mode','kind','offset','limit'})
+            from .api_lookup import lookup
+            return lookup(read_json(self.docs/'leekscript-v1/api.json'),arguments)
         if name == "list_files":
             self._fields(arguments, set())
             return {"files": sorted(p.relative_to(self.workspace).as_posix()

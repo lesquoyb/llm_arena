@@ -602,3 +602,17 @@ calls, reading docs, compiling, testing and submitting are permitted workflow.
 The separate ready-made-code question explicitly refers to executable combat
 behavior. Existing pending checks are recomputed because question definitions
 are part of the cache identity; original receipts remain available.
+
+## API lookup under small preparation budgets
+
+`lookup_api` now supports `{"queries":["getCell","getDistance","moveToward"]}`:
+up to 20 exact names or fragments per call, consuming one tool step for the whole
+batch. Results are separated by query; zero matches for one name does not hide
+other results. `{"mode":"index","kind":"functions"}` lists names without
+definitions (default/max 500 entries); use `kind:"constants"` for constants.
+Searches are case-insensitive name searches, not semantic documentation search.
+Each truncated search/index page includes a runnable continuation with a match
+offset. Fetch related signatures together when calls or tool steps are limited.
+The tool operates on the trial's frozen LeekScript 4 catalog. Existing `query`
+calls still work. Fresh defaults document the new interface; old saved prompts
+and reference documents are not rewritten automatically.

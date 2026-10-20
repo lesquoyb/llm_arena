@@ -1,6 +1,6 @@
 # API contracts for the pinned engine
 
-Arena runs LeekScript 4. Game calls are global, without imports. Use lookup_api with a nonempty exact name or name fragment for additional signatures. Its square brackets describe positional arguments: `getEntity[] => integer` means `getEntity()`. A nullable type such as `integer?` does not mean an argument is optional; separate signatures describe different arities.
+Arena runs LeekScript 4. Game calls are global, without imports. Use lookup_api with query for one exact name/fragment, or queries for up to 20 searches in one tool step. For example, lookup_api({"queries":["getCell","getDistance","moveToward"]}). Discover available names with lookup_api({"mode":"index","kind":"functions"}); the index omits definitions. Follow next_offset/continuation for more matches. Each query in a batch has its own continuation. Under a small call budget, group related missing signatures rather than making repeated lookups. Its square brackets describe positional arguments: `getEntity[] => integer` means `getEntity()`. A nullable type such as `integer?` does not mean an argument is optional; separate signatures describe different arities.
 
 ## Execution
 

@@ -18,6 +18,30 @@ class APILookupTests(unittest.TestCase):
             self.assertIn('getEntity()',tools.call('lookup_api',{'query':'getLeek'},'3')['hint'])
             with self.assertRaises(ArenaError):tools.call('lookup_api',{'query':''},'4')
 
+    def test_batch_lookup_and_index_have_independent_pagination(self):
+        with scratch_directory() as tmp:
+            write_json(tmp/'docs/leekscript-v1/api.json',{'functions':{
+                'getCell':{'signatures':['[] => integer']},'getEntity':{'signatures':['[] => integer']},
+                'moveToward':{'signatures':['[integer] => integer']}},'constants':{'USE_SUCCESS':1}})
+            tools=Preparation(tmp/'session',tmp/'docs',None,{})
+            result=tools.call('lookup_api',{'queries':['get','moveToward','missing'],'limit':1},'1')
+            self.assertEqual(result['tool_steps'],1)
+            self.assertEqual([row['matches'] for row in result['queries']],[2,1,0])
+            self.assertIsNone(result['queries'][1]['continuation'])
+            next_page=tools.call('lookup_api',result['queries'][0]['continuation']['arguments'],'2')
+            self.assertEqual(next_page['results'][0]['name'],'getEntity')
+            index=tools.call('lookup_api',{'mode':'index','kind':'functions','limit':2},'3')
+            self.assertEqual(index['functions'],['getCell','getEntity'])
+            self.assertNotIn('results',index)
+            rest=tools.call('lookup_api',index['continuation']['arguments'],'4')
+            self.assertEqual(rest['functions'],['moveToward'])
+            self.assertIsNone(rest['continuation'])
+            constants=tools.call('lookup_api',{'mode':'index','kind':'constants'},'5')
+            self.assertEqual(constants['constants'],['USE_SUCCESS'])
+            for args in ({'query':'get','queries':['move']},{'queries':[]},{'queries':['']},
+                         {'query':'get','limit':True},{'mode':'index','offset':-1},{'queries':['get']*21}):
+                with self.subTest(args=args),self.assertRaises(ArenaError):tools.call('lookup_api',args,'6')
+
     def test_removed_function_versions_and_source_are_explained(self):
         diagnostic={'diagnostics':[[0,'main.leek',1,11,1,17,94,['3','4']]]}
         with scratch_directory() as tmp:

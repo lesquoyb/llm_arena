@@ -12,7 +12,7 @@ For example:
 
 These are arguments to `read_docs`. Follow returned continuation calls when a required read is truncated.
 
-Use `lookup_api` for one exact function or constant name, or one contiguous name fragment at a time. It does not split a space-separated list of unrelated names into multiple searches.
+Use `lookup_api` with `query` for one name/fragment or `queries` for up to 20 grouped searches in one tool step. A space-separated string is not a batch. `lookup_api({"mode":"index","kind":"functions"})` lists function names without definitions; use `kind:"constants"` for constants. Follow each result's continuation for more matches.
 
 ## Reference map
 
