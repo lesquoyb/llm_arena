@@ -616,3 +616,14 @@ offset. Fetch related signatures together when calls or tool steps are limited.
 The tool operates on the trial's frozen LeekScript 4 catalog. Existing `query`
 calls still work. Fresh defaults document the new interface; old saved prompts
 and reference documents are not rewritten automatically.
+
+## Why a candidate can finish after one round
+
+With default plateau patience 2, one score cannot establish stagnation. A candidate
+may nevertheless end its repetition after the first round if it has no submitted
+strategy: later improvement rounds have no frozen script to inherit. That is an
+unsuccessful observation passed to the analyst, not convergence. Invalid but
+submitted scripts can still proceed to later repair rounds. The overview shows
+the saved round limit and each selected repetition's actual stop reason. Settings
+in the setup editor do not change a study already launched; check its frozen
+settings rather than the current editor values.

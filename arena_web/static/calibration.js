@@ -488,7 +488,7 @@ async function inspect(identifier, retain = false) {
         button(
           (i===data.state.incumbent?"Current best":i===0?"Initial baseline":t.accepted?"Selected earlier":"Not selected")+" · review",
           async () => {
-            await reviewCandidate(t.directory);
+            await reviewCandidate(t.directory);studyTab('changes');
             $('analyst-review').scrollIntoView({behavior:'smooth',block:'start'});
           },
         ),
@@ -578,6 +578,11 @@ function draw() {
         : [];
   $("chart").replaceChildren();
   $("rounds-table").replaceChildren();
+  const frozen=selectedState?.config||{},rep=report?.replicates?.find(r=>String(r.replicate)===$('replicate').value);
+  const configured=frozen.max_rounds==null?'no fixed maximum':frozen.max_rounds+' maximum';
+  const stop=rep?.stop_reason || (rounds.at(-1)?.validity==='no_submission'?'no_submission':null);
+  const reasons={no_submission:'Stopped because no strategy was submitted. Remaining improvement rounds were skipped; the failed observation goes to the analyst.',plateau:'Stopped after the configured score plateau.',max_rounds:'Reached the configured round limit.'};
+  $('observation-status').textContent=selectedTrial?.startsWith('proposals/')?'Prompt analyst proposal: this is not a script-improvement round.':`${rounds.length} script round(s) recorded · ${configured} per repetition. ${reasons[stop]||'Preparation or evaluation is in progress.'}`;
   if (!rounds.length) return;
   const NS = "http://www.w3.org/2000/svg",
     svg = document.createElementNS(NS, "svg");
@@ -1299,6 +1304,8 @@ function commandCenter(data){
  const failedPreparation=blocked&&work.kind==='target'&&['no_submission','generation_failed'].includes(work.session_status);
  const title=completed?'Optimization complete':failedPreparation?'Preparation ended without a strategy':blocked?(work.kind==='analyst'?'Prompt proposal blocked':'Tested model stopped'):running?(work.kind==='analyst'?'Analyst is preparing a prompt proposal':'Tested model is preparing a strategy'):'Optimization paused';
  mount.append(node('span',`Candidate ${work.candidate||1} · ${work.kind==='analyst'?'Prompt analyst':'Tested model'}`,'eyebrow'),node('h3',title));
+ const cfg=data.config,roundMode=cfg.max_rounds==null?'Until stopped':(cfg.stop_on_plateau!==false?'Up to ':'')+cfg.max_rounds+' script rounds';
+ mount.append(node('small',`Saved settings: ${roundMode} per candidate · ${cfg.replicates} repetition(s)${cfg.stop_on_plateau!==false?' · Plateau patience '+cfg.patience:''}. These settings are frozen at launch.`));
  let explanation=completed?(data.state.stop_reason==='analyst_no_change'?'The analyst proposed no further improvement. The best evaluated candidate is retained. '+(data.state.analyst_conclusion||''):'Review the results or choose another saved prompt version.'):blocked?(work.guard_status && work.guard_status!=='approved'?'The proposal check returned '+work.guard_status+'. This prompt has not been evaluated. Review the changes before requesting a correction.':work.requires_reconciliation?'An interrupted provider request needs its charge checked before it can continue.':work.kind==='analyst'?'The proposed prompt could not be accepted. Completed evaluations are preserved. Review the reason, then correct the proposal or ask the analyst to revise it.':'No strategy is ready for evaluation. Continue the saved target conversation to finish this candidate.'):running?(work.phase?.message || (work.kind==='analyst'?'The analyst returns a prompt proposal as JSON. No strategy submission or preparation fights are expected here.':'The model writes and tests its strategy before submitting it.')):'Resume the existing optimization to continue; completed work is preserved.';
  if(failedPreparation)explanation='This is an unsuccessful observation, not a request to extend the model’s budget. Record it and let the analyst inspect the failure and conversation.';
  mount.append(node('p',explanation));
