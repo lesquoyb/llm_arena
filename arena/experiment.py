@@ -561,9 +561,10 @@ def run_session(sid, model, config, out, journal, engine, interrupt=None):
                 if not calls:
                     # A provider stop ends one response, not the Arena preparation session.
                     state["pending"] = None
-                    reminders = state.get("submission_reminders", 0)
+                    reminders = state.get("consecutive_submission_reminders", 0)
                     if reminders < 3:
-                        state["submission_reminders"] = reminders + 1
+                        state["submission_reminders"] = state.get("submission_reminders", 0) + 1
+                        state["consecutive_submission_reminders"] = reminders + 1
                         state["history"].append({"role": "user", "content":
                             "Your response ended, but you have not submitted a strategy. "
                             "This round is not complete. Continue using the Arena tools: "
@@ -571,9 +572,14 @@ def run_session(sid, model, config, out, journal, engine, interrupt=None):
                             "then explicitly call submit. Ending a response or saying you are "
                             "finished does not submit your files. "
                             f"Reminder {reminders + 1} of 3; after three reminders, another "
-                            "response without tool calls will end this session without a submission."})
+                            "response without tool calls will end preparation and freeze any saved sources for evaluation."})
                         journal.save(sid, state, "submission_required", {"reminder": reminders + 1})
                     else:
+                        if any(tools.workspace.rglob("*.leek")):
+                            state["history"].append({"role":"user","content":"Arena ended preparation after three consecutive reminders. The latest saved sources are frozen automatically and will be evaluated, including any compilation or team configuration errors."})
+                            _finish(sid, state, tools, journal, "submitted")
+                            journal.save(sid, state, "repeated_stops_frozen")
+                            continue
                         state["status"] = "no_submission"
                         state["failure"] = {"message": "The model ended responses without explicitly calling submit after three reminders.",
                                             "phase": "submission",
@@ -583,6 +589,7 @@ def run_session(sid, model, config, out, journal, engine, interrupt=None):
                             "This round has no valid submission; workspace files were not submitted automatically."})
                         journal.save(sid, state, "finished_without_submission", state["failure"])
                 else:
+                    state["consecutive_submission_reminders"] = 0
                     state["pending"] = None
                     journal.save(sid, state, "turn_completed")
     finally:

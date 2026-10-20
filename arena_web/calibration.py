@@ -181,6 +181,8 @@ class Workshop:
             index=manifest.get('active_trial',0)
             folder=directory/'trials'/f'{index:03}'
             report=read_json(folder/'report.json') if (folder/'report.json').exists() else {}
+            if report.get('status') == 'completed' or index < len(manifest.get('trials', [])):
+                raise ArenaError('This observation has already been evaluated. Resume the optimization to let the analyst use its result, or start a new study; completed observations cannot be reopened.')
             journal=Journal(folder)
             try:
                 sid=report.get('session')
@@ -198,7 +200,7 @@ class Workshop:
                     state=reconcile(journal,sid,reconciliation.get('cost_usd'),reconciliation.get('note'))
                 if state['status'] not in {'running','no_submission','generation_failed','provider_unavailable'}:
                     raise ArenaError('This conversation cannot be continued: '+state['status'])
-                state.update(status='running',submission_reminders=0)
+                state.update(status='running',submission_reminders=0,consecutive_submission_reminders=0)
                 state.pop('failure',None)
                 if not state.get('pending'):
                     state['history'].append({'role':'user','content':
@@ -539,7 +541,15 @@ def serve(root, port=8766, open_browser=False):
                 data = json.loads(self.rfile.read(size))
                 if self.path=='/api/start': result=workshop.start(data['config'],data.get('automatic',False),keys=data.get('keys'))
                 elif self.path=='/api/accept-proposal': result=workshop.accept_proposal(data['id'])
-                elif self.path=='/api/recover-target': result=workshop.recover_target(data['id'],data.get('instructions',''),data.get('reconciliation'))
+                elif self.path=='/api/recover-target':
+                    result=workshop.recover_target(data['id'],data.get('instructions',''),data.get('reconciliation'))
+                    if data.get('resume'):
+                        directory=local_path(workshop.root,data['id'])
+                        try:
+                            workshop.start(saved_config(directory),read_json(directory/'study.json').get('automatic',False),data['id'],data.get('keys'))
+                        except (ArenaError,OSError,ValueError) as exc:
+                            raise ArenaError('Instructions saved, but the worker could not restart: '+str(exc)) from exc
+                        result['started']=True
                 elif self.path=='/api/intervene': result=workshop.intervene(data['id'],data['text'],data.get('replacement',False))
                 elif self.path=='/api/resume':
                     directory=local_path(workshop.root,data['id'])

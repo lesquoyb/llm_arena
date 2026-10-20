@@ -1283,8 +1283,8 @@ for(const [id,replacement] of [['intervention-instruct',false],['intervention-re
 
 $('target-continue').onclick=guard(async()=>{
  const cost=$('target-reconciliation-cost').value;
- await api('/api/recover-target',{id:selected,instructions:$('target-instructions').value,...(cost!==''?{reconciliation:{cost_usd:cost,note:$('target-reconciliation-note').value}}:{})});
- $('target-recovery-status').textContent='Target conversation ready. Click Resume to continue with the existing workspace and history.';await inspect(selected);
+ await api('/api/recover-target',{id:selected,resume:true,keys:keys(),instructions:$('target-instructions').value,...(cost!==''?{reconciliation:{cost_usd:cost,note:$('target-reconciliation-note').value}}:{})});
+ $('target-recovery-status').textContent='Worker restarted. The tested model continues from its saved workspace and history.';await inspect(selected);
 });
 
 function studyTab(name){

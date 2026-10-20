@@ -55,6 +55,10 @@ class CalibrationWebTests(TestCase):
                 state.update(status='no_submission',submission_reminders=3)
                 journal.save('target-r0-g0',state,'fixture')
             finally: journal.db.close()
+            write_json(folder/'report.json',{'session':'target-r0-g0','status':'completed'})
+            with self.assertRaisesRegex(ArenaError,'already been evaluated'):
+                workshop.recover_target('blocked')
+            write_json(folder/'report.json',{'session':'target-r0-g0','status':'blocked'})
             workshop.recover_target('blocked','Inspect the saved code first.')
             journal=Journal(folder)
             try:
