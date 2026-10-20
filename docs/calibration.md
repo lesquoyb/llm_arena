@@ -627,3 +627,30 @@ submitted scripts can still proceed to later repair rounds. The overview shows
 the saved round limit and each selected repetition's actual stop reason. Settings
 in the setup editor do not change a study already launched; check its frozen
 settings rather than the current editor values.
+
+## Scenario briefing and automatic source snapshots
+
+New sessions receive a readable briefing, rather than a serialized copy of the
+entire scenario and several duplicate guides. It states the objective, whether
+the team is fixed or must be composed, build constraints, relevant equipment
+references and actual preparation limits. Identical reference members are grouped;
+open-team reference opponents are explicitly distinguished from the team to build.
+The open-team preset permits 1–4 members up to level 300; Dream-team imports retain
+their real levels. Original configuration stays in the journal. Historical runs
+show a labelled readable view without replacing their recorded native requests.
+
+On a preparation limit, Arena automatically freezes the latest saved files. It
+uses the known/configured entrypoint, main.leek or a sole source file. Missing
+team configuration no longer discards saved code: it creates an invalid frozen
+submission with an explicit diagnostic, allowing a later improvement round to
+inherit the code and configure the team. In Arena it forfeits against a configured
+participant rather than silently playing with a reference roster. Compiler errors
+still fail assessment; automatic freezing does not validate code or invent a team.
+If there are no source files, or multiple files without an identifiable entrypoint,
+the failed freeze now records its exact reason.
+
+When resuming an unfinished legacy trial whose recorded budget closure failed to
+freeze existing code, calibration retries only that snapshot operation. It does
+not repeat model calls or rewrite completed trial results. Cached reference fights
+remain verified against their original engine provenance after compatible runner
+updates.

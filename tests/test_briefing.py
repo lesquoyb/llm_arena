@@ -28,7 +28,7 @@ class BriefingTests(unittest.TestCase):
         config['scenario'] = scenario
         state = initial_state('fixture-r0', {'id':'fixture'}, config)
         message = state['history'][0]
-        self.assertTrue(message['content'].startswith('Write a LeekScript'))
+        self.assertIn('You are preparing Round 1',message['content'])
         self.assertNotIn('source', message['scenario'])
         self.assertNotIn('PRIVATE_ARCHIVE_MARKER', json.dumps(message))
         self.assertEqual(scenario, frozen)

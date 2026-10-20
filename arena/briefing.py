@@ -29,6 +29,7 @@ def briefing(scenario):
         roster.append({'member': index + 1, 'name': spec.get('name', f'Leek {index + 1}'),
                        'level': spec.get('level', scenario['entity']['level']),
                        'final_stats': member_stats(scenario, index), **equipment})
+    from .teams import maximum_level
     selected = bool(scenario.get('team_selection'))
     independent = (scenario.get('team_selection') or {}).get('independent_builds')
     return {
@@ -36,7 +37,8 @@ def briefing(scenario):
         'objective': 'Defeat the opposing team while keeping your team alive. Eliminate all enemies to win. Reaching the turn limit without a winner is a draw. Tournament score is win=1, draw=0.5, loss=0; mirror matches do not count.',
         'team_mode': ('Choose 1 to team_size members, each with an entrypoint, equipment and stat build. Write sources, validate_team, then configure_team before test/submit. Other participants can choose different teams; fixed reference opponents use the roster below.' if selected else
                       'The roster below is fixed for both sides. Write one main.leek script, executed independently by every member of your team. Equipment and stats cannot be changed by configure_team in this mode.'),
-        'build_rules': 'Choose an explicit level (1 to 301), capital allocation, weapons, chips and optional components for every member. Reference builds are not imposed; omitted components mean none. preview_build accepts level, capital and components; validate_team checks the entire proposal.' if independent else 'Members use the reference levels and inherit their builds unless the team-selection rules permit overrides. Check scenario.team_selection before configuring a team.',
+        'max_member_level':maximum_level(scenario),
+        'build_rules': f'Choose an explicit level (1 to {maximum_level(scenario)}), capital allocation, weapons, chips and optional components for every member. Reference builds are not imposed; omitted components mean none. preview_build accepts level, capital and components; validate_team checks the entire proposal.' if independent else 'Members use the reference levels and inherit their builds unless the team-selection rules permit overrides. Check scenario.team_selection before configuring a team.',
         'roster_role': 'Default roster and fixed reference opponents' if selected else 'Your team and the opposing team; scripts differ',
         'roster': roster,
         'stats': 'life=HP; strength=physical damage; science/magic=effect scaling; agility/resistance/wisdom=other combat characteristics; frequency=turn order; tp=AP per turn; mp=MP per turn; cores=millions of operations per script turn; ram=script memory and realistic chip capacity. Exact effect formulas are in the API guide and equipment catalogs.',

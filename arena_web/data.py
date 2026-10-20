@@ -508,6 +508,11 @@ class Store:
             # Requests contain full prior histories. Do not transfer them N times
             # on every live refresh. Exact records remain available on demand.
             visible = {k:v for k,v in item.items() if k not in {"raw", "sent_parameters"}}
+            if item.get('role')=='user' and isinstance(item.get('scenario'),dict) and isinstance(item.get('briefing'),dict):
+                from arena.user_briefing import render
+                from arena.model_content import visible as model_visible
+                visible['model_text']=render(model_visible(item))
+                visible['briefing_readable_view']=item.get('context_format')!='briefing-v1'
             if item.get('role') in {'assistant', 'tool'}:
                 from .provider_output import preview
                 visible.update(preview(item))

@@ -125,6 +125,8 @@ def tree_hash(path: Path) -> str:
     return digest({p.relative_to(path).as_posix(): file_hash(p) for p in sorted(path.rglob("*")) if p.is_file()})
 
 
+AUTOMATIC_ERROR_FILE='.arena-submission-error.json'
+
 def source_files(source: Path) -> dict[str, bytes]:
     if not source.is_dir() or is_link(source):
         raise ArenaError(f"Submission must be a directory, not a link: {source}")
@@ -132,9 +134,10 @@ def source_files(source: Path) -> dict[str, bytes]:
     for p in sorted(source.rglob("*")):
         if is_link(p):
             raise ArenaError(f"Links are not allowed in submissions: {p}")
-        if p.is_file() and (p.suffix == ".leek" or p == source / "team.json"):
+        if p.is_file() and (p.suffix == ".leek" or p == source / "team.json" or p == source / AUTOMATIC_ERROR_FILE):
             files[p.relative_to(source).as_posix()] = p.read_bytes()
-    if not any(name.endswith(".leek") for name in files) or sum(name.endswith(".leek") for name in files) > 128 or sum(map(len, files.values())) > 2_000_000:
+    if AUTOMATIC_ERROR_FILE in files and len(files[AUTOMATIC_ERROR_FILE])>4096: raise ArenaError('Automatic submission diagnostic exceeds its size limit')
+    if not any(name.endswith(".leek") for name in files) or sum(name.endswith(".leek") for name in files) > 128 or sum(len(data) for name,data in files.items() if name!=AUTOMATIC_ERROR_FILE) > 2_000_000:
         raise ArenaError("A submission must contain 1–128 .leek files, totalling at most 2 MB")
     return files
 
@@ -145,6 +148,10 @@ def submission(source: Path, entrypoint: str = "main.leek") -> dict:
         raise ArenaError(f"Entrypoint must name a .leek file within the submission: {entrypoint}")
     hashes = {name: hashlib.sha256(content).hexdigest() for name, content in files.items()}
     info = {"entrypoint": entrypoint, "files": hashes, "sha256": digest(hashes)}
+    if AUTOMATIC_ERROR_FILE in files:
+        issue=json.loads(files[AUTOMATIC_ERROR_FILE])
+        if not isinstance(issue,dict) or not isinstance(issue.get('error'),str): raise ArenaError('Invalid automatic-submission diagnostic')
+        info['configuration_error']=issue['error']
     if "team.json" in files:
         from .teams import validate_team
         info["team"] = validate_team(json.loads(files["team.json"]), files=files)

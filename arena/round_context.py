@@ -8,7 +8,7 @@ def phase(round_number, maximum):
 def source_context(version, tools=None):
     info = version['submission']
     number = version['round']
-    result = {'round':number, 'entrypoint':info['entrypoint'], 'files':sorted(info['files']),
+    result = {'round':number, 'entrypoint':info['entrypoint'], 'files':sorted(name for name in info['files'] if name!='.arena-submission-error.json'),
             'workspace':'These exact submitted files were copied into your workspace. Read them before editing; do not replace them with a stub.',
             'read_workspace':{'tool':'read_file','arguments':{'path':info['entrypoint']}},
             'read_frozen':{'tool':'read_submitted_file','arguments':{'round':number,'path':info['entrypoint']}}}

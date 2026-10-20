@@ -260,12 +260,24 @@ def _finish(sid, state, tools, journal, reason):
                                      "result": {"error": "Session finished before tool execution"}})
         state["cursor"] = len(state["pending"]["tool_calls"])
     try:
-        result = tools.call("submit", {}, "final")
+        result = tools.freeze_latest(state.get("entrypoint_hint"))
         state["submission"] = result["submission"]
         state["status"] = reason
-    except (ArenaError, OSError):
+        state["automatic_submission"]=True
+        if result.get('configuration_error'):
+            state['submission_configuration_error']=result['configuration_error']
+            state['failure']={'message':result['configuration_error'],'phase':'team configuration','retryable':False,'uncertain':False}
+            assessment={'status':'invalid','success':False,'phase':'team_configuration','diagnostics':[{'severity':'error','file':'team.json','message':result['configuration_error']}]}
+            write_json(tools.directory/'assessment.json',assessment)
+            state.update(validity='invalid',assessment_sha256=file_hash(tools.directory/'assessment.json'))
+            journal.save(sid,state,'automatic_submission_invalid_configuration',assessment)
+        else: state.pop('failure',None)
+    except (ArenaError, OSError) as error:
         state["status"] = "no_submission"
+        state['failure']={'message':'Could not freeze saved sources at the preparation limit: '+str(error),'phase':'automatic submission','retryable':False,'uncertain':False}
+        journal.save(sid,state,'automatic_submission_failed',state['failure'])
     state["pending"] = None
+    state["workspace_files"]=workspace_files(tools.workspace)
     journal.save(sid, state, "finished", reason)
 
 
@@ -410,6 +422,10 @@ def execute_tool(sid, state, tools, journal, call, call_id, budget):
     state["cursor"] += 1
     state["reserved"] = None
     state["workspace_files"] = workspace_files(tools.workspace)
+    if not result.get('error') and call['name'] in {'analyze','test'}:
+        state['entrypoint_hint']=call['arguments'].get('entrypoint','main.leek')
+    if call['name']=='configure_team' and result.get('team'):
+        state['entrypoint_hint']=result['team']['members'][0]['entrypoint']
     if call["name"] == "submit" and "submission" in result:
         state["submission"], state["status"] = result["submission"], "submitted"
     journal.save(sid, state, "tool_result", result)
@@ -418,18 +434,19 @@ def execute_tool(sid, state, tools, journal, call, call_id, budget):
 
 def initial_state(sid, model, config):
     from .briefing import briefing, participant_scenario
+    from .teams import maximum_level
     from .round_context import phase
     from .budget_context import progress, NOTICE
     limits = progress({}, config['budget_per_session'])
-    shared = config.get('spending',{}).get('max_total_usd') if model['provider'] != 'mock' else None
+    shared = config.get('spending',{}).get('max_total_usd') if model.get('provider','mock') != 'mock' else None
     return {"model": model["id"], "replicate": int(sid.split("-r")[-1].split("-")[0]),
             "generation": 0, "condition": "initial", "status": "running",
-            "history": [{"role": "user", "content": phase(1, config.get('generations', 2)) + '\n' + PROMPT, "budgets": config["budget_per_session"],
+            "history": [{"role": "user", "context_format":"briefing-v1", "content": phase(1, config.get('generations', 2)) + '\n' + PROMPT, "budgets": config["budget_per_session"],
                          **({'preparation_budget':limits,'budget_instructions':NOTICE} if limits else {}),
                          **({'shared_spending_limit_usd':shared,'shared_limit_instructions':'Other conversations share this competition spending limit. Its exhaustion can stop your preparation before session limits; latest saved files are frozen automatically.'} if shared is not None else {}),
                          "scenario": participant_scenario(config["scenario"]), "briefing": briefing(config["scenario"]), "equipment_ids": {"weapons": "Use the item field in leekscript-v1/weapons.json (for example pistol = 37), not its object key or template", "chips": "Use the object key/id in leekscript-v1/chips.json (for example shock = 1); replay chip actions use template IDs"}, **({"team_instructions":
                          "Choose 1..scenario.team_size members using configure_team after writing their sources. "
-                         "Each member can use a different entrypoint and equipment. When independent_builds is true, freely choose each member level (1–301), capital and components; supply level and capital explicitly. Reference member stats and components are not imposed on your team; omitted components mean none. Use preview_build to calculate final stats and costs, then validate_team to check the complete draft without changing files. Read the pinned equipment catalogs; "
+                         f"Each member can use a different entrypoint and equipment. When independent_builds is true, freely choose each member level (1–{maximum_level(config['scenario'])}), capital and components; supply level and capital explicitly. Reference member stats and components are not imposed on your team; omitted components mean none. Use preview_build to calculate final stats and costs, then validate_team to check the complete draft without changing files. Read the pinned equipment catalogs; "
                          "respect slot limits and allowlists; realistic mode also enforces equipment level. Stats follow scenario.stats_mode: per-member capital in realistic-v1 plus optional components (item-template IDs or {template, stats} alteration instances; eight slots, recovery components cost three; no duplicates; alteration charge must fit capacity), or raw stats in free mode. When require_capital is true you must explicitly allocate capital for every member; raw stats and inherited allocations are not accepted. Otherwise omit to inherit default member builds. Read corpus/stat-rules.json and corpus/component-rules.json (current public stats, levels, capacities and alteration weights). Configure the team before test or submit. "
                          "Improvements inherit team.json and may revise it with the same tool."}
                          if config["scenario"].get("team_selection") else {})}],
@@ -444,7 +461,7 @@ def workspace_files(directory):
     for path in sorted(directory.rglob("*")):
         if is_link(path):
             raise ArenaError("Working source links are not allowed")
-        if path.is_file() and (path.suffix == ".leek" or path == directory / "team.json"):
+        if path.is_file() and (path.suffix == ".leek" or path == directory / "team.json" or path.name==".arena-submission-error.json"):
             files[path.relative_to(directory).as_posix()] = file_hash(path)
     return files
 

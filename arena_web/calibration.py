@@ -45,6 +45,14 @@ def decision_reason(row, parent, config, candidate):
     return 'Rejected: the configured objective did not improve. It combines validation score, convergence speed and token use.'
 
 
+def prompt_blocks(message):
+    if message.get('role')=='user' and isinstance(message.get('scenario'),dict) and isinstance(message.get('briefing'),dict):
+        from arena.user_briefing import render
+        from arena.model_content import visible
+        return [{'kind':'user','label':'Gameplay briefing sent to model' if message.get('context_format')=='briefing-v1' else 'Gameplay briefing (readable view; original request retained)', 'value':render(visible(message))}]
+    return [{'kind':message['role'],'label':message['role'].title()+' prompt','value':message}]
+
+
 def saved_config(directory):
     path=directory/'input.json'
     return read_json(path) if path.exists() else read_json(directory/'study.json')['config']
@@ -476,7 +484,7 @@ class Workshop:
                 page = []
                 for index in range(offset,min(len(history),offset+25)):
                     message = history[index]
-                    descriptors = blocks(message) if message['role'] in {'assistant','tool'} else [{'kind':message['role'], 'label':message['role'].title()+' prompt', 'value':message}]
+                    descriptors = blocks(message) if message['role'] in {'assistant','tool'} else prompt_blocks(message)
                     from .tool_exchange import summary
                     page.append({'file_exchange':summary(history,index) if message['role']=='tool' else None, 'index':index,'role':message['role'], 'time':state.get('message_times',[])[index] if index<len(state.get('message_times',[])) else None,
                                  'blocks':[{k:v for k,v in b.items() if k!='value'} for b in descriptors]})
@@ -484,7 +492,7 @@ class Workshop:
             if route == '/api/message':
                 index = int(value('index'))
                 message = state['history'][index]
-                descriptors = blocks(message) if message['role'] in {'assistant','tool'} else [{'value':message}]
+                descriptors = blocks(message) if message['role'] in {'assistant','tool'} else prompt_blocks(message)
                 return descriptors[int(value('block'))]['value']
             if route == '/api/events':
                 offset = max(0,int(value('offset','0')))

@@ -266,6 +266,10 @@ class Engine:
         out.mkdir(parents=True, exist_ok=False)
         copy_submission(source, out / "strategies/1", info)
         write_json(out / "provenance.json", {"engine": self.identity, "submission": info, "timeout_seconds": self.timeout})
+        if info.get('configuration_error'):
+            result={'status':'invalid','success':False,'phase':'team_configuration','diagnostics':[{'severity':'error','file':'team.json','message':info['configuration_error']}],'source_sha256':info['sha256']}
+            write_json(out/'result.json',result)
+            return result
         result = self.invoke(out, "analyze", entrypoint)
         member_results = {}
         entries = sorted({member["entrypoint"] for member in info.get("team", {}).get("members", [])} - {entrypoint})
@@ -309,7 +313,18 @@ class Engine:
         write_json(out / "scenario.json", scenario)
         write_json(out / "provenance.json", {"engine": self.identity, "submissions": infos,
                    "scenario_sha256": digest(scenario), "timeout_seconds": self.timeout})
-        result = self.invoke(out, "fight", "scenario.json")
+        missing_team=[side for side,info in enumerate(infos) if info.get('configuration_error')]
+        if missing_team:
+            winner=-1 if len(missing_team)==2 else 1-missing_team[0]
+            metrics={str(side):{'operations':0,'errors':int(side in missing_team),'operation_limit_hits':0} for side in range(2)}
+            outcome={'success':True,'winner':winner,'duration':0,'fight':{'actions':[],'leeks':[]},'logs':{},'team_metrics':metrics,
+                     'forfeit':True,'configuration_errors':{str(side):infos[side]['configuration_error'] for side in missing_team}}
+            write_json(out/'outcome.json',outcome)
+            result={'status':'completed','winner_side':winner,'turns':0,'team_metrics':metrics,'elapsed_seconds':0,
+                    'forfeit':True,'configuration_errors':outcome['configuration_errors'],
+                    'replay_sha256':digest({k:outcome[k] for k in ('fight','winner','duration')}),'outcome_sha256':file_hash(out/'outcome.json')}
+        else:
+            result = self.invoke(out, "fight", "scenario.json")
         write_json(out / "result.json", result)
         return result
 

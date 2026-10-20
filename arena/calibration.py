@@ -69,6 +69,8 @@ def validate(config):
     if (not isinstance(config['tools'], list) or any(t not in names for t in config['tools'])
             or len(set(config['tools'])) != len(config['tools']) or not {'write_file', 'submit'} <= set(config['tools'])):
         raise ArenaError('Select registered tools, including write_file and submit')
+    if config['scenario'].get('team_selection') and 'configure_team' not in config['tools']:
+        raise ArenaError('Open-team scenarios require configure_team; the target must be able to save its chosen roster')
     if (not isinstance(config['opponents'], list) or not config['opponents'] or
             len(set(config['opponents'])) != len(config['opponents']) or
             any(name not in {row['id'] for row in REFERENCE_STRATEGIES} for name in config['opponents'])):
@@ -241,6 +243,7 @@ def trial(config, out, resume=False, engine=None):
             if not compatible or tree_hash(out/'corpus') != digest(identity['corpus']):
                 raise ArenaError('Cannot resume: configuration, engine, opponents or frozen documentation changed')
             if saved_identity!=identity:
+                engine.allow_updated_runner=True
                 write_json(out/'runtime-provenance'/(digest(identity['engine'])+'.json'),{'original_engine':saved_identity['engine'],'resumed_engine':identity['engine'],'note':'Application/runtime update during recovery; frozen configuration and original provenance retained.'})
         else:
             write_json(out/'calibration.json', identity)
@@ -262,6 +265,7 @@ def trial(config, out, resume=False, engine=None):
                 if not path.exists(): copy_submission(ROOT/'examples/strategies'/name,path,identity['opponents'][name])
                 if submission(path,'main.leek') != identity['opponents'][name]: raise ArenaError('Frozen opponent changed')
                 panel.append({'id':name,'path':str(path),'submission':identity['opponents'][name]})
+            recover_incomplete=not (out/'report.json').exists() or read_json(out/'report.json').get('status')!='completed'
             report = {'status': 'running', 'replicates': [], 'config_sha256': digest(config)}
             write_json(out/'report.json', report)
             for replicate in range(config['replicates']):
@@ -291,7 +295,7 @@ def trial(config, out, resume=False, engine=None):
                             if rounds[-1]['validity'] != 'valid':
                                 from .compiler_diagnostics import readable_analysis
                                 message = state['history'][-1]
-                                message['content'] += ' Your previous submission did not compile. Fix the diagnostics before improving gameplay.'
+                                message['content'] += (' Your previous frozen sources have no configured team. Complete the team with configure_team; code alone is not a complete participant.' if parent.get('submission_configuration_error') else ' Your previous submission did not compile. Fix the diagnostics before improving gameplay.')
                                 message['compilation'] = readable_analysis(read_json(out/'sessions'/previous[-1]/'assessment.json'),engine.identity)['diagnostic_messages']
                             state['history'][-1]['previous_submission'] = source_context({'round':round_index,'submission':parent['submission']},config['tools'])
                             state['history'][-1]['content'] = phase(round_index+1,config['max_rounds']) + '\n' + state['history'][-1]['content']
@@ -310,6 +314,17 @@ def trial(config, out, resume=False, engine=None):
                     if state['status'] == 'provider_unavailable' and not state.get('in_flight'):
                         state['status'] = 'running'
                         journal.save(sid, state, 'provider_retry')
+                    if recover_incomplete and state['status']=='no_submission' and not state.get('submission'):
+                        closure=journal.db.execute("SELECT payload FROM events WHERE session=? AND kind='finished' ORDER BY id DESC LIMIT 1",(sid,)).fetchone()
+                        if closure:
+                            reference=json.loads(closure[0])
+                            if read_json(out/reference['artifact'])=='budget_exhausted':
+                                from .preparation import Preparation
+                                from .experiment import _finish
+                                tools=Preparation(out/'sessions'/sid,out/'corpus',engine,config['scenario'],allowed_tools=config['tools'])
+                                if any(tools.workspace.rglob('*.leek')):
+                                    _finish(sid,state,tools,journal,'budget_exhausted')
+                                    journal.save(sid,state,'automatic_snapshot_recovered',{'previous_status':'no_submission','model_calls_repeated':False})
                     run_session(sid, replica_model, exp, out, journal, engine)
                     state = journal.state(sid)
                     missing_submission=state['status'] in {'no_submission','generation_failed'} and not state.get('submission')

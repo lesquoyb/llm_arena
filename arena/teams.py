@@ -5,6 +5,10 @@ from .core import ArenaError, integer
 TEAM_FILE = "team.json"
 
 
+def maximum_level(scenario):
+    return 300 if scenario and scenario.get('preset')=='llm-team' else 301
+
+
 def validate_rules(scenario):
     rules = scenario.get("team_selection")
     if rules is None:
@@ -45,9 +49,9 @@ def validate_team(team, scenario=None, files=None, data=None):
         if rules.get("require_capital") and "capital" not in member:
             raise ArenaError("Choose an explicit capital allocation for every member")
         if rules.get('independent_builds') and 'level' not in member:
-            raise ArenaError('Choose an explicit level for every member (1–301)')
+            raise ArenaError('Choose an explicit level for every member (1–'+str(maximum_level(scenario))+')')
         if 'level' in member:
-            integer(member['level'], 1, 301, 'member level')
+            integer(member['level'], 1, maximum_level(scenario), 'member level')
         if "name" in member and (not isinstance(member["name"], str) or not 1 <= len(member["name"]) <= 80):
             raise ArenaError("Member name must contain 1 to 80 characters")
         from .stats import member_stats, STATS
@@ -99,7 +103,8 @@ def build_preview(scenario, index, capital, components=None, level=None):
         raise ArenaError('Capital previews require realistic stats')
     spec = (scenario.get('member_stats') or [{}] * scenario['team_size'])[index]
     independent = (scenario.get('team_selection') or {}).get('independent_builds')
-    level = level if level is not None else 301 if independent else spec.get('level', scenario['entity']['level'])
+    level = level if level is not None else maximum_level(scenario) if independent else spec.get('level', scenario['entity']['level'])
+    integer(level,1,maximum_level(scenario),'member level')
     from .components import describe, add_bonuses
     components = ([] if independent else spec.get('components', [])) if components is None else components
     component_info = describe(components, level)

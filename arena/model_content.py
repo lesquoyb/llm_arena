@@ -18,7 +18,7 @@ def visible(value):
         for key, item in value.items():
             if key in METADATA or key.endswith('_sha256'): continue
             if key == 'files' and isinstance(item, dict) and all(isinstance(v,str) and re.fullmatch('[a-f0-9]{64}',v) for v in item.values()):
-                result[key] = sorted(item)
+                result[key] = sorted(name for name in item if name!='.arena-submission-error.json')
             else: result[key] = visible(item)
         return result
     if isinstance(value, list): return [visible(item) for item in value]
@@ -55,6 +55,9 @@ def history_view(history):
 def message_text(message):
     """Keep source/Markdown line breaks as text, rather than escaped JSON in JSON."""
     value = visible(message)
+    if value.get('context_format')=='briefing-v1' and isinstance(value.get('scenario'),dict):
+        from .user_briefing import render
+        return render(value)
     content = value.pop('content', None)
     value.pop('role', None)
     return (content + ('\n' if value else '') if isinstance(content,str) else '') + (compact(value) if value else '')
