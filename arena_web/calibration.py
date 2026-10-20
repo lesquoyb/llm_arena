@@ -270,7 +270,8 @@ class Workshop:
             scenarios={'simple':simple_scenario(),'llm-team':participant_scenario()}
             try: scenarios['dream-team']=dream_team_scenario()
             except (ArenaError,OSError): pass
-            return {'token':self.token,'config':defaults(),'participants':self.store.participants(),
+            current_defaults=defaults()
+            return {'token':self.token,'config':current_defaults,'prompt_source':{'path':'prompts/g0.md','sha256':digest(current_defaults['prompt'])},'participants':self.store.participants(),
                     'reference_documents':original_documents(),
                     'tools':available_tools({'calibration':{'tools':[t['name'] for t in TOOLS]}}),'scenarios':scenarios}
         if route == '/api/studies': return self.listing()

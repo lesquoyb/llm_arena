@@ -57,6 +57,32 @@ class CalibrationTests(TestCase):
         value.pop('stop_on_plateau')
         validate(value)
 
+    def test_defaults_reload_arena_prompt_after_a_disk_edit(self):
+        with scratch_directory() as tmp,mock.patch('arena.calibration.ROOT',tmp):
+            path=tmp/'prompts/g0.md';path.parent.mkdir();path.write_text('First prompt',encoding='utf-8')
+            self.assertEqual(defaults()['prompt'],'First prompt')
+            path.write_text('Updated prompt',encoding='utf-8')
+            self.assertEqual(defaults()['prompt'],'Updated prompt')
+
+    def test_missing_submission_is_an_observation_for_the_analyst(self):
+        from arena.calibration import analyst_context
+        value=config();value['target']={'id':'empty','provider':'mock','profile':'empty'}
+        value['budget_per_session']={'max_calls':2};value['diagnostics']['enabled']=False
+        value['analyst']={'id':'editor','provider':'mock','profile':'single-shot'}
+        value['optimizer']['max_trials']=2
+        with scratch_directory() as tmp,mock.patch('arena.calibration.Engine',FixtureEngine):
+            result=study(value,tmp/'study',automatic=True)
+            self.assertEqual(result['status'],'completed')
+            baseline=result['trials'][0]['report']
+            self.assertEqual(baseline['validation_score'],0)
+            self.assertFalse(baseline['final_valid'])
+            self.assertEqual(baseline['replicates'][0]['stop_reason'],'no_submission')
+            self.assertEqual(len(baseline['replicates'][0]['rounds']),1)
+            self.assertTrue((tmp/'study/proposals/001/proposal.json').exists())
+            evidence=analyst_context(tmp/'study/trials/000',value,baseline)
+            self.assertIn('"has_submission": false',evidence['trajectory_excerpt'])
+            self.assertEqual(evidence['training'][0]['rounds'][0]['validity'],'no_submission')
+
     def test_rounds_plateau_frozen_sources_and_exact_resume_without_recomputation(self):
         with scratch_directory() as tmp:
             engine=FixtureEngine();value=config();out=tmp/'trial'

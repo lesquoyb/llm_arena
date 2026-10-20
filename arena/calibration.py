@@ -27,7 +27,7 @@ from . import calibration_guard as guard
 def defaults():
     from .presets import simple_scenario
     return {"name": "Prompt calibration", "target": {"id": "mock-single", "provider": "mock", "profile": "single-shot"},
-            "prompt": PROMPT, "tools": [t['name'] for t in TOOLS], "scenario": simple_scenario(),
+            "prompt": (ROOT/"prompts/g0.md").read_text(encoding="utf-8") if (ROOT/"prompts/g0.md").exists() else PROMPT, "tools": [t['name'] for t in TOOLS], "scenario": simple_scenario(),
             "opponents": ['passive', 'single-shot', 'rush', 'evasive'], "training_seeds": [101, 102],
             "validation_seeds": [301, 302], "audit_seeds": [701, 702], "replicates": 1, "evaluate_previous": True,
             "max_rounds": 1, "min_rounds": 1, "patience": 2, "min_improvement": 0.01, "stop_on_plateau": False,
@@ -235,8 +235,13 @@ def trial(config, out, resume=False, engine=None):
     if not out.is_dir(): raise ArenaError('Calibration trial does not exist')
     with experiment_lock(out):
         if resume:
-            if read_json(out/'calibration.json') != identity or tree_hash(out/'corpus') != digest(identity['corpus']):
-                raise ArenaError('Cannot resume: configuration, engine, runner, opponents or frozen documentation changed')
+            saved_identity=read_json(out/'calibration.json')
+            from .recovery import engine_compatible
+            compatible=(set(saved_identity)==set(identity) and all(saved_identity[key]==identity[key] for key in identity if key not in {'engine','scientific_identity'}) and engine_compatible(saved_identity['engine'],identity['engine']) and engine_compatible(saved_identity['scientific_identity'],identity['scientific_identity']))
+            if not compatible or tree_hash(out/'corpus') != digest(identity['corpus']):
+                raise ArenaError('Cannot resume: configuration, engine, opponents or frozen documentation changed')
+            if saved_identity!=identity:
+                write_json(out/'runtime-provenance'/(digest(identity['engine'])+'.json'),{'original_engine':saved_identity['engine'],'resumed_engine':identity['engine'],'note':'Application/runtime update during recovery; frozen configuration and original provenance retained.'})
         else:
             write_json(out/'calibration.json', identity)
             for source in docs:
@@ -307,55 +312,62 @@ def trial(config, out, resume=False, engine=None):
                         journal.save(sid, state, 'provider_retry')
                     run_session(sid, replica_model, exp, out, journal, engine)
                     state = journal.state(sid)
-                    if state['status'] not in {'submitted','budget_exhausted'} or not state.get('submission'):
-                        report.update(status='blocked', error=state.get('failure', {}).get('message', 'Target conversation stopped with status '+state['status']+'. No strategy was submitted. Inspect the journal and use target continuation before resuming.'), session=sid)
+                    missing_submission=state['status'] in {'no_submission','generation_failed'} and not state.get('submission')
+                    if missing_submission:
+                        assessment={'status':'no_submission'}
+                        state['validity']='no_submission'
+                        journal.save(sid,state,'calibration_no_submission',{'reason':state.get('failure',{}).get('message','Preparation ended without a saved submission'),'budget':config['budget_per_session']})
+                    elif state['status'] not in {'submitted','budget_exhausted'} or not state.get('submission'):
+                        report.update(status='blocked', error=state.get('failure', {}).get('message',state['status']), session=sid)
                         write_json(out/'report.json', report)
                         return report
-                    entrant = {'id': sid, 'path': str(out/'sessions'/sid/'submission'), 'submission': state['submission']}
-                    assessment_path = out/'sessions'/sid/'assessment.json'
-                    assessment = read_json(assessment_path) if assessment_path.exists() else None
-                    if assessment and state.get('assessment_sha256') and file_hash(assessment_path) != state['assessment_sha256']:
-                        raise ArenaError('Calibration assessment changed')
-                    if not assessment or assessment['status'] not in {'valid','invalid'}:
-                        from .preparation import Preparation
-                        assessment = engine.analyze(Path(entrant['path']),state['submission']['entrypoint'],Preparation._attempt(out/'sessions'/sid/'assessment'))
-                        write_json(assessment_path,assessment)
-                        state.update(validity=assessment['status'],assessment_sha256=file_hash(assessment_path))
-                        journal.save(sid,state,'submission_assessment',assessment)
-                    if assessment['status'] not in {'valid','invalid'}:
-                        raise ArenaError('The engine could not assess this submission; resume to retry the assessment')
+                    else:
+                        entrant = {'id': sid, 'path': str(out/'sessions'/sid/'submission'), 'submission': state['submission']}
+                        assessment_path = out/'sessions'/sid/'assessment.json'
+                        assessment = read_json(assessment_path) if assessment_path.exists() else None
+                        if assessment and state.get('assessment_sha256') and file_hash(assessment_path) != state['assessment_sha256']:
+                            raise ArenaError('Calibration assessment changed')
+                        if not assessment or assessment['status'] not in {'valid','invalid'}:
+                            from .preparation import Preparation
+                            assessment = engine.analyze(Path(entrant['path']),state['submission']['entrypoint'],Preparation._attempt(out/'sessions'/sid/'assessment'))
+                            write_json(assessment_path,assessment)
+                            state.update(validity=assessment['status'],assessment_sha256=file_hash(assessment_path))
+                            journal.save(sid,state,'submission_assessment',assessment)
+                        if assessment['status'] not in {'valid','invalid'}:
+                            raise ArenaError('The engine could not assess this submission; resume to retry the assessment')
                     if config.get('diagnostics',{}).get('enabled'):
                         diagnostics.diagnose(out,sid,state,config['diagnostics'],config)
                     scores = {}
                     evaluation = config.get('evaluation', judge.defaults())
-                    review = judge.evaluate(out, sid, state, evaluation, config) if evaluation['mode'] != 'fights' else None
+                    review = judge.evaluate(out, sid, state, evaluation, config) if evaluation['mode'] != 'fights' and not missing_submission else None
                     for label, key in [('training', 'training_seeds'), ('validation', 'validation_seeds')]:
                         if evaluation['mode'] == 'conversation':
-                            scores[label] = {'score': review['score'] if assessment['status']=='valid' else 0.0, 'matches':0, 'wins':0, 'draws':0, 'losses':0, 'basis':'Laya conversation proxy; no evaluation fights'}
+                            scores[label] = {'score': review['score'] if review and assessment['status']=='valid' else 0.0, 'matches':0, 'wins':0, 'draws':0, 'losses':0, 'basis':'Laya conversation proxy; no evaluation fights'}
                         elif assessment['status'] == 'valid':
                             records = references(engine, {**exp, 'final_seeds': config[key]}, out, journal, [entrant], label+'-'+sid, panel)
                             scores[label] = metrics(records)
                         else:
                             count = 2*len(config[key])*len(panel)
                             scores[label] = {'score':0.0,'matches':0,'wins':0,'draws':0,'losses':0,
-                                             'invalid_forfeits':count,'basis':'Invalid submission: score zero; no fights executed.'}
+                                             'invalid_forfeits':count,'basis':'No submitted strategy: score zero; no fights executed.' if missing_submission else 'Invalid submission: score zero; no fights executed.'}
                     scores['previous_versions'] = None
                     if evaluation['mode'] != 'conversation' and config['evaluate_previous'] and previous and assessment['status']=='valid':
                         prior = [{'id':p,'path':str(out/'sessions'/p/'submission'),'submission':journal.state(p)['submission']}
                                  for p in previous if journal.state(p).get('validity')=='valid']
                         if prior:
                             scores['previous_versions'] = metrics(references(engine,{**exp,'final_seeds':config['training_seeds']},out,journal,[entrant],'history-'+sid,prior))
-                    row = {'session': sid, 'round': round_index+1, 'validity':assessment['status'], 'effective_parameters':replica_model.get('parameters',{}), 'judge_score':review['score'] if review else None, **scores,
+                    row = {'session': sid, 'round': round_index+1, 'validity':assessment['status'], 'effective_parameters':replica_model.get('parameters',{}), 'judge_score':review['score'] if review else (0.0 if evaluation['mode']!='fights' and missing_submission else None), 'generation_status':state['status'],'failure':state.get('failure'), **scores,
                            'input_tokens': state.get('input_tokens') if state.get('token_usage_known') else None,
                            'output_tokens': state.get('output_tokens') if state.get('token_usage_known') else None,
-                           'cost_usd': state.get('cost_spent', '0'), 'calls': state['calls'], 'tool_calls': state['steps']}
+                           'cost_usd': state.get('cost_spent', '0'), 'calls': state['calls'], 'tool_calls': state['steps'],'wall_seconds':state.get('wall_seconds',0),'preparation_budget':config['budget_per_session']}
                     rounds.append(row)
                     previous.append(sid)
                     write_json(out/'progress.json', {'replicate': replicate, 'rounds': rounds})
                     print(f"Replicate {replicate+1}, round {round_index+1}: training {scores['training']['score']:.3f}, validation {scores['validation']['score']:.3f}, {assessment['status']}",flush=True)
+                    if missing_submission: break
                     if config.get('stop_on_plateau', True) and plateau([r['training']['score'] for r in rounds], config): break
                 report['replicates'].append({'replicate': replicate, 'rounds': rounds,
-                    'stop_reason': 'plateau' if config.get('stop_on_plateau', True) and plateau([r['training']['score'] for r in rounds], config) else 'max_rounds'})
+                    'stop_reason': 'no_submission' if rounds[-1]['validity']=='no_submission' else 'plateau' if config.get('stop_on_plateau', True) and plateau([r['training']['score'] for r in rounds], config) else 'max_rounds'})
                 write_json(out/'report.json', report)
             report.update(status='completed', **objective(report, config))
             write_json(out/'report.json', report)
@@ -423,7 +435,7 @@ def analyst_context(directory, config, report):
                     messages.append({'role': 'assistant', 'blocks': [{'kind': b['kind'], 'value': str(b['value'])[:12000]} for b in blocks(message) if b['kind'] not in {'raw','opaque'} and not b.get('hidden')], 'tool_calls': message.get('tool_calls', [])})
                 elif message['role'] == 'tool':
                     messages.append({'role': 'tool', 'name': message['name'], 'result': str(message['result'])[:8000]})
-            sessions.append({'session': sid, 'messages': messages})
+            sessions.append({'session': sid,'status':state['status'],'has_submission':bool(state.get('submission')),'validity':state.get('validity'),'failure':state.get('failure'),'budget':config['budget_per_session'],'calls':state.get('calls'),'steps':state.get('steps'),'wall_seconds':state.get('wall_seconds'), 'messages': messages})
         # Retain first and latest evidence rather than silently omit the late plateau.
         encoded = json.dumps(sessions, ensure_ascii=False)
         limit=config['optimizer']['evidence_characters'];half=limit//2
@@ -567,9 +579,9 @@ def audit(config, winner_dir, engine):
         for rep in report['replicates']:
             sid = rep['rounds'][-1]['session']
             state = journal.state(sid)
-            entrant = {'id':sid, 'path':str(winner_dir/'sessions'/sid/'submission'), 'submission':state['submission']}
             if state.get('validity') != 'valid':
-                result.append({'score':0,'matches':0,'status':'invalid_submission'});continue
+                result.append({'score':0,'matches':0,'status':'no_submission' if not state.get('submission') else 'invalid_submission'});continue
+            entrant = {'id':sid, 'path':str(winner_dir/'sessions'/sid/'submission'), 'submission':state['submission']}
             result.append(metrics(references(engine, {**experiment_config(config), 'final_seeds':config['audit_seeds']}, winner_dir, journal, [entrant], 'audit-'+sid, panel)))
         return result
     finally: journal.db.close()

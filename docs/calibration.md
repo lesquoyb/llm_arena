@@ -568,3 +568,23 @@ probabilities, thresholds, model revision and complete library response. **Copy*
 copies all saved checks. Older receipts expose the answers and usage originally
 saved; additional output discarded by older versions cannot be recovered. Laya
 returns structured scores, not a textual explanation or hidden reasoning.
+
+## Prompt source and unsuccessful observations
+
+A fresh setup reads the Arena default from `prompts/g0.md`. The workshop rereads
+it when serving defaults; **Load current Arena prompt & documents** reloads it
+into the editor after a file edit. This deliberately replaces the editor's
+learning-material changes. New studies freeze the editor's prompt and documents;
+existing studies keep their saved inputs. **Compare results with this study**
+changes result comparisons only, never the prompt or selected best version.
+
+If preparation ends without any submitted files, calibration records an
+unsuccessful observation with score zero, the stop reason, counters and complete
+conversation. It stops that replicate's strategy rounds because there is no
+submission to inherit, then proceeds to analyst review in automatic mode. It
+does not ask the user to continue a timed-out preparation manually. Provider
+failures, uncertain billing and engine assessment failures still pause the run;
+they are infrastructure problems rather than evidence of a bad prompt.
+Application/runtime updates can resume a frozen study with compatible engine
+artifacts; additional runtime provenance records the change. Prompt, document,
+scenario and engine changes remain subject to compatibility checks.

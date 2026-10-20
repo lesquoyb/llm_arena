@@ -233,6 +233,7 @@ function fill(config) {
         : "plateau";
   $("scenario-preset").value = config.scenario.preset || "custom";
   $("prompt").value = config.prompt;
+  promptOrigin();
   $("target-json").value = json(config.target);
   $("analyst-json").value = json(config.analyst || config.target);
   $("target").value = config.target.id;
@@ -387,8 +388,8 @@ async function listing() {
   const baseline = studies.find((s) => s.id === baselineId),
     reference = baseline?.trials[baseline.incumbent]?.report;
   $("comparison-note").textContent = baseline
-    ? `Comparison baseline: ${baseline.name}. Deltas are shown only when model, scenario, panels, round settings and runner match.`
-    : "Choose a study as a comparison baseline. Every edited prompt starts a fresh study.";
+    ? `Results comparison: ${baseline.name}. This does not change the prompt. Deltas are shown only when model, scenario, panels, round settings and runner match.`
+    : "Comparison affects result deltas only. New studies use the prompt and documents in the setup editor.";
   const delta = (value, old, digits = 3) =>
     typeof value === "number" && typeof old === "number"
       ? (value - old >= 0 ? "+" : "") + (value - old).toFixed(digits)
@@ -425,7 +426,7 @@ async function listing() {
           row.accounting?.known_cost_subtotal_usd ?? "",
           compare,
           button(
-            row.id === baselineId ? "Baseline" : "Use as baseline",
+            row.id === baselineId ? "Comparison reference" : "Compare results with this study",
             async () => {
               baselineId = row.id;
               localStorage.setItem("arena-calibration-baseline", row.id);
@@ -1295,17 +1296,20 @@ async function focusActive(tab){
 function commandCenter(data){
  const mount=$('study-command'),work=data.active_work||{},running=data.runtime_status==='running',blocked=data.state.status==='blocked',completed=data.state.status==='completed';
  mount.replaceChildren();mount.classList.toggle('blocked',blocked);
- const title=completed?'Optimization complete':blocked?(work.kind==='analyst'?'Prompt proposal blocked':'Tested model stopped'):running?(work.kind==='analyst'?'Analyst is preparing a prompt proposal':'Tested model is preparing a strategy'):'Optimization paused';
+ const failedPreparation=blocked&&work.kind==='target'&&['no_submission','generation_failed'].includes(work.session_status);
+ const title=completed?'Optimization complete':failedPreparation?'Preparation ended without a strategy':blocked?(work.kind==='analyst'?'Prompt proposal blocked':'Tested model stopped'):running?(work.kind==='analyst'?'Analyst is preparing a prompt proposal':'Tested model is preparing a strategy'):'Optimization paused';
  mount.append(node('span',`Candidate ${work.candidate||1} · ${work.kind==='analyst'?'Prompt analyst':'Tested model'}`,'eyebrow'),node('h3',title));
  let explanation=completed?(data.state.stop_reason==='analyst_no_change'?'The analyst proposed no further improvement. The best evaluated candidate is retained. '+(data.state.analyst_conclusion||''):'Review the results or choose another saved prompt version.'):blocked?(work.guard_status && work.guard_status!=='approved'?'The proposal check returned '+work.guard_status+'. This prompt has not been evaluated. Review the changes before requesting a correction.':work.requires_reconciliation?'An interrupted provider request needs its charge checked before it can continue.':work.kind==='analyst'?'The proposed prompt could not be accepted. Completed evaluations are preserved. Review the reason, then correct the proposal or ask the analyst to revise it.':'No strategy is ready for evaluation. Continue the saved target conversation to finish this candidate.'):running?(work.phase?.message || (work.kind==='analyst'?'The analyst returns a prompt proposal as JSON. No strategy submission or preparation fights are expected here.':'The model writes and tests its strategy before submitting it.')):'Resume the existing optimization to continue; completed work is preserved.';
+ if(failedPreparation)explanation='This is an unsuccessful observation, not a request to extend the model’s budget. Record it and let the analyst inspect the failure and conversation.';
  mount.append(node('p',explanation));
  if(blocked && work.message){const reason=node('div',undefined,'block-reason');reason.append(node('strong','Reason'),node('p',work.message));mount.append(reason)}
  const actions=node('div',undefined,'actions');
+ if(failedPreparation&&!running)actions.append(button(data.state.automatic?'Send failed attempt to analyst':'Record unsuccessful attempt',()=>$('resume').click()));
  if(blocked && work.guard_override_available && !running)actions.append(button('Accept proposal & continue',async()=>{await api('/api/accept-proposal',{id:selected});await api('/api/resume',{id:selected,keys:keys()});await inspect(selected);}));
  if(blocked && work.kind==='analyst' && !running)actions.append(button('Finish with current best',async()=>{await api('/api/intervene',{id:selected,replacement:true,text:JSON.stringify({no_change:true,rationale:'User chose to discard the pending proposal and retain the best evaluated candidate.'})});await api('/api/resume',{id:selected,keys:keys()});await inspect(selected);}));
- if(blocked){actions.append(button(work.kind==='analyst'?'Review proposed changes':'Inspect target conversation',()=>focusActive(work.kind==='analyst'?'changes':'inspect')));actions.append(button('Resolve & continue',async()=>{await focusActive('inspect');const summary=[...document.querySelectorAll('[data-study-panel="inspect"] details>summary')].find(el=>el.textContent===(work.kind==='analyst'?'Intervene in a blocked analyst proposal':'Continue a stopped target conversation'));if(summary){summary.parentElement.open=true;summary.scrollIntoView({behavior:'smooth',block:'center'})}}));}
+ if(blocked && !failedPreparation){actions.append(button(work.kind==='analyst'?'Review proposed changes':'Inspect target conversation',()=>focusActive(work.kind==='analyst'?'changes':'inspect')));actions.append(button('Resolve & continue',async()=>{await focusActive('inspect');const summary=[...document.querySelectorAll('[data-study-panel="inspect"] details>summary')].find(el=>el.textContent===(work.kind==='analyst'?'Intervene in a blocked analyst proposal':'Continue a stopped target conversation'));if(summary){summary.parentElement.open=true;summary.scrollIntoView({behavior:'smooth',block:'center'})}}));}
  else if(running)actions.append(button('View active conversation',()=>focusActive('inspect')));
- if(!running&&!completed)actions.append(button('Resume optimization',()=>$('resume').click()));
+ if(!running&&!completed&&!failedPreparation)actions.append(button('Resume optimization',()=>$('resume').click()));
  if(running)actions.append(button('Stop',()=>$('stop').click()));
  mount.append(actions);
 }
@@ -1336,3 +1340,14 @@ async function inspectProposalChecks(directory){
  }
  selector.onchange=show;const current=data.checks.findLastIndex(row=>row.receipt.identity===data.current_identity);selector.value=String(current<0?data.checks.length-1:current);show();
 }
+
+function promptOrigin(){
+ $('prompt-origin').textContent=($('prompt').value===boot.config.prompt?'Matches the Arena default loaded from prompts/g0.md.':'Custom or saved prompt; it may differ from the current Arena default.')+' New studies use this editor. Selecting a comparison reference does not change it. Existing studies keep their frozen prompt.';
+}
+$('prompt').addEventListener('input',promptOrigin);
+$('reload-arena-material').onclick=guard(async()=>{
+ const fresh=await api('/api/bootstrap');boot.reference_documents=fresh.reference_documents;boot.config.prompt=fresh.config.prompt;
+ $('prompt').value=fresh.config.prompt;referenceEdits={};$('reference-path').replaceChildren();
+ for(const path of Object.keys(boot.reference_documents))option($('reference-path'),path,path);
+ referencePath=$('reference-path').value;$('reference-content').value=boot.reference_documents[referencePath]||'';promptOrigin();
+});
