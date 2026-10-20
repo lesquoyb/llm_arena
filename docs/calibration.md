@@ -423,10 +423,10 @@ or fully prescribed tactical recipes into prompts/documents. An additional
 **experimental Laya proposal check** is optional and disabled by default. It checks
 cumulative added material against the initial study, covering successive edits.
 All detected risks must be at most 0.2 for approval; any risk at least 0.8 rejects;
-intermediate values require review. Unavailable or ambiguous checks never approve
-a proposal. The analyst can repair within its configured retry budget; otherwise
-the study blocks before evaluating that proposal, preserving completed work and
-the proposal draft. This guard is separate from human-only trajectory diagnostics;
+intermediate values are inconclusive. Unavailable checks never approve
+a proposal. Automatic mode requests revisions for explicit rejections;
+inconclusive results allow evaluation with the diagnostic retained. Unavailable
+enforced checks pause the study. JSON-format repairs have a separate retry budget. This guard is separate from human-only trajectory diagnostics;
 its rejection feedback can be sent to the analyst to revise its proposal.
 
 Local spot checks showed false alarms on general workflow instructions and moderate
@@ -542,8 +542,9 @@ continue** to ask the analyst for a revision or supply corrected JSON.
 
 **Laya proposal decisions** has three modes. **Off** skips the semantic check.
 **Observe only** saves and displays its result without rejecting a proposal or
-feeding it to the analyst. **Automatic** sends rejected or ambiguous results
-back to the analyst for revision until the check approves a proposal. These
+feeding it to the analyst. **Automatic** sends explicitly rejected results back to the analyst for revision.
+Inconclusive results (`needs_review`) are saved but allow evaluation to proceed;
+uncertainty is not treated as a rejection. These
 semantic revisions do not consume the JSON-format correction allowance. Provider
 errors, unavailable enforced checks, spending limits and manual stops still stop
 the run. With unlimited spending, semantic revision has no fixed attempt limit.
@@ -588,3 +589,8 @@ they are infrastructure problems rather than evidence of a bad prompt.
 Application/runtime updates can resume a frozen study with compatible engine
 artifacts; additional runtime provenance records the change. Prompt, document,
 scenario and engine changes remain subject to compatibility checks.
+
+A local [proposal-check sanity check](laya-proposal-check.md) found ambiguous
+outputs even for simple authoring instructions. These scores are uncalibrated;
+allowing an inconclusive check to proceed does not certify that a prompt contains
+no solution. The original Laya result remains available in the review.

@@ -540,8 +540,12 @@ def _propose(config, report, incumbent_dir, proposal_dir, learning=None):
             manually_accepted=(override.get('draft_sha256')==file_hash(proposal_dir/'proposal-draft.json') and override.get('guard_identity')==reviewed.get('identity'))
             if manually_accepted:
                 journal.save(sid,state,'proposal_guard_human_override',override)
-            if enforce and reviewed['status']!='approved' and not manually_accepted:
+            if enforce and reviewed['status']=='rejected' and not manually_accepted:
                 return repair_proposal(config,report,incumbent_dir,proposal_dir,journal,sid,state,'The proposal check returned '+reviewed['status']+'. Remove complete combat implementations and prescribed tactical recipes from added instructions; keep general authoring guidance and isolated syntax examples. Laya observations: '+json.dumps(reviewed.get('observations',[]),ensure_ascii=False)+'. Revise the prompt or documents; do not repeat the rejected instructions.',automatic_guard=True)
+            decision={'status':reviewed['status'],'action':'evaluate_with_uncertainty' if reviewed['status']=='needs_review' else 'evaluate',
+                      'reason':'An inconclusive semantic score is not a rejection. Evaluate the candidate and retain the diagnostic.' if reviewed['status']=='needs_review' else 'Proposal check completed.'}
+            state['proposal_guard_decision']=decision
+            journal.save(sid,state,'proposal_check_decision',decision)
         write_json(saved, result)
         from .tool_requests import write_report
         write_report(proposal_dir,result.get('tool_requests',[]))

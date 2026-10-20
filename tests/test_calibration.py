@@ -189,6 +189,15 @@ class CalibrationTests(TestCase):
                 propose(value,{},tmp/'baseline',tmp/'automatic')
             self.assertEqual(len(answers),2)
             self.assertEqual(len(list((tmp/'automatic/attempts').glob('*-draft.json'))),2)
+            answers.clear()
+            with mock.patch('arena.calibration.analyst_context',return_value=context),mock.patch('arena.calibration.provider_response',side_effect=respond),mock.patch('arena.calibration.guard.review',return_value={'status':'needs_review','identity':'ambiguous','observations':[]}):
+                propose(value,{},tmp/'baseline',tmp/'ambiguous')
+            self.assertEqual(len(answers),1)
+            checkpoint=Journal(tmp/'ambiguous')
+            try:
+                self.assertEqual(checkpoint.state('analyst-r0')['proposal_guard_decision']['action'],'evaluate_with_uncertainty')
+                self.assertEqual(checkpoint.state('analyst-r0')['status'],'submitted')
+            finally: checkpoint.db.close()
             value['proposal_guard']['mode']='observe';answers.clear()
             with mock.patch('arena.calibration.analyst_context',return_value=context),mock.patch('arena.calibration.provider_response',side_effect=respond),mock.patch('arena.calibration.guard.review',return_value={'status':'rejected','identity':'observed','observations':[]}):
                 result=propose(value,{},tmp/'baseline',tmp/'observe')

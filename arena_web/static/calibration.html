@@ -178,7 +178,7 @@
             <label><input id="rl-plateau" type="checkbox">Stop on objective plateau</label>
           </div>
           <p>The analyst independently chooses all changes. Exploitation starts from the best candidate; exploration may revisit another valid archived candidate to try a different hypothesis. Combat results and configured penalties decide whether to keep the result. Leave the candidate limit blank and disable plateau stopping to continue until manually stopped.</p>
-          <h3>Analyst proposal check</h3><label>Laya proposal decisions<select id="proposal-guard"><option value="off">Off</option><option value="observe">Observe only: save the diagnosis, keep evaluating</option><option value="automatic">Automatic: follow Laya and revise rejected proposals</option></select></label><p>Automatic mode sends rejected or ambiguous checks back to the analyst until a proposal passes. Observation mode never blocks a proposal. Laya checks can be wrong; all decisions and revisions are saved.</p>
+          <h3>Analyst proposal check</h3><label>Laya proposal decisions<select id="proposal-guard"><option value="off">Off</option><option value="observe">Observe only: save the diagnosis, keep evaluating</option><option value="automatic">Automatic: follow Laya and revise rejected proposals</option></select></label><p>Automatic mode sends rejected checks back to the analyst for revision. Inconclusive checks are saved and allow evaluation to proceed. Observation mode never blocks a proposal. Laya checks can be wrong; all decisions and revisions are saved.</p>
           <h3>Objective settings</h3>
           <div class="fields">
             <label hidden

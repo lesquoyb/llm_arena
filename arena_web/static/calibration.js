@@ -145,7 +145,7 @@ async function reviewCandidate(directory) {
   if(study!==selected || epoch!==reviewEpoch)return;
   const mount=$('analyst-content');mount.replaceChildren();
   mount.append(node('span',`Candidate ${value.candidate} · ${value.current_best?"Current best":value.baseline?"Initial baseline":value.decision=== "Kept"?"Selected earlier":value.decision}`,'decision'));
-  if(!value.baseline && !value.no_change){mount.append(node('p',`Proposal check: ${value.guard_override?'Accepted manually despite the experimental check':value.guard?.status || (value.guard_enabled?'Not checked yet':'Disabled')}. This is separate from independent trajectory diagnostics.`));if(value.guard)mount.append(button('Laya input & exact output',()=>inspectProposalChecks(directory)));}
+  if(!value.baseline && !value.no_change){mount.append(node('p',`Proposal check: ${value.guard_override?'Accepted manually despite the experimental check':value.guard?.status==='needs_review'?'Inconclusive: evaluation can proceed; this is not a rejection':value.guard?.status || (value.guard_enabled?'Not checked yet':'Disabled')}. This is separate from independent trajectory diagnostics.`));if(value.guard)mount.append(button('Laya input & exact output',()=>inspectProposalChecks(directory)));}
   if(!value.baseline && !value.no_change)mount.append(node('p',`Candidate ${value.source_candidate} → analyst changes → candidate ${value.candidate} → evaluation against ${value.comparison_candidate ? 'best candidate '+value.comparison_candidate : 'the baseline'}.`));
   if(value.decision_reason) mount.append(node('p',value.decision_reason));
   mount.append(formatted(value.baseline?'This is the baseline. No analyst changes have been proposed for it.':value.rationale || 'No rationale recorded.'));
@@ -1325,7 +1325,7 @@ async function inspectProposalChecks(directory){
  function show(){
   const receipt=data.checks[Number(selector.value)].receipt;content.replaceChildren(node('h3',`Decision: ${receipt.status}`));
   if(receipt.error)content.append(node('p',receipt.error));
-  content.append(node('small',`Model: ${receipt.settings?.model??'Unknown'} · Revision: ${receipt.revision??'Unknown'} · Accept ≤ ${receipt.settings?.accept_max_risk??'?'}; reject ≥ ${receipt.settings?.reject_min_risk??'?'}. Intermediate values require review.`));
+  content.append(node('small',`Model: ${receipt.settings?.model??'Unknown'} · Revision: ${receipt.revision??'Unknown'} · Accept ≤ ${receipt.settings?.accept_max_risk??'?'}; reject ≥ ${receipt.settings?.reject_min_risk??'?'}. Intermediate values are inconclusive and do not block evaluation.`));
   const detail=(title,value,open=false)=>{const d=node('details');d.open=open;d.append(node('summary',title),node('pre',json(value),'record-code'));content.append(d)};
   detail('Exact questions',receipt.questions);
   for(const source of receipt.sources||[]){
