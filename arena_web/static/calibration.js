@@ -1332,7 +1332,7 @@ async function inspectProposalChecks(directory){
    const observation=(receipt.observations||[]).find(row=>row.source===source.source);
    content.append(node('h4',source.source));detail('Exact input sent to Laya',source);
    if(observation){
-    if(observation.risks)content.append(table(['Question','Risk'],Object.entries(observation.risks).map(([key,value])=>[key,pct(value)])));
+    if(observation.risks)content.append(table(['Question','Risk'],Object.entries(observation.risks).map(([key,value])=>[key==='prescribed_strategy' && receipt.questions?.[key]?.type==='choice'?'In-game battle tactics (coding workflow is allowed)':key,pct(value)])));
     detail(observation.response!==undefined?'Exact output returned by Laya':'Saved output (legacy: complete response was not retained)',observation.response??{answers:observation.answers,usage:observation.usage},true);
    }else content.append(node('p','No returned output was recorded for this input.'));
   }

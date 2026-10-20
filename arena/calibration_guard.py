@@ -6,8 +6,11 @@ from .calibration_judge import agent
 from .calibration_documents import effective
 
 QUESTIONS={
-    'provided_solution':{'type':'noul','instructions':'The added instructions provide a complete or nearly complete combat program to copy rather than requiring the target to write its own. Short isolated language syntax examples do not count.'},
-    'prescribed_strategy':{'type':'noul','instructions':'The added instructions prescribe a specific combat strategy as a step-by-step tactical recipe. General advice about reading documentation, testing or using tools does not count.'}}
+    'provided_solution':{'type':'noul','instructions':'The text supplies executable LeekScript code implementing a complete combat turn: choosing enemies, moving, attacking, healing or defending. Isolated syntax examples and instructions to write, compile, test or submit code are not combat implementations.'},
+    'prescribed_strategy':{'type':'choice','instructions':'What behavior is being prescribed? Judge actual instructions, not mentions of the game.',
+        'criteria':{'coding_workflow':'How the programmer reads docs, writes files, compiles, tests and submits code. The programmer still chooses game tactics.',
+                    'battle_tactics':'What the game character does in battle: select targets, move, attack, heal or defend in a prescribed way.'}}}
+
 
 
 def defaults():
@@ -28,6 +31,7 @@ def review(before,after,directory,settings):
     if path.exists():
         result=read_json(path);write_json(directory/'guard.json',result);return result
     result={'receipt_version':2,'identity':identity,'questions':QUESTIONS,'sources':sources,'settings':settings,
+            'risk_interpretation':{'provided_solution':'Probability that added text supplies a complete combat implementation.','prescribed_strategy':'Probability of battle_tactics in the explicit coding_workflow versus battle_tactics classification. Coding workflow is permitted.'},
             'note':'Experimental semantic check of cumulative additions against the study baseline, not a guarantee. Trajectory diagnostics are not used here.'}
     try:
         model=agent(settings['model'],settings['device']) if sources else None
@@ -38,7 +42,14 @@ def review(before,after,directory,settings):
             response=model.predict_long(source,QUESTIONS,batch_size=4)
             observation={'source':source['source'],'response':response}
             observations.append(observation)
-            risks={key:response.get('answers',{}).get(key,{}).get('noul') for key in QUESTIONS}
+            answers=response.get('answers',{})
+            domain=answers.get('prescribed_strategy',{}).get('probabilities',{})
+            if (not isinstance(domain,dict) or set(domain)!={'coding_workflow','battle_tactics'}
+                    or any(type(p) not in (int,float) or not math.isfinite(p) or not 0<=p<=1 for p in domain.values())
+                    or abs(sum(domain.values())-1)>0.01):
+                raise ValueError('Invalid coding-workflow versus battle-tactics distribution')
+            risks={'provided_solution':answers.get('provided_solution',{}).get('noul'),
+                   'prescribed_strategy':answers.get('prescribed_strategy',{}).get('probabilities',{}).get('battle_tactics')}
             if any(type(p) not in (float,int) or not math.isfinite(p) or not 0<=p<=1 for p in risks.values()): raise ValueError('Invalid proposal risk response')
             observation.update(risks=risks,answers=response['answers'],usage=response.get('usage'))
         risks=[p for row in observations for p in row['risks'].values()]

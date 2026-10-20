@@ -594,3 +594,11 @@ A local [proposal-check sanity check](laya-proposal-check.md) found ambiguous
 outputs even for simple authoring instructions. These scores are uncalibrated;
 allowing an inconclusive check to proceed does not certify that a prompt contains
 no solution. The original Laya result remains available in the review.
+
+The combat-tactic check now asks an explicit `choice` between `coding_workflow`
+and `battle_tactics`, rather than asking whether the text prescribes a generic
+strategy. Only `battle_tactics` is interpreted as tactic risk. Planning tool
+calls, reading docs, compiling, testing and submitting are permitted workflow.
+The separate ready-made-code question explicitly refers to executable combat
+behavior. Existing pending checks are recomputed because question definitions
+are part of the cache identity; original receipts remain available.
