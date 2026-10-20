@@ -1,65 +1,43 @@
-# Control functions checked in the pinned engine
+# API contracts for the pinned engine
 
-The arena compiles LeekScript **4**. Use `lookup_api` for exact function signatures or to search by name fragment instead of reading the entire API. Signatures use square brackets to describe arguments: `getEntity[] => integer` means call `getEntity()`, not `getEntity[]`. `integer?` means nullable, not optional; separate signatures describe different arities.
+Arena runs LeekScript 4. Game calls are global, without imports. Use lookup_api with a nonempty exact name or name fragment for additional signatures. Its square brackets describe positional arguments: `getEntity[] => integer` means `getEntity()`. A nullable type such as `integer?` does not mean an argument is optional; separate signatures describe different arities.
 
-| Call | Arguments and return value | Declared base cost |
+## Execution
+
+The entrypoint's top-level statements run once each entity turn. Helpers execute only when called. There is no automatic main or nextTurn callback, and no finishTurn API is needed: execution ends when the top-level program finishes. Design your own combat decisions; this guide documents interfaces rather than a strategy.
+
+## Common calls
+
+| Call | Contract | Declared base operations |
 |---|---|---:|
-| `getEntity()` | Runtime ID of the active entity, including an invocation during its own turn. Use this for self-targeted chips.`getLeekID()` is a persistent website leek ID, not a replacement runtime ID. | 5 |
-| `getNearestEnemy()` | ID of the geometrically nearest living enemy; -1 if absent. Do not assume null. | 25 |
-| `getWeapons()` | Array of weapon IDs equipped by the active entity. | 50 |
-| `setWeapon(weapon_id)` | Select an equipped weapon; false for an absent or invalid weapon. | 15 |
-| `moveToward(entity_id[, mp_to_use])` | Move toward an entity; return movement performed. Null does not move and produces a warning. | 500 |
-| `getTP()` | Remaining TP of the active entity. | 15 |
-| `getWeaponCost([weapon_id])` | TP cost, using the active weapon when omitted; -1 if unknown or absent. | 15 |
-| `isAlive(entity_id)` | True for a known living entity, false otherwise. | 15 |
-| `useWeapon(entity_id)` | Attempt a shot; compare its integer result to `USE_SUCCESS`. An absent/invalid target can return -1. | 3000 |
+| getEntity() | Active entity's runtime ID, including a summon on its own turn. getLeekID() is a different persistent ID. | 5 |
+| getNearestEnemy() | Geometrically nearest living enemy's runtime ID, or -1 if absent. | 25 |
+| isAlive(entity_id) | Whether a known entity is living. | 15 |
+| getWeapons() | Array of equipped weapon runtime IDs, not objects. | 50 |
+| setWeapon(weapon_id) | Select an equipped weapon; false if absent or invalid. | 15 |
+| getWeaponCost(weapon_id) | TP cost; -1 if unknown or absent. The no-argument overload uses the selected weapon. | 15 |
+| useWeapon(entity_id) | Attempt an attack with the selected weapon; integer result, compared with USE_SUCCESS. Invalid targets can return -1. | 3000 |
+| moveToward(entity_id) | Move toward an entity; returns movement performed. A second argument limits MP used. Null produces a warning without movement. | 500 |
+| getTP() | Remaining TP. | 15 |
 
-Declared costs are not necessarily total costs. `moveToward` also charges
-operations in its implementation. Weapon effects and ranges depend on
-`weapons.json`. Do not loop on failed shots. Successful analysis does not prove
-effective play or absence of runtime errors.
+An isolated equipment-query example is `var equipped = getWeapons();`. Each array element is already a weapon ID: no getWeaponId conversion is needed. Arrays use count(array), not array.length.
 
-Example for an entity equipped with at least one weapon:
+Weapons use the catalog's item field as runtime IDs. The outer catalog key, id and template fields are different identifiers. For example weapon item 37 is pistol. Chips use chips.json keys. Replay action identifiers may be templates instead.
 
-```javascript
-var enemy = getNearestEnemy()
-if (enemy >= 0 && isAlive(enemy)) {
-    setWeapon(getWeapons()[0])
-    moveToward(enemy)
-    while (getWeaponCost() >= 0 && getTP() >= getWeaponCost() && isAlive(enemy)) {
-        if (useWeapon(enemy) != USE_SUCCESS) break
-    }
-}
-```
+Declared operation costs are not necessarily total costs; movement also charges operations in its implementation. TP, MP and operations are distinct resources. Check action return codes and ensure loops terminate on failure or lack of progress. Equipment ranges, line of sight, launch restrictions and usage limits matter independently of TP. Do not infer undocumented effects or formulas from names.
 
-Sources: `FightFunctions.java` for signatures/costs, `classes/FightClass.java`
-for targeting/movement, `classes/EntityClass.java` for equipment/TP/life and
-`classes/WeaponClass.java` for costs and shooting, at the commit in `index.md`.
-Other functions remain covered by the signature reference; their behavior is
-not inferred from their names.
+## Chips and summons
 
-## Chips, summons and testing
+getCooldown(chip) gives remaining cooldown. getChipCooldown(chip) gives configured cooldown duration. Before casting, account for equipped chips, remaining TP, cooldown and target validity. canUseChip checks targeting and does not replace TP or cooldown checks.
 
-`getCooldown(chip)` gives the remaining cooldown. `getChipCooldown(chip)` gives
-its configured duration, not its remaining cooldown. Before casting, check the
-chip is equipped, enough AP remain, cooldown is zero and targeting is valid.
-`canUseChip` checks targeting and does not replace AP/cooldown checks.
+summon(chip, cell, callback, name) creates an allied entity whose callback runs on its turns. It requires a summon chip and a valid empty placement cell. The callback sees the summon's own equipment and resources; getSummoner() identifies its owner. Consult exact signatures and the summon catalog before implementing callbacks.
 
-`summon(chip, cell, callback, name)` creates
-an allied entity whose callback runs on its own turns. Use an empty reachable
-cell and a summon chip. The callback sees the summon's own equipment and resources;
-`getSummoner()` identifies its owner. Choose callback behavior appropriate to
-the summon's available equipment and resources.
+## Verification and testing
 
-Preparation tools run against the actual pinned Java engine. Use `analyze` to
-check source code, then `test` to play training matches. Training currently uses
-the passive opponent, seed 17 and both starting sides; arbitrary opponents and
-seeds are not exposed by this tool. `test` returns summaries. Use its test ID with
-`read_replay` to inspect `fight`, `team_metrics`, `turn_metrics` or `logs`, including
-`debug` output and runtime errors. These tools expose only the participant's own
-training artifacts, not other participants' private sessions.
+Save code and call analyze promptly. Read diagnostic_messages and repair errors, then analyze again. Reaching status valid proves compilation, not effective tactics or freedom from runtime errors. Reanalyze after subsequent edits and before submit.
 
-The initial prompt includes scenario and tool descriptions. The full API reference,
-equipment, summons and stat rules are available through paginated `read_docs`;
-they are not all inserted into the prompt automatically. Read the catalogs and
-relevant function signatures before choosing equipment or writing code.
+Preparation uses the actual pinned Java engine. test defaults to passive, training seed train-17, and both starting sides. To compare your own alternatives, save two source files and supply entrypoint and opponent_entrypoint to test. In participant-team mode the opponent copies your roster and uses the alternate entrypoint on every member; your saved team is unchanged. Hidden opponents and evaluation seeds are not exposed.
+
+Use the returned test_id with read_replay to inspect fight actions, team_metrics, turn_metrics or logs, including debug output and runtime errors. These tools expose your own preparation artifacts only. A passive-opponent win is not evidence of strength against an active opponent.
+
+Documentation and replay reads are character-paginated. Follow returned continuations for required complete reads. The initial prompt does not embed all equipment data or signatures; consult relevant catalogs and references instead of guessing.
