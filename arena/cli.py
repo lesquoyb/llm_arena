@@ -94,6 +94,8 @@ def parser():
 def main(argv=None):
     args = parser().parse_args(argv)
     try:
+        from .environment import load_dotenv
+        load_dotenv()
         if args.command == "ui":
             from arena_web.server import serve
             if not 0 <= args.port <= 65535:

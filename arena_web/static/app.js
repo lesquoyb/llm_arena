@@ -537,8 +537,8 @@ function providersDialog(identifier=null) {
     ${field('Provider name','id',spec.id||'','text','',`required pattern="[a-zA-Z0-9][a-zA-Z0-9_-]{0,39}" ${identifier?'readonly':''}`)}
     ${selectField('Protocol','provider',[['openai-compatible','OpenAI-compatible (Groq, Ollama, etc.)'],['openai','OpenAI'],['anthropic','Anthropic'],['gemini','Google Gemini']],spec.provider||'openai-compatible')}
     ${field('Full API endpoint','endpoint',spec.endpoint||'','url','For compatible APIs, include /v1/chat/completions. Leave blank for the default OpenAI, Anthropic or Gemini endpoint.')}
-    ${field('API key environment variable','api_key_env',spec.api_key_env||'','text','Example: ARENA_GROQ_KEY. Reused by every participant from this provider.','required pattern="ARENA_[A-Z0-9_]+"')}
-    <label class="field full">API key<input name="secret" type="password" autocomplete="new-password"><small>Kept in server memory until shutdown. Use the environment variable to make it available after restarting.</small></label>
+    ${field('API key environment variable','api_key_env',spec.api_key_env||'','text','Example: ARENA_GROQ_KEY. Define it in the repository-root .env file; loaded on startup. Reused by every participant from this provider.','required pattern="ARENA_[A-Z0-9_]+"')}
+    <label class="field full">API key<input name="secret" type="password" autocomplete="new-password"><small>Kept in server memory until shutdown. Put the key in the repository-root .env file under the variable name above to keep it available after restarting.</small></label>
     </div><div class="form-footer">${identifier?`<button type="button" class="button" data-action="delete-provider" data-id="${e(identifier)}">Delete provider</button>`:''}<button type="submit" class="button primary">Save connection</button></div></form>
     ${identifier?`<section class="form-section"><h3>Create model participants</h3><p>Load the catalog, select models and enter each model’s prices. No generation requests are made.</p><button type="button" class="button" data-action="provider-models" data-id="${e(identifier)}">Load models</button><div id="provider-models"></div></section>`:''}`);
 }

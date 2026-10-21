@@ -609,7 +609,7 @@ to inspect exactly the matches contributing to that number.
 
 In Participants, open **Providers & bulk add**. Save a named protocol, endpoint and
 API key environment variable. A key entered here stays in server memory until
-shutdown; set the named environment variable to reuse it after restarting.
+shutdown; set the named variable in the repository-root `.env` file to reuse it after restarting. Copy `.env.example` to get started.
 The connection settings are saved in `.arena/ui/providers.json`, without the key.
 
 Choose a saved provider, load its models, select the models to add, and enter each

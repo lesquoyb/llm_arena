@@ -43,7 +43,29 @@ and per-session input, output and dollar limits may be omitted. If a total
 spending limit is configured, it must be positive. Model aliases and commercial prices are not hardcoded.
 Verify IDs, supported parameters and prices with the provider.
 
-Supply keys through server environment variables or the UI password field.
+For local use, copy `.env.example` to `.env` at the repository root and enter
+one key per provider:
+
+```dotenv
+ARENA_OPENAI_KEY=your_openai_key
+ARENA_GROQ_KEY=your_groq_key
+ARENA_GEMINI_KEY=your_gemini_key
+```
+
+All `arena` commands load this file at startup, including the interface,
+calibration workshop and their workers. Set each saved provider's API key
+environment variable to the matching name (for example `ARENA_GROQ_KEY`). Restart
+the application after editing the file. Loading uses the repository root,
+regardless of the terminal's current directory. Existing process environment
+variables take priority, including empty values.
+
+Use one `NAME=value` assignment per line; blank lines, `#` comments and simple
+single/double quoted values are supported. Values are literal: no shell commands,
+variable expansion, escaped quotes or multiline values. `.env` is ignored by Git;
+it contains plaintext secrets, so do not share it or include it in exports.
+Only `.env.example` belongs in the repository.
+
+You can also supply keys through server environment variables or the UI password field.
 UI-entered keys stay in server memory and are not written to configurations.
 In cloud settings, bind secrets to `api.openai.com`, `api.anthropic.com`,
 `generativelanguage.googleapis.com` or the configured compatible host.

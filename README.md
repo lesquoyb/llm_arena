@@ -30,6 +30,10 @@ bash scripts/bootstrap-linux.sh
 .venv/bin/python -m arena ui --open
 ```
 
+For API keys, copy [`.env.example`](.env.example) to `.env` at the repository
+root and fill in the providers you use. The application loads it at startup;
+no terminal assignments are needed. `.env` is ignored by Git.
+
 The interface opens at **http://127.0.0.1:8765**. It provides participant and
 price settings, competition management, full recorded conversations, source
 history and diffs, schematic replays, match statistics and comparisons across
