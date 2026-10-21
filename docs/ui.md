@@ -604,3 +604,22 @@ Model ranking and progress charts exclude matches between versions of the same
 model, including earlier rounds and feedback tracks. Those fights remain in the
 strategy-version matrix and match list. Click the ranking's win/draw/loss counts
 to inspect exactly the matches contributing to that number.
+
+### Saved providers and bulk participants
+
+In Participants, open **Providers & bulk add**. Save a named protocol, endpoint and
+API key environment variable. A key entered here stays in server memory until
+shutdown; set the named environment variable to reuse it after restarting.
+The connection settings are saved in `.arena/ui/providers.json`, without the key.
+
+Choose a saved provider, load its models, select the models to add, and enter each
+model's input/output prices in USD per million tokens (0 for free/local models).
+Each participant gets its own editable ID and pricing. Anthropic also requires
+an output token maximum. Creation validates the entire selection before saving;
+existing participant IDs are never overwritten. Loading models does not generate
+text or establish that a listed model supports tools.
+
+For individual models or parameter variants, choose **Add participant**, then a
+**Saved provider**. Adjust the model, reasoning settings and prices as usual.
+Participants copy the connection settings at creation. Editing or deleting a
+saved provider does not modify existing participants or frozen competitions.

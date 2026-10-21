@@ -36,7 +36,7 @@ class Application:
         from arena.presets import simple_scenario, participant_scenario
         demo = self.store.json(ROOT / "configs/offline-complete.json")
         config = {**demo, "name": "New competition", "scenario": simple_scenario()}
-        return {"token": self.token, "participants": self.store.participants(),
+        return {"token": self.token, "participants": self.store.participants(), "providers": self.store.providers(),
                 "drafts": self.store.drafts(), "runs": self.store.listing(), "jobs": self.jobs.listing(),
                 "profiles": list(PROFILES), "engine": engine,
                 "default_config": config, "demo_config": demo, "participant_scenario": participant_scenario()}
@@ -120,6 +120,12 @@ class Application:
     def post(self, route, data):
         if not isinstance(data, dict):
             raise ArenaError("Expected a JSON object")
+        if route == "/api/provider":
+            return self.store.save_provider(data['spec'],data.get('secret'))
+        if route == "/api/provider/delete":
+            return self.store.delete_provider(data['id'])
+        if route == "/api/provider/participants":
+            return self.store.create_provider_participants(data['id'],data['models'])
         if route == "/api/models":
             from arena.api_providers import list_models
             import os

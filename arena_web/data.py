@@ -104,6 +104,56 @@ class Store:
                                                     os.environ.get(m.get("api_key_env", "")))}
                 for m in self.catalog()]
 
+    def providers(self):
+        from arena.endpoints import optional_local_key
+        return [{'spec':spec,'key_optional':optional_local_key(spec),
+                 'key_configured':bool(self.secrets.get(spec['api_key_env']) or os.environ.get(spec['api_key_env']))}
+                for spec in self.json(self.state/'providers.json',[])]
+
+    def save_provider(self, spec, secret=None):
+        import re
+        from arena.api_providers import DEFAULT_ENDPOINTS
+        from arena.endpoints import validate_endpoint
+        if not isinstance(spec,dict) or set(spec)-{'id','provider','endpoint','api_key_env'}:
+            raise ArenaError('Invalid provider fields')
+        if not isinstance(spec.get('id'),str) or not re.fullmatch(r'[a-zA-Z0-9][a-zA-Z0-9_-]{0,39}',spec['id']):
+            raise ArenaError('Provider ID must contain 1 to 40 letters, digits, underscores or hyphens')
+        if spec.get('provider') not in {'openai','openai-compatible','anthropic','gemini'}:
+            raise ArenaError('Invalid provider protocol')
+        if not isinstance(spec.get('api_key_env'),str) or not re.fullmatch(r'ARENA_[A-Z0-9_]+',spec['api_key_env']):
+            raise ArenaError('Use an ARENA_ environment variable name for this provider')
+        validate_endpoint(spec.get('endpoint') or DEFAULT_ENDPOINTS.get(spec['provider'],''))
+        if secret is not None and (not isinstance(secret,str) or len(secret)>8192):
+            raise ArenaError('Invalid API key')
+        with self.lock:
+            values=[row['spec'] for row in self.providers() if row['spec']['id']!=spec['id']]
+            write_json(self.state/'providers.json',values+[spec])
+            if secret: self.secrets[spec['api_key_env']]=secret
+        return {'saved':spec['id']}
+
+    def delete_provider(self, identifier):
+        with self.lock:
+            write_json(self.state/'providers.json',[row['spec'] for row in self.providers() if row['spec']['id']!=identifier])
+        return {'deleted':identifier}
+
+    def create_provider_participants(self, identifier, models):
+        with self.lock:
+            spec=next((row['spec'] for row in self.providers() if row['spec']['id']==identifier),None)
+            if not spec: raise ArenaError('Unknown saved provider')
+            if not isinstance(models,list) or not 1<=len(models)<=100:
+                raise ArenaError('Select 1 to 100 models')
+            existing=self.catalog();ids={row['id'] for row in existing};created=[]
+            for row in models:
+                if not isinstance(row,dict) or set(row)-{'id','model','pricing','max_output_tokens'}:
+                    raise ArenaError('Invalid participant fields')
+                model={key:value for key,value in spec.items() if key!='id'}
+                model.update(row)
+                if model.get('id') in ids: raise ArenaError('Participant ID already exists: '+model['id'])
+                self.validate_model(model)
+                ids.add(model['id']);created.append(model)
+            write_json(self.state/'participants.json',existing+created)
+        return {'created':[row['id'] for row in created]}
+
     def validate_model(self, model):
         config = read_json(ROOT / "configs/offline-complete.json")
         config["models"] = [model]

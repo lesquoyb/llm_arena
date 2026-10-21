@@ -529,8 +529,35 @@ function participantCards(term = "") {
     <dl class="profile-facts"><div><dt>Reasoning</dt><dd>${m.provider === "mock" ? "Scripted" : e(reasoningLabel(m.parameters))}</dd></div><div><dt>Input / output · $ / 1M</dt><dd>${m.pricing ? `${e(m.pricing.input_per_million)} / ${e(m.pricing.output_per_million)}` : "No API cost"}</dd></div></dl>
     <div class="profile-card-footer">${m.provider === "mock" ? badge("Ready", "green") : badge(key_optional && !key_configured ? "Local · no key required" : key_configured ? "Key configured" : "API key missing", key_configured || key_optional ? "green" : "orange")}${btn("Configure", "edit-participant", `data-id="${e(m.id)}"`)}</div></article>`).join("") : empty("No participants found", term ? "Try a different name, model or provider." : "Add a model provider or a built-in strategy.", term ? "" : btn("Add participant","new-participant","",true));
 }
+function providersDialog(identifier=null) {
+  const saved=(S.boot.providers||[]),spec=saved.find(row=>row.spec.id===identifier)?.spec||{};
+  openDialog('Saved providers','Reuse a connection across model participants.',`
+    <div class="actions">${saved.map(row=>`<button type="button" class="button" data-action="edit-provider" data-id="${e(row.spec.id)}">${e(row.spec.id)} · ${row.key_configured?'Key configured':row.key_optional?'Local':'Key needed'}</button>`).join('')}${btn('New provider','new-provider')}</div>
+    <form data-form="provider"><div class="form-grid">
+    ${field('Provider name','id',spec.id||'','text','',`required pattern="[a-zA-Z0-9][a-zA-Z0-9_-]{0,39}" ${identifier?'readonly':''}`)}
+    ${selectField('Protocol','provider',[['openai-compatible','OpenAI-compatible (Groq, Ollama, etc.)'],['openai','OpenAI'],['anthropic','Anthropic'],['gemini','Google Gemini']],spec.provider||'openai-compatible')}
+    ${field('Full API endpoint','endpoint',spec.endpoint||'','url','For compatible APIs, include /v1/chat/completions. Leave blank for the default OpenAI, Anthropic or Gemini endpoint.')}
+    ${field('API key environment variable','api_key_env',spec.api_key_env||'','text','Example: ARENA_GROQ_KEY. Reused by every participant from this provider.','required pattern="ARENA_[A-Z0-9_]+"')}
+    <label class="field full">API key<input name="secret" type="password" autocomplete="new-password"><small>Kept in server memory until shutdown. Use the environment variable to make it available after restarting.</small></label>
+    </div><div class="form-footer">${identifier?`<button type="button" class="button" data-action="delete-provider" data-id="${e(identifier)}">Delete provider</button>`:''}<button type="submit" class="button primary">Save connection</button></div></form>
+    ${identifier?`<section class="form-section"><h3>Create model participants</h3><p>Load the catalog, select models and enter each model’s prices. No generation requests are made.</p><button type="button" class="button" data-action="provider-models" data-id="${e(identifier)}">Load models</button><div id="provider-models"></div></section>`:''}`);
+}
+async function providerModels(identifier) {
+  const spec=S.boot.providers.find(row=>row.spec.id===identifier).spec;
+  const data=await api('/api/models',spec,true);
+  const occupied=new Set(S.boot.participants.map(row=>row.spec.id));
+  const rows=data.models.map((row,index)=>{
+    const stem=(identifier+'-'+row.id).replace(/[^a-zA-Z0-9_-]/g,'-').slice(0,35);let id=stem,n=2;
+    while(occupied.has(id))id=stem+'-'+n++;
+    occupied.add(id);
+    return `<section class="form-section" data-provider-model="${index}"><label class="check"><input type="checkbox" name="selected" value="${index}"><strong>${e(row.id)}</strong></label><div class="form-grid">${field('Participant ID','id-'+index,id,'text','')}${field('Input / million tokens ($)','input-'+index,'','number','','min="0" step="any"')}${field('Output / million tokens ($)','output-'+index,'','number','','min="0" step="any"')}${spec.provider==='anthropic'?field('Maximum output tokens','max-'+index,4096,'number','Required by Anthropic.','min="1"'):''}</div></section>`;
+  }).join('');
+  S.providerModelCatalog=data.models;
+  $('#provider-models').innerHTML=`<form data-form="provider-participants" data-provider="${e(identifier)}"><label class="field">Filter models<input type="search" id="provider-model-search"></label><p>${data.models.length} listed; ${(data.excluded||[]).length} incompatible models excluded${data.truncated?' (partial catalog)':''}. Chat/tool compatibility is not guaranteed.</p>${rows}<button type="submit" class="button primary">Create selected participants</button></form>`;
+}
+
 function participants() {
-  return head("Participants", "Reusable model profiles for your competitions.", btn("Add reference strategy","add-reference") + btn("＋ Add participant", "new-participant", "", true)) +
+  return head("Participants", "Reusable model profiles for your competitions.", btn("Providers & bulk add","providers") + btn("Add reference strategy","add-reference") + btn("＋ Add participant", "new-participant", "", true)) +
     `<div class="collection-toolbar"><span id="participant-count" aria-live="polite">${S.boot.participants.length} profiles</span><input type="search" id="participant-search" placeholder="Search name, model or provider" aria-label="Search participants"></div><div class="profile-grid" id="participant-cards">${participantCards()}</div><details class="quiet-details"><summary>API keys and pricing</summary><p>Keys entered in the interface stay in server memory. Prices are entered in USD per million tokens. Existing competitions retain the settings saved at launch.</p></details>`;
 }
 function freshConfig() {
@@ -609,10 +636,10 @@ function reasoningField(provider, parameters = {}, model = "") {
   if (!levels.includes(selected)) levels.push(selected);
   return `<label class="field full">${fieldHeading("Reasoning effort", "Supported levels depend on the model and endpoint. For gpt-6.1-sol use low, medium, high or xhigh. Default omits the parameter; it does not mean medium. The journal records the requested value. GPT-6 reasoning uses Responses with function tools; Responses does not support seed. This does not expose hidden reasoning.")}<select name="reasoning_effort" data-initial="${e(selected)}">${levels.map(value => `<option value="${e(value)}" ${restricted && ["none", "minimal"].includes(value) ? "disabled" : ""} ${value === selected ? "selected" : ""}>${e(value || "Provider default (do not send)")}</option>`).join("")}</select></label>`;
 }
-function participantDialog(identifier = null, provider = null) {
+function participantDialog(identifier = null, provider = null, connection = null) {
   const m = identifier
     ? S.boot.participants.find((p) => p.spec.id === identifier).spec
-    : {};
+    : connection || {};
   if (m.profile === 'saved-strategy') {
     const origin=m.strategy.origin;
     openDialog(m.id,'Saved strategy',`<p>Frozen code and team. No model calls; unchanged in every round. Use its original scenario.</p><p>Source: ${e(origin.reference || origin.run)}${origin.session ? ' · '+e(origin.session) : ''}</p><p>${Object.keys(m.strategy.files).length} files</p>${origin.run ? `<a class="button" href="#${query({view:'run',run:origin.run,tab:'code',session:origin.session})}" data-action="saved-source" data-run="${e(origin.run)}" data-session="${e(origin.session)}">Inspect source</a>` : `<pre>${e(m.strategy.files['main.leek'])}</pre>`}`);
@@ -624,7 +651,7 @@ function participantDialog(identifier = null, provider = null) {
   openDialog(
     identifier ? "Edit participant" : "New participant",
     "",
-    `<form data-form="participant"><section class="form-section"><h3>Profile</h3><div class="form-grid">${field("Participant ID", "id", m.id || "", "text", "Letters, digits and hyphens; up to 40 characters.", `required pattern="[a-zA-Z0-9][a-zA-Z0-9_-]{0,39}" ${identifier ? "readonly" : ""}`)}${selectField(
+    `<form data-form="participant">${!identifier && (S.boot.providers||[]).length ? selectField('Saved provider','saved_provider',[['','Custom connection'],...S.boot.providers.map(row=>[row.spec.id,row.spec.id])],connection?.id||'') : ''}<section class="form-section"><h3>Profile</h3><div class="form-grid">${field("Participant ID", "id", (connection ? "" : m.id) || "", "text", "Letters, digits and hyphens; up to 40 characters.", `required pattern="[a-zA-Z0-9][a-zA-Z0-9_-]{0,39}" ${identifier ? "readonly" : ""}`)}${selectField(
       "Provider",
       "provider",
       [
@@ -3074,7 +3101,11 @@ document.addEventListener("click", async (event) => {
   event.preventDefault();
   const a = node.dataset.action;
   try {
-    if (a === "go") navigate(node.dataset.view);
+    if (a === 'providers' || a === 'new-provider') providersDialog();
+    else if (a === 'edit-provider') providersDialog(node.dataset.id);
+    else if (a === 'provider-models') {node.disabled=true;try{await providerModels(node.dataset.id);}finally{node.disabled=false;}}
+    else if (a === 'delete-provider') {await api('/api/provider/delete',{id:node.dataset.id},true);await refreshBoot();providersDialog();}
+    else if (a === "go") navigate(node.dataset.view);
     else if (a === "character-tab") {
       $$("[data-member-build]").forEach((card) => {
         card.hidden = card.dataset.memberBuild !== node.dataset.index;
@@ -3416,7 +3447,22 @@ document.addEventListener("submit", async (event) => {
   try {
     const f = new FormData(form),
       type = form.dataset.form;
-    if (type === 'reference-strategy') {
+    if (type === 'provider') {
+      const spec={id:f.get('id'),provider:f.get('provider'),api_key_env:f.get('api_key_env')};
+      if(f.get('endpoint'))spec.endpoint=f.get('endpoint');
+      await api('/api/provider',{spec,secret:f.get('secret')||null},true);
+      await refreshBoot();providersDialog(spec.id);
+    } else if (type === 'provider-participants') {
+      const models=f.getAll('selected').map(index=>{
+        const input=f.get('input-'+index),output=f.get('output-'+index);
+        if(input===''||output==='')throw Error('Enter input and output prices for every selected model. Use 0 for free/local models.');
+        const row={id:f.get('id-'+index),model:S.providerModelCatalog[Number(index)].id,pricing:{currency:'USD',date:new Date().toISOString().slice(0,10),input_per_million:input,output_per_million:output}};
+        if(f.has('max-'+index))row.max_output_tokens=Number(f.get('max-'+index));
+        return row;
+      });
+      const result=await api('/api/provider/participants',{id:form.dataset.provider,models},true);
+      await refreshBoot();$('#dialog').close();await renderRoute();toast(result.created.length+' participants created.');
+    } else if (type === 'reference-strategy') {
       await api('/api/participant/reference',{reference:f.get('reference'),id:f.get('id')},true);
       await refreshBoot(); $('#dialog').close(); await renderRoute(); toast('Reference participant created');
     } else if (type === 'saved-strategy') {
@@ -3524,7 +3570,10 @@ document.addEventListener("submit", async (event) => {
 document.addEventListener("change", async (event) => {
   const n = event.target;
   try {
-    if (n.name === 'reference' && n.closest('[data-form=reference-strategy]')) {
+    if (n.name === 'saved_provider') {
+      const spec=S.boot.providers.find(row=>row.spec.id===n.value)?.spec;
+      participantDialog(null,spec?.provider||'mock',spec||null);
+    } else if (n.name === 'reference'  && n.closest('[data-form=reference-strategy]')) {
       const id=n.form.elements.id;
       if (id.value.startsWith('reference-')) id.value='reference-'+n.value;
     } else if (n.name === "provider" && n.closest("[data-form=participant]")) {
@@ -3721,6 +3770,9 @@ document.addEventListener("input", (event) => {
       item.hidden = !item.dataset.search.includes(n.value.toLowerCase());
   }
   if (n.id === "model-search") renderModelCatalog();
+  if (n.id === 'provider-model-search') {
+    for(const section of $$('[data-provider-model]'))section.hidden=!S.providerModelCatalog[Number(section.dataset.providerModel)].id.toLowerCase().includes(n.value.toLowerCase());
+  }
   if (n.id === "match-search") filterMatches().catch(showError);
   if (n.id === "replay-range") renderReplay(Number(n.value));
 });
