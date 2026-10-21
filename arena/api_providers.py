@@ -218,7 +218,8 @@ def connection(model, key):
     endpoint = model.get("endpoint") or DEFAULT_ENDPOINTS.get(provider)
     if not endpoint:
         raise ArenaError("An endpoint is required")
-    headers = {"Content-Type": "application/json"}
+    # Some API gateways reject urllib's default Python user agent (Groq: 403/1010).
+    headers = {"Content-Type": "application/json", "User-Agent": "LLMArena/1.0"}
     if provider == "gemini":
         endpoint = endpoint.rstrip("/") + "/models/" + parse.quote(model["model"].removeprefix("models/"), safe="") + ":generateContent"
         headers["x-goog-api-key"] = key
