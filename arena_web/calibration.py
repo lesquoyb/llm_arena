@@ -250,6 +250,28 @@ class Workshop:
             write_json(directory/'study.json',manifest)
             return {'recorded':True,'candidate':index+1}
 
+    def set_analyst_input_limit(self, identifier, limit):
+        from arena.core import integer
+        if limit is not None: integer(limit,1,100_000_000,'analyst input admission limit')
+        with self.lock:
+            if any(process.poll() is None for process in self.processes.values()):
+                raise ArenaError('Stop the running optimization before changing the analyst input cap')
+            directory=local_path(self.root,identifier)
+            manifest=read_json(directory/'study.json')
+            work=self.active_work(directory,manifest)
+            if work['kind']!='analyst' or work.get('session_status')!='budget_exhausted':
+                raise ArenaError('No analyst budget pause to resolve')
+            stop=work.get('budget_stop') or {}
+            legacy=work.get('message','').startswith('Request exceeds conservative UTF-8 input admission bound')
+            if stop.get('code')!='input_admission' and not legacy:
+                raise ArenaError('This pause is not an analyst input admission limit')
+            analyst=saved_config(directory).get('analyst')
+            if not analyst: raise ArenaError('No analyst configured')
+            policy={'analyst_sha256':digest(analyst),'max_input_tokens_per_call':limit,'at':time.time(),
+                    'reason':'User changed the analyst input admission cap for this study. Target limits and the shared spending ceiling remain unchanged.'}
+            write_json(directory/'analyst-runtime.json',policy)
+            return {'saved':True}
+
     def active_work(self,directory,state):
         proposal=state.get('active_proposal',0)>state.get('active_trial',0)
         index=state.get('active_proposal',0) if proposal else state.get('active_trial',0)
@@ -292,6 +314,7 @@ class Workshop:
             return {'runtime_status':next((row['status'] for row in self.listing() if row['id']==directory.name), 'stopped'), 'config':saved_config(directory), 'state':read_json(directory/'study.json') if (directory/'study.json').exists() else {},'accounting':self.usage(directory),'active_work':self.active_work(directory,read_json(directory/'study.json') if (directory/'study.json').exists() else {}),
                     'progress': [{'trial': p.parent.name, 'value':read_json(p)} for p in directory.glob('trials/*/progress.json')],
                     'active_reports':{p.parent.relative_to(directory).as_posix():read_json(p) for p in directory.glob('trials/*/report.json')},
+                    'diagnostic_revision':[(p.relative_to(directory).as_posix(),p.stat().st_mtime_ns,p.stat().st_size) for p in sorted(directory.glob('trials/*/diagnostics/*.json'))],
                     'trial_directories':[p.parent.relative_to(directory).as_posix() for p in sorted(directory.glob('trials/*/journal.sqlite'),key=lambda p:int(p.parent.name))],
                     'proposal_directories':[p.parent.relative_to(directory).as_posix() for p in sorted(directory.glob('proposals/*/journal.sqlite'),key=lambda p:int(p.parent.name))],
                     'proposals':[{'directory':p.parent.relative_to(directory).as_posix(),'candidate':int(p.parent.name)+1,
@@ -365,7 +388,8 @@ class Workshop:
             comparison=state['trials'][comparison_index] if comparison_index is not None else None
             before=read_json(directory/parent['directory']/'calibration.json')['config'] if parent else state['config']
             if route=='/api/proposal':
-                proposal=read_json(trial/'proposal.json' if (trial/'proposal.json').exists() else trial/'proposal-draft.json')
+                proposal_path=trial/'proposal.json' if (trial/'proposal.json').exists() else trial/'proposal-draft.json'
+                proposal=read_json(proposal_path) if proposal_path.exists() else {}
                 frozen={**before,**{k:proposal[k] for k in ('prompt','tools','reference_documents') if k in proposal}}
             else:
                 proposal_path=directory/'proposals'/f'{candidate:03}'/'proposal.json'
@@ -380,6 +404,7 @@ class Workshop:
             guard_result=read_json(guard_path) if guard_path.exists() else None
             check_blocked=bool(guard_result and guard_result.get('status') in {'rejected','unavailable'} and state['config'].get('proposal_guard',{}).get('enabled') and state['config'].get('proposal_guard',{}).get('mode','automatic')=='automatic' and not guard_path.with_name('guard-override.json').exists())
             return {'guard_override':read_json(guard_path.with_name('guard-override.json')) if guard_path.with_name('guard-override.json').exists() else None,'guard':read_json(guard_path) if guard_path.exists() else None,'guard_enabled':state['config'].get('proposal_guard',{}).get('enabled',False), 'config':frozen,'current_best':state.get('incumbent')==candidate,'comparison_candidate':comparison_index+1 if comparison_index is not None else None,'candidate':candidate+1,'baseline':candidate==0,
+                    'diagnostic_candidate':(parent_index+1 if parent_index is not None else 1) if route=='/api/proposal' else candidate+1,
                     'analyst_directory':f'proposals/{candidate:03}' if (directory/'proposals'/f'{candidate:03}'/'journal.sqlite').is_file() else None,
                     'decision_reason':proposal['rationale'] if proposal.get('no_change') else ('Not evaluated: the proposal check returned '+read_json(guard_path)['status']+'.') if not row and check_blocked else decision_reason(row,comparison,state['config'],candidate),
                     'no_change':proposal.get('no_change',False),'decision':'No change proposed' if proposal.get('no_change') else 'Baseline' if candidate==0 else 'Kept' if row and row['accepted'] else 'Rejected' if row else 'Blocked by proposal check' if check_blocked else 'Pending evaluation',
@@ -546,6 +571,14 @@ def serve(root, port=8766, open_browser=False):
                 if not 0<size<=2000000: raise ArenaError('Invalid request size')
                 data = json.loads(self.rfile.read(size))
                 if self.path=='/api/start': result=workshop.start(data['config'],data.get('automatic',False),keys=data.get('keys'))
+                elif self.path=='/api/analyst-input-limit':
+                    result=workshop.set_analyst_input_limit(data['id'],data.get('limit'))
+                    directory=local_path(workshop.root,data['id'])
+                    try:
+                        workshop.start(saved_config(directory),read_json(directory/'study.json').get('automatic',False),data['id'],data.get('keys'))
+                    except (ArenaError,OSError,ValueError) as exc:
+                        raise ArenaError('Analyst input cap saved, but the worker could not restart: '+str(exc)) from exc
+                    result['started']=True
                 elif self.path=='/api/accept-proposal': result=workshop.accept_proposal(data['id'])
                 elif self.path=='/api/recover-target':
                     result=workshop.recover_target(data['id'],data.get('instructions',''),data.get('reconciliation'))

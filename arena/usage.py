@@ -80,6 +80,12 @@ def cost(usage, pricing):
     return str(total)
 
 
+class InputAdmissionError(ArenaError):
+    def __init__(self, request_bytes, limit):
+        super().__init__(f'Request requires {request_bytes:,} UTF-8 bytes; the configured conservative input admission limit is {limit:,}. This is a byte-based upper bound, not a measured token count.')
+        self.admission={'code':'input_admission','request_bytes':request_bytes,'configured_limit':limit}
+
+
 def reservation(model, history, tools, remaining_output):
     # Configured upper bounds, not a tokenizer-independent claim of strict billing.
     import json
@@ -92,7 +98,7 @@ def reservation(model, history, tools, remaining_output):
     request_bytes = len(json.dumps(payload, ensure_ascii=False).encode())
     input_bound = model.get("max_input_tokens_per_call", request_bytes)
     if "max_input_tokens_per_call" in model and request_bytes > input_bound:
-        raise ArenaError("Request exceeds conservative UTF-8 input admission bound")
+        raise InputAdmissionError(request_bytes,input_bound)
     p = effective_pricing(model)
     input_rate = max(amount(p.get(key, p["input_per_million"])) for key in
                      ("input_per_million", "cached_input_per_million", "cache_creation_per_million"))

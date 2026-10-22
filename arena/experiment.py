@@ -295,15 +295,15 @@ def provider_response(sid, state, model, config, journal):
         return None
     if paid:
         budget = config["budget_per_session"]
-        def stop_budget(scope, message):
+        def stop_budget(scope, message, details=None):
             state["status"] = "budget_exhausted"
-            state['budget_stop']={'scope':scope,'message':message}
+            state['budget_stop']={'scope':scope,'message':message,**(details or {})}
             journal.save(sid,state,'request_budget_blocked',state['budget_stop'])
         try:
             bound = reservation(model, state["history"], session_tools,
                                 (budget["max_output_tokens"] - state.get("output_tokens", 0)) if "max_output_tokens" in budget else None)
         except ArenaError as error:
-            stop_budget('request',str(error))
+            stop_budget('request',str(error),getattr(error,'admission',None))
             return None
         spent = amount(state.get("cost_spent", "0"))
         total = sum(amount(s.get("cost_spent", "0")) + amount(s.get("money_reserved", "0"))

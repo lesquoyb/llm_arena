@@ -482,6 +482,16 @@ def _propose(config, report, incumbent_dir, proposal_dir, learning=None):
     saved = proposal_dir/'proposal.json'
     analyst = config.get('analyst')
     if not analyst: raise ArenaError('Automatic prompt editing requires an analyst model')
+    policy_path=proposal_dir.parent.parent/'analyst-runtime.json'
+    policy=read_json(policy_path) if policy_path.exists() else None
+    if policy and policy.get('analyst_sha256')==digest(analyst):
+        analyst=copy.deepcopy(analyst)
+        limit=policy['max_input_tokens_per_call']
+        if limit is None: analyst.pop('max_input_tokens_per_call',None)
+        else: analyst['max_input_tokens_per_call']=limit
+    elif policy:
+        policy=None
+
     journal = Journal(proposal_dir)
     try:
         journal.verify()
@@ -498,6 +508,9 @@ def _propose(config, report, incumbent_dir, proposal_dir, learning=None):
                 {'role': 'user', 'content': json.dumps({'evidence': analyst_context(incumbent_dir, config, report),
                     'available_tools': TOOLS, 'optimization_context': learning}, ensure_ascii=False)}]
             journal.save(sid, state, 'session_created')
+        if policy and state.get('analyst_input_policy')!=policy:
+            state['analyst_input_policy']=policy
+            journal.save(sid,state,'analyst_input_policy_applied',policy)
         if state.get('status') == 'provider_unavailable' and not state.get('in_flight'):
             state['status'] = 'running'
         if state.get('in_flight') or state.get('status') == 'needs_reconciliation':

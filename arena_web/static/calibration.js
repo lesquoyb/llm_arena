@@ -141,6 +141,8 @@ function diffView(text) {
 }
 async function reviewCandidate(directory) {
   const epoch=++reviewEpoch, study=selected;
+  $('analyst-content').replaceChildren(node('p','Loading selected candidate…'));
+  $('diagnostic-content').replaceChildren();$('fight-summary').replaceChildren();
   const value=await api(qs(directory.startsWith('proposals/')?'/api/proposal':'/api/candidate',{trial:directory}));
   if(study!==selected || epoch!==reviewEpoch)return;
   const mount=$('analyst-content');mount.replaceChildren();
@@ -472,8 +474,6 @@ async function inspect(identifier, retain = false) {
   renderLearning(data.state);
   const automatic=data.state.automatic ?? false;
   $('workflow-status').textContent=data.state.status==='blocked' ? 'Study blocked: '+(data.state.error||'Inspect the active target conversation and journal.')+' Use the target continuation controls for a stopped tested model; analyst intervention is separate.' : !automatic ? 'Manual study: inspect results, then use Edit selected prompt to create the next candidate. No analyst is run automatically.' : data.state.active_proposal != null && data.state.status==='running' && data.state.active_trial < data.state.active_proposal ? 'Analyst is reviewing the completed trajectory and proposing a new candidate.' : data.state.status==='completed' ? 'Study complete. Review the learning rewards, proposed changes and evaluation decisions below.' : 'Target model is preparing and evaluating rounds. The analyst starts only after the candidate finishes all configured rounds/replicates or reaches its plateau.';
-  const reviewKey=selected+'|'+JSON.stringify([data.proposals, trials.map(t=>[t.directory,t.accepted]),data.state.active_proposal]);
-  if(reviewKey!==lastReviewKey){lastReviewKey=reviewKey;const latest=data.proposals?.at(-1);if(latest)await reviewCandidate(latest.directory);else{ $('analyst-content').replaceChildren(node('p',automatic?'No analyst proposal yet. Completing one target conversation does not finish the full candidate evaluation.':'Manual mode does not generate analyst findings. Review scores and edit the learning material yourself.')); }}
   $("trial-comparison").replaceChildren(
     table(
       ["Candidate", "Evaluation", "Laya", "Convergence", "Tokens", "Decision"],
@@ -541,7 +541,11 @@ async function inspect(identifier, retain = false) {
   } else {
     draw();
     if (selectedTrial !== $("trial").value) await loadTrial();
-    else await refreshSessions(keepSession);
+    else {
+      const reviewKey=selected+'|'+selectedTrial+'|'+JSON.stringify([data.proposals,data.active_reports,data.diagnostic_revision]);
+      if(reviewKey!==lastReviewKey){lastReviewKey=reviewKey;await reviewCandidate(selectedTrial);}
+      await refreshSessions(keepSession);
+    }
   }
 }
 function currentReport() {
@@ -697,8 +701,8 @@ async function loadTrial() {
   );
   draw();
   if (!selectedTrial) return;
-  if(selectedTrial.startsWith('trials/')) await reviewCandidate(selectedTrial);
-  else if(selectedState?.proposals?.some(p=>p.directory===selectedTrial)) await reviewCandidate(selectedTrial);
+  await reviewCandidate(selectedTrial);
+  lastReviewKey=selected+'|'+selectedTrial+'|'+JSON.stringify([selectedState?.proposals,selectedState?.active_reports,selectedState?.diagnostic_revision]);
   await refreshSessions();
 }
 async function refreshSessions(keepSession) {
@@ -1223,17 +1227,22 @@ $('inspect-reasoning').onclick=guard(async()=>{
 });
 
 async function renderDiagnostics(review,epoch){
-  const source=review.baseline?review.candidate:review.source_candidate,study=selected;
+  const source=review.diagnostic_candidate??review.candidate,study=selected;
   const receipts=await api(qs('/api/diagnostics',{trial:'trials/'+String(source-1).padStart(3,'0')}));
   if(study!==selected || epoch!==reviewEpoch)return;
-  const mount=$('diagnostic-content');mount.replaceChildren(node('p',`Observed trajectory: candidate ${source}. These findings are not shown to the analyst and do not affect selection.`));
+  const mount=$('diagnostic-content');mount.replaceChildren(node('p',`Candidate ${source} · Independent Laya diagnostics${source!==review.candidate?' (source trajectory for proposal '+review.candidate+')':''}`));
   if(!receipts.length){mount.append(node('p',review.config.diagnostics?.enabled?'No saved diagnostic yet.':'Independent diagnostics were not enabled for this trajectory.'));return;}
   const labels={task_understanding:'Task understanding',language_api:'Language and API',tool_use:'Tool use',use_of_results:'Use of results',progress:'Progress'};
-  for(const receipt of receipts){
+  const unavailable=receipts.filter(receipt=>receipt.status!=='completed');
+  if(unavailable.length){
+    const detail=node('details'),noReasoning=unavailable.every(receipt=>receipt.reason_code==='no_readable_reasoning'||receipt.reason?.startsWith('No readable reasoning'));
+    detail.append(node('summary',`${unavailable.length} round diagnostic(s) unavailable${noReasoning?': no readable reasoning':''}`));
+    detail.append(node('p',noReasoning?'No Laya score was generated for these rounds. Fight evaluation and prompt proposal checks are separate.':'These rounds have no completed Laya diagnostic. Saved reasons are listed below.'));
+    for(const receipt of unavailable)detail.append(node('p',`${receipt.session}: ${receipt.reason || 'Unavailable'}`));
+    detail.append(button('Inspect saved diagnostic status',()=>reveal('Laya diagnostic status',unavailable)));mount.append(detail);
+  }
+  for(const receipt of receipts.filter(receipt=>receipt.status==='completed')){
     mount.append(node('h4',receipt.session));
-    const noReasoning=receipt.reason_code==='no_readable_reasoning'||(receipt.status!=='completed'&&receipt.reason?.startsWith('No readable reasoning'));
-    if(noReasoning)mount.append(node('p','Laya diagnostic skipped: the model returned no readable reasoning. No score was generated. This does not reject the prompt or block fight-based optimization. Proposal checks evaluate the prompt separately. Choose summary evidence for future studies if desired.'));
-    if(noReasoning){mount.append(button('Inspect saved diagnostic status',()=>reveal('Laya diagnostic status',receipt)));continue;}
     mount.append(node('p',`Mean per-message distribution across ${receipt.observations?.length || 0} reasoning item(s). This is not a session accuracy score or a probability that the code works.`));
     mount.append(button('Inspect Laya input and per-message results',async()=>reveal('Actual diagnostic evidence',await api(qs('/api/diagnostic-evidence',{trial:'trials/'+String(source-1).padStart(3,'0'),session:receipt.session})))));
     if(receipt.status!=='completed'){mount.append(node('p',receipt.reason || 'Diagnostic unavailable'));continue;}
@@ -1317,6 +1326,11 @@ function commandCenter(data){
  mount.append(node('p',explanation));
  if(blocked && work.message){const reason=node('div',undefined,'block-reason');reason.append(node('strong','Reason'),node('p',work.message));mount.append(reason)}
  const actions=node('div',undefined,'actions');
+ const inputAdmission=analystBudget&&(work.budget_stop?.code==='input_admission'||work.message?.startsWith('Request exceeds conservative UTF-8 input admission bound'));
+ if(inputAdmission){
+   mount.append(node('small','The analyst receives the prompt, editable documents and trajectory evidence. This participant cap compares serialized UTF-8 bytes, not measured tokens. Removing it affects analyst requests in this study; the shared spending ceiling still applies.'));
+   actions.append(button('Remove analyst input cap & resume',async()=>{await api('/api/analyst-input-limit',{id:selected,limit:null,keys:keys()});await inspect(selected);}));
+ }
  if(failedPreparation&&!running)actions.append(button(data.state.automatic?'Send failed attempt to analyst':'Record unsuccessful attempt',()=>$('resume').click()));
  if(blocked && work.guard_override_available && !running)actions.append(button('Accept proposal & continue',async()=>{await api('/api/accept-proposal',{id:selected});await api('/api/resume',{id:selected,keys:keys()});await inspect(selected);}));
  if(blocked && work.kind==='analyst' && !running)actions.append(button('Finish with current best',async()=>{await api('/api/intervene',{id:selected,replacement:true,text:JSON.stringify({no_change:true,rationale:'User chose to discard the pending proposal and retain the best evaluated candidate.'})});await api('/api/resume',{id:selected,keys:keys()});await inspect(selected);}));

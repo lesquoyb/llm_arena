@@ -45,6 +45,35 @@ class CalibrationWebTests(TestCase):
                                  ('/api/message', {'session':['other'], 'index':['0'], 'block':['0']})]:
                 with self.assertRaises(ArenaError): workshop.get(route, {**query, **extra})
 
+    def test_pending_proposal_and_analyst_input_policy_preserve_frozen_settings(self):
+        from arena.experiment import Journal,initial_state
+        from arena.calibration import experiment_config
+        from arena.core import read_json
+        with scratch_directory() as tmp,mock.patch('arena.calibration.Engine',FixtureEngine):
+            workshop=Workshop(tmp/'studies',Store(tmp/'runs',tmp/'settings'))
+            value=config();directory=workshop.root/'example'
+            write_json(directory/'input.json',value);study(value,directory)
+            manifest=read_json(directory/'study.json')
+            value['analyst']={**value['target'],'max_input_tokens_per_call':1000}
+            manifest.update(config=value,status='blocked',active_trial=0,active_proposal=1,active_parent=0)
+            write_json(directory/'input.json',value);write_json(directory/'study.json',manifest)
+            folder=directory/'proposals/001';folder.mkdir(parents=True)
+            journal=Journal(folder)
+            try:
+                state=initial_state('analyst-r0',value['target'],experiment_config(value))
+                state.update(status='budget_exhausted',budget_stop={'code':'input_admission','message':'Input too large','scope':'request'})
+                journal.save('analyst-r0',state,'fixture')
+            finally:journal.db.close()
+            query={'study':['example'],'trial':['proposals/001']}
+            proposal=workshop.get('/api/proposal',query)
+            self.assertEqual(proposal['candidate'],2)
+            self.assertEqual(proposal['diagnostic_candidate'],1)
+            self.assertEqual(workshop.get('/api/candidate',{**query,'trial':['trials/000']})['diagnostic_candidate'],1)
+            workshop.set_analyst_input_limit('example',None)
+            self.assertIsNone(read_json(directory/'analyst-runtime.json')['max_input_tokens_per_call'])
+            self.assertEqual(read_json(directory/'input.json'),value)
+            self.assertEqual(read_json(directory/'study.json')['config'],value)
+
     def test_target_continuation_preserves_pending_tools_and_rejects_uncertain_requests(self):
         from arena.experiment import Journal,initial_state
         from arena.calibration import experiment_config

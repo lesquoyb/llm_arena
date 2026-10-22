@@ -683,3 +683,24 @@ A summary-based diagnostic can be selected for a new study instead. The Laya
 proposal guard examines proposed instructions separately and does not require the
 tested model's reasoning. Conversation-only scoring, unlike an optional diagnostic,
 requires usable evidence and reports an error if there is none.
+
+### Resolving an analyst input admission pause
+
+The participant setting `max_input_tokens_per_call` is checked conservatively
+against the serialized request's UTF-8 byte length, not a tokenizer measurement.
+The analyst's input includes the system prompt, editable documents and bounded
+trajectory evidence, so a cap sufficient for a target call may reject this larger
+request. The pause now reports both byte length and configured bound.
+
+For an existing paused study, **Remove analyst input cap & resume** explicitly
+removes this admission cap from that study's analyst requests, including subsequent
+candidates. The decision is saved in `analyst-runtime.json` and recorded in each
+analyst journal. Frozen target inputs and the original participant remain intact;
+the shared financial ceiling and the provider's own context constraints still
+apply. Ordinary Resume does not silently remove this cap.
+
+The candidate selector controls the entire review panel. Target candidates show
+their own diagnostics; pending prompt proposals label their source trajectory.
+Refreshing does not substitute the latest proposal for the selected candidate.
+Unavailable diagnostics are grouped in one collapsed summary, with saved reasons
+available inside. Existing completed diagnostic receipts are retained.
