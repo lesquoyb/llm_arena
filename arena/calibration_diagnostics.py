@@ -35,7 +35,7 @@ def diagnose(out, sid, state, settings, config):
     try:
         evidence=evidence_for(state,settings,out,sid,config)
         if not evidence:
-            receipt.update(status='unavailable',reason='No readable reasoning was returned. Encrypted reasoning cannot be diagnosed.')
+            receipt.update(status='unavailable',reason_code='no_readable_reasoning',judge_called=False,reason='No readable reasoning was returned. Encrypted reasoning cannot be diagnosed.')
         else:
             model=agent(settings['model'],settings['device'])
             observations=[]; totals={key:{label:0.0 for label in q['criteria']} for key,q in QUESTIONS.items()}

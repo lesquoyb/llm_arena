@@ -295,11 +295,15 @@ def provider_response(sid, state, model, config, journal):
         return None
     if paid:
         budget = config["budget_per_session"]
+        def stop_budget(scope, message):
+            state["status"] = "budget_exhausted"
+            state['budget_stop']={'scope':scope,'message':message}
+            journal.save(sid,state,'request_budget_blocked',state['budget_stop'])
         try:
             bound = reservation(model, state["history"], session_tools,
                                 (budget["max_output_tokens"] - state.get("output_tokens", 0)) if "max_output_tokens" in budget else None)
-        except ArenaError:
-            state["status"] = "budget_exhausted"
+        except ArenaError as error:
+            stop_budget('request',str(error))
             return None
         spent = amount(state.get("cost_spent", "0"))
         total = sum(amount(s.get("cost_spent", "0")) + amount(s.get("money_reserved", "0"))
@@ -313,15 +317,20 @@ def provider_response(sid, state, model, config, journal):
         if "max_total_usd" in config["spending"]:
             remaining.append(amount(config["spending"]["max_total_usd"]) - total)
         if any(value <= 0 for value in remaining):
-            state["status"] = "budget_exhausted"
+            scope='study' if 'max_total_usd' in config['spending'] and total>=amount(config['spending']['max_total_usd']) else 'session'
+            stop_budget(scope,'The shared study spending limit is exhausted; completed work is preserved.' if scope=='study' else 'The session spending limit is exhausted.')
             return None
         state["reservation_unbounded"] = bound["cost_bound"] is None and not remaining
         if bound["cost_bound"] is None and remaining:
             bound["cost_bound"] = str(min(remaining))
-        if (("max_input_tokens" in budget and state.get("input_tokens", 0) + bound["input_bound"] > budget["max_input_tokens"])
-                or (bound["cost_bound"] is not None and any(amount(bound["cost_bound"]) > value for value in remaining))):
-            state["status"] = "budget_exhausted"
+        if "max_input_tokens" in budget and state.get("input_tokens",0)+bound['input_bound']>budget['max_input_tokens']:
+            stop_budget('session','The next request exceeds the session input token limit (conservative admission estimate).')
             return None
+        if bound['cost_bound'] is not None and any(amount(bound['cost_bound'])>value for value in remaining):
+            scope='study' if 'max_total_usd' in config['spending'] and amount(bound['cost_bound'])>amount(config['spending']['max_total_usd'])-total else 'session'
+            stop_budget(scope,'The next request reservation exceeds the remaining shared study spending limit; completed work is preserved.' if scope=='study' else 'The next request reservation exceeds the remaining session spending limit.')
+            return None
+        state.pop('budget_stop',None)
         state["money_reserved"] = bound["cost_bound"] or "0"
     else:
         bound = None

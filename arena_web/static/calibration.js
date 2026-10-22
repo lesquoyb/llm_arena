@@ -164,7 +164,7 @@ async function reviewCandidate(directory) {
   if(!changes)mount.append(node('p',value.baseline?'The original prompt and documents are unchanged.':'No prompt, document, tool-selection or parameter changes.'));
   if(value.tool_requests?.length){mount.append(node('h4','Tool improvement requests'));value.tool_requests.forEach(request=>mount.append(formatted(`**${request.kind}: ${request.tool || 'Tools/documentation'}**\n${request.problem}\n${request.proposed_change}\n${request.expected_benefit || ''}`)))}
   if(!value.baseline)mount.append(node('p','The analyst proposes changes. Kept/rejected is decided by paired validation results and the configured objective, not by the analyst’s opinion.'));
-  const actions=node('div',undefined,'review-actions');actions.append(button('Inspect analyst conversation',async()=>{studyTab('inspect');const proposal='proposals/'+String(value.candidate-1).padStart(3,'0');if(![...$('trial').options].some(o=>o.value===proposal))option($('trial'),proposal,'Analyst for candidate '+value.candidate);$('trial').value=proposal;await loadTrial();$('history').scrollIntoView({behavior:'smooth',block:'center'})}),button('Raw review data',()=>reveal('Candidate review data',value)));
+  const actions=node('div',undefined,'review-actions');if(value.analyst_directory)actions.append(button('Inspect analyst conversation',async()=>{studyTab('inspect');const proposal=value.analyst_directory;if(![...$('trial').options].some(o=>o.value===proposal))option($('trial'),proposal,'Analyst for candidate '+value.candidate);$('trial').value=proposal;await loadTrial();$('history').scrollIntoView({behavior:'smooth',block:'center'})}));actions.append(button('Raw review data',()=>reveal('Candidate review data',value)));
   actions.append(button('Download this candidate’s learning material',()=>downloadMaterial(directory)));
   mount.append(actions);
 }
@@ -753,6 +753,7 @@ async function reveal(title, value) {
 async function history(offset, refresh = false) {
   const session=sessionRows.find(row=>row.id===$('session').value);
   $('session-identity').textContent=session ? `${session.id.startsWith('analyst')?'Prompt analyst':'Tested model'} · ${selectedTrial} · ${session.id} · ${session.status}${session.failure?.message?' · '+session.failure.message:''}` : '';
+  if(!session){$('history').replaceChildren(node('p','No conversation has been recorded here yet.'));return;}
   const requestedStudy=selected;
   const params = { trial: selectedTrial, session: $("session").value },
     view = $("view").value;
@@ -1230,6 +1231,9 @@ async function renderDiagnostics(review,epoch){
   const labels={task_understanding:'Task understanding',language_api:'Language and API',tool_use:'Tool use',use_of_results:'Use of results',progress:'Progress'};
   for(const receipt of receipts){
     mount.append(node('h4',receipt.session));
+    const noReasoning=receipt.reason_code==='no_readable_reasoning'||(receipt.status!=='completed'&&receipt.reason?.startsWith('No readable reasoning'));
+    if(noReasoning)mount.append(node('p','Laya diagnostic skipped: the model returned no readable reasoning. No score was generated. This does not reject the prompt or block fight-based optimization. Proposal checks evaluate the prompt separately. Choose summary evidence for future studies if desired.'));
+    if(noReasoning){mount.append(button('Inspect saved diagnostic status',()=>reveal('Laya diagnostic status',receipt)));continue;}
     mount.append(node('p',`Mean per-message distribution across ${receipt.observations?.length || 0} reasoning item(s). This is not a session accuracy score or a probability that the code works.`));
     mount.append(button('Inspect Laya input and per-message results',async()=>reveal('Actual diagnostic evidence',await api(qs('/api/diagnostic-evidence',{trial:'trials/'+String(source-1).padStart(3,'0'),session:receipt.session})))));
     if(receipt.status!=='completed'){mount.append(node('p',receipt.reason || 'Diagnostic unavailable'));continue;}
@@ -1301,12 +1305,14 @@ async function focusActive(tab){
 function commandCenter(data){
  const mount=$('study-command'),work=data.active_work||{},running=data.runtime_status==='running',blocked=data.state.status==='blocked',completed=data.state.status==='completed';
  mount.replaceChildren();mount.classList.toggle('blocked',blocked);
+ const analystBudget=blocked&&work.kind==='analyst'&&work.session_status==='budget_exhausted';
  const failedPreparation=blocked&&work.kind==='target'&&['no_submission','generation_failed'].includes(work.session_status);
- const title=completed?'Optimization complete':failedPreparation?'Preparation ended without a strategy':blocked?(work.kind==='analyst'?'Prompt proposal blocked':'Tested model stopped'):running?(work.kind==='analyst'?'Analyst is preparing a prompt proposal':'Tested model is preparing a strategy'):'Optimization paused';
+ const title=analystBudget?'Analyst paused by a budget limit':completed?'Optimization complete':failedPreparation?'Preparation ended without a strategy':blocked?(work.kind==='analyst'?'Prompt proposal blocked':'Tested model stopped'):running?(work.kind==='analyst'?'Analyst is preparing a prompt proposal':'Tested model is preparing a strategy'):'Optimization paused';
  mount.append(node('span',`Candidate ${work.candidate||1} · ${work.kind==='analyst'?'Prompt analyst':'Tested model'}`,'eyebrow'),node('h3',title));
  const cfg=data.config,roundMode=cfg.max_rounds==null?'Until stopped':(cfg.stop_on_plateau!==false?'Up to ':'')+cfg.max_rounds+' script rounds';
  mount.append(node('small',`Saved settings: ${roundMode} per candidate · ${cfg.replicates} repetition(s)${cfg.stop_on_plateau!==false?' · Plateau patience '+cfg.patience:''}. These settings are frozen at launch.`));
  let explanation=completed?(data.state.stop_reason==='analyst_no_change'?'The analyst proposed no further improvement. The best evaluated candidate is retained. '+(data.state.analyst_conclusion||''):'Review the results or choose another saved prompt version.'):blocked?(work.guard_status && work.guard_status!=='approved'?'The proposal check returned '+work.guard_status+'. This prompt has not been evaluated. Review the changes before requesting a correction.':work.requires_reconciliation?'An interrupted provider request needs its charge checked before it can continue.':work.kind==='analyst'?'The proposed prompt could not be accepted. Completed evaluations are preserved. Review the reason, then correct the proposal or ask the analyst to revise it.':'No strategy is ready for evaluation. Continue the saved target conversation to finish this candidate.'):running?(work.phase?.message || (work.kind==='analyst'?'The analyst returns a prompt proposal as JSON. No strategy submission or preparation fights are expected here.':'The model writes and tests its strategy before submitting it.')):'Resume the existing optimization to continue; completed work is preserved.';
+ if(analystBudget)explanation='This is a request budget limit, not a rejected prompt or a lost strategy. Completed target evaluations and the analyst conversation are preserved. Target preparation limits do not apply to the analyst; the shared optimization spending limit still applies.';
  if(failedPreparation)explanation='This is an unsuccessful observation, not a request to extend the model’s budget. Record it and let the analyst inspect the failure and conversation.';
  mount.append(node('p',explanation));
  if(blocked && work.message){const reason=node('div',undefined,'block-reason');reason.append(node('strong','Reason'),node('p',work.message));mount.append(reason)}

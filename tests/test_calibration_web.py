@@ -21,6 +21,11 @@ class CalibrationWebTests(TestCase):
             candidate = workshop.get('/api/candidate', query)
             self.assertEqual(candidate['config']['prompt'], value['prompt'])
             self.assertEqual(candidate['prompt_diff'], '')
+            self.assertIsNone(candidate['analyst_directory'])
+            missing={**query,'trial':['proposals/000'],'session':['analyst-r0']}
+            self.assertEqual(workshop.get('/api/sessions',missing),[])
+            with self.assertRaisesRegex(ArenaError,'No conversation has been recorded'):
+                workshop.get('/api/conversation',missing)
             summary = workshop.get('/api/study', query)
             self.assertEqual(summary['trial_directories'], ['trials/000'])
             conversation = workshop.get('/api/conversation', {**query, 'offset':['0']})

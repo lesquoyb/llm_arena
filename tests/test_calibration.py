@@ -278,6 +278,39 @@ class CalibrationTests(TestCase):
             write_json(tmp/'proposal/proposal.json',{**proposal,'prompt':'tampered'})
             with self.assertRaisesRegex(ArenaError,'changed'): propose(value,report,tmp/'incumbent',tmp/'proposal')
 
+    def test_analyst_does_not_inherit_target_token_and_cost_limits(self):
+        with scratch_directory() as tmp:
+            value=config();report=trial(value,tmp/'incumbent',engine=FixtureEngine())
+            value['budget_per_session'].update(max_input_tokens=1,max_output_tokens=1,max_cost_usd='0')
+            value['spending']={'allow_paid_calls':True}
+            value['analyst']={'id':'editor','provider':'openai-compatible','model':'fixture','api_key_env':'ARENA_EDITOR_FIXTURE',
+                'endpoint':'http://127.0.0.1:11434/v1/chat/completions','max_output_tokens':2048,
+                'pricing':{'date':'2026-10-22','currency':'USD','input_per_million':'0','output_per_million':'0'}}
+            answer={'role':'assistant','content':json.dumps({'no_change':True,'rationale':'No justified improvement.'}),
+                    'tool_calls':[],'usage':{'input_tokens':900,'output_tokens':90},'cost_usd':'0'}
+            with mock.patch('arena.api_providers.APIProvider.respond',return_value=answer) as respond:
+                result=propose(value,report,tmp/'incumbent',tmp/'proposal')
+                self.assertTrue(result['no_change'])
+                self.assertEqual(respond.call_args.args[-1],2048)
+            journal=Journal(tmp/'proposal')
+            try:
+                state=journal.state('analyst-r0')
+                self.assertEqual(state['status'],'submitted')
+                self.assertEqual(state['input_tokens'],900)
+            finally:journal.db.close()
+            from arena.experiment import initial_state
+            from arena.calibration import experiment_config
+            saved=tmp/'saved-budget-answer';saved.mkdir()
+            journal=Journal(saved)
+            try:
+                state=initial_state('analyst-r0',value['analyst'],experiment_config(value))
+                state.update(status='budget_exhausted',calls=1,input_tokens=900,output_tokens=90,
+                             calibration={'tools':[]},pending=answer)
+                journal.save('analyst-r0',state,'fixture_saved_answer')
+            finally:journal.db.close()
+            with mock.patch('arena.api_providers.APIProvider.respond',side_effect=AssertionError('Do not repeat a saved response')):
+                self.assertTrue(propose(value,report,tmp/'incumbent',saved)['no_change'])
+
     def test_study_ceiling_includes_earlier_candidates_before_reserving_another_request(self):
         from arena.experiment import initial_state,provider_response
         from test_web import api_model

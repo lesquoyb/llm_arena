@@ -263,12 +263,13 @@ class Workshop:
         if dbpath.exists():
             db=sqlite3.connect(dbpath.as_uri()+'?mode=ro',uri=True)
             try:
-                rows=db.execute("SELECT json_extract(state,'$.status','$.proposal_phase','$.proposal_error','$.in_flight','$.failure.message') FROM sessions ORDER BY id").fetchall()
+                rows=db.execute("SELECT json_extract(state,'$.status','$.proposal_phase','$.proposal_error','$.in_flight','$.failure.message','$.budget_stop') FROM sessions ORDER BY id").fetchall()
                 for (raw,) in rows:
-                    status,phase,error,in_flight,failure=json.loads(raw)
+                    status,phase,error,in_flight,failure,budget_stop=json.loads(raw)
                     if proposal or status not in {'submitted','budget_exhausted'}:
-                        result.update(session_status=status,phase=phase,proposal_error=error,requires_reconciliation=bool(in_flight or status=='needs_reconciliation'))
+                        result.update(session_status=status,phase=phase,proposal_error=error,budget_stop=budget_stop,requires_reconciliation=bool(in_flight or status=='needs_reconciliation'))
                         if error or failure: result['message']=error or failure
+                        if budget_stop and status=='budget_exhausted': result['message']=budget_stop['message']
             finally: db.close()
         return result
 
@@ -379,6 +380,7 @@ class Workshop:
             guard_result=read_json(guard_path) if guard_path.exists() else None
             check_blocked=bool(guard_result and guard_result.get('status') in {'rejected','unavailable'} and state['config'].get('proposal_guard',{}).get('enabled') and state['config'].get('proposal_guard',{}).get('mode','automatic')=='automatic' and not guard_path.with_name('guard-override.json').exists())
             return {'guard_override':read_json(guard_path.with_name('guard-override.json')) if guard_path.with_name('guard-override.json').exists() else None,'guard':read_json(guard_path) if guard_path.exists() else None,'guard_enabled':state['config'].get('proposal_guard',{}).get('enabled',False), 'config':frozen,'current_best':state.get('incumbent')==candidate,'comparison_candidate':comparison_index+1 if comparison_index is not None else None,'candidate':candidate+1,'baseline':candidate==0,
+                    'analyst_directory':f'proposals/{candidate:03}' if (directory/'proposals'/f'{candidate:03}'/'journal.sqlite').is_file() else None,
                     'decision_reason':proposal['rationale'] if proposal.get('no_change') else ('Not evaluated: the proposal check returned '+read_json(guard_path)['status']+'.') if not row and check_blocked else decision_reason(row,comparison,state['config'],candidate),
                     'no_change':proposal.get('no_change',False),'decision':'No change proposed' if proposal.get('no_change') else 'Baseline' if candidate==0 else 'Kept' if row and row['accepted'] else 'Rejected' if row else 'Blocked by proposal check' if check_blocked else 'Pending evaluation',
                     'rationale':proposal.get('rationale') or (row.get('rationale') if row else 'Candidate evaluation is in progress.'),
@@ -432,7 +434,11 @@ class Workshop:
             path = local_path(trial,value('path'))
             with path.open('rb') as stream: content = stream.read(1000001)
             return {'content':content[:1000000].decode('utf-8',errors='replace'), 'truncated':len(content)>1000000}
-        db = sqlite3.connect(local_path(trial,'journal.sqlite').as_uri()+'?mode=ro',uri=True)
+        journal_path=local_path(trial,'journal.sqlite')
+        if not journal_path.is_file():
+            if route=='/api/sessions': return []
+            raise ArenaError('No conversation has been recorded for this candidate yet. The initial baseline has no analyst proposal.')
+        db = sqlite3.connect(journal_path.as_uri()+'?mode=ro',uri=True)
         try:
             if route == '/api/sessions':
                 return [{'id':sid, **{key:state.get(key) for key in ('status','calls','steps','generation','replicate','failure')}}

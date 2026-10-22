@@ -654,3 +654,32 @@ freeze existing code, calibration retries only that snapshot operation. It does
 not repeat model calls or rewrite completed trial results. Cached reference fights
 remain verified against their original engine provenance after compatible runner
 updates.
+
+## Target preparation limits versus analyst requests
+
+`budget_per_session` limits the tested model's preparation. Exhausting that budget
+freezes its latest saved sources for assessment; compilation and team errors can
+still make that frozen submission invalid. This status does not mean the analyst
+proposal was rejected.
+
+The prompt analyst does not inherit the target's token, call, tool or per-session
+cost limits. Its own participant settings (such as maximum output per request and
+input admission bound) still apply. The shared `spending.max_total_usd` ceiling
+covers both target and analyst calls and is never bypassed by recovery. Admission
+uses a conservative reservation, so a request can be paused before the actual
+ceiling is spent. The interface identifies these cases as budget pauses, with the
+specific reason, rather than semantic proposal rejection.
+
+Resume after updating the application to recover an old analyst budget pause.
+An already recorded answer is parsed first, preserving its usage receipt without
+another model call. A new request still checks the shared spending ceiling.
+The baseline has no analyst proposal of its own: analyst conversation links are
+shown only when their journal exists.
+
+Independent Laya diagnostics require readable reasoning when configured with
+`evidence=reasoning`. If the model returns none, an unavailable diagnostic receipt
+is saved and no score is invented. This does not block fight-based optimization.
+A summary-based diagnostic can be selected for a new study instead. The Laya
+proposal guard examines proposed instructions separately and does not require the
+tested model's reasoning. Conversation-only scoring, unlike an optional diagnostic,
+requires usable evidence and reports an error if there is none.
