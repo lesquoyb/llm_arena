@@ -105,6 +105,14 @@ class Store(Workspaces):
                                                     os.environ.get(m.get("api_key_env", "")))}
                 for m in self.catalog()]
 
+    def model_size(self, model, catalog=None):
+        """Frozen metadata wins; old runs can use an explicitly matching profile."""
+        value=model.get('model_size_billion') or model.get('strategy',{}).get('origin',{}).get('model_size_billion')
+        if value is not None:return value
+        keys=('id','provider','model','endpoint')
+        current=next((row for row in (self.catalog() if catalog is None else catalog) if all(row.get(key)==model.get(key) for key in keys)),{})
+        return current.get('model_size_billion')
+
     def participant_groups(self):
         return self.json(self.state/'participant-groups.json',[])
 
@@ -185,7 +193,7 @@ class Store(Workspaces):
                 raise ArenaError('Select 1 to 100 models')
             existing=self.catalog();ids={row['id'] for row in existing};created=[]
             for row in models:
-                if not isinstance(row,dict) or set(row)-{'id','model','pricing','max_output_tokens'}:
+                if not isinstance(row,dict) or set(row)-{'id','model','pricing','max_output_tokens','model_size_billion'}:
                     raise ArenaError('Invalid participant fields')
                 model={key:value for key,value in spec.items() if key!='id'}
                 model.update(row)
@@ -233,11 +241,13 @@ class Store(Workspaces):
             if any(m['id']==name for m in self.catalog()):
                 raise ArenaError('A participant with this name already exists')
             metadata=self.json(root/'experiment.json')
+            original=next((m for m in metadata['config']['models'] if m['id']==state['model']),{})
             spec={'id':name,'provider':'mock','profile':'saved-strategy','strategy':{
                 'files':{path:content.decode('utf-8') for path,content in source_files(source).items()},
                 'submission':info,'scenario_sha256':digest(metadata['config']['scenario']),
                 'origin':{'run':identifier,'session':sid,'model':state['model'],
-                          'round':state.get('generation',0)+1,'condition':state.get('condition','initial')}}}
+                          'round':state.get('generation',0)+1,'condition':state.get('condition','initial'),
+                          'model_size_billion':self.model_size(original)}}}
             # Validation uses the source scenario, rather than the default scenario.
             config=copy.deepcopy(metadata['config']);config['models']=[spec]
             config['spending']={'allow_paid_calls':False,'max_total_usd':0}
@@ -441,6 +451,7 @@ class Store(Workspaces):
                 session['cost_spent'] = str(Decimal(session['cost_spent']) + Decimal(adjustment))
         sessions.sort(key=lambda s:(s.get('model',''),s.get('replicate',0),s.get('generation',0),s.get('condition','')))
         return {"id": identifier, "revision": self.revision(root), "metadata": metadata, "report": self.json(root / "report.json", {}),
+                'model_metadata':{m['id']:{'model_size_billion':self.model_size(m)} for m in metadata.get('config',{}).get('models',[])},
                 "analysis": self.json(root / "analysis.json"), "sessions": sessions,
                 "g0": self.json(root / "tournament/report.json"),
                 "g1": self.json(root / "g1-tournament/report.json"),
@@ -884,7 +895,8 @@ class Store(Workspaces):
                 if row["panel"] != "controls":
                     continue
                 descriptor = models.get(row["model"], {})
-                model_key = digest({k: v for k, v in descriptor.items() if k != "api_key_env"})[:12]
+                descriptor={**descriptor,'model_size_billion':self.model_size(descriptor)}
+                model_key = digest({k: v for k, v in descriptor.items() if k not in {"api_key_env","model_size_billion"}})[:12]
                 k = f"{row['model']}/{model_key}/g{row['generation']}/{row['condition']}"
                 point = {**row, "run": identifier, "created_at": (root / "experiment.json").stat().st_mtime,
                          "model_signature": model_key, "model_id": descriptor.get("model", descriptor.get("profile")),
@@ -900,7 +912,9 @@ class Store(Workspaces):
                 total_cost = (str(sum((Decimal(r["cost_usd"]) for r in rows), Decimal(0)))
                               if all(r.get("cost_usd") is not None for r in rows) else None)
                 complete = [r for r in rows if r["score"] is not None and not r["failed"]]
-                summaries.append({**totals, "cost_usd": total_cost, "key": key, "model": rows[0]["model"], "participant": rows[0]["participant"], "generation": rows[0]["generation"],
+                sizes={row['participant'].get('model_size_billion') for row in rows}
+                participant={**rows[0]['participant'],'model_size_billion':next(iter(sizes)) if len(sizes)==1 else None}
+                summaries.append({**totals, "cost_usd": total_cost, "key": key, "model": rows[0]["model"], "participant": participant, "generation": rows[0]["generation"],
                                   "condition": rows[0]["condition"],
                                   "score": sum(r["score"] for r in complete) / len(complete) if complete else None,
                                   "conversations": len(complete), "excluded": len(rows) - len(complete),

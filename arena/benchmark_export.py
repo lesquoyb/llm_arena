@@ -5,7 +5,7 @@ from decimal import Decimal
 from tempfile import TemporaryDirectory
 from collections import defaultdict
 from pathlib import Path
-from .core import ArenaError, digest, write_json
+from .core import ArenaError, STATE_ROOT, digest, read_json, write_json
 from arena_web.data import Store
 
 METRICS = ('operations','errors','operation_limit_hits','damage_dealt','damage_taken','healing_given','healing_received','actions','cells_moved')
@@ -18,7 +18,10 @@ def _csv(path, rows, empty_fields):
         writer.writeheader();writer.writerows(rows)
 
 
-def export(runs, out):
+def export(runs, out, catalog=None):
+    if catalog is None:
+        path=STATE_ROOT/'ui/participants.json'
+        catalog=read_json(path) if path.is_file() else []
     runs=[Path(root).resolve() for root in runs]
     if len(set(runs)) != len(runs): raise ArenaError('The same run was selected more than once')
     temporary=TemporaryDirectory(prefix="arena-benchmark-reader-")
@@ -46,7 +49,7 @@ def export(runs, out):
                 'model':model.get('model',model.get('profile')),'requested_parameters_json':json.dumps({**model.get('parameters',{}),**state.get('provider_parameter_overrides',{})},sort_keys=True),
                 'replicate':state.get('replicate'),'round':state.get('generation',0)+1,'condition':state.get('condition','initial'),
                 'scenario_sha256':digest(config.get('scenario',{})),'engine_sha256':digest(metadata.get('engine',{})),
-                'strategy_sha256':state.get('submission',{}).get('sha256')}
+                'strategy_sha256':state.get('submission',{}).get('sha256'),'model_size_billion':store.model_size(model,catalog=catalog)}
             descriptors[sid]=descriptor
             tokens={key:receipt.get(key) if measured else None if has_receipts else state.get(key) if state.get('token_usage_known') else None for key in ('input_tokens','output_tokens')}
             sessions.append({**descriptor,'status':state.get('status'),'validation':state.get('validity'),
@@ -70,7 +73,7 @@ def export(runs, out):
                 'requested_parameters_json':json.dumps(origin.get('parameters',{}),sort_keys=True),'replicate':origin.get('replicate',strategy.get('replicate')),
                 'round':origin.get('round'),'condition':origin.get('condition','frozen'),
                 'scenario_sha256':digest(config.get('scenario',{})),'engine_sha256':digest(metadata.get('engine',{})),
-                'strategy_sha256':strategy.get('submission',{}).get('sha256')}
+                'strategy_sha256':strategy.get('submission',{}).get('sha256'),'model_size_billion':origin.get('model_size_billion')}
         groups=defaultdict(list)
         for fight in store.matches(root.name)['matches']:
             for side,sid in enumerate(fight['sides']):
@@ -102,7 +105,7 @@ def export(runs, out):
     results = []
     for score in scores:
         resource = resources.get((score.get('source_run_id'),score.get('source_session')), {})
-        results.append({**score, **{key:resource.get(key) for key in resource_fields}})
+        results.append({**score, 'score_per_billion':score['score']/score['model_size_billion'] if score.get('score') is not None and score.get('model_size_billion') else None, **{key:resource.get(key) for key in resource_fields}})
     out=Path(out).resolve();out.mkdir(parents=True,exist_ok=False)
     write_json(out/'runs.json',run_index)
     _csv(out/'sessions.csv',sessions,['run','participant'])

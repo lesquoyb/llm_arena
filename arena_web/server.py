@@ -283,19 +283,19 @@ class Handler(BaseHTTPRequestHandler):
                     import io
                     summary=app.store.workspace_summary(query['workspace'][0])
                     stream=io.StringIO(newline='')
-                    columns=['workspace_id','comparison_group','kind','stage','scenario_sha256','runs','participant','round','condition','score','wins','draws','losses','failed','strategies']
+                    columns=['workspace_id','comparison_group','kind','stage','scenario_sha256','runs','participant','round','condition','score','wins','draws','losses','failed','strategies','model_size_billion','score_per_billion','mean_cost_usd','mean_wall_seconds']
                     writer=csv.DictWriter(stream,fieldnames=columns);writer.writeheader()
                     for group in summary['groups']:
                         for row in group['models']:
                             writer.writerow({'workspace_id':query['workspace'][0],'comparison_group':group['id'],
                                 'kind':group['kind'],'stage':group['stage'],'scenario_sha256':digest(group['scenario']),
                                 'runs':json.dumps(group['runs']), 'participant':row['name'],'strategies':row['conversations'],
-                                **{key:row[key] for key in ('round','condition','score','wins','draws','losses','failed')}})
+                                **{key:row[key] for key in ('round','condition','score','wins','draws','losses','failed','model_size_billion','score_per_billion','mean_cost_usd','mean_wall_seconds')}})
                     body=stream.getvalue().encode('utf-8-sig')
                 elif table in {'results', 'fights', 'sessions'}:
                     with TemporaryDirectory(prefix='arena-results-') as directory:
                         target = Path(directory) / 'export'
-                        export(roots, target)
+                        export(roots, target,catalog=app.store.catalog())
                         body = (target / (table + '.csv')).read_bytes()
                 else:
                     raise ArenaError('Unknown results table')

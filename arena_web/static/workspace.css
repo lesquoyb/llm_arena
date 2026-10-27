@@ -284,3 +284,9 @@ body[data-view=workspaces] .panel-title select { min-width: 0; width: 100%; max-
 .competition-group-picker select { width:100%; }
 .collection-toolbar > .field { margin:0; min-width:160px; }
 .collection-toolbar { flex-wrap:wrap; }
+.resource-scatter { display:block; width:100%; max-height:330px; }
+.resource-scatter text { fill:var(--muted); font-size:11px; }
+.resource-chart { min-width:0; margin:16px 0 24px; }
+.resource-chart .overview-section-head { flex-wrap:wrap; gap:12px; }
+.resource-chart .field { min-width:0; max-width:100%; margin:0; }
+.resource-chart select { max-width:100%; }

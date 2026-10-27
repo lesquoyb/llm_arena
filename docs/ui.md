@@ -681,3 +681,27 @@ renaming or deleting a group does not change existing configurations or running
 competitions. Deleting a profile removes it from groups. Deleting a group keeps
 all profiles. Group metadata is saved in `.arena/ui/participant-groups.json`;
 it is not sent to models or added to frozen experiment settings.
+
+## Model size and resource charts
+
+API participant profiles have an optional **Model size (B parameters)** field.
+Enter total parameter count in billions: `7` for 7B, `0.5` for 500M. For MoE models,
+use total parameters, not the active subset. This field does not describe file
+size, quantization or VRAM, and is never sent as a generation parameter. Leave it
+blank when the size is unknown; the arena does not guess from model names.
+
+Competition summaries and workspace performance groups include **Performance vs
+resources**, with size, preparation cost and preparation time on the horizontal
+axis and score on the vertical axis. Existing round/model/group filters apply.
+Cost and duration are averaged per selected strategy conversation, not summed
+across repetitions. Missing measurements are excluded from that chart. Preparation
+time includes model and tool work and depends on hardware, quantization and
+concurrency. Size alone is not a measure of running cost.
+
+Detailed metrics and CSV exports include `model_size_billion`; result exports also
+include `score_per_billion` (score from 0 to 1 divided by parameter count in
+billions). This ratio complements the raw score; it is not a replacement ranking.
+Saved model sizes take precedence. For older competitions without a saved size,
+the interface and CSV export can use the current profile only when its ID,
+provider, exact model ID and endpoint match. Existing competition files are not
+rewritten. Frozen strategy exports preserve size in their origin metadata.

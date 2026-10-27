@@ -81,8 +81,13 @@ def validate_config(value: dict) -> dict:
         else:
             fields = {"id", "provider", "model", "api_key_env", "pricing"}
             if (model["provider"] not in {"openai", "openai-compatible", "anthropic", "gemini"} or not fields <= set(model)
-                    or set(model) - fields - {"endpoint", "parameters", "timeout_seconds", "max_retries", "max_input_tokens_per_call", "max_output_tokens"}):
+                    or set(model) - fields - {"endpoint", "parameters", "timeout_seconds", "max_retries", "max_input_tokens_per_call", "max_output_tokens", "model_size_billion"}):
                 raise ArenaError("Invalid API model configuration")
+            if 'model_size_billion' in model:
+                import math
+                size=model['model_size_billion']
+                if type(size) not in (int,float) or not 0<size<=1_000_000 or not math.isfinite(size):
+                    raise ArenaError('Model size must be a positive finite number in billions of parameters')
             if not spending["allow_paid_calls"] or ("max_total_usd" in spending and amount(spending["max_total_usd"]) == 0):
                 raise ArenaError("Real providers require explicit paid activation and a positive ceiling if configured")
             if not isinstance(model["model"], str) or not model["model"]:

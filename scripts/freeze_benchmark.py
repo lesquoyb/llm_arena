@@ -7,11 +7,14 @@ import sys
 from tempfile import TemporaryDirectory
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT))
-from arena.core import ArenaError, copy_submission, digest, read_json, submission, write_json, load_manifest
+from arena.core import ArenaError, STATE_ROOT, copy_submission, digest, read_json, submission, write_json, load_manifest
 from arena_web.data import Store
 
 
-def freeze(selection, out, seeds):
+def freeze(selection, out, seeds, catalog=None):
+    if catalog is None:
+        path=STATE_ROOT/'ui/participants.json'
+        catalog=read_json(path) if path.is_file() else []
     selection=Path(selection).resolve(); choices=read_json(selection)
     if not isinstance(choices,list) or len(choices)<2: raise ArenaError('Select at least two {run, session} objects')
     prepared=[];scenario=None
@@ -31,7 +34,7 @@ def freeze(selection, out, seeds):
             identifier=choice.get('id') or f"p{index:03}-"+choice['session'][:40]+'-'+info['sha256'][:8]
             origin={'run':root.name,'run_id':digest({'path':str(root),'identity':metadata})[:20],'session':choice['session'],'variant':state['model'],'provider':model['provider'],
                     'model':model.get('model',model.get('profile')),'parameters':{**model.get('parameters',{}),**state.get('provider_parameter_overrides',{})},
-                    'round':state.get('generation',0)+1,'condition':state.get('condition','initial'),'replicate':state['replicate']}
+                    'round':state.get('generation',0)+1,'condition':state.get('condition','initial'),'replicate':state['replicate'],'model_size_billion':store.model_size(model,catalog=catalog)}
             prepared.append((identifier,source,info,origin))
     identifiers=[row[0] for row in prepared]
     if len(set(identifiers))!=len(identifiers) or any(not re.fullmatch(r'[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}',value) for value in identifiers):

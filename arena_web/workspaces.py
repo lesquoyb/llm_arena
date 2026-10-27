@@ -103,7 +103,7 @@ class Workspaces:
                     return {'variant':origin.get('variant',source.get('model',sid)), 'provider':origin.get('provider'),
                         'model':origin.get('model'), 'parameters':origin.get('parameters',{}),
                         'source_sha256':source.get('submission',{}).get('sha256')}
-                spec={k:v for k,v in model.items() if k not in {'api_key_env','pricing','id'}}
+                spec={k:v for k,v in model.items() if k not in {'api_key_env','pricing','id','model_size_billion'}}
                 if 'strategy' in spec:
                     spec['strategy']={k:v for k,v in spec['strategy'].items() if k!='files'}
                 return spec | {'variant':state['model'], 'parameters':{**model.get('parameters',{}),**state.get('provider_parameter_overrides',{})}}
@@ -116,6 +116,10 @@ class Workspaces:
             @cache
             def participant_key(sid):
                 return digest({key:value for key,value in descriptor(sid).items() if key!='source_sha256'})
+            @cache
+            def model_size(sid):
+                state=sessions.get(sid,{})
+                return self.model_size(models[state['model']]) if state.get('model') in models else frozen.get(sid,{}).get('origin',{}).get('model_size_billion')
             for sid,state in sessions.items():
                 totals['sessions']+=1
                 totals['submitted']+=bool(state.get('submission'))
@@ -123,9 +127,11 @@ class Workspaces:
                 totals['attention']+=state.get('status') in {'provider_unavailable','needs_reconciliation','generation_failed','no_submission'}
                 key=digest(descriptor(sid))[:16]
                 resource=resources.setdefault(key,{'id':key,'name':state['model'],'model':models.get(state['model'],{}).get('model'),
+                    'model_size_billion':model_size(sid),
                     'configuration':descriptor(sid),
                     'sessions':0,'submitted':0,'invalid':0,'input_tokens':0,'output_tokens':0,'unmeasured_sessions':0,
                     'known_cost_usd':Decimal(0),'reserved_usd':Decimal(0),'unresolved_sessions':0,'messages':0,'wall_seconds':0})
+                if resource['model_size_billion']!=model_size(sid):resource['model_size_billion']=None
                 resource['sessions']+=1;resource['submitted']+=bool(state.get('submission'))
                 resource['invalid']+=state.get('validation_status')=='invalid'
                 resource['messages']+=state.get('messages',0);resource['wall_seconds']+=state.get('wall_seconds',0)
@@ -189,18 +195,28 @@ class Workspaces:
                     key=digest({'descriptor':participant_key(sid),'round':round_number,'condition':condition})[:16]
                     row=group['models'].setdefault(key,{'id':key,'name':descriptor(sid)['variant'],
                         'round':round_number,'condition':condition,
-                        'wins':0,'draws':0,'losses':0,'failed':0,'conversations':defaultdict(lambda:[0,0])})
+                        'model_size_billion':model_size(sid),
+                        'wins':0,'draws':0,'losses':0,'failed':0,'conversations':defaultdict(lambda:[0,0,None,None])})
+                    if row['model_size_billion']!=model_size(sid):row['model_size_billion']=None
                     if not done:row['failed']+=1;continue
                     outcome='draws' if result.get('winner_side')==-1 else 'wins' if result.get('winner_side')==side else 'losses'
                     row[outcome]+=1
                     point=.5 if outcome=='draws' else 1 if outcome=='wins' else 0
                     entry=row['conversations'][(run['id'],sid)];entry[0]+=point;entry[1]+=1
+                    if sid in sessions:
+                        entry[2]=float(state.get('cost_spent') or '0') if not state.get('reconciliation_required') and not float(state.get('money_reserved') or '0') else None
+                        entry[3]=state.get('wall_seconds')
         for group in groups.values():
             group['runs']=sorted(group['runs'])
             for row in group['models'].values():
-                averages=[points/count for points,count in row.pop('conversations').values() if count]
+                conversations=list(row.pop('conversations').values())
+                averages=[points/count for points,count,*_ in conversations if count]
                 row['score']=sum(averages)/len(averages) if averages else None
                 row['conversations']=len(averages)
+                row['score_per_billion']=row['score']/row['model_size_billion'] if row['score'] is not None and row['model_size_billion'] else None
+                for field,index in (('mean_cost_usd',2),('mean_wall_seconds',3)):
+                    values=[value[index] for value in conversations]
+                    row[field]=sum(values)/len(values) if values and all(value is not None for value in values) else None
             group['models']=sorted(group['models'].values(),key=lambda row:-(row['score'] if row['score'] is not None else -1))
         for row in [totals,*resources.values()]:
             for key in ('known_cost_usd','reserved_usd'):row[key]=str(row[key])
