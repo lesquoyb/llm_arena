@@ -64,6 +64,10 @@ class CalibrationWebTests(TestCase):
                     state.update(status='needs_reconciliation',in_flight=True,money_reserved='0.2',calls=3)
                     journal.save(sid,state,'fixture')
                 finally:journal.db.close()
+                with mock.patch('arena_web.calibration.subprocess.Popen') as popen:
+                    with self.assertRaisesRegex(ArenaError,'Resolve interrupted request & resume'):
+                        workshop.start(value,True,role)
+                    popen.assert_not_called()
                 workshop.reconcile_active(role,'0','Mistral free API: no additional charge.')
                 journal=Journal(folder)
                 try:

@@ -1,5 +1,6 @@
 """Small, provider-independent progress notices for explicitly configured limits."""
 from .usage import amount
+from .call_counts import completed_calls
 
 COUNTERS = {'max_calls':'calls', 'max_agent_steps':'steps', 'max_test_matches':'test_matches',
             'max_wall_seconds':'wall_seconds', 'max_input_tokens':'input_tokens', 'max_output_tokens':'output_tokens'}
@@ -14,7 +15,7 @@ def progress(state, budget):
     result = {}
     for limit, counter in COUNTERS.items():
         if limit not in budget: continue
-        used = state.get(counter,0)
+        used = completed_calls(state) if counter=='calls' else state.get(counter,0)
         if counter in {'input_tokens','output_tokens'} and state.get('calls') and not state.get('token_usage_known'):
             used = None
         result[counter] = {'limit':budget[limit], 'used':used, 'remaining':None if used is None else max(0,budget[limit]-used)}

@@ -124,6 +124,10 @@ class Workshop:
             if identifier in self.processes and self.processes[identifier].poll() is None:
                 raise ArenaError('Study is already running')
             directory.mkdir(parents=True, exist_ok=True)
+            if (directory/'study.json').exists():
+                work=self.active_work(directory,read_json(directory/'study.json'))
+                if work.get('requires_reconciliation'):
+                    raise ArenaError('Resume cannot resend this interrupted request until it is resolved. Use "Resolve interrupted request & resume"; for a confirmed free API call, record 0 and a note.')
             if (directory/'input.json').exists() and read_json(directory/'input.json') != config:
                 raise ArenaError('Resume uses the exact frozen configuration; fork to edit')
             write_json(directory/'input.json', config)
@@ -488,12 +492,16 @@ class Workshop:
         db = sqlite3.connect(journal_path.as_uri()+'?mode=ro',uri=True)
         try:
             if route == '/api/sessions':
-                return [{'id':sid, **{key:state.get(key) for key in ('status','calls','steps','generation','replicate','failure')}}
+                from arena.call_counts import completed_calls
+                return [{'id':sid, **{key:state.get(key) for key in ('status','steps','generation','replicate','failure')},
+                         'calls':completed_calls(state,db,sid),'request_attempts':state.get('calls',0)}
                         for sid,raw in db.execute('SELECT id,state FROM sessions ORDER BY id') for state in [json.loads(raw)]]
             sid = value('session')
             row = db.execute('SELECT state FROM sessions WHERE id=?',(sid,)).fetchone()
             if not row: raise ArenaError('Unknown session')
             state = json.loads(row[0])
+            from arena.call_counts import hydrate_calls
+            hydrate_calls(state,db,sid)
             if route == '/api/diagnostic-evidence':
                 from arena.calibration_transcript import export
                 path=trial/'diagnostics'/f'{sid}.json'
@@ -501,7 +509,7 @@ class Workshop:
                 evidence=([{'summary':receipt['summary']}] if receipt.get('evidence_source')=='summary' and receipt.get('summary') else export(state)['readable_reasoning'])
                 return {'session':sid,'evidence_source':receipt.get('evidence_source'),'evidence':evidence,'input_wrapping':'Each reasoning/summary item is passed as {reasoning_or_summary: item}; questions are separate. Message indices are export annotations.',
                         'questions':receipt.get('questions'),'observations':receipt.get('observations',[]),'aggregation':receipt.get('aggregation'),
-                        'measured_facts':{'final_compilation':state.get('validity'),'model_calls':state.get('calls'),
+                        'measured_facts':{'final_compilation':state.get('validity'),'model_calls':state['completed_calls'],'request_attempts':state.get('calls',0),
                                           'note':'Compilation is a measured engine result. It was not included in reasoning-only Laya input. A valid final script does not establish whether earlier attempts failed.'}}
             if route == '/api/export-conversation':
                 from arena.calibration_transcript import export
@@ -515,7 +523,7 @@ class Workshop:
                 model=config.get('analyst') if sid.startswith('analyst') else config['target']
                 return {'streaming_supported':bool(model and model['provider'] in {'openai','openai-compatible'} and config.get('stream_responses',True)),
                         'status':state['status'],'in_flight':state.get('in_flight',False),'role':'analyst' if sid.startswith('analyst') else 'target',
-                        'calls':state.get('calls',0),'repair_attempts':state.get('repair_attempts',0),'proposal_phase':state.get('proposal_phase'),'proposal_error':state.get('proposal_error'),'failure':state.get('failure'),
+                        'calls':state['completed_calls'],'request_attempts':state.get('calls',0),'repair_attempts':state.get('repair_attempts',0),'proposal_phase':state.get('proposal_phase'),'proposal_error':state.get('proposal_error'),'failure':state.get('failure'),
                         'live':live if state.get('in_flight') or (live and live.get('phase')=='interrupted') else None,
                         'budget':None if sid.startswith('analyst') else progress(state,config['budget_per_session'])}
             if route == '/api/tool-exchange':

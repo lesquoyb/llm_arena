@@ -282,6 +282,8 @@ def _finish(sid, state, tools, journal, reason):
 
 
 def provider_response(sid, state, model, config, journal):
+    from .call_counts import hydrate_calls
+    hydrate_calls(state,journal.db,sid)
     request_setup_started = time.monotonic()
     from .feedback import available_tools
     session_tools = available_tools(state)
@@ -394,6 +396,7 @@ def provider_response(sid, state, model, config, journal):
         else:
             state["status"] = "needs_reconciliation"
     state.pop("failure", None)
+    state["completed_calls"] += 1
     state["history"].append(response)
     state["pending"], state["cursor"] = response, 0
     # Receipt, conversation, usage counters and released reservation commit together.
@@ -459,7 +462,7 @@ def initial_state(sid, model, config):
                          "respect slot limits and allowlists; realistic mode also enforces equipment level. Stats follow scenario.stats_mode: per-member capital in realistic-v1 plus optional components (item-template IDs or {template, stats} alteration instances; eight slots, recovery components cost three; no duplicates; alteration charge must fit capacity), or raw stats in free mode. When require_capital is true you must explicitly allocate capital for every member; raw stats and inherited allocations are not accepted. Otherwise omit to inherit default member builds. Read corpus/stat-rules.json and corpus/component-rules.json (current public stats, levels, capacities and alteration weights). Configure the team before test or submit. "
                          "Improvements inherit team.json and may revise it with the same tool."}
                          if config["scenario"].get("team_selection") else {})}],
-            "calls": 0, "steps": 0, "test_matches": 0, "wall_seconds": 0,
+            "calls": 0, "completed_calls": 0, "steps": 0, "test_matches": 0, "wall_seconds": 0,
             "pending": None, "cursor": 0, "workspace_files": {}}
 
 
@@ -499,6 +502,8 @@ def verify_workspace(state, tools):
 
 def run_session(sid, model, config, out, journal, engine, interrupt=None):
     state = journal.state(sid) or initial_state(sid, model, config)
+    from .call_counts import hydrate_calls
+    hydrate_calls(state,journal.db,sid)
     from .reasoning import apply_overrides
     if model["provider"] != "mock":
         model = apply_overrides(model, state)
@@ -527,7 +532,7 @@ def run_session(sid, model, config, out, journal, engine, interrupt=None):
                 _finish(sid, state, tools, journal, "budget_exhausted")
                 break
             if state["pending"] is None:
-                if state["calls"] >= budget.get("max_calls", float("inf")):
+                if state["completed_calls"] >= budget.get("max_calls", float("inf")):
                     _finish(sid, state, tools, journal, "budget_exhausted")
                     break
                 response = provider_response(sid, state, model, config, journal)
@@ -743,7 +748,7 @@ def run(config: dict, out: Path, resume=False, interrupt=None, prepare_only=Fals
                        "invalid_submissions": sum(a["status"] == "invalid" for a in assessments.values()),
                        "assessment_failures": sum(a["status"] not in {"valid", "invalid", "no_submission"}
                                                   for a in assessments.values()),
-                       "model_calls": sum(s["calls"] for s in states.values()),
+                       "model_calls": sum(s.get("completed_calls",s["calls"]) for s in states.values()),
                        "tool_calls": sum(s["steps"] for s in states.values()),
                        "preparation_matches_reserved": sum(s["test_matches"] for s in states.values()),
                        "known_cost_subtotal_usd": str(sum(amount(s.get("cost_spent", "0")) for s in states.values())),
@@ -763,7 +768,7 @@ def run(config: dict, out: Path, resume=False, interrupt=None, prepare_only=Fals
                 summary["sessions"] = len(journal.states())
                 summary["cost_usd"] = summary["evolution"]["cost_usd"]
                 final_states = journal.states()
-                summary["model_calls"] = sum(s["calls"] for s in final_states.values())
+                summary["model_calls"] = sum(s.get("completed_calls",s["calls"]) for s in final_states.values())
                 summary["tool_calls"] = sum(s["steps"] for s in final_states.values())
                 summary["preparation_matches_reserved"] = sum(s["test_matches"] for s in final_states.values())
                 summary["unresolved_sessions"] = [sid for sid,s in final_states.items() if s["status"] == "needs_reconciliation"]

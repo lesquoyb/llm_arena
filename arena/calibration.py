@@ -379,7 +379,7 @@ def trial(config, out, resume=False, engine=None):
                     row = {'session': sid, 'round': round_index+1, 'validity':assessment['status'], 'effective_parameters':replica_model.get('parameters',{}), 'judge_score':review['score'] if review else (0.0 if evaluation['mode']!='fights' and missing_submission else None), 'generation_status':state['status'],'failure':state.get('failure'), **scores,
                            'input_tokens': state.get('input_tokens') if state.get('token_usage_known') else None,
                            'output_tokens': state.get('output_tokens') if state.get('token_usage_known') else None,
-                           'cost_usd': state.get('cost_spent', '0'), 'calls': state['calls'], 'tool_calls': state['steps'],'wall_seconds':state.get('wall_seconds',0),'preparation_budget':config['budget_per_session']}
+                           'cost_usd': state.get('cost_spent', '0'), 'calls': state.get('completed_calls',state['calls']), 'request_attempts':state['calls'], 'tool_calls': state['steps'],'wall_seconds':state.get('wall_seconds',0),'preparation_budget':config['budget_per_session']}
                     rounds.append(row)
                     previous.append(sid)
                     write_json(out/'progress.json', {'replicate': replicate, 'rounds': rounds})
@@ -455,7 +455,7 @@ def analyst_context(directory, config, report):
                     messages.append({'role': 'assistant', 'blocks': [{'kind': b['kind'], 'value': str(b['value'])[:12000]} for b in blocks(message) if b['kind'] not in {'raw','opaque'} and not b.get('hidden')], 'tool_calls': message.get('tool_calls', [])})
                 elif message['role'] == 'tool':
                     messages.append({'role': 'tool', 'name': message['name'], 'result': str(message['result'])[:8000]})
-            sessions.append({'session': sid,'status':state['status'],'has_submission':bool(state.get('submission')),'validity':state.get('validity'),'failure':state.get('failure'),'budget':config['budget_per_session'],'calls':state.get('calls'),'steps':state.get('steps'),'wall_seconds':state.get('wall_seconds'), 'messages': messages})
+            sessions.append({'session': sid,'status':state['status'],'has_submission':bool(state.get('submission')),'validity':state.get('validity'),'failure':state.get('failure'),'budget':config['budget_per_session'],'calls':state.get('completed_calls',state.get('calls')),'request_attempts':state.get('calls',0),'steps':state.get('steps'),'wall_seconds':state.get('wall_seconds'), 'messages': messages})
         # Retain first and latest evidence rather than silently omit the late plateau.
         encoded = json.dumps(sessions, ensure_ascii=False)
         limit=config['optimizer']['evidence_characters'];half=limit//2
@@ -804,15 +804,17 @@ def accounting(root):
     for path in sorted(Path(root).glob('**/journal.sqlite')):
         db=sqlite3.connect(path.as_uri()+'?mode=ro',uri=True)
         try:
-            keys=('calls','cost_spent','money_reserved','token_usage_known','input_tokens','output_tokens')
+            keys=('calls','cost_spent','money_reserved','token_usage_known','input_tokens','output_tokens','completed_calls')
             fields=','.join("'$."+key+"'" for key in keys)
-            for (raw,) in db.execute('SELECT json_extract(state,'+fields+') FROM sessions'):
+            for sid,raw in db.execute('SELECT id,json_extract(state,'+fields+') FROM sessions'):
                 state={k:v for k,v in zip(keys,json.loads(raw)) if v is not None}
                 key='analyst_cost_usd' if any(part in path.relative_to(root).parts for part in ('proposals','judge_summaries')) else 'target_cost_usd'
                 result[key]=str(amount(result[key])+amount(state.get('cost_spent','0')))
                 result['reserved_usd']=str(amount(result['reserved_usd'])+amount(state.get('money_reserved','0')))
                 role='analyst' if key=='analyst_cost_usd' else 'target'
-                result[role+'_calls']+=state.get('calls',0)
+                from .call_counts import completed_calls
+                result[role+'_calls']+=completed_calls(state,db,sid)
+                result[role+'_request_attempts']=result.get(role+'_request_attempts',0)+state.get('calls',0)
                 if state.get('calls') and not state.get('token_usage_known'):
                     result['usage_complete']=False;result[role+'_usage_complete']=False
                 for metric in ('input_tokens','output_tokens'): result[role+'_'+metric]+=state.get(metric,0)

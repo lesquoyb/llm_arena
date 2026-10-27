@@ -721,3 +721,19 @@ both the tested model and the prompt analyst. Existing usage receipts, source
 files and completed evaluations remain intact. A saved response is processed
 without requesting it again; otherwise the same conversation can be retried.
 Free pricing alone does not prove whether a network request reached the provider.
+
+### Request attempts and completed responses
+
+The displayed model-call count and `max_calls` preparation budget count completed
+model responses, not failed connections. Request attempts are shown separately.
+For example, one refused connection followed by a successful retry is two attempts
+and one model response, consuming one model-call slot. Provider usage and costs
+still come from receipts; an unknown request outcome must be resolved before a
+retry. Internal transport retries remain recorded in the provider receipt.
+
+Journal `calls` remains the request sequence for stable request/tool IDs;
+`completed_calls` tracks responses. Historical journals reconstruct the response
+count from their own `model_response` events when read. Their checkpoints are not
+rewritten for display. A regular Resume is disabled while a request is awaiting
+reconciliation; use **Resolve interrupted request & resume** instead. The server
+also rejects a direct Resume in that state before launching another worker.

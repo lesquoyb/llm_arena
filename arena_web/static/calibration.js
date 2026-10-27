@@ -190,7 +190,8 @@ async function refreshLiveOutput() {
     if(previousLiveIdentity===identity && previousInFlight && !data.in_flight) await history(undefined,true);
     previousLiveIdentity=identity;previousInFlight=!!data.in_flight;
     const budget=$('session-budget');budget.replaceChildren();
-    if(data.role==='analyst'){budget.append(node('p',`Prompt analyst · ${data.calls} provider call(s) · ${data.repair_attempts} correction attempt(s). Returns proposal JSON; no submit, preparation tools or fights are expected.`));if(data.proposal_phase)budget.append(node('p',data.proposal_phase.message));if(data.proposal_error||data.failure?.message)budget.append(node('p',data.proposal_error||data.failure.message));}
+    if(data.role==='analyst'){budget.append(node('p',`Prompt analyst · ${data.calls} model response(s) · ${data.request_attempts??data.calls} request attempt(s) · ${data.repair_attempts} correction attempt(s). Returns proposal JSON; no submit, preparation tools or fights are expected.`));if(data.proposal_phase)budget.append(node('p',data.proposal_phase.message));if(data.proposal_error||data.failure?.message)budget.append(node('p',data.proposal_error||data.failure.message));}
+    if(data.role!=='analyst'&&data.request_attempts>data.calls)budget.append(node('small',`${data.calls} model response(s) · ${data.request_attempts} request attempt(s). Failed connections do not consume the model-call budget.`));
     if(data.budget){const strip=node('div',undefined,'budget-strip');for(const [key,value] of Object.entries(data.budget.limits))strip.append(node('span',`${({calls:'Model calls',steps:'Tool calls',test_matches:'Preparation fights'})[key]||key}: ${value.used??'?'} / ${value.limit} · ${value.remaining??'?'} left`));budget.append(strip)}
     $('live-status').textContent=data.in_flight?'Model request in progress'+(data.live?.phase==='streaming'?' · receiving output':(data.streaming_supported?' · waiting for output':' · this provider updates after each complete response')):data.status;
     const mount=$('live-output');
@@ -200,7 +201,7 @@ async function refreshLiveOutput() {
     if(mount.dataset.signature===signature)return;
     mount.dataset.signature=signature;
     const atBottom=mount.scrollHeight-mount.scrollTop-mount.clientHeight<60;
-    mount.replaceChildren(node('strong',`Live response · call ${live.call}${live.phase==='interrupted'?' · interrupted, partial output':''}`));
+    mount.replaceChildren(node('strong',`Live response · request attempt ${live.call}${live.phase==='interrupted'?' · interrupted, partial output':''}`));
     if(live.reasoning){const details=node('details');details.open=mount.dataset.reasoningOpen==='1';details.append(node('summary','Provider-exposed reasoning'),node('pre',live.reasoning,'record-code'));details.ontoggle=()=>mount.dataset.reasoningOpen=details.open?'1':'';mount.append(details)}
     if(live.text)mount.append(formatted(live.text));
     if(live.tools?.length)mount.append(node('pre',json(live.tools),'record-code'));
@@ -1330,6 +1331,7 @@ async function resolveInterruptedRequest(){
 function commandCenter(data){
  const mount=$('study-command'),work=data.active_work||{},running=data.runtime_status==='running',blocked=data.state.status==='blocked',completed=data.state.status==='completed';
  mount.replaceChildren();mount.classList.toggle('blocked',blocked);
+ $('resume').disabled=running||!!work.requires_reconciliation;
  const analystBudget=blocked&&work.kind==='analyst'&&work.session_status==='budget_exhausted';
  const failedPreparation=blocked&&work.kind==='target'&&['no_submission','generation_failed'].includes(work.session_status);
  const title=analystBudget?'Analyst paused by a budget limit':completed?'Optimization complete':failedPreparation?'Preparation ended without a strategy':blocked?(work.kind==='analyst'?'Prompt proposal blocked':'Tested model stopped'):running?(work.kind==='analyst'?'Analyst is preparing a prompt proposal':'Tested model is preparing a strategy'):'Optimization paused';
@@ -1350,10 +1352,10 @@ function commandCenter(data){
  }
  if(failedPreparation&&!running)actions.append(button(data.state.automatic?'Send failed attempt to analyst':'Record unsuccessful attempt',()=>$('resume').click()));
  if(blocked && work.guard_override_available && !running)actions.append(button('Accept proposal & continue',async()=>{await api('/api/accept-proposal',{id:selected});await api('/api/resume',{id:selected,keys:keys()});await inspect(selected);}));
- if(blocked && work.kind==='analyst' && !running)actions.append(button('Finish with current best',async()=>{await api('/api/intervene',{id:selected,replacement:true,text:JSON.stringify({no_change:true,rationale:'User chose to discard the pending proposal and retain the best evaluated candidate.'})});await api('/api/resume',{id:selected,keys:keys()});await inspect(selected);}));
- if(blocked && !failedPreparation){actions.append(button(work.kind==='analyst'?'Review proposed changes':'Inspect target conversation',()=>focusActive(work.kind==='analyst'?'changes':'inspect')));actions.append(button('Resolve & continue',async()=>{await focusActive('inspect');const summary=[...document.querySelectorAll('[data-study-panel="inspect"] details>summary')].find(el=>el.textContent===(work.kind==='analyst'?'Intervene in a blocked analyst proposal':'Continue a stopped target conversation'));if(summary){summary.parentElement.open=true;summary.scrollIntoView({behavior:'smooth',block:'center'})}}));}
+ if(blocked && work.kind==='analyst' && !running && !work.requires_reconciliation)actions.append(button('Finish with current best',async()=>{await api('/api/intervene',{id:selected,replacement:true,text:JSON.stringify({no_change:true,rationale:'User chose to discard the pending proposal and retain the best evaluated candidate.'})});await api('/api/resume',{id:selected,keys:keys()});await inspect(selected);}));
+ if(blocked && !failedPreparation && !work.requires_reconciliation){actions.append(button(work.kind==='analyst'?'Review proposed changes':'Inspect target conversation',()=>focusActive(work.kind==='analyst'?'changes':'inspect')));actions.append(button('Resolve & continue',async()=>{await focusActive('inspect');const summary=[...document.querySelectorAll('[data-study-panel="inspect"] details>summary')].find(el=>el.textContent===(work.kind==='analyst'?'Intervene in a blocked analyst proposal':'Continue a stopped target conversation'));if(summary){summary.parentElement.open=true;summary.scrollIntoView({behavior:'smooth',block:'center'})}}));}
  else if(running)actions.append(button('View active conversation',()=>focusActive('inspect')));
- if(!running&&!completed&&!failedPreparation)actions.append(button('Resume optimization',()=>$('resume').click()));
+ if(!running&&!completed&&!failedPreparation&&!work.requires_reconciliation)actions.append(button('Resume optimization',()=>$('resume').click()));
  if(running)actions.append(button('Stop',()=>$('stop').click()));
  mount.append(actions);
 }
