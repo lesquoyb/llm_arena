@@ -662,3 +662,22 @@ including same-participant fights. Each fight has two side rows in the match
 CSV. Use the conversation CSV to total costs; costs repeated across result stages
 must not be added together. Calibration studies remain in their separate workshop.
 Workspace metadata lives in `.arena/ui/workspaces.json` with other local UI settings.
+
+## Participant groups
+
+In **Participants > Groups**, create groups such as Local, Free APIs or Paid.
+Select any number of existing profiles for each group. A profile can belong to
+several groups. Use **Groups** on a profile card to edit its memberships, or the
+list filter to browse a group. Groups are shared across workspaces, like profiles.
+
+In the competition editor, choose **Add participants from group > Add group**.
+This adds the group's profiles to the current selection without removing other
+profiles or creating duplicates. You can add several overlapping groups, clear
+the selection, and still select individual profiles. Groups organize participant
+profiles, so two parameter variants of the same model can have different groups.
+
+The selection is copied into the competition configuration when saved. Changing,
+renaming or deleting a group does not change existing configurations or running
+competitions. Deleting a profile removes it from groups. Deleting a group keeps
+all profiles. Group metadata is saved in `.arena/ui/participant-groups.json`;
+it is not sent to models or added to frozen experiment settings.

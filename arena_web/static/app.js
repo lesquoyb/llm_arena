@@ -354,6 +354,7 @@ function showError(error) {
 }
 async function refreshBoot() {
   S.boot = await api("/api/bootstrap");
+  if(S.participantGroup && S.participantGroup!=='ungrouped' && !S.boot.participant_groups.some(g=>g.id===S.participantGroup))S.participantGroup='';
   if (S.workspace && S.workspace !== 'unassigned' && !S.boot.workspaces.some(w=>w.id===S.workspace)) setWorkspace('');
   S.equipment ||= await api("/api/equipment");
   syncLiveMode();
@@ -538,13 +539,49 @@ function dashboard() {
   );
 }
 const PROVIDER_NAMES = {mock: "Built-in strategy", openai: "OpenAI", anthropic: "Anthropic", gemini: "Google Gemini", "openai-compatible": "Compatible API / local"};
+function participantGroups(id) {
+  return S.boot.participant_groups.filter(group=>group.members.includes(id));
+}
+function participantProfiles(term='') {
+  const selected=S.participantGroup||'';
+  return S.boot.participants.filter(({spec:m})=>{
+    const groups=participantGroups(m.id);
+    return (!selected || (selected==='ungrouped' ? !groups.length : groups.some(g=>g.id===selected))) &&
+      `${m.id} ${m.provider} ${m.model||m.profile} ${groups.map(g=>g.name).join(' ')}`.toLowerCase().includes(term.toLowerCase());
+  });
+}
+function refreshParticipantCards() {
+  const term=$('#participant-search')?.value||'';
+  $('#participant-cards').innerHTML=participantCards(term);
+  $('#participant-count').textContent=`${participantProfiles(term).length} of ${S.boot.participants.length} profiles`;
+}
+function participantGroupDialog(id=null) {
+  const current=S.boot.participant_groups.find(g=>g.id===id);
+  openDialog('Participant groups','Profiles can belong to several groups.',`
+    <div class="participant-group-list">${S.boot.participant_groups.map(group=>`<button class="button ${group.id===id?'primary':''}" data-action="edit-participant-group" data-id="${e(group.id)}">${e(group.name)} (${group.members.length})</button>`).join('')}${btn('New group','new-participant-group')}</div>
+    <form data-form="participant-group" data-id="${e(id||'')}"><label class="field">Group name<input name="name" value="${e(current?.name||'')}" required maxlength="100" placeholder="Local, Free APIs, Reasoning models..."></label>
+    <label class="field">Find profiles<input type="search" id="group-member-search"></label>
+    <div class="actions">${btn('Select visible','group-select-visible')}${btn('Clear visible','group-clear-visible')}</div>
+    <div class="group-members">${S.boot.participants.map(({spec:m})=>`<label class="group-member choice"><input type="checkbox" name="member" value="${e(m.id)}" ${current?.members.includes(m.id)?'checked':''}><span><strong>${e(m.id)}</strong><small>${e(m.model||m.profile)} · ${e(m.provider)}</small></span></label>`).join('')}</div>
+    <div class="form-footer">${current?btn('Delete group','delete-participant-group',`data-id="${e(id)}"`):''}<button type="submit" class="button primary">Save group</button></div></form>`);
+}
+function profileGroupsDialog(id) {
+  openDialog('Groups',id, S.boot.participant_groups.length ?
+    `<form data-form="profile-groups" data-id="${e(id)}"><div class="group-members">${S.boot.participant_groups.map(group=>`<label class="choice"><input type="checkbox" name="group" value="${e(group.id)}" ${group.members.includes(id)?'checked':''}><span>${e(group.name)}</span></label>`).join('')}</div><button class="button primary" type="submit">Save memberships</button></form>`:
+    `<p>No groups yet.</p>${btn('Create a group','new-participant-group')}`);
+}
+function competitionGroupPicker() {
+  const groups=S.boot.participant_groups;
+  return `<div class="competition-group-picker">${selectField('Add participants from group','participant_group',[['','Choose a group'],...groups.map(g=>[g.id,`${g.name} (${g.members.length})`])],'')}${btn('Add group','add-competition-group',groups.length?'':'disabled')}${btn('Clear selection','clear-competition-participants')}</div><p id="group-selection-status" class="muted" aria-live="polite"></p>`;
+}
+
 function participantCards(term = "") {
-  const profiles = S.boot.participants.filter(({spec:m}) => `${m.id} ${m.provider} ${m.model || m.profile}`.toLowerCase().includes(term.toLowerCase()));
+  const profiles = participantProfiles(term);
   return profiles.length ? profiles.map(({spec:m,key_configured,key_optional}) => `<article class="profile-card">
     <div class="profile-card-top"><span class="provider-mark provider-${e(m.provider)}" aria-hidden="true">${e((PROVIDER_NAMES[m.provider] || m.provider)[0])}</span>${badge(m.profile === "saved-strategy" ? "Saved strategy" : PROVIDER_NAMES[m.provider] || m.provider)}<span class="spacer"></span><button class="icon-button" data-action="delete-participant" data-id="${e(m.id)}" title="Remove profile" aria-label="Remove ${e(m.id)}">×</button></div>
-    <h2><button class="card-title" data-action="edit-participant" data-id="${e(m.id)}">${e(m.id)}</button></h2><p class="profile-model mono">${e(m.model || m.profile)}</p>
+    <h2><button class="card-title" data-action="edit-participant" data-id="${e(m.id)}">${e(m.id)}</button></h2><p class="profile-model mono">${e(m.model || m.profile)}</p><div class="participant-group-tags">${participantGroups(m.id).map(g=>badge(g.name)).join("")}</div>
     <dl class="profile-facts"><div><dt>Reasoning</dt><dd>${m.provider === "mock" ? "Scripted" : e(reasoningLabel(m.parameters))}</dd></div><div><dt>Input / output · $ / 1M</dt><dd>${m.pricing ? `${e(m.pricing.input_per_million)} / ${e(m.pricing.output_per_million)}` : "No API cost"}</dd></div></dl>
-    <div class="profile-card-footer">${m.provider === "mock" ? badge("Ready", "green") : badge(key_optional && !key_configured ? "Local · no key required" : key_configured ? "Key configured" : "API key missing", key_configured || key_optional ? "green" : "orange")}${m.provider!=="mock"?btn("Test API","test-model",`data-id="${e(m.id)}"`):""}${btn("Configure", "edit-participant", `data-id="${e(m.id)}"`)}</div></article>`).join("") : empty("No participants found", term ? "Try a different name, model or provider." : "Add a model provider or a built-in strategy.", term ? "" : btn("Add participant","new-participant","",true));
+    <div class="profile-card-footer">${m.provider === "mock" ? badge("Ready", "green") : badge(key_optional && !key_configured ? "Local · no key required" : key_configured ? "Key configured" : "API key missing", key_configured || key_optional ? "green" : "orange")}${m.provider!=="mock"?btn("Test API","test-model",`data-id="${e(m.id)}"`):""}${btn("Groups", "profile-groups", `data-id="${e(m.id)}"`)}${btn("Configure", "edit-participant", `data-id="${e(m.id)}"`)}</div></article>`).join("") : empty("No participants found", term ? "Try a different name, model or provider." : "Add a model provider or a built-in strategy.", term ? "" : btn("Add participant","new-participant","",true));
 }
 function providersDialog(identifier=null) {
   const saved=(S.boot.providers||[]),spec=saved.find(row=>row.spec.id===identifier)?.spec||{};
@@ -574,8 +611,8 @@ async function providerModels(identifier) {
 }
 
 function participants() {
-  return head("Participants", "Reusable model profiles for your competitions.", btn("Providers & bulk add","providers") + btn("Add reference strategy","add-reference") + btn("＋ Add participant", "new-participant", "", true)) +
-    `<div class="collection-toolbar"><span id="participant-count" aria-live="polite">${S.boot.participants.length} profiles</span><input type="search" id="participant-search" placeholder="Search name, model or provider" aria-label="Search participants"></div><div class="profile-grid" id="participant-cards">${participantCards()}</div><details class="quiet-details"><summary>API keys and pricing</summary><p>Keys entered in the interface stay in server memory. Prices are entered in USD per million tokens. Existing competitions retain the settings saved at launch.</p></details>`;
+  return head("Participants", "Reusable model profiles for your competitions.", btn("Groups","participant-groups") + btn("Providers & bulk add","providers") + btn("Add reference strategy","add-reference") + btn("＋ Add participant", "new-participant", "", true)) +
+    `<div class="collection-toolbar"><span id="participant-count" aria-live="polite">${participantProfiles().length} of ${S.boot.participants.length} profiles</span>${selectField("Filter by group","participant_group_filter",[["","All profiles"],["ungrouped","Ungrouped"],...S.boot.participant_groups.map(g=>[g.id,g.name])],S.participantGroup||"")}<input type="search" id="participant-search" placeholder="Search name, model or provider" aria-label="Search participants"></div><div class="profile-grid" id="participant-cards">${participantCards()}</div><details class="quiet-details"><summary>API keys and pricing</summary><p>Keys entered in the interface stay in server memory. Prices are entered in USD per million tokens. Existing competitions retain the settings saved at launch.</p></details>`;
 }
 function freshConfig() {
   const config = structuredClone(S.boot.default_config),
@@ -1284,7 +1321,7 @@ function competitionEditor() {
         ["manual", "Continue until I press Stop"],
       ],
       c.generations === null ? "manual" : "fixed",
-    )}${field("Number of rounds", "generations", c.generations ?? 2, "number", "Includes the initial round. Each later round continues both improvement tracks.", c.generations === null ? 'disabled min="1" step="1"' : 'min="1" step="1"')}</div><h3 class="section-label">Selected participants</h3>${S.choiceModels.map((m) => `<label class="choice"><input type="checkbox" name="participant" value="${e(m.id)}" ${c.models.some((v) => v.id === m.id) ? "checked" : ""}><span><strong>${e(m.id)}</strong><small>${e(m.provider)} · ${e(m.model || m.profile)}</small></span></label>`).join("")}${btn("Manage profiles", "go", 'data-view="participants"')}</section>
+    )}${field("Number of rounds", "generations", c.generations ?? 2, "number", "Includes the initial round. Each later round continues both improvement tracks.", c.generations === null ? 'disabled min="1" step="1"' : 'min="1" step="1"')}</div><h3 class="section-label">Selected participants</h3>${competitionGroupPicker()}${S.choiceModels.map((m) => `<label class="choice"><input type="checkbox" name="participant" value="${e(m.id)}" ${c.models.some((v) => v.id === m.id) ? "checked" : ""}><span><strong>${e(m.id)}</strong><small>${e(m.provider)} · ${e(m.model || m.profile)}</small></span></label>`).join("")}${btn("Manage profiles", "go", 'data-view="participants"')}</section>
  <section class="panel editor-section" id="editor-scenario"><div class="section-heading"><span>02</span><h2>Scenario</h2></div><div class="scenario-presets">${btn("<strong>Simple duel</strong><small>1 level-300 leek · weapons only</small>", "preset-simple", `aria-pressed="${!c.scenario.source && c.scenario.preset !== 'llm-team'}"`)}${btn("<strong>Dream team</strong><small>4 complex builds · saved roster</small>", "preset-dream", `aria-pressed="${!!c.scenario.source}"`)}${btn("<strong>AI-built team</strong><small>Each model builds its own roster</small>", "preset-llm", `aria-pressed="${c.scenario.preset === 'llm-team'}"`)}</div><p id="preset-status" role="status" class="muted">${c.scenario.source ? `Based on public team · original snapshot ${e(c.scenario.source.snapshot_sha256.slice(0, 12))}. The roster below can be edited. Published final stats include component bonuses; component selections and alteration deltas are preserved without adding bonuses twice.` : c.scenario.preset === "llm-team" ? "Each LLM freely chooses 1–4 leeks, their levels (1–301), stats, scripts, equipment and component alterations. preview_build and validate_team check official game rules. No character stats or equipment lists are imposed." : "Starting preset: one level-300 gunner per team, direct-damage weapons, no chips. Edit each character independently below."}</p>${c.scenario.source ? raw(c.scenario.source, "Public source and frozen snapshot") : ""}<details><summary>Refresh or replace the saved Dream team</summary>${btn("Refetch current top farmer", "preset-dream-refresh")}<p class="muted">Only this button reads the current farmer ranking and fetches four leeks of its first player. The saved preset is reused until an explicit refresh; existing competitions keep their frozen roster.</p><p class="muted">Use scripts/import_dream_team.py on a machine with access to leekwars.com, then paste its snapshot JSON here.</p><textarea id="dream-snapshot" class="mono" aria-label="Public team snapshot JSON" rows="4"></textarea>${btn("Import snapshot", "preset-dream-json")}</details></section><section class="panel editor-section" id="editor-rules"><div class="section-heading"><span>03</span><h2>Match rules & roster</h2></div><p class="muted">Matches alternate sides. Use a shared roster or let each LLM build its own team under official game rules.</p><div class="form-grid">${selectField(
    "Team setup",
    "team_mode",
@@ -3193,7 +3230,25 @@ document.addEventListener("click", async (event) => {
   event.preventDefault();
   const a = node.dataset.action;
   try {
-    if (a === 'new-workspace') workspaceDialog();
+    if (a === 'participant-groups' || a === 'new-participant-group') participantGroupDialog();
+    else if (a === 'edit-participant-group') participantGroupDialog(node.dataset.id);
+    else if (a === 'profile-groups') profileGroupsDialog(node.dataset.id);
+    else if (a === 'delete-participant-group') {
+      const group=S.boot.participant_groups.find(g=>g.id===node.dataset.id);
+      openDialog('Delete group',group.name,`<p>Profiles and competition selections are kept.</p><form data-form="delete-participant-group" data-id="${e(group.id)}"><div class="form-footer">${btn('Cancel','close-dialog')}<button type="submit" class="button primary">Delete group</button></div></form>`);
+    } else if (a === 'group-select-visible' || a === 'group-clear-visible') {
+      for(const row of $$('.group-member:not([hidden])'))$('input',row).checked=a==='group-select-visible';
+    } else if (a === 'add-competition-group') {
+      const id=$('[name=participant_group]', $('#competition-form')).value;
+      const group=S.boot.participant_groups.find(g=>g.id===id);
+      if(!group)throw Error('Choose a participant group first.');
+      let added=0;
+      for(const checkbox of $$('#competition-form input[name=participant]'))if(group.members.includes(checkbox.value)&&!checkbox.checked){checkbox.checked=true;added++;}
+      $('#group-selection-status').textContent=`${added} added from ${group.name}. ${$$('#competition-form input[name=participant]:checked').length} participants selected.`;
+    } else if (a === 'clear-competition-participants') {
+      for(const checkbox of $$('#competition-form input[name=participant]'))checkbox.checked=false;
+      $('#group-selection-status').textContent='No participants selected.';
+    } else if (a === 'new-workspace') workspaceDialog();
     else if (a === 'edit-workspace') workspaceDialog(node.dataset.id);
     else if (a === 'open-workspace') await chooseWorkspace(node.dataset.id);
     else if (a === 'workspace-members') workspaceMembers(node.dataset.id);
@@ -3560,7 +3615,16 @@ document.addEventListener("submit", async (event) => {
   try {
     const f = new FormData(form),
       type = form.dataset.form;
-    if(type === 'workspace') {
+    if(type === 'participant-group') {
+      const saved=await api('/api/participant-group',{id:form.dataset.id||null,name:f.get('name'),members:f.getAll('member')},true);
+      await refreshBoot();await renderRoute();participantGroupDialog(saved.id);toast('Group saved.');
+    } else if(type === 'profile-groups') {
+      await api('/api/participant/groups',{participant:form.dataset.id,groups:f.getAll('group')},true);
+      $('#dialog').close();await refreshBoot();await renderRoute();toast('Memberships saved.');
+    } else if(type === 'delete-participant-group') {
+      await api('/api/participant-group/delete',{id:form.dataset.id},true);
+      await refreshBoot();await renderRoute();participantGroupDialog();toast('Group deleted. Profiles are kept.');
+    } else if(type === 'workspace') {
       const saved=await api('/api/workspace',{id:form.dataset.id||null,name:f.get('name'),description:f.get('description')},true);
       $('#dialog').close();await refreshBoot();await chooseWorkspace(saved.id);toast('Workspace saved.');
     } else if(type === 'delete-workspace') {
@@ -3696,7 +3760,9 @@ document.addEventListener("submit", async (event) => {
 document.addEventListener("change", async (event) => {
   const n = event.target;
   try {
-    if(n.id === 'workspace-picker') {
+    if(n.name==='participant_group_filter') {
+      S.participantGroup=n.value;refreshParticipantCards();
+    } else if(n.id === 'workspace-picker') {
       await chooseWorkspace(n.value);
     } else if(n.id === 'workspace-group') {
       $('#workspace-performance').innerHTML=workspacePerformance(S.workspaceSummary.groups[Number(n.value)]);
@@ -3862,10 +3928,8 @@ document.addEventListener("input", (event) => {
   if(n.id==='workspace-member-search') {
     for(const row of $$('.workspace-member'))row.hidden=!row.textContent.toLowerCase().includes(n.value.toLowerCase());
   }
-  if (n.id === "participant-search") {
-    $("#participant-cards").innerHTML = participantCards(n.value);
-    $("#participant-count").textContent = `${$$("#participant-cards .profile-card").length} of ${S.boot.participants.length} profiles`;
-  }
+  if (n.id === "participant-search") refreshParticipantCards();
+  if(n.id === "group-member-search")for(const row of $$(".group-member"))row.hidden=!row.textContent.toLowerCase().includes(n.value.toLowerCase());
   if (n.id === "run-search")
     $("#run-table").innerHTML = runTable(
       scoped(S.boot.runs).filter((r) =>

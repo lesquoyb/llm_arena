@@ -105,6 +105,46 @@ class Store(Workspaces):
                                                     os.environ.get(m.get("api_key_env", "")))}
                 for m in self.catalog()]
 
+    def participant_groups(self):
+        return self.json(self.state/'participant-groups.json',[])
+
+    def save_participant_group(self, name, members, identifier=None):
+        if not isinstance(name,str) or not name.strip() or len(name.strip())>100:
+            raise ArenaError('Group name must contain 1 to 100 characters')
+        if not isinstance(members,list) or len(members)>2000 or any(not isinstance(member,str) for member in members):
+            raise ArenaError('Select at most 2,000 participant profiles')
+        with self.lock:
+            groups=self.participant_groups()
+            if identifier is not None and not any(row['id']==identifier for row in groups):
+                raise ArenaError('Participant group not found')
+            if any(row['id']!=identifier and row['name'].casefold()==name.strip().casefold() for row in groups):
+                raise ArenaError('A participant group with this name already exists')
+            known={row['id'] for row in self.catalog()}
+            if set(members)-known: raise ArenaError('Unknown participant: '+', '.join(sorted(set(members)-known)))
+            row={'id':identifier or uuid4().hex[:12],'name':name.strip(),'members':list(dict.fromkeys(members))}
+            write_json(self.state/'participant-groups.json',[g for g in groups if g['id']!=row['id']]+[row])
+            return row
+
+    def delete_participant_group(self, identifier):
+        with self.lock:
+            groups=self.participant_groups()
+            if not any(row['id']==identifier for row in groups): raise ArenaError('Participant group not found')
+            write_json(self.state/'participant-groups.json',[row for row in groups if row['id']!=identifier])
+        return {'deleted':identifier}
+
+    def set_participant_groups(self, participant, identifiers):
+        if not isinstance(identifiers,list) or any(not isinstance(key,str) for key in identifiers):
+            raise ArenaError('Invalid participant groups')
+        with self.lock:
+            if not any(row['id']==participant for row in self.catalog()): raise ArenaError('Unknown participant')
+            groups=self.participant_groups()
+            if set(identifiers)-{row['id'] for row in groups}: raise ArenaError('Participant group not found')
+            for row in groups:
+                row['members']=[member for member in row['members'] if member!=participant]
+                if row['id'] in identifiers:row['members'].append(participant)
+            write_json(self.state/'participant-groups.json',groups)
+        return {'saved':participant}
+
     def providers(self):
         from arena.endpoints import optional_local_key
         return [{'spec':spec,'key_optional':optional_local_key(spec),
@@ -207,6 +247,9 @@ class Store(Workspaces):
 
     def delete_participant(self, identifier):
         with self.lock:
+            groups=self.participant_groups()
+            for row in groups:row['members']=[member for member in row['members'] if member!=identifier]
+            write_json(self.state/'participant-groups.json',groups)
             write_json(self.state / "participants.json", [m for m in self.catalog() if m["id"] != identifier])
         return {"deleted": identifier}
 

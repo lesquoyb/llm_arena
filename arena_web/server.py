@@ -38,6 +38,7 @@ class Application:
         config = {**demo, "name": "New competition", "scenario": simple_scenario()}
         return {"token": self.token, "participants": self.store.participants(), "providers": self.store.providers(),
                 "workspaces":self.store.workspace_index()['workspaces'],
+                "participant_groups":self.store.participant_groups(),
                 "drafts": self.store.drafts(), "runs": self.store.listing(), "jobs": self.jobs.listing(),
                 "profiles": list(PROFILES), "engine": engine,
                 "default_config": config, "demo_config": demo, "participant_scenario": participant_scenario()}
@@ -175,6 +176,12 @@ class Application:
             return self.store.save_participant(data["spec"], data.get("secret"))
         if route == "/api/participant/delete":
             return self.store.delete_participant(data["id"])
+        if route == '/api/participant-group':
+            return self.store.save_participant_group(data['name'],data.get('members',[]),data.get('id'))
+        if route == '/api/participant-group/delete':
+            return self.store.delete_participant_group(data['id'])
+        if route == '/api/participant/groups':
+            return self.store.set_participant_groups(data['participant'],data.get('groups',[]))
         if route == "/api/competition":
             options={'workspace_id':data['workspace_id']} if 'workspace_id' in data else {}
             return self.store.save_draft(data["config"], data.get("id"),**options)

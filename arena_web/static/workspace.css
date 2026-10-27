@@ -273,3 +273,14 @@ body[data-view=workspaces] .panel-title { flex-wrap: wrap; gap: 12px; }
 @media(max-width:760px) { .workspace-picker { margin: 12px 0; } .workspace-bar { grid-template-columns: minmax(100px,1fr) minmax(45px,1fr) 52px; gap: 8px; } }
 body[data-view=workspaces] .panel-title .field { min-width: 0; width: min(100%,480px); }
 body[data-view=workspaces] .panel-title select { min-width: 0; width: 100%; max-width: 100%; }
+
+/* Reusable participant groups */
+.participant-group-tags { display:flex; flex-wrap:wrap; gap:5px; }
+.participant-group-tags:empty { display:none; }
+.participant-group-list { display:flex; flex-wrap:wrap; gap:8px; max-height:150px; overflow-y:auto; margin-bottom:18px; }
+.group-members { max-height:min(45vh,430px); overflow-y:auto; overscroll-behavior:contain; margin:14px 0; }
+.competition-group-picker { display:flex; gap:10px; align-items:end; flex-wrap:wrap; }
+.competition-group-picker .field { flex:1 1 180px; min-width:0; }
+.competition-group-picker select { width:100%; }
+.collection-toolbar > .field { margin:0; min-width:160px; }
+.collection-toolbar { flex-wrap:wrap; }
