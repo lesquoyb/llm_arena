@@ -695,7 +695,10 @@ request. The pause now reports both byte length and configured bound.
 For an existing paused study, **Remove analyst input cap & resume** explicitly
 removes this admission cap from that study's analyst requests, including subsequent
 candidates. The decision is saved in `analyst-runtime.json` and recorded in each
-analyst journal. Frozen target inputs and the original participant remain intact;
+analyst journal. It applies to the currently selected analyst, including a
+replacement selected with **Change models**. Editing a saved participant does
+not update an existing study's frozen model settings; use this study action to
+remove its analyst cap. Frozen target inputs and the original participant remain intact;
 the shared financial ceiling and the provider's own context constraints still
 apply. Ordinary Resume does not silently remove this cap.
 

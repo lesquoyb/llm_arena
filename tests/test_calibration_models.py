@@ -9,6 +9,37 @@ from test_model_probe import model
 
 
 class CalibrationModelTests(TestCase):
+    def test_input_cap_removal_applies_to_replacement_analyst_on_resume(self):
+        from arena.calibration import propose
+        from arena.core import digest
+        import json
+        with scratch_directory() as root:
+            workshop=Workshop(root/'studies',Store(root/'runs',root/'settings'))
+            original={**model(),'id':'original','max_input_tokens_per_call':1000}
+            replacement={**model(),'id':'replacement','max_input_tokens_per_call':150000}
+            value=defaults();value.update(analyst=original,stream_responses=False,spending={'allow_paid_calls':True})
+            directory=workshop.root/'study';folder=directory/'proposals/001'
+            write_json(directory/'input.json',value)
+            write_json(directory/'study.json',{'config':value,'status':'blocked','active_trial':0,'active_proposal':1})
+            write_json(directory/'role-models.json',{'analyst':replacement})
+            folder.mkdir(parents=True)
+            journal=Journal(folder)
+            try:
+                state=initial_state('analyst-r0',replacement,experiment_config(value))
+                state.update(status='budget_exhausted',history=[{'role':'user','content':'Evidence '+('x'*185411)}],
+                             budget_stop={'code':'input_admission','message':'Input too large','scope':'request'})
+                journal.save('analyst-r0',state,'fixture')
+            finally:journal.db.close()
+            workshop.set_analyst_input_limit('study',None)
+            self.assertEqual(read_json(directory/'analyst-runtime.json')['analyst_sha256'],digest(replacement))
+            self.assertNotIn('max_input_tokens_per_call',effective_analyst(value,directory))
+            answer={'role':'assistant','content':json.dumps({'no_change':True,'rationale':'Retain best.'}),
+                    'tool_calls':[],'usage':{'input_tokens':10,'output_tokens':2},'cost_usd':'0'}
+            with mock.patch('arena.api_providers.APIProvider.respond',return_value=answer) as request:
+                self.assertTrue(propose(value,{},root/'baseline',folder)['no_change'])
+                request.assert_called_once()
+            self.assertEqual(read_json(directory/'input.json'),value)
+
     def test_analyst_replacement_preserves_original_inputs_and_records_history(self):
         with scratch_directory() as root:
             store=Store(root/'runs',root/'settings');workshop=Workshop(root/'studies',store)

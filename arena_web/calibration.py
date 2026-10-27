@@ -338,8 +338,11 @@ class Workshop:
 
     def set_analyst_input_limit(self, identifier, limit):
         from arena.core import integer
+        from arena.calibration_models import effective_analyst
+        from arena.experiment import experiment_lock
         if limit is not None: integer(limit,1,100_000_000,'analyst input admission limit')
-        with self.lock:
+        directory=local_path(self.root,identifier)
+        with self.lock,experiment_lock(directory):
             if any(process.poll() is None for process in self.processes.values()):
                 raise ArenaError('Stop the running optimization before changing the analyst input cap')
             directory=local_path(self.root,identifier)
@@ -351,7 +354,9 @@ class Workshop:
             legacy=work.get('message','').startswith('Request exceeds conservative UTF-8 input admission bound')
             if stop.get('code')!='input_admission' and not legacy:
                 raise ArenaError('This pause is not an analyst input admission limit')
-            analyst=saved_config(directory).get('analyst')
+            # Bind the policy to the selected role model, before applying any
+            # earlier input policy, just as the worker does when resuming.
+            analyst=effective_analyst(saved_config(directory),directory,apply_input_policy=False)
             if not analyst: raise ArenaError('No analyst configured')
             policy={'analyst_sha256':digest(analyst),'max_input_tokens_per_call':limit,'at':time.time(),
                     'reason':'User changed the analyst input admission cap for this study. Target limits and the shared spending ceiling remain unchanged.'}
