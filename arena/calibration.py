@@ -498,7 +498,8 @@ def _propose(config, report, incumbent_dir, proposal_dir, learning=None):
     journal = Journal(proposal_dir)
     try:
         journal.verify()
-        sid = 'analyst-r0'
+        from .calibration_models import active_analyst_session
+        sid = active_analyst_session(proposal_dir)
         state = journal.state(sid)
         if state and state.get('proposal_sha256') and saved.exists():
             if file_hash(saved)!=state['proposal_sha256']: raise ArenaError('Saved editor proposal changed')
@@ -578,8 +579,9 @@ def _propose(config, report, incumbent_dir, proposal_dir, learning=None):
             proposal_phase('guard','Running the local Laya proposal check; this can take time on CPU')
             reviewed=guard.review(baseline,test,proposal_dir,config['proposal_guard'])
             enforce=config['proposal_guard'].get('mode','automatic')=='automatic'
-            write_json(proposal_dir/'attempts'/f"{state.get('calls',0):04}-draft.json",result)
-            write_json(proposal_dir/'attempts'/f"{state.get('calls',0):04}-guard.json",reviewed)
+            attempt_number=sum(row.get('calls',0) for row in journal.states().values())
+            write_json(proposal_dir/'attempts'/f"{attempt_number:04}-draft.json",result)
+            write_json(proposal_dir/'attempts'/f"{attempt_number:04}-guard.json",reviewed)
             if enforce and reviewed['status']=='unavailable': raise ArenaError('Proposal guard unavailable: '+reviewed.get('error','unknown error')+'. Proposal retained; resume after fixing the local Laya installation.')
             override_path=proposal_dir/'guard-override.json'
             override=read_json(override_path) if override_path.exists() else {}

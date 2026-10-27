@@ -245,7 +245,9 @@ class Workshop:
                 if not isinstance(proposal,dict): raise ArenaError('Proposal must be a JSON object')
             journal=Journal(folder)
             try:
-                state=journal.state('analyst-r0')
+                from arena.calibration_models import active_analyst_session
+                analyst_sid=active_analyst_session(folder)
+                state=journal.state(analyst_sid)
                 if not state: raise ArenaError('No analyst conversation to recover')
                 if state.get('in_flight') or state.get('status')=='needs_reconciliation':
                     raise ArenaError('Resolve billing reconciliation before intervening')
@@ -256,7 +258,7 @@ class Workshop:
                     state['history'].append({'role':'user','content':'Human corrected proposal JSON:\n'+text,'human_supplied':True});state['pending']=response
                 else:
                     state['history'].append({'role':'user','content':text+'\nReturn the complete corrected proposal as JSON, following the original analyst instructions.'})
-                journal.save('analyst-r0',state,'human_proposal_replacement' if replacement else 'human_analyst_instruction',{'text':text})
+                journal.save(analyst_sid,state,'human_proposal_replacement' if replacement else 'human_analyst_instruction',{'text':text})
             finally: journal.db.close()
             manifest.update(status='stopped',error='Human intervention recorded. Resume to continue.')
             write_json(directory/'study.json',manifest)
@@ -265,10 +267,25 @@ class Workshop:
     def model_roles(self, identifier):
         from arena.calibration_models import effective_analyst
         directory=local_path(self.root,identifier);config=saved_config(directory)
-        return {'target':config['target'],'analyst':effective_analyst(config,directory),
+        history=read_json(directory/'role-models.json').get('history',[]) if (directory/'role-models.json').exists() else []
+        outstanding=[];seen=set()
+        for change in history:
+            for request in change.get('retired_requests',[]):
+                key=(request['directory'],request['session'])
+                if key in seen:continue
+                seen.add(key);path=local_path(directory,request['directory'])/'journal.sqlite'
+                if not path.is_file():continue
+                db=sqlite3.connect(path.as_uri()+'?mode=ro',uri=True)
+                try:row=db.execute('SELECT state FROM sessions WHERE id=?',(request['session'],)).fetchone()
+                finally:db.close()
+                if row:
+                    from arena.recovery import needs_reconciliation
+                    state=json.loads(row[0])
+                    if needs_reconciliation(state):outstanding.append({**request,'reserved_usd':state.get('money_reserved','0')})
+        return {'outstanding_requests':outstanding,'target':config['target'],'analyst':effective_analyst(config,directory),
                 'diagnostics':config.get('diagnostics',{}),'proposal_guard':config.get('proposal_guard',{}),
                 'evaluation':config.get('evaluation',{}),
-                'history':read_json(directory/'role-models.json').get('history',[]) if (directory/'role-models.json').exists() else []}
+                'history':history}
 
     def set_analyst_model(self, identifier, participant):
         from arena.calibration_models import effective_analyst
@@ -286,20 +303,18 @@ class Workshop:
             self.store.validate_model(model)
             if not config['spending']['allow_paid_calls']:
                 raise ArenaError('API requests are disabled in this study. Start a new calibration with API requests enabled.')
-            # An uncertain request must be accounted for before changing its provider.
-            for path in directory.glob('**/journal.sqlite'):
-                db=sqlite3.connect(path.as_uri()+'?mode=ro',uri=True)
-                try:
-                    if db.execute("SELECT 1 FROM sessions WHERE json_extract(state,'$.in_flight')=1 OR json_extract(state,'$.status')='needs_reconciliation' LIMIT 1").fetchone():
-                        raise ArenaError('Resolve interrupted requests before changing the analyst')
-                finally:db.close()
             previous=effective_analyst(config,directory)
             path=directory/'role-models.json';saved=read_json(path) if path.exists() else {}
-            history=saved.get('history',[])+[{'role':'analyst','at':time.time(),'previous':previous,'model':model,'scope':'Future analyst and trajectory-summary requests; completed results are preserved.'}]
+            from arena.calibration_models import replace_active_analyst_sessions
+            retired=replace_active_analyst_sessions(directory,config,model)
+            history=saved.get('history',[])+[{'retired_requests':retired,'role':'analyst','at':time.time(),'previous':previous,'model':model,'scope':'Future analyst and trajectory-summary requests; completed results are preserved.'}]
             write_json(path,{'analyst':model,'history':history})
-            return {'saved':True,'model':model['id']}
+            manifest=read_json(directory/'study.json')
+            manifest.update(status='stopped',error='Analyst changed to '+model['id']+'. Resume optimization to continue. Earlier unknown requests and reservations are preserved.')
+            write_json(directory/'study.json',manifest)
+            return {'saved':True,'model':model['id'],'retired_requests':retired}
 
-    def reconcile_active(self, identifier, cost, note):
+    def reconcile_active(self, identifier, cost, note, trial=None, session=None):
         from arena.experiment import Journal
         from arena.recovery import reconcile
         with self.lock:
@@ -308,11 +323,11 @@ class Workshop:
             directory=local_path(self.root,identifier)
             manifest=read_json(directory/'study.json')
             work=self.active_work(directory,manifest)
-            folder=local_path(directory,work['directory'])
+            folder=local_path(directory,trial or work['directory'])
             if not (folder/'journal.sqlite').is_file(): raise ArenaError('No recorded conversation to resolve')
             journal=Journal(folder)
             try:
-                candidates=[sid for sid,state in journal.states().items() if state.get('in_flight') or state.get('status')=='needs_reconciliation']
+                candidates=[sid for sid,state in journal.states().items() if (session is None or sid==session) and (state.get('in_flight') or state.get('status')=='needs_reconciliation')]
                 if len(candidates)!=1: raise ArenaError('Cannot identify one interrupted request in the active candidate')
                 sid=candidates[0]
                 reconcile(journal,sid,cost,note)
@@ -356,7 +371,10 @@ class Workshop:
         if dbpath.exists():
             db=sqlite3.connect(dbpath.as_uri()+'?mode=ro',uri=True)
             try:
-                rows=db.execute("SELECT json_extract(state,'$.status','$.proposal_phase','$.proposal_error','$.in_flight','$.failure.message','$.budget_stop') FROM sessions ORDER BY id").fetchall()
+                from arena.calibration_models import active_analyst_session
+                condition=' WHERE id=?' if proposal else ''
+                params=(active_analyst_session(folder),) if proposal else ()
+                rows=db.execute("SELECT json_extract(state,'$.status','$.proposal_phase','$.proposal_error','$.in_flight','$.failure.message','$.budget_stop') FROM sessions"+condition+" ORDER BY id",params).fetchall()
                 for (raw,) in rows:
                     status,phase,error,in_flight,failure,budget_stop=json.loads(raw)
                     if proposal or status not in {'submitted','budget_exhausted'}:
@@ -538,8 +556,12 @@ class Workshop:
         try:
             if route == '/api/sessions':
                 from arena.call_counts import completed_calls
+                from arena.calibration_models import active_analyst_session
                 return [{'id':sid, **{key:state.get(key) for key in ('status','steps','generation','replicate','failure')},
-                         'calls':completed_calls(state,db,sid),'request_attempts':state.get('calls',0)}
+                         'calls':completed_calls(state,db,sid),'request_attempts':state.get('calls',0),
+                         'model_label':(state.get('model_descriptor') or {}).get('model',state.get('model','')),
+                         'active':not sid.startswith('analyst') or sid==active_analyst_session(trial),
+                         'supersedes':state.get('supersedes_analyst_session')}
                         for sid,raw in db.execute('SELECT id,state FROM sessions ORDER BY id') for state in [json.loads(raw)]]
             sid = value('session')
             row = db.execute('SELECT state FROM sessions WHERE id=?',(sid,)).fetchone()
@@ -594,7 +616,7 @@ class Workshop:
                     message = history[index]
                     descriptors = blocks(message) if message['role'] in {'assistant','tool'} else prompt_blocks(message)
                     from .tool_exchange import summary
-                    page.append({'file_exchange':summary(history,index) if message['role']=='tool' else None, 'index':index,'role':message['role'], 'time':state.get('message_times',[])[index] if index<len(state.get('message_times',[])) else None,
+                    page.append({'inherited_from_session':message.get('inherited_from_session'),'file_exchange':summary(history,index) if message['role']=='tool' else None, 'index':index,'role':message['role'], 'time':state.get('message_times',[])[index] if index<len(state.get('message_times',[])) else None,
                                  'blocks':[{k:v for k,v in b.items() if k!='value'} for b in descriptors]})
                 return {'messages':page,'offset':offset,'next':offset+25 if offset+25<len(history) else None,'total':len(history),'round_start':start}
             if route == '/api/message':
@@ -658,7 +680,7 @@ def serve(root, port=8766, open_browser=False):
                     result=probe_model(workshop.store,model,data.get('mode','text'),data.get('secret') or (data.get('keys') or {}).get(model.get('id')))
                 elif self.path=='/api/analyst-model': result=workshop.set_analyst_model(data['id'],data['participant'])
                 elif self.path=='/api/reconcile-active':
-                    result=workshop.reconcile_active(data['id'],data.get('cost_usd'),data.get('note'))
+                    result=workshop.reconcile_active(data['id'],data.get('cost_usd'),data.get('note'),data.get('trial'),data.get('session'))
                     directory=local_path(workshop.root,data['id'])
                     try:
                         workshop.start(saved_config(directory),read_json(directory/'study.json').get('automatic',False),data['id'],data.get('keys'))

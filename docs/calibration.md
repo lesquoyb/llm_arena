@@ -719,7 +719,7 @@ Enter the confirmed additional charge, or **0** for a confirmed free API call
 (such as Mistral's free offering), and a note explaining the check. This works for
 both the tested model and the prompt analyst. Existing usage receipts, source
 files and completed evaluations remain intact. A saved response is processed
-without requesting it again; otherwise the same conversation can be retried.
+without requesting it again; otherwise the selected active conversation can be retried.
 Free pricing alone does not prove whether a network request reached the provider.
 
 ### Request attempts and completed responses
@@ -755,7 +755,7 @@ tool tests cap it at 128. No returned function is executed.
 To replace a rate-limited analyst, stop the optimization, choose **Change models**,
 keep the tested model and select another saved analyst. Apply, then Resume. Future
 analyst and summary requests use the replacement, including a retry of a failed
-request in the existing conversation. Resolve any unknown request billing first.
+request in the existing conversation. An interrupted analyst request can be left archived while the replacement starts a separate conversation.
 Saved responses and completed evaluations remain intact. Changes are recorded in
 `role-models.json`; each subsequent request records its actual model descriptor.
 The study's original frozen inputs and shared spending ceiling are unchanged.
@@ -767,3 +767,23 @@ student conversations and keeps the original study's results separate. The new
 study records its source in `origin.json`. A completed study also uses this path
 when changing its analyst. This avoids mixing different students into a single
 learning curve while retaining the optimized learning material.
+
+### Replacing an unsuitable or interrupted analyst
+
+Changing the analyst does not require retrying or reconciling an earlier provider
+request. The replacement gets a new session containing
+the recorded analysis context and visible history, with a fresh request for an independent review. The old session and any monetary
+reservation remain unchanged and count toward the shared financial ceiling. No
+charge is silently set to zero. A ceiling fully occupied by unresolved reservations
+can still prevent further spending, but does not prevent changing the analyst.
+
+The conversation selector labels the old session Archived and selects the active
+replacement by default. Use **Resolve archived request** later to record its known
+charge, while the optimization is stopped. Resolving it does not resend that request.
+This also applies to interrupted trajectory-summary sessions. Completed proposals
+and summaries are immutable and are reused rather than regenerated.
+
+A zero-priced model has a zero monetary reservation even when its output token
+limit is blank. Such requests can continue when earlier reservations exactly fill
+the financial ceiling; requests with a positive or unknown cost bound still obey
+that ceiling. These bounds use configured prices, not independent billing data.

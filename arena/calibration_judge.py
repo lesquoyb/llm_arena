@@ -96,7 +96,8 @@ def summarize(out, sid, target, config):
     try:
         summary_path=directory/'summary.json'
         if summary_path.exists(): return read_json(summary_path)['text']
-        name='summary-r0'
+        from .calibration_models import active_analyst_session
+        name=active_analyst_session(directory,'summary-r0')
         state=journal.state(name)
         if not state:
             state=initial_state(name,model,analyst_experiment_config(config))

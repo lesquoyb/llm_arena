@@ -195,7 +195,10 @@ async function refreshLiveOutput() {
     if(data.role==='analyst'){budget.append(node('p',`Prompt analyst · ${data.calls} model response(s) · ${data.request_attempts??data.calls} request attempt(s) · ${data.repair_attempts} correction attempt(s). Returns proposal JSON; no submit, preparation tools or fights are expected.`));if(data.proposal_phase)budget.append(node('p',data.proposal_phase.message));if(data.proposal_error||data.failure?.message)budget.append(node('p',data.proposal_error||data.failure.message));}
     if(data.role!=='analyst'&&data.request_attempts>data.calls)budget.append(node('small',`${data.calls} model response(s) · ${data.request_attempts} request attempt(s). Failed connections do not consume the model-call budget.`));
     if(data.budget){const strip=node('div',undefined,'budget-strip');for(const [key,value] of Object.entries(data.budget.limits))strip.append(node('span',`${({calls:'Model calls',steps:'Tool calls',test_matches:'Preparation fights'})[key]||key}: ${value.used??'?'} / ${value.limit} · ${value.remaining??'?'} left`));budget.append(strip)}
+    const archived=sessionRows.find(row=>row.id===$('session').value)?.active===false;
+    if(archived&&data.status==='needs_reconciliation'&&selectedState?.runtime_status!=='running')budget.append(button('Resolve archived request',resolveInterruptedRequest));
     $('live-status').textContent=data.in_flight?'Model request in progress'+(data.live?.phase==='streaming'?' · receiving output':(data.streaming_supported?' · waiting for output':' · this provider updates after each complete response')):data.status;
+    if(archived)$('live-status').textContent='Archived analyst conversation · not resumed; the replacement is a separate conversation';
     const mount=$('live-output');
     if(!data.live || !data.in_flight && data.live.phase!=='interrupted'){mount.replaceChildren();delete mount.dataset.signature;return}
     if(!$('follow-live').checked)return;
@@ -690,6 +693,7 @@ function draw() {
   );
 }
 async function loadTrial() {
+  sessionRows=[];$('session').replaceChildren();
   $("live-output").replaceChildren();
   $("session-budget").replaceChildren();
   selectedTrial = $("trial").value;
@@ -728,12 +732,14 @@ async function refreshSessions(keepSession) {
       $("session"),
       s.id,
       s.id.startsWith("analyst")
-        ? "Analyst · "+s.status
+        ? "Analyst · "+(s.model_label||s.id)+" · "+(s.active===false?"Archived · ":"")+s.status
         : `Round ${s.generation + 1} · Replicate ${Number(s.id.match(/-r(\d+)/)?.[1] || 0) + 1} · ${s.status}`,
     ),
   );
   if (keepSession && sessionRows.some((s) => s.id === keepSession))
     $("session").value = keepSession;
+  else if(sessionRows.some(row=>row.id.startsWith('analyst')&&row.active))
+    $('session').value=sessionRows.find(row=>row.id.startsWith('analyst')&&row.active).id;
   else if ($("session").options.length)
     $("session").selectedIndex = $("session").options.length - 1;
   const chosen = sessionRows.find((s) => s.id === $("session").value);
@@ -901,6 +907,7 @@ async function history(offset, refresh = false) {
       "message " + message.role + (same ? " arrival" : ""),
     );
     div.dataset.messageIndex = message.index;
+    if(message.inherited_from_session)div.append(node('small','Inherited context from '+message.inherited_from_session+'; not a new answer from this analyst.'));
     div.append(
       node(
         "h3",
@@ -1347,6 +1354,12 @@ function renderModelRoles(data){
  const actions=node('div',undefined,'actions');actions.append(button('Change models',()=>changeCalibrationModels(data)));
  if(roles.history?.length)actions.append(button('Model change history',()=>reveal('Recorded model changes',roles.history)));
  mount.append(actions);
+ if(roles.outstanding_requests?.length){
+   const detail=node('details');detail.append(node('summary',`${roles.outstanding_requests.length} earlier interrupted request(s) retained`));
+   detail.append(node('p','These belong to earlier analysts. They do not prevent choosing a replacement; their reservations still count toward the spending ceiling. Resolve their confirmed cost later while the optimization is stopped.'));
+   for(const request of roles.outstanding_requests){const row=node('div');row.append(node('span',`${request.directory} · ${request.session} · $${request.reserved_usd} reserved `),button('Resolve saved request',()=>resolveInterruptedRequest({trial:request.directory,session:request.session})));detail.append(row);}
+   mount.append(detail);
+ }
 }
 async function changeCalibrationModels(data){
  const roles=data.model_roles,study=selected;
@@ -1373,14 +1386,14 @@ async function changeCalibrationModels(data){
        pendingModelOrigin={study,candidate:index+1};
        $('prompt-origin').textContent=`Loaded candidate ${index+1} from ${data.config.name}. Review settings, then Run calibration to start with the new tested model. Original results are preserved.`;
      }else if(selects.analyst.value!=='__current__'){
-       await api('/api/analyst-model',{id:study,participant:selects.analyst.value});$('dialog').close();await inspect(study);
+       await api('/api/analyst-model',{id:study,participant:selects.analyst.value});$('dialog').close();await inspect(study);await focusActive('inspect');
      }else $('dialog').close();
    }finally{submit.disabled=false;}
  }));mount.append(form);
 }
 
-async function resolveInterruptedRequest(){
- const study=selected;
+async function resolveInterruptedRequest(request=null){
+ const study=selected,trial=request?.trial||selectedTrial,session=request?.session||$('session').value;
  await reveal('Resolve interrupted request','');
  const mount=$('dialog-content'),form=node('form');
  mount.append(node('p','The previous request has an unknown outcome. Enter its confirmed additional cost only. For a free Mistral API call or a free local model, enter 0 and explain that no charge applies. Recorded usage and completed results are preserved.'));
@@ -1391,7 +1404,7 @@ async function resolveInterruptedRequest(){
  const submit=button('Record cost & resume',()=>{});submit.type='submit';form.append(submit);
  form.addEventListener('submit',guard(async event=>{
    event.preventDefault();submit.disabled=true;
-   try{await api('/api/reconcile-active',{id:study,cost_usd:cost.value,note:note.value,keys:keys()});$('dialog').close();await inspect(study);}
+   try{await api('/api/reconcile-active',{id:study,trial,session,cost_usd:cost.value,note:note.value,keys:keys()});$('dialog').close();await inspect(study);}
    finally{submit.disabled=false;}
  }));mount.append(form);
 }

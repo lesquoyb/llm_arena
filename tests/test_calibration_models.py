@@ -16,7 +16,7 @@ class CalibrationModelTests(TestCase):
             store.save_participant(after)
             value=defaults();value.update(analyst=before,spending={'allow_paid_calls':True,'max_total_usd':'1'})
             directory=workshop.root/'study';write_json(directory/'input.json',value)
-            write_json(directory/'study.json',{'config':value,'status':'blocked'})
+            write_json(directory/'study.json',{'config':value,'status':'blocked','active_trial':0,'active_proposal':1})
             workshop.set_analyst_model('study','after')
             self.assertEqual(effective_analyst(value,directory),after)
             self.assertEqual(read_json(directory/'input.json'),value)
@@ -24,11 +24,36 @@ class CalibrationModelTests(TestCase):
             folder=directory/'proposals/001';folder.mkdir(parents=True)
             journal=Journal(folder)
             try:
-                state=initial_state('analyst-r0',before,experiment_config(value));state.update(status='needs_reconciliation',in_flight=True)
+                state=initial_state('analyst-r0',before,experiment_config(value));state.update(status='needs_reconciliation',in_flight=True,money_reserved='1')
                 journal.save('analyst-r0',state,'fixture')
             finally:journal.db.close()
-            with self.assertRaisesRegex(ArenaError,'Resolve interrupted requests'):
-                workshop.set_analyst_model('study','after')
+            result=workshop.set_analyst_model('study','after')
+            self.assertEqual(result['retired_requests'][0]['session'],'analyst-r0')
+            journal=Journal(folder)
+            try:
+                self.assertTrue(journal.state('analyst-r0')['in_flight'])
+                self.assertEqual(journal.state('analyst-r1')['model'],'after')
+                self.assertFalse(journal.state('analyst-r1').get('in_flight',False))
+                journal.verify()
+            finally:journal.db.close()
+            self.assertFalse(workshop.active_work(directory,read_json(directory/'study.json')).get('requires_reconciliation'))
+            from arena.calibration import propose
+            import json
+            answer={'role':'assistant','content':json.dumps({'no_change':True,'rationale':'Keep current best.'}),
+                    'tool_calls':[],'usage':{'input_tokens':10,'output_tokens':2},'cost_usd':'0'}
+            with mock.patch('arena.api_providers.APIProvider.respond',return_value=answer):
+                self.assertTrue(propose(value,{},root/'baseline',folder)['no_change'])
+            journal=Journal(folder)
+            try:
+                successor=journal.state('analyst-r1')
+                self.assertEqual(journal.state('analyst-r0')['money_reserved'],'1')
+            finally:journal.db.close()
+            workshop.reconcile_active('study','0','Confirmed free API request.',trial='proposals/001',session='analyst-r0')
+            journal=Journal(folder)
+            try:
+                self.assertEqual(journal.state('analyst-r1'),successor)
+                self.assertEqual(journal.state('analyst-r0')['money_reserved'],'0')
+            finally:journal.db.close()
 
     def test_linked_calibration_keeps_origin_and_separate_frozen_configuration(self):
         with scratch_directory() as root:
@@ -59,3 +84,9 @@ class CalibrationModelTests(TestCase):
             self.assertNotIn('opaque-private-marker',json.dumps(payload))
             self.assertNotIn('responses_output',json.dumps(payload))
         self.assertEqual(history,original)
+
+    def test_free_unbounded_output_has_zero_financial_reservation(self):
+        from arena.usage import reservation
+        bound=reservation(model(),[{'role':'user','content':'Review.'}],[],None)
+        self.assertIsNone(bound['output_bound'])
+        self.assertEqual(bound['cost_bound'],'0')

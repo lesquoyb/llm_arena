@@ -325,7 +325,7 @@ def provider_response(sid, state, model, config, journal):
             remaining.append(amount(budget["max_cost_usd"]) - spent)
         if "max_total_usd" in config["spending"]:
             remaining.append(amount(config["spending"]["max_total_usd"]) - total)
-        if any(value <= 0 for value in remaining):
+        if any(value < 0 or (value == 0 and (bound['cost_bound'] is None or amount(bound['cost_bound'])>0)) for value in remaining):
             scope='study' if 'max_total_usd' in config['spending'] and total>=amount(config['spending']['max_total_usd']) else 'session'
             stop_budget(scope,'The shared study spending limit is exhausted; completed work is preserved.' if scope=='study' else 'The session spending limit is exhausted.')
             return None

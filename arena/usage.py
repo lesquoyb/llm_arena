@@ -102,7 +102,8 @@ def reservation(model, history, tools, remaining_output):
     p = effective_pricing(model)
     input_rate = max(amount(p.get(key, p["input_per_million"])) for key in
                      ("input_per_million", "cached_input_per_million", "cache_creation_per_million"))
-    bound = ((input_bound * input_rate + output_bound * amount(p["output_per_million"])) / Decimal(1_000_000)
-             if output_bound is not None else None)
+    output_rate=amount(p['output_per_million'])
+    bound = ((input_bound * input_rate + (output_bound or 0) * output_rate) / Decimal(1_000_000)
+             if output_bound is not None or output_rate==0 else None)
     return {"input_bound": input_bound, "output_bound": output_bound, "cost_bound": str(bound) if bound is not None else None,
             "strict": False, "basis": "configured input bound or serialized UTF-8 bytes; unlimited output reserves remaining funds; provider billing not independently confirmed"}
