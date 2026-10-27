@@ -30,7 +30,7 @@
               <option value="grid">Model parameter sweep</option>
             </select></label
           ><label id="analyst-label" hidden
-            >Analyst model<select id="analyst"></select
+            >Prompt analyst / summary model<select id="analyst"></select
           ></label>
           <label id="candidate-count-label" hidden>Optional candidate limit (blank = no limit)<input id="candidate-count" type="number" min="1" placeholder="Until plateau or manual stop"></label>
         </div>
@@ -47,6 +47,7 @@
               autocomplete="off"
           /></label>
         </div>
+        <div class="actions"><button type="button" id="test-setup-target">Test student · 16 tokens</button><button type="button" id="test-setup-analyst">Test analyst · 16 tokens</button><small>Small API requests, billed separately from calibration.</small></div>
         <details>
           <summary>Provider configuration</summary>
           <p>
@@ -61,7 +62,7 @@
               rows="8"
             ></textarea></label
           ><label
-            >Analyst model JSON<textarea id="analyst-json" rows="8"></textarea>
+            >Analyst / summary model JSON<textarea id="analyst-json" rows="8"></textarea>
           </label>
         </details>
         <label
@@ -286,7 +287,7 @@
             ><button id="log" class="secondary">Run log</button><button id="tool-requests" class="secondary">Tool improvement report</button>
           </div></details>
         </div>
-        <div id="status" hidden></div><div id="study-command" class="study-command" aria-live="polite"></div><nav class="study-tabs" aria-label="Study sections"><button data-study-tab="overview">Overview</button><button data-study-tab="changes">Prompt changes</button><button data-study-tab="inspect">Conversations & files</button></nav><div class="fields study-selection"><label>Saved version<select id="trial"></select></label><label>Replicate<select id="replicate"></select></label></div><div data-study-panel="overview"><div id="study-cost" class="budget-strip"></div>
+        <div id="status" hidden></div><div id="study-command" class="study-command" aria-live="polite"></div><section id="study-models" class="panel role-models" aria-label="Calibration model roles"></section><nav class="study-tabs" aria-label="Study sections"><button data-study-tab="overview">Overview</button><button data-study-tab="changes">Prompt changes</button><button data-study-tab="inspect">Conversations & files</button></nav><div class="fields study-selection"><label>Saved version<select id="trial"></select></label><label>Replicate<select id="replicate"></select></label></div><div data-study-panel="overview"><div id="study-cost" class="budget-strip"></div>
 <div id="workflow-status" class="workflow-status" hidden></div>
         <section><h3>Optimization progress</h3><div id="rl-progress"></div></section>
         </div><div data-study-panel="changes" hidden><div class="diagnostic-comparison"><section id="analyst-review" class="review-panel"><h3>Analyst findings & changes</h3><div id="analyst-content"></div></section><section class="review-panel"><h3>Independent Laya observations</h3><div id="diagnostic-content"></div></section></div>

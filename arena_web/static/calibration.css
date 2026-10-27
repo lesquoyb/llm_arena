@@ -306,3 +306,9 @@ section p {line-height:1.65}
 .study-tools {max-width:520px}.study-tools summary {cursor:pointer}.study-tools button {margin:6px 4px 0 0}
 [data-study-panel][hidden] {display:none}
 @media(max-width:700px){.study-tabs button{flex:1}.study-command{padding:16px}.study-command h3{font-size:1.3rem}}
+.role-models { display:flex; flex-wrap:wrap; gap:1rem; margin-block:1rem; }
+.role-models > div { flex:1 1 240px; min-width:0; }
+.role-models p { margin:.35rem 0; overflow-wrap:anywhere; }
+.role-models small { display:block; overflow-wrap:anywhere; }
+
+.role-models > .actions { flex-basis:100%; }

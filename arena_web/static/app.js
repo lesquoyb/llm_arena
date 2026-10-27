@@ -527,7 +527,7 @@ function participantCards(term = "") {
     <div class="profile-card-top"><span class="provider-mark provider-${e(m.provider)}" aria-hidden="true">${e((PROVIDER_NAMES[m.provider] || m.provider)[0])}</span>${badge(m.profile === "saved-strategy" ? "Saved strategy" : PROVIDER_NAMES[m.provider] || m.provider)}<span class="spacer"></span><button class="icon-button" data-action="delete-participant" data-id="${e(m.id)}" title="Remove profile" aria-label="Remove ${e(m.id)}">×</button></div>
     <h2><button class="card-title" data-action="edit-participant" data-id="${e(m.id)}">${e(m.id)}</button></h2><p class="profile-model mono">${e(m.model || m.profile)}</p>
     <dl class="profile-facts"><div><dt>Reasoning</dt><dd>${m.provider === "mock" ? "Scripted" : e(reasoningLabel(m.parameters))}</dd></div><div><dt>Input / output · $ / 1M</dt><dd>${m.pricing ? `${e(m.pricing.input_per_million)} / ${e(m.pricing.output_per_million)}` : "No API cost"}</dd></div></dl>
-    <div class="profile-card-footer">${m.provider === "mock" ? badge("Ready", "green") : badge(key_optional && !key_configured ? "Local · no key required" : key_configured ? "Key configured" : "API key missing", key_configured || key_optional ? "green" : "orange")}${btn("Configure", "edit-participant", `data-id="${e(m.id)}"`)}</div></article>`).join("") : empty("No participants found", term ? "Try a different name, model or provider." : "Add a model provider or a built-in strategy.", term ? "" : btn("Add participant","new-participant","",true));
+    <div class="profile-card-footer">${m.provider === "mock" ? badge("Ready", "green") : badge(key_optional && !key_configured ? "Local · no key required" : key_configured ? "Key configured" : "API key missing", key_configured || key_optional ? "green" : "orange")}${m.provider!=="mock"?btn("Test API","test-model",`data-id="${e(m.id)}"`):""}${btn("Configure", "edit-participant", `data-id="${e(m.id)}"`)}</div></article>`).join("") : empty("No participants found", term ? "Try a different name, model or provider." : "Add a model provider or a built-in strategy.", term ? "" : btn("Add participant","new-participant","",true));
 }
 function providersDialog(identifier=null) {
   const saved=(S.boot.providers||[]),spec=saved.find(row=>row.spec.id===identifier)?.spec||{};
@@ -3168,6 +3168,15 @@ document.addEventListener("click", async (event) => {
       node.closest("form").elements.model.value = node.dataset.model;
       $("#model-search").value = node.dataset.model;
       renderModelCatalog();
+    } else if(a==='test-model') {
+      openDialog('Test model',node.dataset.id,`<p>One small request per test. May incur API charges; usage and cost are saved separately from competitions.</p><div class="actions">${btn('Connection · 16 output tokens','run-model-test',`data-id="${e(node.dataset.id)}" data-mode="text"`)}${btn('Tools · 128 output tokens','run-model-test',`data-id="${e(node.dataset.id)}" data-mode="tools"`)}</div><div id="model-test-result" role="status"></div>`);
+    } else if(a==='run-model-test') {
+      const buttons=$$('[data-action=run-model-test]');buttons.forEach(button=>button.disabled=true);
+      const resultElement=$('#model-test-result');resultElement.textContent='Waiting for the provider…';
+      try {
+        const result=await api('/api/model-test',{id:node.dataset.id,mode:node.dataset.mode},true);
+        if(resultElement.isConnected)resultElement.innerHTML=`<p><strong>${e(result.accepted?'API accepted the request':result.error)}</strong></p><p>${Number(result.seconds).toFixed(2)} s · Output cap ${result.output_cap} · Cost ${result.cost_usd==null?'unknown':'$'+e(result.cost_usd)}${result.mode==='tools'?' · '+(result.tool_call_returned?'Tool call received':'No tool call returned at this output cap'):''}</p><details><summary>Usage and diagnostics</summary><pre>${e(pretty(result))}</pre></details>`;
+      } finally {buttons.forEach(button=>button.disabled=false);}
     } else if (a === "edit-participant") participantDialog(node.dataset.id);
     else if (a === "delete-participant") {
       await api("/api/participant/delete", { id: node.dataset.id }, true);

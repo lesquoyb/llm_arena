@@ -285,3 +285,21 @@ See https://docs.ollama.com/context-length and https://docs.ollama.com/faq for
 context memory, model placement and KV-cache settings. Cache quantization and
 Flash Attention may help supported models, but should be recorded as separate
 runtime settings when benchmarking.
+
+## Test a saved model
+
+In **Participants**, click **Test API**. Calibration setup and active studies also expose model tests. Each click sends one small request:
+
+- **Connection** caps output at 16 tokens and omits optional generation parameters.
+  It checks the key, endpoint and model access; reasoning models may return no
+  visible text at this cap.
+- **Tools** caps output at 128 tokens, keeps saved generation parameters and asks
+  for one small `arena_probe` call. Returned tools are never executed. If no call
+  is returned, the result says so rather than claiming tool compatibility.
+
+The tests may incur provider charges. Automatic retries are disabled. Duration,
+reported usage/cost and failure diagnostics are saved under
+`.arena/ui/model-probes/`, separately from competition and calibration totals.
+Keys are resolved from the existing session/environment configuration, never
+written to these receipts. Unknown usage or cost stays unknown. Mistral requests
+use its `max_tokens` output-cap field.

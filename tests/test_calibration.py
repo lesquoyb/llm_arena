@@ -173,7 +173,7 @@ class CalibrationTests(TestCase):
     def test_guard_revisions_are_automatic_and_observation_does_not_revise(self):
         from arena.calibration_guard import defaults as guard_defaults
         with scratch_directory() as tmp:
-            value=config();value['analyst']={'id':'editor','provider':'openai-compatible','model':'fixture'}
+            value=config();value['analyst']={'id':'editor','provider':'openai-compatible','model':'fixture'};value['spending']={'allow_paid_calls':True}
             value['proposal_guard']={**guard_defaults(),'enabled':True}
             value['optimizer']['editor_retries']=0
             answers=[]

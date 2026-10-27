@@ -83,10 +83,13 @@ def evaluate(out, sid, state, settings, config):
 def summarize(out, sid, target, config):
     """Optional explicit analyst call; journaled, billed and resumable like other calls."""
     from .experiment import Journal, initial_state, provider_response
-    from .calibration import experiment_config
+    from .calibration import analyst_experiment_config
     from arena_web.provider_output import blocks
-    model=config.get('analyst')
+    from .calibration_models import effective_analyst
+    model=effective_analyst(config,out)
     if not model: raise ArenaError('Analyst-summary evidence requires an analyst model')
+    if model['provider']!='mock' and not config['spending'].get('allow_paid_calls'):
+        raise ArenaError('API calls are not enabled for this optimization')
     directory=out/'judge_summaries'/sid
     directory.mkdir(parents=True, exist_ok=True)
     journal=Journal(directory)
@@ -96,7 +99,7 @@ def summarize(out, sid, target, config):
         name='summary-r0'
         state=journal.state(name)
         if not state:
-            state=initial_state(name,model,experiment_config(config))
+            state=initial_state(name,model,analyst_experiment_config(config))
             evidence=[]
             for message in target['history']:
                 if message['role'] not in {'assistant','tool'}: continue
@@ -110,10 +113,10 @@ def summarize(out, sid, target, config):
             journal.save(name,state,'session_created')
         if state.get('in_flight') or state['status']=='needs_reconciliation':
             raise ArenaError('Summary request needs billing reconciliation; it will not be repeated automatically')
-        if state['status']=='provider_unavailable': state['status']='running'
+        if state['status'] in {'provider_unavailable','budget_exhausted'}: state['status']='running'
         if model['provider']=='mock':
             raise ArenaError('A real analyst is required to summarize a trajectory; mock summaries are not measurements')
-        response=state.get('pending') or provider_response(name,state,model,{**experiment_config(config),'models':[model]},journal)
+        response=state.get('pending') or provider_response(name,state,model,analyst_experiment_config(config),journal)
         if not response or state['status']!='running': raise ArenaError(state.get('failure',{}).get('message',state['status']))
         text='\n'.join(b['value'] if isinstance(b['value'],str) else b['value'].get('text','') if isinstance(b['value'],dict) else '' for b in blocks(response) if b['kind']=='text').strip()
         if not text: raise ArenaError('The analyst returned no readable trajectory summary')

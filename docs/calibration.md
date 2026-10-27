@@ -737,3 +737,33 @@ count from their own `model_response` events when read. Their checkpoints are no
 rewritten for display. A regular Resume is disabled while a request is awaiting
 reconciliation; use **Resolve interrupted request & resume** instead. The server
 also rejects a direct Resume in that state before launching another worker.
+
+## Model roles, connection tests and replacement
+
+The model panel names the **tested model / student**, the **prompt analyst / summary
+model**, and each enabled **local Laya** check. The analyst proposes prompt edits
+and also produces trajectory summaries when summary evidence is enabled. Laya
+runs locally for independent diagnostics, proposal checks or conversation scoring;
+it is separate from the provider analyst. Selected conversations show the model
+used for their recorded requests.
+
+Use **Test connection** or **Test tools** beside a role to make a small explicitly
+requested probe of its effective provider configuration. Probe receipts and costs
+are separate from optimization totals. Connection tests cap output at 16 tokens;
+tool tests cap it at 128. No returned function is executed.
+
+To replace a rate-limited analyst, stop the optimization, choose **Change models**,
+keep the tested model and select another saved analyst. Apply, then Resume. Future
+analyst and summary requests use the replacement, including a retry of a failed
+request in the existing conversation. Resolve any unknown request billing first.
+Saved responses and completed evaluations remain intact. Changes are recorded in
+`role-models.json`; each subsequent request records its actual model descriptor.
+The study's original frozen inputs and shared spending ceiling are unchanged.
+
+Choosing another tested model prepares a **new calibration**, initialized from the
+best candidate's prompt and complete frozen reference documents. Review its
+settings and spending budget, then click **Run calibration**. It starts fresh
+student conversations and keeps the original study's results separate. The new
+study records its source in `origin.json`. A completed study also uses this path
+when changing its analyst. This avoids mixing different students into a single
+learning curve while retaining the optimized learning material.

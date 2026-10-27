@@ -164,15 +164,17 @@ class APIProvider:
                 payload["system"] = system
         else:
             if output_limit is not None:
-                payload["max_completion_tokens"] = output_limit
+                # Mistral's Chat API uses max_tokens, unlike OpenAI reasoning chat models.
+                field = 'max_tokens' if parse.urlsplit(m.get('endpoint','')).hostname == 'api.mistral.ai' else 'max_completion_tokens'
+                payload[field] = output_limit
             payload.update(tools=[{"type": "function", "function": {"name": t["name"],
                                   "description": t["description"], "parameters": t["input_schema"]}} for t in tools])
         if not tools: payload.pop("tools", None)
         return payload
 
-    def respond(self, history, tools, output_limit):
+    def respond(self, history, tools, output_limit, *, key_override=None):
         m = self.model
-        key = os.environ.get(m["api_key_env"])
+        key = key_override if key_override is not None else os.environ.get(m["api_key_env"])
         if not key and not optional_local_key(m):
             raise ProviderFailure(f"Missing credential binding: {m['api_key_env']}")
         from .openai_responses import uses_responses

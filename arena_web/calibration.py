@@ -106,9 +106,14 @@ class Workshop:
                          'accounting':self.usage(directory), 'error':state.get('error'), 'automatic':state.get('automatic', False)})
         return rows
 
-    def start(self, config, automatic, identifier=None, keys=None):
+    def start(self, config, automatic, identifier=None, keys=None, origin=None):
         if type(automatic) is not bool: raise ArenaError("Workflow must be a boolean")
         config = validate(config)
+        if origin is not None:
+            if identifier is not None or not isinstance(origin,dict) or set(origin)!={'study','candidate'} or type(origin['candidate']) is not int or origin['candidate']<1:
+                raise ArenaError('Invalid source calibration reference')
+            source=local_path(self.root,origin['study'])/'trials'/f"{origin['candidate']-1:03}"
+            if not (source/'calibration.json').is_file(): raise ArenaError('Source candidate is not available')
         if automatic and config['max_rounds'] is None:
             raise ArenaError('Automatic candidate selection needs finite rounds; choose manual prompt editing to stop rounds manually')
         if keys is not None and (not isinstance(keys,dict) or any(not isinstance(k,str) or not isinstance(v,str) for k,v in keys.items())):
@@ -116,7 +121,9 @@ class Workshop:
         with self.lock:
             if any(p.poll() is None for p in self.processes.values()):
                 raise ArenaError('A calibration is running; stop it before starting another')
-            if config['target']['provider'] != 'mock' or (automatic and config.get('analyst',{}).get('provider','mock') != 'mock'):
+            from arena.calibration_models import effective_analyst
+            analyst=effective_analyst(config,local_path(self.root,identifier)) if identifier else config.get('analyst')
+            if config['target']['provider'] != 'mock' or (automatic and (analyst or {}).get('provider','mock') != 'mock'):
                 if not config['spending']['allow_paid_calls']:
                     raise ArenaError('Activate API calls explicitly in the spending settings')
             identifier = identifier or time.strftime('%Y%m%dT%H%M%S')+'-'+uuid4().hex[:6]
@@ -131,8 +138,9 @@ class Workshop:
             if (directory/'input.json').exists() and read_json(directory/'input.json') != config:
                 raise ArenaError('Resume uses the exact frozen configuration; fork to edit')
             write_json(directory/'input.json', config)
+            if origin is not None: write_json(directory/'origin.json',origin)
             env = os.environ.copy()
-            for model in [config['target'], config.get('analyst')]:
+            for model in [config['target'], effective_analyst(config,directory)]:
                 if not model or model['provider'] == 'mock': continue
                 key = (keys or {}).get(model['id']) or self.store.secrets.get(model['api_key_env'])
                 if key:
@@ -254,6 +262,43 @@ class Workshop:
             write_json(directory/'study.json',manifest)
             return {'recorded':True,'candidate':index+1}
 
+    def model_roles(self, identifier):
+        from arena.calibration_models import effective_analyst
+        directory=local_path(self.root,identifier);config=saved_config(directory)
+        return {'target':config['target'],'analyst':effective_analyst(config,directory),
+                'diagnostics':config.get('diagnostics',{}),'proposal_guard':config.get('proposal_guard',{}),
+                'evaluation':config.get('evaluation',{}),
+                'history':read_json(directory/'role-models.json').get('history',[]) if (directory/'role-models.json').exists() else []}
+
+    def set_analyst_model(self, identifier, participant):
+        from arena.calibration_models import effective_analyst
+        from arena.experiment import experiment_lock
+        directory=local_path(self.root,identifier)
+        with self.lock,experiment_lock(directory):
+            if any(process.poll() is None for process in self.processes.values()):
+                raise ArenaError('Stop the optimization before changing its analyst')
+            directory=local_path(self.root,identifier)
+            config=saved_config(directory)
+            if read_json(directory/'study.json').get('status')=='completed':
+                raise ArenaError('This optimization is complete. Start a new calibration from a saved candidate to change models.')
+            model=next((row for row in self.store.catalog() if row['id']==participant),None)
+            if not model or model['provider']=='mock': raise ArenaError('Choose a saved API model for the analyst')
+            self.store.validate_model(model)
+            if not config['spending']['allow_paid_calls']:
+                raise ArenaError('API requests are disabled in this study. Start a new calibration with API requests enabled.')
+            # An uncertain request must be accounted for before changing its provider.
+            for path in directory.glob('**/journal.sqlite'):
+                db=sqlite3.connect(path.as_uri()+'?mode=ro',uri=True)
+                try:
+                    if db.execute("SELECT 1 FROM sessions WHERE json_extract(state,'$.in_flight')=1 OR json_extract(state,'$.status')='needs_reconciliation' LIMIT 1").fetchone():
+                        raise ArenaError('Resolve interrupted requests before changing the analyst')
+                finally:db.close()
+            previous=effective_analyst(config,directory)
+            path=directory/'role-models.json';saved=read_json(path) if path.exists() else {}
+            history=saved.get('history',[])+[{'role':'analyst','at':time.time(),'previous':previous,'model':model,'scope':'Future analyst and trajectory-summary requests; completed results are preserved.'}]
+            write_json(path,{'analyst':model,'history':history})
+            return {'saved':True,'model':model['id']}
+
     def reconcile_active(self, identifier, cost, note):
         from arena.experiment import Journal
         from arena.recovery import reconcile
@@ -337,7 +382,7 @@ class Workshop:
         directory = local_path(self.root,value('study'))
         if route == '/api/study':
             proposal_paths={p.parent:(p.parent/'proposal.json' if (p.parent/'proposal.json').exists() else p) for pattern in ('proposals/*/proposal.json','proposals/*/proposal-draft.json') for p in directory.glob(pattern)}
-            return {'runtime_status':next((row['status'] for row in self.listing() if row['id']==directory.name), 'stopped'), 'config':saved_config(directory), 'state':read_json(directory/'study.json') if (directory/'study.json').exists() else {},'accounting':self.usage(directory),'active_work':self.active_work(directory,read_json(directory/'study.json') if (directory/'study.json').exists() else {}),
+            return {'origin':read_json(directory/'origin.json') if (directory/'origin.json').exists() else None,'model_roles':self.model_roles(directory.name),'runtime_status':next((row['status'] for row in self.listing() if row['id']==directory.name), 'stopped'), 'config':saved_config(directory), 'state':read_json(directory/'study.json') if (directory/'study.json').exists() else {},'accounting':self.usage(directory),'active_work':self.active_work(directory,read_json(directory/'study.json') if (directory/'study.json').exists() else {}),
                     'progress': [{'trial': p.parent.name, 'value':read_json(p)} for p in directory.glob('trials/*/progress.json')],
                     'active_reports':{p.parent.relative_to(directory).as_posix():read_json(p) for p in directory.glob('trials/*/report.json')},
                     'diagnostic_revision':[(p.relative_to(directory).as_posix(),p.stat().st_mtime_ns,p.stat().st_size) for p in sorted(directory.glob('trials/*/diagnostics/*.json'))],
@@ -523,7 +568,7 @@ class Workshop:
                 model=config.get('analyst') if sid.startswith('analyst') else config['target']
                 return {'streaming_supported':bool(model and model['provider'] in {'openai','openai-compatible'} and config.get('stream_responses',True)),
                         'status':state['status'],'in_flight':state.get('in_flight',False),'role':'analyst' if sid.startswith('analyst') else 'target',
-                        'calls':state['completed_calls'],'request_attempts':state.get('calls',0),'repair_attempts':state.get('repair_attempts',0),'proposal_phase':state.get('proposal_phase'),'proposal_error':state.get('proposal_error'),'failure':state.get('failure'),
+                        'calls':state['completed_calls'],'request_attempts':state.get('calls',0),'repair_attempts':state.get('repair_attempts',0),'proposal_phase':state.get('proposal_phase'),'proposal_error':state.get('proposal_error'),'failure':state.get('failure'),'model_descriptor':state.get('model_descriptor') or model,
                         'live':live if state.get('in_flight') or (live and live.get('phase')=='interrupted') else None,
                         'budget':None if sid.startswith('analyst') else progress(state,config['budget_per_session'])}
             if route == '/api/tool-exchange':
@@ -600,7 +645,18 @@ def serve(root, port=8766, open_browser=False):
                 size = int(self.headers.get('Content-Length','0'))
                 if not 0<size<=2000000: raise ArenaError('Invalid request size')
                 data = json.loads(self.rfile.read(size))
-                if self.path=='/api/start': result=workshop.start(data['config'],data.get('automatic',False),keys=data.get('keys'))
+                if self.path=='/api/start': result=workshop.start(data['config'],data.get('automatic',False),keys=data.get('keys'),origin=data.get('origin'))
+                elif self.path=='/api/test-model':
+                    from .model_probe import probe_model
+                    if data.get('spec') is not None:
+                        model=data['spec']
+                    else:
+                        roles=workshop.model_roles(data['id'])
+                        if data.get('role') not in {'target','analyst'}: raise ArenaError('Choose target or analyst')
+                        model=roles[data['role']]
+                    if not isinstance(model,dict): raise ArenaError('No model assigned to this role')
+                    result=probe_model(workshop.store,model,data.get('mode','text'),data.get('secret') or (data.get('keys') or {}).get(model.get('id')))
+                elif self.path=='/api/analyst-model': result=workshop.set_analyst_model(data['id'],data['participant'])
                 elif self.path=='/api/reconcile-active':
                     result=workshop.reconcile_active(data['id'],data.get('cost_usd'),data.get('note'))
                     directory=local_path(workshop.root,data['id'])

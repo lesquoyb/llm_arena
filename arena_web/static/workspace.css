@@ -91,7 +91,7 @@ label.field { font-weight: 550; }
 dt { color: var(--muted); }
 dd { margin: 0; }
 .profile-facts dd { text-align: right; }
-.profile-card-footer { border-top: 1px solid var(--border); padding-top: 16px; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.profile-card-footer { flex-wrap: wrap; border-top: 1px solid var(--border); padding-top: 16px; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .quiet-details { margin: 24px 0; color: var(--muted); font-size: 12px; }
 .quiet-details summary { color: var(--muted); font-weight: 500; }
 .quiet-details p { margin: 12px 0; max-width: 80ch; }

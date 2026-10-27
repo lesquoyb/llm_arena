@@ -11,6 +11,7 @@ let boot,
   historyIdentity,
   historyNext,
   baselineId = localStorage.getItem("arena-calibration-baseline");
+let pendingModelOrigin=null;
 const showError = (error) => {
   $("error").textContent = error.message || String(error);
   $("error").hidden = false;
@@ -190,6 +191,7 @@ async function refreshLiveOutput() {
     if(previousLiveIdentity===identity && previousInFlight && !data.in_flight) await history(undefined,true);
     previousLiveIdentity=identity;previousInFlight=!!data.in_flight;
     const budget=$('session-budget');budget.replaceChildren();
+    if(data.model_descriptor){const model=data.model_descriptor;budget.append(node('strong',`${data.role==='analyst'?'Analyst':'Tested model'}: ${model.id} · ${model.model||model.profile||model.provider}`));}
     if(data.role==='analyst'){budget.append(node('p',`Prompt analyst · ${data.calls} model response(s) · ${data.request_attempts??data.calls} request attempt(s) · ${data.repair_attempts} correction attempt(s). Returns proposal JSON; no submit, preparation tools or fights are expected.`));if(data.proposal_phase)budget.append(node('p',data.proposal_phase.message));if(data.proposal_error||data.failure?.message)budget.append(node('p',data.proposal_error||data.failure.message));}
     if(data.role!=='analyst'&&data.request_attempts>data.calls)budget.append(node('small',`${data.calls} model response(s) · ${data.request_attempts} request attempt(s). Failed connections do not consume the model-call budget.`));
     if(data.budget){const strip=node('div',undefined,'budget-strip');for(const [key,value] of Object.entries(data.budget.limits))strip.append(node('span',`${({calls:'Model calls',steps:'Tool calls',test_matches:'Preparation fights'})[key]||key}: ${value.used??'?'} / ${value.limit} · ${value.remaining??'?'} left`));budget.append(strip)}
@@ -213,6 +215,7 @@ async function refreshLiveOutput() {
 setInterval(refreshLiveOutput,700);
 
 function fill(config) {
+  pendingModelOrigin=null;
   referenceEdits=structuredClone(config.reference_documents || {});
   $('reference-path').replaceChildren();
   Object.keys(boot.reference_documents).forEach(path=>option($('reference-path'),path,path));
@@ -453,6 +456,7 @@ async function inspect(identifier, retain = false) {
   const keepSession = $("session").value;
   selectedState = data;
   commandCenter(data);
+  renderModelRoles(data);
   $("study-title").textContent = data.config.name;
   const usage=data.accounting || data.state.accounting;
   $('study-cost').replaceChildren();
@@ -999,7 +1003,9 @@ $("start").onclick = guard(async () => {
       config: value,
       automatic: $("mode").value !== "manual",
       keys: keys(),
+      origin:pendingModelOrigin,
     });
+    pendingModelOrigin=null;
     await listing();
     await inspect(result.id);
   } finally {
@@ -1094,6 +1100,7 @@ $("error").onclick = () => ($("error").hidden = true);
 function setMode() {
   updateLoopPlan();
   const active = $("mode").value === "automatic" || ($('diagnostics-enabled').checked && $('judge-evidence').value==='summary');
+  $('test-setup-analyst').hidden=!active;
   $("analyst-label").hidden = !active;
   $("candidate-count-label").hidden=$("mode").value==='manual';
   $("analyst-key").closest("label").hidden = !active;
@@ -1312,6 +1319,66 @@ async function focusActive(tab){
  if(work && [...$('trial').options].some(o=>o.value===work.directory)){$('trial').value=work.directory;await loadTrial();}
  studyTab(tab);
 }
+for(const role of ['target','analyst'])$('test-setup-'+role).onclick=guard(async()=>{
+ const model=JSON.parse($(role+'-json').value);
+ await reveal('Model API test','Waiting for the provider… One request capped at 16 output tokens; may incur API charges.');
+ const result=await api('/api/test-model',{spec:model,mode:'text',secret:$(role+'-key').value||null});
+ await reveal(result.accepted?'API accepted the test request':'Model test failed',result);
+});
+function modelName(model){return model?`${model.id} · ${model.model||model.profile||model.provider}`:'Not configured';}
+async function testCalibrationModel(role,mode){
+ await reveal('Model API test','Waiting for the provider… One small request; may incur API charges. Probe usage is saved outside calibration totals.');
+ const result=await api('/api/test-model',{id:selected,role,mode,keys:keys()});
+ await reveal(result.accepted?'API accepted the test request':'Model test failed',result);
+}
+function renderModelRoles(data){
+ const roles=data.model_roles||{target:data.config.target,analyst:data.config.analyst},mount=$('study-models');mount.replaceChildren();
+ for(const [role,label]of [['target','Tested model / student'],['analyst','Prompt analyst / summary model']]){
+   const box=node('div'),model=roles[role];box.append(node('strong',label),node('p',modelName(model)));
+   if(model){box.append(node('small',`${model.provider}${model.endpoint?' · '+model.endpoint:''}`));
+     if(model.provider!=='mock'){const actions=node('div',undefined,'actions');actions.append(button('Test connection · 16 tokens',()=>testCalibrationModel(role,'text')),button('Test tools · 128 tokens',()=>testCalibrationModel(role,'tools')));box.append(actions);}}
+   mount.append(box);
+ }
+ const local=node('div');local.append(node('strong','Local Laya checks'));
+ const diagnostics=roles.diagnostics||{},guard=roles.proposal_guard||{},evaluation=roles.evaluation||{};
+ local.append(node('p',diagnostics.enabled||guard.enabled||(evaluation.mode&&evaluation.mode!=='fights')?`${[...new Set([diagnostics.enabled&&diagnostics.model,guard.enabled&&guard.model,evaluation.mode&&evaluation.mode!=='fights'&&evaluation.model].filter(Boolean))].join(', ')||'Laya'} · local`:'Disabled'));
+ local.append(node('small',`Trajectory diagnostic: ${diagnostics.enabled?diagnostics.evidence:'off'} · Proposal check: ${guard.enabled?guard.mode||'automatic':'off'} · Score: ${evaluation.mode||'fights'}`));mount.append(local);
+ if(data.origin){const link=node('a',`Continued from ${data.origin.study}, candidate ${data.origin.candidate}`);link.href='/?'+new URLSearchParams({study:data.origin.study,candidate:'trials/'+String(data.origin.candidate-1).padStart(3,'0')});mount.append(link);}
+ const actions=node('div',undefined,'actions');actions.append(button('Change models',()=>changeCalibrationModels(data)));
+ if(roles.history?.length)actions.append(button('Model change history',()=>reveal('Recorded model changes',roles.history)));
+ mount.append(actions);
+}
+async function changeCalibrationModels(data){
+ const roles=data.model_roles,study=selected;
+ await reveal('Change calibration models','');const mount=$('dialog-content'),form=node('form');
+ mount.append(node('p','Stop the optimization before applying changes. Replacing the analyst affects future requests in this study. Replacing the tested model loads a new calibration from the best saved prompt and documents; previous evaluations stay in their original study. Review the new calibration’s spending budget before starting it.'));
+ const selects={};
+ for(const [role,label]of [['target','Tested model'],['analyst','Prompt analyst / summary model']]){
+   const select=node('select');select.id='calibration-role-'+role;selects[role]=select;option(select,'__current__','Keep '+modelName(roles[role]));
+   for(const row of boot.participants||[])if(role==='target'||row.spec.provider!=='mock')option(select,row.spec.id,modelName(row.spec));
+   const field=node('div'),labelNode=node('label',label);labelNode.htmlFor=select.id;field.append(labelNode,select);form.append(field);
+ }
+ const submit=button('Apply model choice',()=>{});submit.type='submit';submit.disabled=data.runtime_status==='running';form.append(submit);
+ if(submit.disabled)mount.append(node('p','This study is running. Stop it first, then reopen this dialog.'));
+ form.addEventListener('submit',guard(async event=>{
+   event.preventDefault();submit.disabled=true;
+   try{
+     const chosen=role=>selects[role].value==='__current__'?roles[role]:boot.participants.find(row=>row.spec.id===selects[role].value).spec;
+     if(selects.target.value!=='__current__'||(data.state.status==='completed'&&selects.analyst.value!=='__current__')){
+       const index=data.state.incumbent??0,directory='trials/'+String(index).padStart(3,'0');
+       const config=await api('/api/reusable-config?'+new URLSearchParams({study,trial:directory}));
+       config.target=structuredClone(chosen('target'));if(chosen('analyst'))config.analyst=structuredClone(chosen('analyst'));
+       config.name=(config.name+' · '+config.target.id).slice(0,100);fill(config);$('mode').value=data.state.automatic?'automatic':'manual';setMode();
+       $('dialog').close();$('setup').open=true;$('editor').scrollIntoView({behavior:'smooth'});
+       pendingModelOrigin={study,candidate:index+1};
+       $('prompt-origin').textContent=`Loaded candidate ${index+1} from ${data.config.name}. Review settings, then Run calibration to start with the new tested model. Original results are preserved.`;
+     }else if(selects.analyst.value!=='__current__'){
+       await api('/api/analyst-model',{id:study,participant:selects.analyst.value});$('dialog').close();await inspect(study);
+     }else $('dialog').close();
+   }finally{submit.disabled=false;}
+ }));mount.append(form);
+}
+
 async function resolveInterruptedRequest(){
  const study=selected;
  await reveal('Resolve interrupted request','');

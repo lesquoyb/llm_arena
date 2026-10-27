@@ -285,6 +285,13 @@ def provider_response(sid, state, model, config, journal):
     from .call_counts import hydrate_calls
     hydrate_calls(state,journal.db,sid)
     request_setup_started = time.monotonic()
+    history=state['history']
+    if state.get('calibration',{}).get('tools')==[]:
+        from .calibration_models import study_root,portable_analyst_history
+        root=study_root(journal.out)
+        if root and (root/'role-models.json').exists():
+            history=portable_analyst_history(history,model)
+
     from .feedback import available_tools
     session_tools = available_tools(state)
     paid = model["provider"] != "mock"
@@ -302,7 +309,7 @@ def provider_response(sid, state, model, config, journal):
             state['budget_stop']={'scope':scope,'message':message,**(details or {})}
             journal.save(sid,state,'request_budget_blocked',state['budget_stop'])
         try:
-            bound = reservation(model, state["history"], session_tools,
+            bound = reservation(model, history, session_tools,
                                 (budget["max_output_tokens"] - state.get("output_tokens", 0)) if "max_output_tokens" in budget else None)
         except ArenaError as error:
             stop_budget('request',str(error),getattr(error,'admission',None))
@@ -336,11 +343,15 @@ def provider_response(sid, state, model, config, journal):
         state["money_reserved"] = bound["cost_bound"] or "0"
     else:
         bound = None
+    descriptor={key:value for key,value in model.items() if key!='_stream'}
+    if state.get('model_descriptor')!=descriptor:
+        state['model_descriptor']=descriptor
+        journal.save(sid,state,'effective_model',descriptor)
     state["calls"] += 1
     state["in_flight"] = True
     from .api_providers import request_snapshot
     output_limit = bound["output_bound"] if paid else model.get("max_output_tokens")
-    request = request_snapshot(model, state["history"], session_tools, output_limit)
+    request = request_snapshot(model, history, session_tools, output_limit)
     journal.save(sid, state, "model_intent", {"model": model, "reservation": bound, "request": request})
     if model.get('_stream'):
         from .streaming import LiveResponse
@@ -348,8 +359,8 @@ def provider_response(sid, state, model, config, journal):
     provider = (APIProvider(model,stream_progress=stream_progress) if stream_progress else APIProvider(model)) if paid else MockProvider(model["profile"])
     started = time.monotonic()
     try:
-        response = (provider.respond(state["history"], session_tools, bound["output_bound"]) if paid
-                    else provider.respond(state["history"], session_tools, output_limit))
+        response = (provider.respond(history, session_tools, bound["output_bound"]) if paid
+                    else provider.respond(history, session_tools, output_limit))
     except ProviderFailure as error:
         state["status"] = "needs_reconciliation" if error.uncertain else "provider_unavailable"
         state["in_flight"] = error.uncertain
@@ -372,7 +383,7 @@ def provider_response(sid, state, model, config, journal):
         return None
     state["in_flight"] = False
     response["elapsed_seconds"] = time.monotonic() - started
-    response['request_metrics'] = {'history_messages':len(state['history']),
+    response['request_metrics'] = {'history_messages':len(history),
         'request_setup_seconds':started - request_setup_started,
         'request_characters':len(json.dumps(request.get('body', request), ensure_ascii=False))}
     if paid:

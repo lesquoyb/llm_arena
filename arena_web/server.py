@@ -182,6 +182,11 @@ class Application:
         if route == "/api/launch":
             return self.jobs.launch(draft_id=data.get("draft_id"), run_id=data.get("run"),
                                     confirm_paid=data.get("confirm_paid", False), ceiling=data.get("ceiling"), retry_session=data.get("retry_session"), expected_config_sha256=data.get("expected_config_sha256"), allow_updated_runner=data.get("allow_updated_runner") is True, retry_reasoning_effort=data.get("retry_reasoning_effort"))
+        if route == '/api/model-test':
+            from .model_probe import probe_model
+            model=next((row for row in self.store.catalog() if row['id']==data['id']),None)
+            if not model: raise ArenaError('Unknown participant')
+            return probe_model(self.store,model,data.get('mode','text'),data.get('secret'))
         if route == "/api/provider-probe":
             from .provider_probe import probe
             return probe(self.jobs, data["run"], data["session"], data["mode"], data.get("confirm_paid"))

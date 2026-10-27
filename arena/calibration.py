@@ -480,8 +480,11 @@ def propose(config, report, incumbent_dir, proposal_dir, learning=None):
 def _propose(config, report, incumbent_dir, proposal_dir, learning=None):
     proposal_dir.mkdir(parents=True, exist_ok=True)
     saved = proposal_dir/'proposal.json'
-    analyst = config.get('analyst')
+    from .calibration_models import effective_analyst
+    analyst = effective_analyst(config,proposal_dir,apply_input_policy=False)
     if not analyst: raise ArenaError('Automatic prompt editing requires an analyst model')
+    if analyst['provider']!='mock' and not config['spending'].get('allow_paid_calls'):
+        raise ArenaError('API calls are not enabled for this optimization')
     policy_path=proposal_dir.parent.parent/'analyst-runtime.json'
     policy=read_json(policy_path) if policy_path.exists() else None
     if policy and policy.get('analyst_sha256')==digest(analyst):
