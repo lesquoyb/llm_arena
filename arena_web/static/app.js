@@ -668,12 +668,16 @@ function workspacesPage() {
     `<div class="workspace-grid">${S.boot.workspaces.map(w=>{
       const runs=S.boot.runs.filter(r=>r.workspace_id===w.id&&!r.archived);
       const drafts=S.boot.drafts.filter(d=>d.workspace_id===w.id);
-      return `<article class="panel workspace-card"><button class="card-title" data-action="open-workspace" data-id="${e(w.id)}">${e(w.name)}</button><p>${e(w.description||'')}</p><div class="workspace-card-meta">${runs.length} competitions · ${drafts.length} configurations</div><div class="actions">${btn('Open','open-workspace',`data-id="${e(w.id)}"`,true)}${btn('Edit','edit-workspace',`data-id="${e(w.id)}"`)}</div></article>`;
+      return `<article class="panel workspace-card"><button class="card-title" data-action="open-workspace" data-id="${e(w.id)}">${e(w.name)}</button><p>${e(w.description||'')}</p><div class="workspace-card-meta">${runs.length} competitions · ${drafts.length} configurations</div><div class="actions">${btn('Open','open-workspace',`data-id="${e(w.id)}"`,true)}${btn('New competition','new-competition',`data-workspace="${e(w.id)}"`)}${btn('Edit','edit-workspace',`data-id="${e(w.id)}"`)}</div></article>`;
     }).join('')}</div>`+
     `<section class="panel"><h2>Unassigned</h2><p>${S.boot.runs.filter(r=>!r.workspace_id).length} competitions have no workspace.</p>${btn('Organize existing competitions','open-workspace','data-id="unassigned"')}</section>`;
   const data=S.workspaceSummary,t=data.totals;
-  const actions=(current?btn('Choose competitions','workspace-members',`data-id="${e(id)}"`,true)+btn('Edit workspace','edit-workspace',`data-id="${e(id)}"`):'')+btn('New workspace','new-workspace');
-  return head(current?.name||'Unassigned',current?.description||'Competition results in this workspace.',actions)+
+  const actions=btn('New competition','new-competition','',true)+(current?btn('Add existing competitions','workspace-members',`data-id="${e(id)}"`)+btn('Edit workspace','edit-workspace',`data-id="${e(id)}"`):'')+btn('New workspace','new-workspace');
+  const title=head(current?.name||'Unassigned',current?.description||'Competition results in this workspace.',actions);
+  const drafts=scoped(S.boot.drafts);
+  const draftPanel=drafts.length?`<section class="panel"><h2>Ready to launch</h2>${drafts.map(d=>`<div class="workspace-draft"><div><strong>${e(d.config.name)}</strong><small>${d.config.models.length} participants</small></div><div class="actions">${btn('Edit','edit-draft',`data-id="${e(d.id)}"`)}${btn('Launch','launch',`data-id="${e(d.id)}"`,true)}</div></div>`).join('')}</section>`:'';
+  if(!scoped(S.boot.runs).length)return title+draftPanel+empty(drafts.length?'No runs yet':'No competitions yet',drafts.length?'Launch a saved configuration above, or create another competition.':'Create a competition here, or add an existing one.');
+  return title+draftPanel+
     `<div class="metrics">${metric('Competitions',fmt(t.competitions),'Exported copies excluded')}${metric('Strategies',`${t.submitted+t.frozen_strategies} / ${t.sessions+t.frozen_strategies}`,`${t.frozen_strategies} frozen · ${t.invalid} invalid · ${t.attention} need attention`)}${metric('Completed fights',fmt(t.completed_matches),`${t.preparation_matches} preparation · ${t.failed_matches} engine failures`)}${metric('Recorded API cost',money(t.known_cost_usd),`${money(t.reserved_usd)} reserved${t.unresolved_sessions?` · ${t.unresolved_sessions} unresolved`:''}`)}</div>
     <section class="panel workspace-resources"><div class="panel-title"><h2>Model resources</h2><details class="action-menu"><summary class="button">Download CSV</summary><div>${['summary','fights','sessions','results'].map(table=>`<a class="button" href="/api/results.csv?${query({workspace:id,table})}">${table==='summary'?'Workspace scores':table==='fights'?'Match results':table==='sessions'?'Usage & conversations':'Raw strategy results'}</a>`).join('')}</div></details></div>
     ${data.models.length?table(['Participant','Size (B)','Submitted','Input / output tokens','Recorded cost','Messages','Preparation time'],data.models.map(m=>`<tr><td><strong>${e(m.name)}</strong><small>${e(m.model||'Built-in strategy')}</small>${raw(m.configuration,'Configuration')}</td><td>${fmt(m.model_size_billion,3)}</td><td>${m.submitted} / ${m.sessions}<small>${m.invalid} invalid</small></td><td>${fmt(m.input_tokens)} / ${fmt(m.output_tokens)}${m.unmeasured_sessions?`<small>${m.unmeasured_sessions} conversations with missing measurements</small>`:''}</td><td>${money(m.known_cost_usd)}${Number(m.reserved_usd)?`<small>${money(m.reserved_usd)} reserved</small>`:''}</td><td>${fmt(m.messages)}</td><td>${fmt(m.wall_seconds/60,1)} min</td></tr>`)):'<p class="muted">No model conversations yet.</p>'}</section>
@@ -1334,6 +1338,13 @@ async function rebuildStatFields() {
   $("#member-stat-builds").outerHTML = memberBuildsMarkup(scenario);
   updateStatPreviews();
 }
+function updateCompetitionSelection() {
+  const rows=$$('.competition-model'), search=($('#competition-participant-search')?.value||'').toLowerCase();
+  const selectedOnly=$('#competition-selected-only')?.checked;
+  for(const row of rows)row.hidden=!row.dataset.search.includes(search)||(selectedOnly&&!$('input',row).checked);
+  const count=$$('#competition-form input[name=participant]:checked').length;
+  $('#competition-selection-count').textContent=`${count} of ${rows.length} participants selected`;
+}
 function competitionEditor() {
   const c = S.editConfig || structuredClone(S.boot.default_config),
     b = c.budget_per_session;
@@ -1356,7 +1367,7 @@ function competitionEditor() {
         ["manual", "Continue until I press Stop"],
       ],
       c.generations === null ? "manual" : "fixed",
-    )}${field("Number of rounds", "generations", c.generations ?? 2, "number", "Includes the initial round. Each later round continues both improvement tracks.", c.generations === null ? 'disabled min="1" step="1"' : 'min="1" step="1"')}</div><h3 class="section-label">Selected participants</h3>${competitionGroupPicker()}${S.choiceModels.map((m) => `<label class="choice"><input type="checkbox" name="participant" value="${e(m.id)}" ${c.models.some((v) => v.id === m.id) ? "checked" : ""}><span><strong>${e(m.id)}</strong><small>${e(m.provider)} · ${e(m.model || m.profile)}</small></span></label>`).join("")}${btn("Manage profiles", "go", 'data-view="participants"')}</section>
+    )}${field("Number of rounds", "generations", c.generations ?? 2, "number", "Includes the initial round. Each later round continues both improvement tracks.", c.generations === null ? 'disabled min="1" step="1"' : 'min="1" step="1"')}</div><h3 class="section-label">Selected participants</h3>${competitionGroupPicker()}<div class="competition-roster-toolbar"><input type="search" id="competition-participant-search" placeholder="Search profiles" aria-label="Search competition participants"><label class="check"><input type="checkbox" id="competition-selected-only">Selected only</label></div><div class="competition-model-list" role="group" aria-label="Competition participants">${S.choiceModels.map((m) => `<label class="choice competition-model" data-search="${e(`${m.id} ${m.provider} ${m.model||m.profile}`.toLowerCase())}"><input type="checkbox" name="participant" value="${e(m.id)}" ${c.models.some((v) => v.id === m.id) ? "checked" : ""}><span><strong>${e(m.id)}</strong><small>${e(m.provider)} · ${e(m.model || m.profile)}</small></span></label>`).join("")}</div>${btn("Manage profiles", "go", 'data-view="participants"')}</section>
  <section class="panel editor-section" id="editor-scenario"><div class="section-heading"><span>02</span><h2>Scenario</h2></div><div class="scenario-presets">${btn("<strong>Simple duel</strong><small>1 level-300 leek · weapons only</small>", "preset-simple", `aria-pressed="${!c.scenario.source && c.scenario.preset !== 'llm-team'}"`)}${btn("<strong>Dream team</strong><small>4 complex builds · saved roster</small>", "preset-dream", `aria-pressed="${!!c.scenario.source}"`)}${btn("<strong>AI-built team</strong><small>Each model builds its own roster</small>", "preset-llm", `aria-pressed="${c.scenario.preset === 'llm-team'}"`)}</div><p id="preset-status" role="status" class="muted">${c.scenario.source ? `Based on public team · original snapshot ${e(c.scenario.source.snapshot_sha256.slice(0, 12))}. The roster below can be edited. Published final stats include component bonuses; component selections and alteration deltas are preserved without adding bonuses twice.` : c.scenario.preset === "llm-team" ? "Each LLM freely chooses 1–4 leeks, their levels (1–301), stats, scripts, equipment and component alterations. preview_build and validate_team check official game rules. No character stats or equipment lists are imposed." : "Starting preset: one level-300 gunner per team, direct-damage weapons, no chips. Edit each character independently below."}</p>${c.scenario.source ? raw(c.scenario.source, "Public source and frozen snapshot") : ""}<details><summary>Refresh or replace the saved Dream team</summary>${btn("Refetch current top farmer", "preset-dream-refresh")}<p class="muted">Only this button reads the current farmer ranking and fetches four leeks of its first player. The saved preset is reused until an explicit refresh; existing competitions keep their frozen roster.</p><p class="muted">Use scripts/import_dream_team.py on a machine with access to leekwars.com, then paste its snapshot JSON here.</p><textarea id="dream-snapshot" class="mono" aria-label="Public team snapshot JSON" rows="4"></textarea>${btn("Import snapshot", "preset-dream-json")}</details></section><section class="panel editor-section" id="editor-rules"><div class="section-heading"><span>03</span><h2>Match rules & roster</h2></div><p class="muted">Matches alternate sides. Use a shared roster or let each LLM build its own team under official game rules.</p><div class="form-grid">${selectField(
    "Team setup",
    "team_mode",
@@ -1368,7 +1379,7 @@ function competitionEditor() {
  )}${field("Team size", "team_size", c.scenario.team_size, "number", "Exact size in shared mode; maximum size when participants choose.", 'required min="1" max="8"')}${field("Maximum turns", "max_turns", c.scenario.max_turns, "number", "", 'required min="1" max="1000"')}${field("Initial / feedback seeds", "seeds", c.seeds.join(", "), "text", "Map generation seeds, for example 101, 202.", "required")}${field("Final evaluation seeds", "final_seeds", (c.final_seeds || []).join(", "), "text", "Separate from initial strategy seeds and training seed 17.")}</div><div id="team-selection-rules" ${c.scenario.team_selection ? "" : "hidden"}><p class="muted">Each LLM freely chooses 1–4 leeks: levels from 1 to 301, names, scripts, capital allocations, weapons, chips, components and alterations. Only official game rules apply. Character stats below are not imposed on its team. Preparation tests use a separate fixed reference team.</p></div><label class="check" style="margin-top:15px"><input type="checkbox" name="include_mirrors" ${c.include_mirrors ? "checked" : ""}>Include mirror matches (excluded from score)</label><fieldset id="fixed-roster" style="border:0;padding:0;margin-top:15px" ${c.scenario.team_selection ? "hidden disabled" : ""}><details class="roster-disclosure"><summary><strong>Character builds & equipment</strong><small>${c.scenario.team_size} leek${c.scenario.team_size === 1 ? "" : "s"} · customize stats, weapons, chips & components</small></summary>${statsEditor(c.scenario)}</details></fieldset><details><summary>Custom map</summary><div class="form-grid" style="margin-top:15px"><label class="field full">Custom map (JSON, optional)<textarea name="map" class="mono">${c.scenario.map ? e(pretty(c.scenario.map)) : ""}</textarea><small>Without a custom map, the seed determines the map and starting positions.</small></label></div></details></section>
  <details class="panel editor-disclosure" id="editor-limits" ${Object.keys(b).length ? "open" : ""}><summary><span class="section-heading"><span>04</span><strong>Optional limits</strong></span><small>Tokens, time & spending</small></summary><p class="muted">Leave blank to let each model work until submission. Calls, tools, matches, tokens, elapsed time and costs are recorded regardless. Improvement branches use the same optional limits.</p><div class="form-grid">${field("Model calls", "max_calls", b.max_calls ?? "", "number", "Maximum API responses, including responses after tool results. Blank means unlimited.", 'min="1"')}${field("Tool calls", "max_agent_steps", b.max_agent_steps ?? "", "number", "Maximum tool invocations. Blank means unlimited.", 'min="1"')}${field("Preparation matches", "max_test_matches", b.max_test_matches ?? "", "number", "One test runs two matches, one per side. Blank means unlimited.", 'min="0"')}${field("Preparation time (seconds)", "max_wall_seconds", b.max_wall_seconds ?? "", "number", "Blank means no session time limit.", 'min="1"')}${field("Total input tokens", "max_input_tokens", b.max_input_tokens ?? "", "number", "Optional. Blank means no conversation token limit.", 'min="1"')}${field("Total output tokens", "max_output_tokens", b.max_output_tokens ?? "", "number", "Optional. Blank means no conversation token limit.", 'min="1"')}${field("API spending limit per conversation ($)", "max_cost_usd", b.max_cost_usd ?? "", "number", "Blank means no financial limit.", 'min="0" step="any"')}${field("API spending limit for the experiment ($)", "max_total_usd", c.models.every((m) => m.provider === "mock") ? "" : (c.spending.max_total_usd ?? ""), "number", "Includes all branches. Blank means no financial limit.", 'min="0" step="any"')}</div><small>Financial limits are checked between calls. Without an output cap, a call can exceed the configured limit.</small></details>
  <section class="panel"><details><summary>Import a JSON configuration</summary><textarea id="import-config" class="mono" style="width:100%;margin-top:12px" placeholder="Paste an experiment manifest"></textarea><div style="margin-top:10px">${btn("Apply configuration", "import-config")}</div></details></section></div>
- <aside class="panel sticky editor-review"><h2>Competition setup</h2><nav class="editor-section-nav" aria-label="Configuration sections"><button type="button" data-action="editor-section" data-section="editor-participants"><span>01</span> Participants & rounds</button><button type="button" data-action="editor-section" data-section="editor-scenario"><span>02</span> Scenario</button><button type="button" data-action="editor-section" data-section="editor-rules"><span>03</span> Match rules & roster</button><button type="button" data-action="editor-section" data-section="editor-limits"><span>04</span> Optional limits</button></nav><div class="divider"></div><h3>Schedule preview</h3><div id="plan-preview">${notice("Each round freezes submissions before scoring. Later rounds split into feedback and no-feedback tracks.")}</div>${btn("Calculate schedule", "preview-plan")}<div class="divider"></div><label class="check paid-authorization"><input type="checkbox" name="allow_paid_calls" ${c.spending.allow_paid_calls ? "checked" : ""}>Allow API calls</label><p class="muted">Required for external models. Saving does not call an API.</p><button type="submit" class="button primary" style="width:100%">Save configuration</button><p class="muted" style="font-size:10px;margin-top:12px">Saving does not start a run.</p></aside></div></form>`
+ <aside class="panel sticky editor-review"><h2>Competition setup</h2><nav class="editor-section-nav" aria-label="Configuration sections"><button type="button" data-action="editor-section" data-section="editor-participants"><span>01</span> Participants & rounds</button><button type="button" data-action="editor-section" data-section="editor-scenario"><span>02</span> Scenario</button><button type="button" data-action="editor-section" data-section="editor-rules"><span>03</span> Match rules & roster</button><button type="button" data-action="editor-section" data-section="editor-limits"><span>04</span> Optional limits</button></nav><div class="divider"></div><h3>Schedule preview</h3><div id="plan-preview">${notice("Each round freezes submissions before scoring. Later rounds split into feedback and no-feedback tracks.")}</div>${btn("Calculate schedule", "preview-plan")}</aside></div></form><div class="competition-savebar"><div><strong id="competition-selection-count" aria-live="polite">${c.models.length} participants selected</strong><small>Saving does not start a run.</small></div><label class="check"><input form="competition-form" type="checkbox" name="allow_paid_calls" ${c.spending.allow_paid_calls ? "checked" : ""}>Allow API calls</label><button form="competition-form" type="submit" class="button primary">Save configuration</button></div>`
   );
 }
 function readCompetition(form) {
@@ -3280,9 +3291,11 @@ document.addEventListener("click", async (event) => {
       if(!group)throw Error('Choose a participant group first.');
       let added=0;
       for(const checkbox of $$('#competition-form input[name=participant]'))if(group.members.includes(checkbox.value)&&!checkbox.checked){checkbox.checked=true;added++;}
+      updateCompetitionSelection();
       $('#group-selection-status').textContent=`${added} added from ${group.name}. ${$$('#competition-form input[name=participant]:checked').length} participants selected.`;
     } else if (a === 'clear-competition-participants') {
       for(const checkbox of $$('#competition-form input[name=participant]'))checkbox.checked=false;
+      updateCompetitionSelection();
       $('#group-selection-status').textContent='No participants selected.';
     } else if (a === 'new-workspace') workspaceDialog();
     else if (a === 'edit-workspace') workspaceDialog(node.dataset.id);
@@ -3382,6 +3395,7 @@ document.addEventListener("click", async (event) => {
       $("#dialog").close();
       S.logJob = null;
     } else if (a === "new-competition" || a === "new-demo") {
+      if(node.dataset.workspace)setWorkspace(node.dataset.workspace);
       S.editDraft = null;
       S.editConfig =
         a === "new-demo" ? structuredClone(S.boot.demo_config) : freshConfig();
@@ -3646,7 +3660,7 @@ document.addEventListener("submit", async (event) => {
   const form = event.target;
   if (!form.dataset.form) return;
   event.preventDefault();
-  const submit = $("button[type=submit]", form);
+  const submit = event.submitter || $("button[type=submit]", form);
   if (submit) submit.disabled = true;
   try {
     const f = new FormData(form),
@@ -3797,7 +3811,9 @@ document.addEventListener("submit", async (event) => {
 document.addEventListener("change", async (event) => {
   const n = event.target;
   try {
-    if(n.matches('[data-resource-axis]')) {
+    if(n.matches('#competition-form input[name=participant]') || n.id==='competition-selected-only') {
+      updateCompetitionSelection();
+    } else if(n.matches('[data-resource-axis]')) {
       S.resourceMetric=n.value;const context=n.dataset.resourceAxis;$('#'+context+'-resource-chart').innerHTML=resourceScatter(S.resourcePoints[context],n.value);
     } else if(n.name==='participant_group_filter') {
       S.participantGroup=n.value;refreshParticipantCards();
@@ -3968,6 +3984,7 @@ document.addEventListener("input", (event) => {
     for(const row of $$('.workspace-member'))row.hidden=!row.textContent.toLowerCase().includes(n.value.toLowerCase());
   }
   if (n.id === "participant-search") refreshParticipantCards();
+  if(n.id === "competition-participant-search") updateCompetitionSelection();
   if(n.id === "group-member-search")for(const row of $$(".group-member"))row.hidden=!row.textContent.toLowerCase().includes(n.value.toLowerCase());
   if (n.id === "run-search")
     $("#run-table").innerHTML = runTable(

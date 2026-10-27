@@ -631,7 +631,7 @@ The sidebar selector scopes Overview, Competitions and Compare results. Particip
 profiles and provider connections remain shared. Existing competitions start as
 **Unassigned**; no files are moved or rewritten.
 
-Open a workspace and choose **Choose competitions** to organize existing runs and
+Open a workspace and choose **Add existing competitions** to organize existing runs and
 saved configurations. Each item belongs to one workspace. Selecting an item from
 another workspace moves it; unchecking an item already here makes it unassigned.
 You can also move one run using the workspace button under its name in the run
@@ -705,3 +705,17 @@ Saved model sizes take precedence. For older competitions without a saved size,
 the interface and CSV export can use the current profile only when its ID,
 provider, exact model ID and endpoint match. Existing competition files are not
 rewritten. Frozen strategy exports preserve size in their origin metadata.
+
+
+### Create directly from a workspace
+
+Use **New competition** in the workspace header (or on its card) to create a
+configuration assigned to that workspace. Saved configurations appear under
+**Ready to launch** in the workspace, with Edit and Launch actions.
+**Add existing competitions** only organizes competitions/configurations you
+already have.
+
+The competition editor keeps the model list in a compact scrollable panel with
+search and **Selected only**. Filtering does not deselect hidden profiles. The
+bottom bar shows the selected count and keeps **Save configuration** accessible
+while editing, including on smaller screens. Saving still makes no model calls.

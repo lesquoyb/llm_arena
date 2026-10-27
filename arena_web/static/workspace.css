@@ -290,3 +290,20 @@ body[data-view=workspaces] .panel-title select { min-width: 0; width: 100%; max-
 .resource-chart .overview-section-head { flex-wrap:wrap; gap:12px; }
 .resource-chart .field { min-width:0; max-width:100%; margin:0; }
 .resource-chart select { max-width:100%; }
+
+/* Keep creation and saving within reach, including large model catalogs. */
+.workspace-draft { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:14px 0; border-bottom:1px solid var(--border); }
+.workspace-draft small { display:block; color:var(--muted); }
+.competition-roster-toolbar { display:flex; align-items:center; flex-wrap:wrap; gap:12px; margin:14px 0 10px; }
+.competition-roster-toolbar input[type=search] { flex:1 1 180px; min-width:0; }
+.competition-model-list { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(210px,100%),1fr)); gap:8px; max-height:300px; overflow-y:auto; overscroll-behavior:contain; padding:2px 6px 2px 2px; margin-bottom:14px; scrollbar-gutter:stable; }
+.competition-model-list .choice { margin:0; padding:10px; min-width:0; align-items:start; }
+.competition-model-list .choice span { min-width:0; }
+.competition-model-list .choice strong,.competition-model-list .choice small { overflow-wrap:anywhere; white-space:normal; }
+.competition-model-list .choice:has(input:checked) { background:var(--blue-soft); border-color:#8bb9a9; }
+.competition-savebar { position:fixed; bottom:0; left:216px; right:0; z-index:20; display:flex; align-items:center; justify-content:flex-end; flex-wrap:wrap; gap:12px 24px; padding:14px 36px; background:#fff; border-top:1px solid var(--border); box-shadow:0 -3px 15px #14382b0b; }
+.competition-savebar > div { margin-right:auto; }
+.competition-savebar small { display:block; color:var(--muted); }
+body[data-view=editor] main { padding-bottom:140px; }
+@media(max-width:1150px) { .competition-savebar { left:190px; padding-inline:24px; } }
+@media(max-width:780px) { .competition-savebar { left:0; padding:10px 16px; gap:8px 16px; } .competition-savebar > div { flex:1 1 100%; } .competition-savebar .check { margin-right:auto; } .workspace-draft { flex-wrap:wrap; } }
