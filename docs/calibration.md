@@ -704,3 +704,20 @@ their own diagnostics; pending prompt proposals label their source trajectory.
 Refreshing does not substitute the latest proposal for the selected candidate.
 Unavailable diagnostics are grouped in one collapsed summary, with saved reasons
 available inside. Existing completed diagnostic receipts are retained.
+
+### Retrying an interrupted free API request
+
+A network failure is different from a model rejection or a preparation budget.
+DNS failures, direct connection refusals and certificate verification failures
+before a direct request are reported as not sent; Resume can retry them without
+billing reconciliation. Timeouts, interrupted responses and failures after a
+redirect retain an unknown delivery status. The journal records the network
+category and endpoint without logging credentials.
+
+For an already saved unknown request, use **Resolve interrupted request & resume**.
+Enter the confirmed additional charge, or **0** for a confirmed free API call
+(such as Mistral's free offering), and a note explaining the check. This works for
+both the tested model and the prompt analyst. Existing usage receipts, source
+files and completed evaluations remain intact. A saved response is processed
+without requesting it again; otherwise the same conversation can be retried.
+Free pricing alone does not prove whether a network request reached the provider.

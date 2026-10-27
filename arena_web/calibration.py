@@ -250,6 +250,28 @@ class Workshop:
             write_json(directory/'study.json',manifest)
             return {'recorded':True,'candidate':index+1}
 
+    def reconcile_active(self, identifier, cost, note):
+        from arena.experiment import Journal
+        from arena.recovery import reconcile
+        with self.lock:
+            if any(process.poll() is None for process in self.processes.values()):
+                raise ArenaError('Stop the running optimization before resolving an interrupted request')
+            directory=local_path(self.root,identifier)
+            manifest=read_json(directory/'study.json')
+            work=self.active_work(directory,manifest)
+            folder=local_path(directory,work['directory'])
+            if not (folder/'journal.sqlite').is_file(): raise ArenaError('No recorded conversation to resolve')
+            journal=Journal(folder)
+            try:
+                candidates=[sid for sid,state in journal.states().items() if state.get('in_flight') or state.get('status')=='needs_reconciliation']
+                if len(candidates)!=1: raise ArenaError('Cannot identify one interrupted request in the active candidate')
+                sid=candidates[0]
+                reconcile(journal,sid,cost,note)
+            finally:journal.db.close()
+            manifest.update(status='stopped',error='Interrupted request reconciled; resume to continue the saved optimization.')
+            write_json(directory/'study.json',manifest)
+            return {'session':sid,'reconciled':True}
+
     def set_analyst_input_limit(self, identifier, limit):
         from arena.core import integer
         if limit is not None: integer(limit,1,100_000_000,'analyst input admission limit')
@@ -571,6 +593,14 @@ def serve(root, port=8766, open_browser=False):
                 if not 0<size<=2000000: raise ArenaError('Invalid request size')
                 data = json.loads(self.rfile.read(size))
                 if self.path=='/api/start': result=workshop.start(data['config'],data.get('automatic',False),keys=data.get('keys'))
+                elif self.path=='/api/reconcile-active':
+                    result=workshop.reconcile_active(data['id'],data.get('cost_usd'),data.get('note'))
+                    directory=local_path(workshop.root,data['id'])
+                    try:
+                        workshop.start(saved_config(directory),read_json(directory/'study.json').get('automatic',False),data['id'],data.get('keys'))
+                    except (ArenaError,OSError,ValueError) as exc:
+                        raise ArenaError('Request reconciled, but the worker could not restart: '+str(exc)) from exc
+                    result['started']=True
                 elif self.path=='/api/analyst-input-limit':
                     result=workshop.set_analyst_input_limit(data['id'],data.get('limit'))
                     directory=local_path(workshop.root,data['id'])

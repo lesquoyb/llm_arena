@@ -20,18 +20,14 @@ class LiveResponse:
 
 
 def stream_json(url, payload, headers, timeout, progress):
-    from .api_providers import ProviderFailure, LocalRedirectHandler
+    from .api_providers import ProviderFailure, open_provider_response
     validate_endpoint(url,allow_query=True)
     req=request.Request(url,data=json.dumps(payload).encode(),headers={**headers,'Accept':'text/event-stream'},method='POST')
-    from urllib.parse import urlsplit
-    open_url=request.build_opener(LocalRedirectHandler()).open if urlsplit(url).scheme=='http' else request.urlopen
     try:
-        response=open_url(req,timeout=timeout)
+        response=open_provider_response(req,timeout)
     except error.HTTPError as exc:
         from .api_providers import raise_http_error
         raise_http_error(exc,url,headers)
-    except (error.URLError,OSError,TimeoutError) as exc:
-        raise ProviderFailure(f'Provider response unavailable ({type(exc).__name__})',uncertain=True) from None
     text='';reasoning='';tools={};usage=None;finish=None;metadata={};final=None;total=0;events=[]
     def update(force=False,phase='streaming'):
         progress.publish({'phase':phase,'text':text[-200000:],'reasoning':reasoning[-200000:],

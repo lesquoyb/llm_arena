@@ -45,6 +45,36 @@ class CalibrationWebTests(TestCase):
                                  ('/api/message', {'session':['other'], 'index':['0'], 'block':['0']})]:
                 with self.assertRaises(ArenaError): workshop.get(route, {**query, **extra})
 
+    def test_reconcile_active_supports_target_and_analyst_without_repeating_a_request(self):
+        from arena.experiment import Journal,initial_state
+        from arena.calibration import experiment_config
+        from arena.core import read_json
+        with scratch_directory() as tmp:
+            workshop=Workshop(tmp/'studies',Store(tmp/'runs',tmp/'settings'))
+            value=config()
+            for role in ('target','analyst'):
+                directory=workshop.root/role
+                write_json(directory/'input.json',value)
+                write_json(directory/'study.json',{'config':value,'status':'blocked','active_trial':0,'active_proposal':1 if role=='analyst' else 0})
+                folder=directory/('proposals/001' if role=='analyst' else 'trials/000');folder.mkdir(parents=True)
+                sid='analyst-r0' if role=='analyst' else 'target-r0-g0'
+                journal=Journal(folder)
+                try:
+                    state=initial_state(sid,value['target'],experiment_config(value))
+                    state.update(status='needs_reconciliation',in_flight=True,money_reserved='0.2',calls=3)
+                    journal.save(sid,state,'fixture')
+                finally:journal.db.close()
+                workshop.reconcile_active(role,'0','Mistral free API: no additional charge.')
+                journal=Journal(folder)
+                try:
+                    state=journal.state(sid)
+                    self.assertFalse(state['in_flight'])
+                    self.assertEqual(state['money_reserved'],'0')
+                    self.assertEqual(state['calls'],3)
+                    self.assertEqual(state['status'],'provider_unavailable')
+                finally:journal.db.close()
+                self.assertEqual(read_json(directory/'input.json'),value)
+
     def test_pending_proposal_and_analyst_input_policy_preserve_frozen_settings(self):
         from arena.experiment import Journal,initial_state
         from arena.calibration import experiment_config

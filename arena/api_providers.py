@@ -4,6 +4,9 @@ import json
 import os
 import re
 import time
+import errno
+import socket
+import ssl
 from urllib import request, error, parse
 from .core import ArenaError, digest
 from .usage import normalize, cost, effective_pricing
@@ -18,7 +21,9 @@ class ProviderFailure(ArenaError):
 
 
 class LocalRedirectHandler(request.HTTPRedirectHandler):
+    followed = False
     def redirect_request(self, req, fp, code, msg, headers, newurl):
+        self.followed = True
         validate_endpoint(newurl, allow_query=True)
         redirected = super().redirect_request(req, fp, code, msg, headers, newurl)
         if redirected and parse.urlsplit(newurl).netloc != parse.urlsplit(req.full_url).netloc:
@@ -27,14 +32,42 @@ class LocalRedirectHandler(request.HTTPRedirectHandler):
         return redirected
 
 
+def open_provider_response(req, timeout):
+    """Only proven failures before a direct request avoid uncertain billing."""
+    redirects=LocalRedirectHandler()
+    try:
+        return request.build_opener(redirects).open(req,timeout=timeout)
+    except error.HTTPError:
+        raise
+    except (error.URLError,OSError,TimeoutError) as exc:
+        reason=exc.reason if isinstance(exc,error.URLError) else exc
+        code='connection_unavailable';description='The connection failed before a complete response was received.';not_sent=False
+        if isinstance(reason,socket.gaierror):
+            code='dns_resolution_failed';description='DNS resolution failed. Check the endpoint hostname, network or VPN.';not_sent=True
+        elif isinstance(reason,ConnectionRefusedError) or getattr(reason,'errno',None)==errno.ECONNREFUSED:
+            code='connection_refused';description='The server refused the connection. Check its address and whether it is running.';not_sent=True
+        elif getattr(reason,'errno',None) in {errno.ENETUNREACH,errno.EHOSTUNREACH}:
+            code='network_unreachable';description='The endpoint network is unreachable.';not_sent=True
+        elif isinstance(reason,ssl.SSLCertVerificationError):
+            code='tls_certificate_verification_failed';description='TLS certificate verification failed. Check system certificates or HTTPS interception by a proxy/VPN.';not_sent=True
+        elif isinstance(reason,ssl.SSLError):
+            code='tls_connection_failed';description='The TLS connection failed before a complete response was received; request delivery is unknown.'
+        elif isinstance(reason,(TimeoutError,socket.timeout)):
+            code='connection_timeout';description='The request timed out while waiting for the provider. Its outcome is unknown.'
+        uncertain=redirects.followed or not not_sent
+        parsed=parse.urlsplit(req.full_url)
+        diagnostics={'endpoint':parse.urlunsplit((parsed.scheme,parsed.netloc,parsed.path,'','')),
+                     'network_error':code,'cause_type':type(reason).__name__,
+                     'request_delivery':'unknown' if uncertain else 'not_sent','redirect_followed':redirects.followed}
+        raise ProviderFailure('Provider connection failed: '+description,uncertain=uncertain,diagnostics=diagnostics) from None
+
+
 def http_json(url, payload, headers, timeout):
     validate_endpoint(url, allow_query=True)
     req = request.Request(url, data=json.dumps(payload).encode() if payload is not None else None,
                           headers=headers, method="POST" if payload is not None else "GET")
     try:
-        open_url = (request.build_opener(LocalRedirectHandler()).open
-                    if parse.urlsplit(url).scheme == 'http' else request.urlopen)
-        with open_url(req, timeout=timeout) as response:
+        with open_provider_response(req,timeout) as response:
             body = response.read(8_000_001)
             if len(body) > 8_000_000:
                 raise ProviderFailure("Provider response exceeded quota", uncertain=True)
@@ -42,7 +75,8 @@ def http_json(url, payload, headers, timeout):
     except error.HTTPError as exc:
         raise_http_error(exc,url,headers)
     except (error.URLError, TimeoutError, OSError, ValueError) as exc:
-        raise ProviderFailure(f"Provider response unavailable ({type(exc).__name__})", uncertain=True) from None
+        raise ProviderFailure(f"Provider response could not be read ({type(exc).__name__}); the request outcome is unknown.", uncertain=True,
+                              diagnostics={'network_error':'response_read_failed','cause_type':type(exc).__name__,'request_delivery':'unknown'}) from None
 
 
 def raise_http_error(exc,url,headers):

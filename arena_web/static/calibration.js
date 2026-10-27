@@ -1311,6 +1311,22 @@ async function focusActive(tab){
  if(work && [...$('trial').options].some(o=>o.value===work.directory)){$('trial').value=work.directory;await loadTrial();}
  studyTab(tab);
 }
+async function resolveInterruptedRequest(){
+ const study=selected;
+ await reveal('Resolve interrupted request','');
+ const mount=$('dialog-content'),form=node('form');
+ mount.append(node('p','The previous request has an unknown outcome. Enter its confirmed additional cost only. For a free Mistral API call or a free local model, enter 0 and explain that no charge applies. Recorded usage and completed results are preserved.'));
+ const cost=node('input');cost.type='number';cost.min='0';cost.step='any';cost.required=true;
+ const label=node('label','Confirmed additional cost (USD)');label.append(cost);form.append(label);
+ const note=node('textarea');note.required=true;note.rows=3;
+ const noteLabel=node('label','How was the charge checked?');noteLabel.append(note);form.append(noteLabel);
+ const submit=button('Record cost & resume',()=>{});submit.type='submit';form.append(submit);
+ form.addEventListener('submit',guard(async event=>{
+   event.preventDefault();submit.disabled=true;
+   try{await api('/api/reconcile-active',{id:study,cost_usd:cost.value,note:note.value,keys:keys()});$('dialog').close();await inspect(study);}
+   finally{submit.disabled=false;}
+ }));mount.append(form);
+}
 function commandCenter(data){
  const mount=$('study-command'),work=data.active_work||{},running=data.runtime_status==='running',blocked=data.state.status==='blocked',completed=data.state.status==='completed';
  mount.replaceChildren();mount.classList.toggle('blocked',blocked);
@@ -1326,6 +1342,7 @@ function commandCenter(data){
  mount.append(node('p',explanation));
  if(blocked && work.message){const reason=node('div',undefined,'block-reason');reason.append(node('strong','Reason'),node('p',work.message));mount.append(reason)}
  const actions=node('div',undefined,'actions');
+ if(blocked&&work.requires_reconciliation&&!running)actions.append(button('Resolve interrupted request & resume',resolveInterruptedRequest));
  const inputAdmission=analystBudget&&(work.budget_stop?.code==='input_admission'||work.message?.startsWith('Request exceeds conservative UTF-8 input admission bound'));
  if(inputAdmission){
    mount.append(node('small','The analyst receives the prompt, editable documents and trajectory evidence. This participant cap compares serialized UTF-8 bytes, not measured tokens. Removing it affects analyst requests in this study; the shared spending ceiling still applies.'));

@@ -47,7 +47,7 @@ class BriefingTests(unittest.TestCase):
         error = HTTPError('https://example.invalid',429,'error',{},io.BytesIO(json.dumps({
             'error':{'status':'RESOURCE_EXHAUSTED','message':'Quota exceeded; key=secret-fixture'},
             'echo':'must-not-be-recorded'}).encode()))
-        with mock.patch('arena.api_providers.request.urlopen',side_effect=error):
+        with mock.patch('arena.api_providers.open_provider_response',side_effect=error):
             with self.assertRaises(ProviderFailure) as caught:
                 http_json('https://example.invalid',{}, {'x-goog-api-key':'secret-fixture'},10)
         self.assertTrue(caught.exception.retryable)

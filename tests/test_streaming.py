@@ -28,7 +28,7 @@ class StreamingTests(TestCase):
                 {'choices':[{'index':0,'delta':{'tool_calls':[{'index':0,'function':{'arguments':'"main.leek"}'}}]},'finish_reason':'tool_calls'}]},
                 {'choices':[],'usage':{'prompt_tokens':100,'completion_tokens':20}}]
         progress=Progress()
-        with mock.patch('arena.streaming.request.urlopen',return_value=Response(events)):
+        with mock.patch('arena.api_providers.open_provider_response',return_value=Response(events)):
             result,rid=stream_json('https://example.com/v1/chat/completions',{'stream':True},{},30,progress)
         message=result['choices'][0]['message']
         self.assertEqual(message['reasoning_content'],'Think first')
@@ -44,7 +44,7 @@ class StreamingTests(TestCase):
                'usage':{'input_tokens':12,'output_tokens':2}}
         events=[{'type':'response.output_text.delta','delta':'Hello'},
                 {'type':'response.completed','response':final}]
-        with mock.patch('arena.streaming.request.urlopen',return_value=Response(events)):
+        with mock.patch('arena.api_providers.open_provider_response',return_value=Response(events)):
             result,_=stream_json('https://example.com/v1/responses',{'stream':True},{},30,Progress())
         self.assertEqual(result['usage'],final['usage'])
         self.assertEqual(result['output'],final['output'])
@@ -52,7 +52,7 @@ class StreamingTests(TestCase):
 
     def test_incomplete_stream_is_uncertain_and_keeps_a_partial_preview(self):
         progress=Progress()
-        with mock.patch('arena.streaming.request.urlopen',return_value=Response([{'choices':[{'delta':{'content':'partial'}}]}])):
+        with mock.patch('arena.api_providers.open_provider_response',return_value=Response([{'choices':[{'delta':{'content':'partial'}}]}])):
             with self.assertRaises(ProviderFailure) as context:
                 stream_json('https://example.com/v1/chat/completions',{'stream':True},{},30,progress)
         self.assertTrue(context.exception.uncertain)
