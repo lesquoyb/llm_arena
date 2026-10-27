@@ -37,6 +37,7 @@ class Application:
         demo = self.store.json(ROOT / "configs/offline-complete.json")
         config = {**demo, "name": "New competition", "scenario": simple_scenario()}
         return {"token": self.token, "participants": self.store.participants(), "providers": self.store.providers(),
+                "workspaces":self.store.workspace_index()['workspaces'],
                 "drafts": self.store.drafts(), "runs": self.store.listing(), "jobs": self.jobs.listing(),
                 "profiles": list(PROFILES), "engine": engine,
                 "default_config": config, "demo_config": demo, "participant_scenario": participant_scenario()}
@@ -74,6 +75,8 @@ class Application:
             return {"strategies":CATALOG}
         if route == "/api/runs":
             return {"runs": store.listing(), "jobs": self.jobs.listing()}
+        if route == '/api/workspace':
+            return store.workspace_summary(value('workspace',''))
         if route == "/api/run":
             return store.detail(run)
         if route == "/api/provider-diagnostics":
@@ -173,7 +176,14 @@ class Application:
         if route == "/api/participant/delete":
             return self.store.delete_participant(data["id"])
         if route == "/api/competition":
-            return self.store.save_draft(data["config"], data.get("id"))
+            options={'workspace_id':data['workspace_id']} if 'workspace_id' in data else {}
+            return self.store.save_draft(data["config"], data.get("id"),**options)
+        if route == '/api/workspace':
+            return self.store.save_workspace(data['name'],data.get('id'),data.get('description',''))
+        if route == '/api/workspace/delete':
+            return self.store.delete_workspace(data['id'])
+        if route == '/api/workspace/members':
+            return self.store.assign_workspace(data.get('workspace_id'),data.get('runs'),data.get('drafts'),replace=data.get('replace') is True)
         if route == "/api/competition/delete":
             return self.store.delete_draft(data["id"])
         if route == "/api/plan":
@@ -205,7 +215,11 @@ class Application:
             source = self.store.run_path(data["run"])
             target = self.store.runs / (source.name + "-export-" + uuid.uuid4().hex[:8])
             result = export_experiment(source, target)
-            return {**result, "run": target.relative_to(self.store.runs).as_posix()}
+            identifier=target.relative_to(self.store.runs).as_posix()
+            with self.store.lock:
+                workspace=self.store.workspace_index()['runs'].get(data['run'])
+                if workspace:self.store.assign_workspace(workspace,runs=[identifier])
+            return {**result, "run": identifier}
         raise ArenaError("Route not found")
 
 
@@ -253,15 +267,33 @@ class Handler(BaseHTTPRequestHandler):
             if parsed.path == "/api/results.csv":
                 from tempfile import TemporaryDirectory
                 from arena.benchmark_export import export
-                root = app.store.run_path(query['run'][0])
+                roots=([app.store.run_path(row['id']) for row in app.store.workspace_runs(query['workspace'][0])
+                        if not row.get('archived') and not row.get('error')]
+                       if 'workspace' in query else [app.store.run_path(query['run'][0])])
                 table = query.get('table', ['results'])[0]
-                if table not in {'results', 'fights', 'sessions'}:
+                if table=='summary' and 'workspace' in query:
+                    import csv
+                    import io
+                    summary=app.store.workspace_summary(query['workspace'][0])
+                    stream=io.StringIO(newline='')
+                    columns=['workspace_id','comparison_group','kind','stage','scenario_sha256','runs','participant','round','condition','score','wins','draws','losses','failed','strategies']
+                    writer=csv.DictWriter(stream,fieldnames=columns);writer.writeheader()
+                    for group in summary['groups']:
+                        for row in group['models']:
+                            writer.writerow({'workspace_id':query['workspace'][0],'comparison_group':group['id'],
+                                'kind':group['kind'],'stage':group['stage'],'scenario_sha256':digest(group['scenario']),
+                                'runs':json.dumps(group['runs']), 'participant':row['name'],'strategies':row['conversations'],
+                                **{key:row[key] for key in ('round','condition','score','wins','draws','losses','failed')}})
+                    body=stream.getvalue().encode('utf-8-sig')
+                elif table in {'results', 'fights', 'sessions'}:
+                    with TemporaryDirectory(prefix='arena-results-') as directory:
+                        target = Path(directory) / 'export'
+                        export(roots, target)
+                        body = (target / (table + '.csv')).read_bytes()
+                else:
                     raise ArenaError('Unknown results table')
-                with TemporaryDirectory(prefix='arena-results-') as directory:
-                    target = Path(directory) / 'export'
-                    export([root], target)
-                    body = (target / (table + '.csv')).read_bytes()
-                self.headers_for(200, 'text/csv; charset=utf-8', len(body), table + '.csv')
+                filename=(query['workspace'][0]+'-' if 'workspace' in query else '')+table+'.csv'
+                self.headers_for(200, 'text/csv; charset=utf-8', len(body), filename)
                 self.wfile.write(body)
             elif parsed.path == "/api/file":
                 root = app.store.run_path(query["run"][0])

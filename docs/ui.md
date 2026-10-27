@@ -623,3 +623,42 @@ For individual models or parameter variants, choose **Add participant**, then a
 **Saved provider**. Adjust the model, reasoning settings and prices as usual.
 Participants copy the connection settings at creation. Editing or deleting a
 saved provider does not modify existing participants or frozen competitions.
+
+## Workspaces
+
+Use **Workspaces > New workspace** to separate tests and benchmark campaigns.
+The sidebar selector scopes Overview, Competitions and Compare results. Participant
+profiles and provider connections remain shared. Existing competitions start as
+**Unassigned**; no files are moved or rewritten.
+
+Open a workspace and choose **Choose competitions** to organize existing runs and
+saved configurations. Each item belongs to one workspace. Selecting an item from
+another workspace moves it; unchecking an item already here makes it unassigned.
+You can also move one run using the workspace button under its name in the run
+history. The competition editor has a workspace selector; runs launched from a
+saved configuration inherit its workspace. Moving a configuration later does not
+move its previous runs. Deleting a workspace only unassigns its members.
+
+The workspace page shows recorded costs, reservations, submission validity,
+measured tokens, messages and preparation time across its competitions. Resources
+are summed once per conversation. Missing token measurements remain marked, and
+reserved money is separate from recorded cost. Exported copies are excluded.
+These are recorded estimates using configured prices, not provider billing totals.
+
+Performance charts keep different scenarios, engines, preparation settings,
+rounds and configured opponent pools in separate comparison groups. Reference
+panels also require matching archived opponent hashes. Tournament matches between
+versions or repetitions of the same participant are excluded from model scores;
+mirrors and preparation fights are excluded too. Model variants with different
+participant IDs remain distinct. The score is an equal-weight mean of each
+conversation's completed-fight score (win 1, draw 0.5, loss 0). Engine failures
+are shown separately. An evolving tournament score measures performance against
+that pool, not improvement against a constant benchmark.
+
+**Download CSV > Workspace scores** exports the displayed aggregate scores and
+their comparison group IDs. The other downloads preserve raw match results,
+strategy results and conversations for the workspace's original competitions,
+including same-participant fights. Each fight has two side rows in the match
+CSV. Use the conversation CSV to total costs; costs repeated across result stages
+must not be added together. Calibration studies remain in their separate workshop.
+Workspace metadata lives in `.arena/ui/workspaces.json` with other local UI settings.

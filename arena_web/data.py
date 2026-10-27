@@ -16,6 +16,7 @@ from uuid import uuid4
 from arena.core import ArenaError, ROOT, STATE_ROOT, digest, file_hash, is_link, read_json, write_json
 from arena.experiment import plan, validate_config
 from arena.preparation import local_path
+from .workspaces import Workspaces
 
 
 TERMINAL = {"submitted", "budget_exhausted", "no_submission", "generation_failed",
@@ -58,7 +59,7 @@ def history_writes(history):
                        "content": content, "sha256": expected}
 
 
-class Store:
+class Store(Workspaces):
     def __init__(self, runs: Path | None = None, state: Path | None = None):
         self.runs = (runs or ROOT / "runs").resolve()
         self.state = (state or STATE_ROOT / "ui").resolve()
@@ -217,20 +218,27 @@ class Store:
 
     def drafts(self):
         rows = [self.json(p) for p in sorted((self.state / "competitions").glob("*.json"))]
-        return [{**row, 'config': self.resolve_models(row['config'])} for row in rows]
+        memberships=self.workspace_index()['drafts']
+        return [{**row, 'workspace_id':memberships.get(row['id']), 'config': self.resolve_models(row['config'])} for row in rows]
 
-    def save_draft(self, config, identifier=None):
+    def save_draft(self, config, identifier=None, **options):
         config = self.resolve_models(config)
         validate_config(config)
         identifier = identifier or uuid4().hex[:12]
         path = safe_path(self.state / "competitions", identifier + ".json")
         value = {"id": identifier, "updated_at": time.time(), "config": config}
         with self.lock:
+            if options.get('workspace_id') is not None: self.workspace(options['workspace_id'])
             write_json(path, value)
-        return {**value, "plan": plan(config)}
+            if 'workspace_id' in options:
+                self.assign_workspace(options['workspace_id'],drafts=[identifier])
+        return {**value, 'workspace_id':self.workspace_index()['drafts'].get(identifier), "plan": plan(config)}
 
     def delete_draft(self, identifier):
         with self.lock:
+            index=self.workspace_index()
+            index['drafts'].pop(identifier,None)
+            write_json(self.state/'workspaces.json',index)
             safe_path(self.state / "competitions", identifier + ".json").unlink(missing_ok=True)
         return {"deleted": identifier}
 
@@ -238,7 +246,7 @@ class Store:
         result = self.json(safe_path(self.state / "competitions", identifier + ".json"))
         if result is None:
             raise ArenaError("Configuration not found")
-        return {**result, "config": self.resolve_models(result["config"])}
+        return {**result, "workspace_id":self.workspace_index()['drafts'].get(identifier), "config": self.resolve_models(result["config"])}
 
     def run_path(self, identifier):
         root = safe_path(self.runs, identifier)
@@ -300,7 +308,8 @@ class Store:
                                          and not (report.get("evolution") or {}).get("incomplete")})
             except (OSError, ValueError, sqlite3.Error) as error:
                 rows.append({"id": identifier, "name": identifier, "error": str(error), "complete": False})
-        return sorted(rows, key=lambda r: r.get("created_at", 0), reverse=True)
+        memberships=self.workspace_index()['runs']
+        return sorted([{**row,'workspace_id':memberships.get(row['id'])} for row in rows], key=lambda r: r.get("created_at", 0), reverse=True)
 
     def revision(self, root):
         event_id = 0

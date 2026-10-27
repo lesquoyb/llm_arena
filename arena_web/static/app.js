@@ -251,6 +251,7 @@ const query = (args) =>
   ).toString();
 let S = {
   boot: null,
+  workspace: localStorage.getItem('arena-workspace') || '',
   view: "dashboard",
   run: null,
   tab: "summary",
@@ -353,6 +354,7 @@ function showError(error) {
 }
 async function refreshBoot() {
   S.boot = await api("/api/bootstrap");
+  if (S.workspace && S.workspace !== 'unassigned' && !S.boot.workspaces.some(w=>w.id===S.workspace)) setWorkspace('');
   S.equipment ||= await api("/api/equipment");
   syncLiveMode();
   updateChrome();
@@ -379,6 +381,13 @@ function activeJobs() {
   return S.boot.jobs.filter((j) => ["running", "stopping"].includes(j.status));
 }
 function updateChrome() {
+  const picker=$('#workspace-picker');
+  const options=workspaceOptions(true);
+  if (picker.dataset.options!==pretty(options)) {
+    picker.innerHTML=options.map(([id,name])=>`<option value="${e(id)}">${e(name)}</option>`).join('');
+    picker.dataset.options=pretty(options);
+  }
+  picker.value=S.workspace;
   const ready = S.boot.engine.ready;
   $("#engine-status").className = "badge " + (ready ? "green" : "orange");
   $("#engine-status").textContent = ready
@@ -402,6 +411,7 @@ function updateChrome() {
     "" +
     ({
       dashboard: "Overview",
+      workspaces: "Workspaces",
       participants: "Participants",
       competitions: "Competitions",
       run: "Exploration",
@@ -418,6 +428,12 @@ async function renderRoute() {
   replayTimer = null;
   R = null;
   updateChrome();
+  if (S.view === 'workspaces' && S.workspace) {
+    $('#main').innerHTML=empty('Loading workspace','Reading saved competition results…');
+    const summary=await api('/api/workspace',{workspace:S.workspace});
+    if(epoch!==S.epoch)return;
+    S.workspaceSummary=summary;
+  }
   if (S.view === "run") {
     syncLiveMode();
     const d = await api("/api/run", { run: S.run }).catch(async (error) => {
@@ -446,6 +462,7 @@ async function renderRoute() {
   }
   const renderers = {
     dashboard: dashboard,
+    workspaces: workspacesPage,
     participants: participants,
     competitions: competitions,
     compare: comparePage,
@@ -469,7 +486,7 @@ function completed(report) {
 function runRows(runs) {
   return runs.map((r) => {
     const job = S.boot.jobs.find((j) => j.run === r.id);
-    return `<tr><td><button class="table-button" data-action="open-run" data-run="${e(r.id)}">${e(r.name)}</button><small>${e(r.id)}</small></td><td>${job && ["running", "stopping"].includes(job.status) ? status(job.status === "failed" && r.report?.incomplete ? "incomplete" : job.status) : r.error ? status("failed") : r.complete ? status("completed") : badge("Review needed", "orange")}</td><td>${r.simulated === true ? badge("Simulation", "blue") : r.simulated === false ? badge("Real API calls", "orange") : badge("Strategies")}</td><td class="numeric">${fmt(r.report?.sessions ?? r.models)}</td><td class="numeric">${fmt(completed(r.report))}</td><td class="numeric">${r.report?.cost_usd === undefined ? "N/A" : money(r.report.cost_usd)}</td><td>${date(r.created_at)}</td></tr>`;
+    return `<tr><td><button class="table-button" data-action="open-run" data-run="${e(r.id)}">${e(r.name)}</button><small>${e(r.id)}</small><button class="workspace-tag" data-action="move-workspace" data-run="${e(r.id)}">${e(workspaceName(r.workspace_id))} ▾</button></td><td>${job && ["running", "stopping"].includes(job.status) ? status(job.status === "failed" && r.report?.incomplete ? "incomplete" : job.status) : r.error ? status("failed") : r.complete ? status("completed") : badge("Review needed", "orange")}</td><td>${r.simulated === true ? badge("Simulation", "blue") : r.simulated === false ? badge("Real API calls", "orange") : badge("Strategies")}</td><td class="numeric">${fmt(r.report?.sessions ?? r.models)}</td><td class="numeric">${fmt(completed(r.report))}</td><td class="numeric">${r.report?.cost_usd === undefined ? "N/A" : money(r.report.cost_usd)}</td><td>${date(r.created_at)}</td></tr>`;
   });
 }
 function runTable(runs) {
@@ -500,7 +517,7 @@ function recentRuns(runs) {
   }).join("")}</div>` : empty("Your first competition", "Add participants, choose a scenario, then launch a run.", btn("Create competition","new-competition","",true));
 }
 function dashboard() {
-  const runs = S.boot.runs.filter((r) => !r.archived),
+  const runs = scoped(S.boot.runs).filter((r) => !r.archived),
     known = runs.filter((r) => r.report?.cost_usd != null),
     unknown = runs.filter((r) => r.report && r.report.cost_usd === null).length;
   return (
@@ -571,7 +588,82 @@ function freshConfig() {
     config.models = structuredClone(catalog.slice(0, 2));
   return config;
 }
+function workspaceName(id) {
+  return S.boot.workspaces.find(w=>w.id===id)?.name || 'Unassigned';
+}
+function workspaceOptions(scope=false) {
+  return [...(scope ? [['','All competitions'],['unassigned','Unassigned']] : [['','Unassigned']]),
+    ...S.boot.workspaces.map(w=>[w.id,w.name])];
+}
+function setWorkspace(id) {
+  S.workspace=id;
+  localStorage.setItem('arena-workspace',id);
+  S.comparison=null;S.compareSelection=[];S.workspaceSummary=null;
+}
+function scoped(rows) {
+  return rows.filter(row=>!S.workspace || (S.workspace==='unassigned' ? !row.workspace_id : row.workspace_id===S.workspace));
+}
+async function chooseWorkspace(id) {
+  setWorkspace(id);
+  const next='#'+query({view:'workspaces'});
+  if(location.hash===next)await renderRoute();else navigate('workspaces');
+}
+function workspaceDialog(id=null) {
+  const current=S.boot.workspaces.find(w=>w.id===id);
+  openDialog(current?'Edit workspace':'New workspace','Organize competitions without changing their saved settings.',
+    `<form data-form="workspace" data-id="${e(id||'')}"><label class="field">Name<input name="name" value="${e(current?.name||'')}" required maxlength="100"></label>
+    <label class="field">Description<textarea name="description" rows="3" maxlength="2000">${e(current?.description||'')}</textarea></label>
+    <div class="form-footer">${current?btn('Delete workspace','delete-workspace',`data-id="${e(id)}"`):''}<button type="submit" class="button primary">Save workspace</button></div></form>`);
+}
+function workspaceMembers(id) {
+  const title=(row,kind)=>kind==='drafts'?row.config.name:row.name;
+  openDialog('Choose competitions',workspaceName(id),`<form data-form="workspace-members" data-id="${e(id)}">
+    <label class="field">Search<input type="search" id="workspace-member-search" placeholder="Name or competition ID"></label>
+    <div class="actions">${btn('Select visible','workspace-select-visible')}${btn('Clear visible','workspace-clear-visible')}</div>
+    <div class="workspace-members">${[['runs','Competitions',S.boot.runs],['drafts','Saved configurations',S.boot.drafts]].map(([kind,label,rows])=>
+      `<h3>${label}</h3>${rows.length?rows.map(row=>`<label class="workspace-member"><input type="checkbox" name="${kind}" value="${e(row.id)}" ${row.workspace_id===id?'checked':''}><span><strong>${e(title(row,kind))}</strong><small>${e(workspaceName(row.workspace_id))} · ${e(row.id)}${row.archived?' · Exported copy (excluded from statistics)':''}</small></span></label>`).join(''):'<p class="muted">None yet.</p>'}`).join('')}</div>
+    <p class="muted">Selected items move here. Unchecked items currently in this workspace become unassigned.</p>
+    <button type="submit" class="button primary">Save selection</button></form>`);
+}
+function workspacesPage() {
+  const id=S.workspace,current=S.boot.workspaces.find(w=>w.id===id);
+  if(!id)return head('Workspaces','Keep tests and benchmark campaigns separate.',btn('New workspace','new-workspace','',true))+
+    `<div class="workspace-grid">${S.boot.workspaces.map(w=>{
+      const runs=S.boot.runs.filter(r=>r.workspace_id===w.id&&!r.archived);
+      const drafts=S.boot.drafts.filter(d=>d.workspace_id===w.id);
+      return `<article class="panel workspace-card"><button class="card-title" data-action="open-workspace" data-id="${e(w.id)}">${e(w.name)}</button><p>${e(w.description||'')}</p><div class="workspace-card-meta">${runs.length} competitions · ${drafts.length} configurations</div><div class="actions">${btn('Open','open-workspace',`data-id="${e(w.id)}"`,true)}${btn('Edit','edit-workspace',`data-id="${e(w.id)}"`)}</div></article>`;
+    }).join('')}</div>`+
+    `<section class="panel"><h2>Unassigned</h2><p>${S.boot.runs.filter(r=>!r.workspace_id).length} competitions have no workspace.</p>${btn('Organize existing competitions','open-workspace','data-id="unassigned"')}</section>`;
+  const data=S.workspaceSummary,t=data.totals;
+  const actions=(current?btn('Choose competitions','workspace-members',`data-id="${e(id)}"`,true)+btn('Edit workspace','edit-workspace',`data-id="${e(id)}"`):'')+btn('New workspace','new-workspace');
+  return head(current?.name||'Unassigned',current?.description||'Competition results in this workspace.',actions)+
+    `<div class="metrics">${metric('Competitions',fmt(t.competitions),'Exported copies excluded')}${metric('Strategies',`${t.submitted+t.frozen_strategies} / ${t.sessions+t.frozen_strategies}`,`${t.frozen_strategies} frozen · ${t.invalid} invalid · ${t.attention} need attention`)}${metric('Completed fights',fmt(t.completed_matches),`${t.preparation_matches} preparation · ${t.failed_matches} engine failures`)}${metric('Recorded API cost',money(t.known_cost_usd),`${money(t.reserved_usd)} reserved${t.unresolved_sessions?` · ${t.unresolved_sessions} unresolved`:''}`)}</div>
+    <section class="panel workspace-resources"><div class="panel-title"><h2>Model resources</h2><details class="action-menu"><summary class="button">Download CSV</summary><div>${['summary','fights','sessions','results'].map(table=>`<a class="button" href="/api/results.csv?${query({workspace:id,table})}">${table==='summary'?'Workspace scores':table==='fights'?'Match results':table==='sessions'?'Usage & conversations':'Raw strategy results'}</a>`).join('')}</div></details></div>
+    ${data.models.length?table(['Participant','Submitted','Input / output tokens','Recorded cost','Messages','Preparation time'],data.models.map(m=>`<tr><td><strong>${e(m.name)}</strong><small>${e(m.model||'Built-in strategy')}</small>${raw(m.configuration,'Configuration')}</td><td>${m.submitted} / ${m.sessions}<small>${m.invalid} invalid</small></td><td>${fmt(m.input_tokens)} / ${fmt(m.output_tokens)}${m.unmeasured_sessions?`<small>${m.unmeasured_sessions} conversations with missing measurements</small>`:''}</td><td>${money(m.known_cost_usd)}${Number(m.reserved_usd)?`<small>${money(m.reserved_usd)} reserved</small>`:''}</td><td>${fmt(m.messages)}</td><td>${fmt(m.wall_seconds/60,1)} min</td></tr>`)):'<p class="muted">No model conversations yet.</p>'}</section>
+    <section class="panel"><div class="panel-title"><h2>Performance</h2><label class="field">Comparison group<select id="workspace-group">${data.groups.map((g,i)=>`<option value="${i}">${g.kind==='evaluation'?'Reference evaluation':'Tournament'} · ${workspaceStage(g.stage)} · ${e(workspaceScenario(g.scenario))} · ${g.runs.length} competition${g.runs.length===1?'':'s'} · Group ${i+1}</option>`).join('')}</select></label></div><p class="muted">Groups keep different scenarios, preparation settings and opponent pools separate. Same-model fights are excluded from tournament scores.</p><div id="workspace-performance">${workspacePerformance(data.groups[0])}</div></section>
+    <section class="panel flush"><div class="panel-head"><h2>Competitions</h2>${btn('New competition','new-competition')}</div>${runTable(scoped(S.boot.runs))}</section>
+    ${data.excluded.length?`<details class="panel"><summary>${data.excluded.length} competitions excluded from statistics</summary>${data.excluded.map(r=>`<p>${e(r.run)}: ${e(r.reason)}</p>`).join('')}</details>`:''}`;
+}
+function workspaceScenario(scenario) {
+  if(scenario.team_selection?.mode==='participant')return 'AI-built teams';
+  if(scenario.preset==='dream-team')return 'Dream team';
+  return Number(scenario.team_size||1)===1?'Simple duel':`Fixed team (${scenario.team_size} members)`;
+}
+function workspaceStage(stage) {
+  if(stage==='tournament'||stage==='.')return 'Round 1';
+  const match=stage.match(/g(\d+)-(tournament|panel)/);
+  return match?`Round ${Number(match[1])+1}`:stage;
+}
+function workspacePerformance(group) {
+  if(!group)return '<p class="muted">No evaluation results yet.</p>';
+  return `<div class="workspace-bars">${group.models.map(m=>`<div class="workspace-bar"><div><strong>${e(m.name)}</strong><small>${m.round ? `Round ${m.round}` : 'Frozen strategy'} · ${e(text(m.condition))}</small></div><div class="workspace-bar-track"><span style="width:${Math.max(0,Math.min(100,(m.score||0)*100))}%"></span></div><strong>${pct(m.score)}</strong></div>`).join('')}</div>`+
+    table(['Participant','Round / track','Win / draw / loss','Failed fights','Strategies'],group.models.map(m=>`<tr><td>${e(m.name)}</td><td>${m.round??'Frozen'} · ${e(text(m.condition))}</td><td>${m.wins} / ${m.draws} / ${m.losses}</td><td>${m.failed}</td><td>${m.conversations}</td></tr>`))+
+    `<p class="muted">Mean score per conversation: win 1, draw 0.5, loss 0. ${group.internal_matches} same-model fights excluded. ${group.runs.length} competitions in this group.</p><details class="quiet-details"><summary>Included competitions & scenario</summary><div class="actions">${group.runs.map(id=>btn(e(S.boot.runs.find(r=>r.id===id)?.name||id),'open-run',`data-run="${e(id)}"`)).join('')}</div>${raw(group.scenario,'Scenario settings')}</details>`;
+}
+
 function competitions() {
+  const drafts=scoped(S.boot.drafts), runs=scoped(S.boot.runs);
+  const jobs=S.boot.jobs.filter(j=>runs.some(r=>r.id===j.run));
   return (
     head(
       "Competitions",
@@ -579,19 +671,19 @@ function competitions() {
       btn("＋ New competition", "new-competition", "", true),
     ) +
     `<section class="panel flush"><div class="panel-head"><div><h2>Saved configurations</h2><p>Editable until launch. Each run keeps its own copy.</p></div></div>${
-      S.boot.drafts.length
-        ? `<div class="draft-grid">${S.boot.drafts.map(d=>`<article class="draft-card"><span class="eyebrow">Saved configuration</span><h3>${e(d.config.name)}</h3><p>${d.config.models.length} participants · ${d.config.replicates} repetitions · ${d.config.generations === null ? "Manual stop" : `${d.config.generations || 1} rounds`}</p><div class="draft-models">${d.config.models.map(m=>badge(m.id)).join("")}</div><div class="draft-card-actions">${btn("Edit", "edit-draft", `data-id="${e(d.id)}"`)}${btn("Launch", "launch", `data-id="${e(d.id)}"`, true)}<button class="icon-button" data-action="delete-draft" data-id="${e(d.id)}" aria-label="Remove ${e(d.config.name)}" title="Remove configuration">×</button></div></article>`).join("")}</div>`
+      drafts.length
+        ? `<div class="draft-grid">${drafts.map(d=>`<article class="draft-card"><span class="eyebrow">Saved configuration</span><h3>${e(d.config.name)}</h3><p>${d.config.models.length} participants · ${d.config.replicates} repetitions · ${d.config.generations === null ? "Manual stop" : `${d.config.generations || 1} rounds`}</p><div class="draft-models">${d.config.models.map(m=>badge(m.id)).join("")}</div><div class="draft-card-actions">${btn("Edit", "edit-draft", `data-id="${e(d.id)}"`)}${btn("Launch", "launch", `data-id="${e(d.id)}"`, true)}<button class="icon-button" data-action="delete-draft" data-id="${e(d.id)}" aria-label="Remove ${e(d.config.name)}" title="Remove configuration">×</button></div></article>`).join("")}</div>`
         : empty(
             "No saved configurations",
             "Use the demo settings or create a configuration.",
             btn("Create configuration", "new-competition"),
           )
     }</section>` +
-    `<section class="panel flush"><div class="panel-head"><div><h2>Run history</h2><p>Exported copies are excluded from aggregates.</p></div><input type="search" id="run-search" placeholder="Search competitions..." aria-label="Search competitions"></div><div id="run-table">${runTable(S.boot.runs)}</div></section>` +
-    (S.boot.jobs.length
-      ? `<details class="panel history-details"><summary>Process history <span>${S.boot.jobs.length}</span></summary>${table(
+    `<section class="panel flush"><div class="panel-head"><div><h2>Run history</h2><p>Exported copies are excluded from aggregates.</p></div><input type="search" id="run-search" placeholder="Search competitions..." aria-label="Search competitions"></div><div id="run-table">${runTable(runs)}</div></section>` +
+    (jobs.length
+      ? `<details class="panel history-details"><summary>Process history <span>${jobs.length}</span></summary>${table(
           ["Name", "Status", "Started", ""],
-          S.boot.jobs
+          jobs
             .slice(0, 12)
             .map(
               (j) =>
@@ -1184,7 +1276,7 @@ function competitionEditor() {
       "Shared game rules; optional preparation limits. Saving settings does not call an API.",
       btn("Settings guide", "reference", 'data-document="ui"'),
     ) +
-    `<form data-form="competition" id="competition-form"><div class="grid asymmetric"><div><section class="panel editor-section" id="editor-participants"><div class="section-heading"><span>01</span><h2>Participants & rounds</h2></div><p class="muted">Each repetition starts an independent conversation.</p><div class="form-grid">${field("Competition name", "name", c.name, "text", "", "required")}${field("Repetitions per participant", "replicates", c.replicates, "number", "", 'required min="1" max="20"')}${selectField(
+    `<form data-form="competition" id="competition-form"><div class="grid asymmetric"><div><section class="panel editor-section" id="editor-participants"><div class="section-heading"><span>01</span><h2>Participants & rounds</h2></div><p class="muted">Each repetition starts an independent conversation.</p><div class="form-grid">${field("Competition name", "name", c.name, "text", "", "required")}${selectField("Workspace","workspace_id",workspaceOptions(),S.editDraft ? (S.boot.drafts.find(d=>d.id===S.editDraft)?.workspace_id||"") : (S.workspace==="unassigned"?"":S.workspace))}${field("Repetitions per participant", "replicates", c.replicates, "number", "", 'required min="1" max="20"')}${selectField(
       "Round stopping rule",
       "round_stop",
       [
@@ -1376,7 +1468,7 @@ function runHeader(d) {
     experiment = !!d.metadata.config;
   const problems = d.sessions.filter(s=>["provider_unavailable","generation_failed","no_submission"].includes(s.status) || (s.reconciliation_required && (!active || s.status === "needs_reconciliation")));
   const recovery = problems.length ? `<details class="recovery-panel"><summary><span class="recovery-count">${problems.length}</span><strong>Conversations need attention</strong><span>Review & recover</span></summary><div>${problems.map(s=>`<div class="recovery-row"><div><strong>${e(s.model)}</strong><small>${e(sessionLabel(s))} · ${e(text(s.status))}</small></div><div class="actions">${btn("Open conversation","session-conversation",`data-session="${e(s.id)}"`)}${!active ? (s.reconciliation_required ? btn("Resolve billing","reconcile-session",`data-session="${e(s.id)}"`) : retryButton(s)) : ""}</div></div>`).join("")}</div></details>` : "";
-  return `<a class="back-link" href="#view=competitions">← Competitions</a>` + head(config.name, "", `${active ? btn("■ Stop", "stop-job", `data-id="${e(job.id)}"`) : experiment && !d.archived ? btn("Resume", "resume", "", true) : ""}<details class="action-menu"><summary class="button">More <span aria-hidden="true">⌄</span></summary><div><a class="button" href="/api/results.csv?${query({run:S.run})}" download>Download results CSV</a><a class="button" href="/api/results.csv?${query({run:S.run,table:"fights"})}" download>Download match results CSV</a><a class="button" href="/api/results.csv?${query({run:S.run,table:"sessions"})}" download>Download sessions CSV</a>${experiment ? btn("Clone configuration", "clone-run") + btn("Export competition", "export-run") : ""}</div></details>`) +
+  return `<a class="back-link" href="#view=competitions">← Competitions</a>` + head(config.name, "", `${active ? btn("■ Stop", "stop-job", `data-id="${e(job.id)}"`) : experiment && !d.archived ? btn("Resume", "resume", "", true) : ""}<details class="action-menu"><summary class="button">More <span aria-hidden="true">⌄</span></summary><div>${btn("Move to workspace","move-workspace",`data-run="${e(S.run)}"`)}<a class="button" href="/api/results.csv?${query({run:S.run})}" download>Download results CSV</a><a class="button" href="/api/results.csv?${query({run:S.run,table:"fights"})}" download>Download match results CSV</a><a class="button" href="/api/results.csv?${query({run:S.run,table:"sessions"})}" download>Download sessions CSV</a>${experiment ? btn("Clone configuration", "clone-run") + btn("Export competition", "export-run") : ""}</div></details>`) +
     `<div class="toolbar run-toolbar">${job ? status(job.status === "failed" && d.report?.incomplete ? "incomplete" : job.status) : ""}${config.models ? badge(config.models.every(m=>m.provider==="mock") ? "Built-in strategies" : "Model competition") : badge("Provided strategies")}${d.archived ? badge("Exported copy", "orange") : ""}<span class="run-id mono" title="Competition ID">${e(S.run)}</span><span class="spacer"></span>${active ? badge(runningPhase(d), "blue") : ""}<label class="check live-toggle"><input id="follow-live" type="checkbox" ${S.follow ? "checked" : ""}>Live</label>${job ? btn("Run log", "job-log", `data-id="${e(job.id)}"`) : ""}</div>` + recovery +
     (d.sessions.some(s=>s.continuation_identity) ? `<details class="quiet-details"><summary>Continued after an application update</summary><p>Version changes are recorded in the journal.</p></details>` : "") +
     `<nav class="tabs" aria-label="Competition views">${TABS.map(([key,label])=>`<button class="tab ${S.tab===key ? "active" : ""}" ${S.tab===key ? 'aria-current="page"' : ""} data-action="tab" data-tab="${key}">${label}</button>`).join("")}</nav>`;
@@ -2918,7 +3010,7 @@ function playReplay() {
   );
 }
 function comparePage() {
-  const runs = S.boot.runs.filter((r) => !r.archived && !r.error),
+  const runs = scoped(S.boot.runs).filter((r) => !r.archived && !r.error),
     selected = S.compareSelection || [];
   return (
     head("Compare results", "Comparison by model and competition protocol.") +
@@ -3101,7 +3193,19 @@ document.addEventListener("click", async (event) => {
   event.preventDefault();
   const a = node.dataset.action;
   try {
-    if (a === 'providers' || a === 'new-provider') providersDialog();
+    if (a === 'new-workspace') workspaceDialog();
+    else if (a === 'edit-workspace') workspaceDialog(node.dataset.id);
+    else if (a === 'open-workspace') await chooseWorkspace(node.dataset.id);
+    else if (a === 'workspace-members') workspaceMembers(node.dataset.id);
+    else if (a === 'workspace-select-visible' || a === 'workspace-clear-visible') {
+      for(const row of $$('.workspace-member:not([hidden])'))$('input',row).checked=a==='workspace-select-visible';
+    }
+    else if (a === 'move-workspace') {
+      const row=S.boot.runs.find(r=>r.id===node.dataset.run);
+      openDialog('Move competition',row.name,`<form data-form="move-workspace" data-run="${e(row.id)}">${selectField('Workspace','workspace_id',workspaceOptions(),row.workspace_id||'')}<button type="submit" class="button primary">Move</button></form>`);
+    } else if (a === 'delete-workspace') {
+      openDialog('Delete workspace',workspaceName(node.dataset.id),`<p>Competitions and configurations will become unassigned. Their files and results are kept.</p><form data-form="delete-workspace" data-id="${e(node.dataset.id)}"><div class="form-footer">${btn('Cancel','close-dialog')}<button type="submit" class="button primary">Delete workspace</button></div></form>`);
+    } else if (a === 'providers' || a === 'new-provider') providersDialog();
     else if (a === 'edit-provider') providersDialog(node.dataset.id);
     else if (a === 'provider-models') {node.disabled=true;try{await providerModels(node.dataset.id);}finally{node.disabled=false;}}
     else if (a === 'delete-provider') {await api('/api/provider/delete',{id:node.dataset.id},true);await refreshBoot();providersDialog();}
@@ -3456,7 +3560,19 @@ document.addEventListener("submit", async (event) => {
   try {
     const f = new FormData(form),
       type = form.dataset.form;
-    if (type === 'provider') {
+    if(type === 'workspace') {
+      const saved=await api('/api/workspace',{id:form.dataset.id||null,name:f.get('name'),description:f.get('description')},true);
+      $('#dialog').close();await refreshBoot();await chooseWorkspace(saved.id);toast('Workspace saved.');
+    } else if(type === 'delete-workspace') {
+      await api('/api/workspace/delete',{id:form.dataset.id},true);
+      $('#dialog').close();setWorkspace('');await refreshBoot();await chooseWorkspace('');toast('Workspace deleted. Competitions are kept.');
+    } else if(type === 'workspace-members') {
+      await api('/api/workspace/members',{workspace_id:form.dataset.id,runs:f.getAll('runs'),drafts:f.getAll('drafts'),replace:true},true);
+      $('#dialog').close();await refreshBoot();await renderRoute();toast('Workspace updated.');
+    } else if(type === 'move-workspace') {
+      await api('/api/workspace/members',{workspace_id:f.get('workspace_id')||null,runs:[form.dataset.run]},true);
+      $('#dialog').close();await refreshBoot();await renderRoute();toast('Competition moved.');
+    } else if (type === 'provider') {
       const spec={id:f.get('id'),provider:f.get('provider'),api_key_env:f.get('api_key_env')};
       if(f.get('endpoint'))spec.endpoint=f.get('endpoint');
       await api('/api/provider',{spec,secret:f.get('secret')||null},true);
@@ -3525,7 +3641,8 @@ document.addEventListener("submit", async (event) => {
       toast("Participant saved.");
     } else if (type === "competition") {
       const config = readCompetition(form);
-      await api("/api/competition", { config, id: S.editDraft }, true);
+      await api("/api/competition", { config, id: S.editDraft, workspace_id:f.get("workspace_id")||null }, true);
+      if(S.workspace)setWorkspace(f.get('workspace_id')||'unassigned');
       await refreshBoot();
       navigate("competitions");
       toast("Configuration saved. No API calls made.");
@@ -3579,7 +3696,11 @@ document.addEventListener("submit", async (event) => {
 document.addEventListener("change", async (event) => {
   const n = event.target;
   try {
-    if (n.name === 'saved_provider') {
+    if(n.id === 'workspace-picker') {
+      await chooseWorkspace(n.value);
+    } else if(n.id === 'workspace-group') {
+      $('#workspace-performance').innerHTML=workspacePerformance(S.workspaceSummary.groups[Number(n.value)]);
+    } else if (n.name === 'saved_provider') {
       const spec=S.boot.providers.find(row=>row.spec.id===n.value)?.spec;
       participantDialog(null,spec?.provider||'mock',spec||null);
     } else if (n.name === 'reference'  && n.closest('[data-form=reference-strategy]')) {
@@ -3738,13 +3859,16 @@ document.addEventListener("invalid", event => {
 }, true);
 document.addEventListener("input", (event) => {
   const n = event.target;
+  if(n.id==='workspace-member-search') {
+    for(const row of $$('.workspace-member'))row.hidden=!row.textContent.toLowerCase().includes(n.value.toLowerCase());
+  }
   if (n.id === "participant-search") {
     $("#participant-cards").innerHTML = participantCards(n.value);
     $("#participant-count").textContent = `${$$("#participant-cards .profile-card").length} of ${S.boot.participants.length} profiles`;
   }
   if (n.id === "run-search")
     $("#run-table").innerHTML = runTable(
-      S.boot.runs.filter((r) =>
+      scoped(S.boot.runs).filter((r) =>
         `${r.name} ${r.id}`.toLowerCase().includes(n.value.toLowerCase()),
       ),
     );

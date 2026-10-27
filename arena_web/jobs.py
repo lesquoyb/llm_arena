@@ -124,6 +124,8 @@ class Jobs:
                    "status": "running", "resumed": draft_id is None, "retry_session": retry_session, "config_sha256": digest(config),
                    "log": identifier + ".log"}
             with (logs / row["log"]).open("wb") as log:
+                if draft_id is not None:
+                    self.store.inherit_workspace(draft_id,run_id)
                 self.process = subprocess.Popen([sys.executable, "-m", "arena_web.worker", *args], cwd=ROOT,
                                                 env=env, stdin=subprocess.DEVNULL, stdout=log,
                                                 stderr=subprocess.STDOUT, **options)

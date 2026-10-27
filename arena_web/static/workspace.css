@@ -250,3 +250,26 @@ dialog:has(form[data-form=participant]) .dialog-error:not([hidden]) { margin: 16
   .roster-disclosure #stats-editor { padding: 14px; }
 }
 .overview-matrix abbr small { display: block; font-size: 10px; white-space: normal; font-weight: 400; margin-top: 5px; }
+
+/* Campaign workspaces */
+.workspace-picker { display: grid; gap: 6px; margin: 26px 0 18px; color: var(--nav-muted); font-size: 11px; }
+.workspace-picker select { width: 100%; min-width: 0; padding: 9px 8px; background: #213e3b; color: #fff; border: 1px solid #47615b; border-radius: 7px; font: inherit; font-size: 12px; }
+.workspace-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(260px,1fr)); gap: 18px; }
+.workspace-card { display: flex; flex-direction: column; align-items: start; gap: 12px; }
+.workspace-card p { margin: 0; flex: 1; white-space: pre-wrap; color: var(--muted); }
+.workspace-card-meta { color: var(--muted); font-size: 12px; }
+.workspace-tag { display: block; margin-top: 6px; border: 0; padding: 3px 7px; border-radius: 5px; background: var(--blue-soft); color: var(--blue); font: inherit; font-size: 11px; cursor: pointer; max-width: 230px; overflow-wrap: anywhere; }
+.workspace-members { max-height: min(55vh,560px); overflow-y: auto; overscroll-behavior: contain; margin: 14px 0; }
+.workspace-member { display: flex; align-items: start; gap: 12px; padding: 12px 6px; border-bottom: 1px solid var(--border); cursor: pointer; }
+.workspace-member span { min-width: 0; }
+.workspace-member small, .workspace-bar small { display: block; color: var(--muted); font-size: 11px; }
+.workspace-bars { display: grid; gap: 14px; margin: 22px 0; }
+.workspace-bar { display: grid; grid-template-columns: minmax(130px,1fr) minmax(60px,2fr) 60px; gap: 16px; align-items: center; }
+.workspace-bar > div:first-child { overflow-wrap: anywhere; }
+.workspace-bar > strong { text-align: right; font-variant-numeric: tabular-nums; }
+.workspace-bar-track { height: 10px; background: var(--blue-soft); border-radius: 6px; overflow: hidden; }
+.workspace-bar-track span { display: block; height: 100%; background: var(--blue); border-radius: inherit; }
+body[data-view=workspaces] .panel-title { flex-wrap: wrap; gap: 12px; }
+@media(max-width:760px) { .workspace-picker { margin: 12px 0; } .workspace-bar { grid-template-columns: minmax(100px,1fr) minmax(45px,1fr) 52px; gap: 8px; } }
+body[data-view=workspaces] .panel-title .field { min-width: 0; width: min(100%,480px); }
+body[data-view=workspaces] .panel-title select { min-width: 0; width: 100%; max-width: 100%; }
