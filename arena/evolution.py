@@ -85,6 +85,7 @@ def run_generation(config, out, journal, engine, initial, interrupt=None, retry_
                 references(engine, config, out, journal, [entrant], f'g{generation}-panel', panel, incremental=True)
                 evaluated.add(entrant['id'])
     evaluate_available()
+    tasks=[];candidates=[]
     for parent in initial:
         parent_state = initial_states[parent["id"]]
         if parent_state["status"] == "needs_reconciliation":
@@ -105,7 +106,7 @@ def run_generation(config, out, journal, engine, initial, interrupt=None, retry_
                 state = copy.deepcopy(parent_state)
                 state.update(generation=generation, condition=condition, parent=parent["id"], lineage_root=root,
                              parent_checkpoint_sha256=digest(parent_state), status="running",
-                             calls=0, steps=0, test_matches=0, wall_seconds=0, pending=None, cursor=0,
+                             calls=0, completed_calls=0, steps=0, test_matches=0, wall_seconds=0, pending=None, cursor=0,
                              in_flight=False, money_reserved="0", reservation_unbounded=False, cost_spent="0", input_tokens=0, output_tokens=0, diagnostic_calls=0, diagnostic_cost_usd="0")
                 state['history'] = initial_state(sid, models[parent_state['model']], config)['history']
                 state['message_times'] = []
@@ -143,28 +144,30 @@ def run_generation(config, out, journal, engine, initial, interrupt=None, retry_
                 journal.save(sid, state, "branch_created", {"parent": parent["id"],
                                                           "checkpoint_sha256": state["parent_checkpoint_sha256"],
                                                           "condition": condition})
-            if permitted:
-                run_session(sid, models[parent_state["model"]], config, out, journal, engine, interrupt)
-                evaluate_available()
-            state = journal.state(sid)
-            if "submission" in state:
-                directory = out / "sessions" / sid
-                cached = directory / "assessment.json"
-                from .core import file_hash
-                if cached.exists():
-                    if state.get("assessment_sha256") and file_hash(cached) != state["assessment_sha256"]:
-                        raise ArenaError("G1 assessment changed")
-                    assessment = read_json(cached)
-                else:
-                    assessment = engine.analyze(directory / "submission", state["submission"]["entrypoint"],
-                                                Preparation._attempt(directory / "assessment"))
-                    write_json(cached, assessment)
-                state["validity"] = assessment["status"]
-                state["assessment_sha256"] = file_hash(cached)
-                journal.save(sid, state, "submission_assessment", assessment)
-                branches.append({"id": sid, "path": out / "sessions" / sid / "submission",
-                                 "submission": state["submission"], "model": state["model"],
-                                 "replicate": state["replicate"], "parent": parent["id"], "generation": generation, "condition": condition})
+            if permitted:tasks.append((sid,models[parent_state['model']]))
+            candidates.append(sid)
+    from .parallel import prepare
+    prepare(tasks,config,out,journal,engine,interrupt,evaluate_available)
+    for sid in candidates:
+        state = journal.state(sid)
+        if "submission" in state:
+            directory = out / "sessions" / sid
+            cached = directory / "assessment.json"
+            from .core import file_hash
+            if cached.exists():
+                if state.get("assessment_sha256") and file_hash(cached) != state["assessment_sha256"]:
+                    raise ArenaError("G1 assessment changed")
+                assessment = read_json(cached)
+            else:
+                assessment = engine.analyze(directory / "submission", state["submission"]["entrypoint"],
+                                            Preparation._attempt(directory / "assessment"))
+                write_json(cached, assessment)
+            state["validity"] = assessment["status"]
+            state["assessment_sha256"] = file_hash(cached)
+            journal.save(sid, state, "submission_assessment", assessment)
+            branches.append({"id": sid, "path": out / "sessions" / sid / "submission",
+                             "submission": state["submission"], "model": state["model"],
+                             "replicate": state["replicate"], "parent": state["parent"], "generation": generation, "condition": state["condition"]})
     for parent_sid, parent_state in list(journal.states().items()):
         if parent_state.get("generation", 0) != generation-1 or "submission" in parent_state:
             continue
@@ -175,7 +178,7 @@ def run_generation(config, out, journal, engine, initial, interrupt=None, retry_
             if journal.state(sid) is None:
                 skipped = copy.deepcopy(parent_state)
                 skipped.update(parent=parent_sid, generation=generation, lineage_root=root, condition=condition, status="no_submission",
-                               calls=0, steps=0, test_matches=0, cost_spent="0", money_reserved="0",
+                               calls=0, completed_calls=0, steps=0, test_matches=0, cost_spent="0", money_reserved="0",
                                input_tokens=0, output_tokens=0, token_usage_known=False, missing_usage_calls=0, diagnostic_calls=0, diagnostic_cost_usd="0")
                 journal.save(sid, skipped, "branch_unavailable", {"reason": "No G0 submission"})
     contemporaries = evaluate_ready(engine, config, out, journal, generation)

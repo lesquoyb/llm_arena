@@ -55,7 +55,7 @@ def export(runs, out, catalog=None):
             sessions.append({**descriptor,'status':state.get('status'),'validation':state.get('validity'),
                 'has_submission':bool(state.get('submission')),'submission_mode':'automatic_budget' if state.get('submission') and state.get('status')=='budget_exhausted' else 'explicit' if state.get('submission') else 'none',
                 'preparation_limits_json':json.dumps(config.get('budget_per_session',{}),sort_keys=True),
-                'shared_spending_limit_usd':config.get('spending',{}).get('max_total_usd'),'calls':state.get('calls',0),'tool_calls':state.get('steps',0),
+                'parallel_requests':config.get('parallel_requests',1),'shared_spending_limit_usd':config.get('spending',{}).get('max_total_usd'),'calls':state.get('calls',0),'tool_calls':state.get('steps',0),
                 'preparation_matches':state.get('test_matches',0),'wall_seconds':state.get('wall_seconds'),
                 'messages':len(state.get('history', [])),
                 **{role+'_messages':sum(m.get('role')==role for m in state.get('history', [])) for role in ('system','user','assistant','tool')}, **tokens,

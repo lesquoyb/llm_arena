@@ -719,3 +719,29 @@ The competition editor keeps the model list in a compact scrollable panel with
 search and **Selected only**. Filtering does not deselect hidden profiles. The
 bottom bar shows the selected count and keeps **Save configuration** accessible
 while editing, including on smaller screens. Saving still makes no model calls.
+
+## Parallel preparation
+
+In the competition editor, **Parallel model requests** sets the maximum number
+of simultaneous provider requests (1 to 20). The default is **1**, preserving
+sequential execution. The setting applies to initial preparation and subsequent
+feedback/no-feedback rounds and is frozen when the competition starts.
+
+Each conversation keeps its own source files, tools, history and streamed output.
+Only provider transports run in background threads. One coordinator executes
+tools and engine fights, writes checkpoints and accounts for shared spending.
+A request waits when another active request temporarily holds the required budget
+reservation. Models sharing a loopback server and port run one conversation at a
+time to avoid loading several local models or repeatedly swapping them in memory.
+Hosted requests can overlap up to the selected limit; provider quotas still apply.
+
+Submitted sources remain frozen. Available fights run progressively, and the next
+round still waits for all participants. A failed provider retains its place and
+can be recovered without regenerating healthy peers. **Stop** stops scheduling
+new work and lets already dispatched requests return or time out; received replies
+and pending tools are saved for Resume. Killing the process before a receipt is
+saved can still require billing reconciliation.
+
+Preparation duration includes request waiting and coordination, not just token
+generation. Resource exports record `parallel_requests`, and workspace comparison
+groups keep different concurrency settings separate.

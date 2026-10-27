@@ -5,6 +5,7 @@ import platform
 import signal
 import shutil
 import subprocess
+import sys
 import time
 import re
 from uuid import uuid4
@@ -37,12 +38,6 @@ def java_home() -> Path:
     if not (home / "bin" / ("javac.exe" if os.name == "nt" else "javac")).exists():
         raise ArenaError("A full JDK with javac is required")
     return home
-
-
-def worker_limits():
-    # Bound each redirected output file. This is not a complete OS sandbox.
-    import resource
-    resource.setrlimit(resource.RLIMIT_FSIZE, (8_000_000, 8_000_000))
 
 
 OUTPUT_LIMIT = 8_000_000
@@ -217,7 +212,9 @@ class Engine:
                 allowed = {"PATH", "JAVA_HOME", "SystemRoot", "WINDIR", "TEMP", "TMP",
                            "TMPDIR", "LANG", "LC_ALL", "TZ"}
                 environment = {key: value for key, value in os.environ.items() if key.upper() in {name.upper() for name in allowed}}
-                options = {"start_new_session": True, "preexec_fn": worker_limits} if os.name == "posix" else {}
+                options = {"start_new_session": True} if os.name == "posix" else {}
+                if os.name=='posix':
+                    args=[sys.executable,str(Path(__file__).with_name('worker_limits.py')),*args]
                 process = subprocess.Popen(args, cwd=work, stdout=stdout, stderr=stderr,
                                            env=environment, **options)
                 try:

@@ -883,7 +883,7 @@ class Store(Workspaces):
             protocol = {"scenario": config["scenario"], "seeds": config.get("final_seeds"),
                         "engine": metadata.get("scientific_identity", metadata.get("engine")),
                         "opponents": opponents,
-                        "preparation": {"budgets": config["budget_per_session"], "catalogs": metadata.get("catalogs"),
+                        "preparation": {"parallel_requests":config.get("parallel_requests",1), "budgets": config["budget_per_session"], "catalogs": metadata.get("catalogs"),
                                         "corpus_sha256": metadata.get("corpus_sha256"),
                                         "prompts_sha256": metadata.get("prompts_sha256", metadata.get("prompt_sha256"))},
                         "simulated": all(m["provider"] == "mock" for m in config["models"])}

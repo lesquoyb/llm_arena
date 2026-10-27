@@ -38,10 +38,11 @@ def load_config(path: Path) -> dict:
 def validate_config(value: dict) -> dict:
     required = {"schema_version", "name", "models", "replicates", "budget_per_session",
                 "spending", "seeds", "scenario", "include_mirrors"}
-    optional = {"generations", "improvement_conditions", "prompt_language", "final_seeds"}
+    optional = {"generations", "improvement_conditions", "prompt_language", "final_seeds", "parallel_requests"}
     if (not isinstance(value, dict) or not required <= set(value) or set(value) - required - optional or
             type(value["schema_version"]) is not int or value["schema_version"] not in (1, 2)):
         raise ArenaError("Unsupported offline experiment schema")
+    integer(value.get('parallel_requests',1),1,20,'parallel_requests')
     spending = value["spending"]
     if not isinstance(spending, dict) or "allow_paid_calls" not in spending or set(spending) - {"allow_paid_calls", "max_total_usd"}:
         raise ArenaError("Invalid spending policy")
@@ -165,7 +166,7 @@ def plan(config: dict) -> dict:
     n = len(config["models"]) * config["replicates"]
     evolved = config.get("generations", 1) != 1
     paid = [m for m in config["models"] if m["provider"] != "mock"]
-    return {"sessions": None if config.get("generations", 1) is None else n * (2 * config.get("generations", 1) - 1), "generation": None if config.get("generations", 1) is None else config.get("generations", 1) - 1,
+    return {"parallel_requests":config.get("parallel_requests",1), "sessions": None if config.get("generations", 1) is None else n * (2 * config.get("generations", 1) - 1), "generation": None if config.get("generations", 1) is None else config.get("generations", 1) - 1,
             "provider": "mixed" if paid else "mock", "simulated": not paid,
             "ranked_matches_if_all_submit": n * (n - 1) * len(config["seeds"]),
             "mirrors_if_all_submit": n * len(config["seeds"]) if config["include_mirrors"] else 0,
@@ -286,7 +287,9 @@ def _finish(sid, state, tools, journal, reason):
     journal.save(sid, state, "finished", reason)
 
 
-def provider_response(sid, state, model, config, journal):
+def _prepare_provider_response(sid, state, model, config, journal):
+    dispatcher=getattr(journal,'requests',None)
+    if dispatcher and not dispatcher.can_start(sid,model):return None
     from .call_counts import hydrate_calls
     hydrate_calls(state,journal.db,sid)
     request_setup_started = time.monotonic()
@@ -310,6 +313,9 @@ def provider_response(sid, state, model, config, journal):
     if paid:
         budget = config["budget_per_session"]
         def stop_budget(scope, message, details=None):
+            if scope=='study' and dispatcher and dispatcher.other_reservations(sid,journal)>0:
+                dispatcher.deferred.add(sid)
+                return  # Wait for active receipts to release unused reservations.
             state["status"] = "budget_exhausted"
             state['budget_stop']={'scope':scope,'message':message,**(details or {})}
             journal.save(sid,state,'request_budget_blocked',state['budget_stop'])
@@ -362,9 +368,32 @@ def provider_response(sid, state, model, config, journal):
         from .streaming import LiveResponse
         stream_progress=LiveResponse(journal.out,sid,state['calls'])
     provider = (APIProvider(model,stream_progress=stream_progress) if stream_progress else APIProvider(model)) if paid else MockProvider(model["profile"])
+    return dict(model=model,history=history,session_tools=session_tools,paid=paid,bound=bound,
+                output_limit=output_limit,request=request,provider=provider,request_setup_started=request_setup_started)
+
+
+def provider_response(sid, state, model, config, journal):
+    dispatcher=getattr(journal,'requests',None)
+    if dispatcher and sid in dispatcher.pending:
+        if not dispatcher.ready(sid):return None
+        context=dispatcher.pending.pop(sid)
+        dispatcher.deferred.clear()
+        # Include request waiting in preparation time, but measure the API itself
+        # only until the transport completed, not until this receipt is consumed.
+        state['wall_seconds']+=time.monotonic()-context.get('paused_at',context['submitted_at'])
+    else:
+        context=_prepare_provider_response(sid,state,model,config,journal)
+        if context is None:return None
+        if dispatcher and context['paid']:
+            dispatcher.submit(sid,context)
+            return None
+    model=context['model'];history=context['history'];session_tools=context['session_tools']
+    paid=context['paid'];bound=context['bound'];output_limit=context['output_limit']
+    request=context['request'];provider=context['provider'];request_setup_started=context['request_setup_started']
+    budget=config['budget_per_session']
     started = time.monotonic()
     try:
-        response = (provider.respond(history, session_tools, bound["output_bound"]) if paid
+        response = context['future'].result() if 'future' in context else (provider.respond(history, session_tools, bound["output_bound"]) if paid
                     else provider.respond(history, session_tools, output_limit))
     except ProviderFailure as error:
         state["status"] = "needs_reconciliation" if error.uncertain else "provider_unavailable"
@@ -387,9 +416,9 @@ def provider_response(sid, state, model, config, journal):
                                                                "response": getattr(provider, "last_response", None)})
         return None
     state["in_flight"] = False
-    response["elapsed_seconds"] = time.monotonic() - started
+    response["elapsed_seconds"] = context['completed_at']-context['submitted_at'] if 'completed_at' in context else time.monotonic() - started
     response['request_metrics'] = {'history_messages':len(history),
-        'request_setup_seconds':started - request_setup_started,
+        'request_setup_seconds':context.get('submitted_at',started) - request_setup_started,
         'request_characters':len(json.dumps(request.get('body', request), ensure_ascii=False))}
     if paid:
         usage = response["usage"]
@@ -518,6 +547,11 @@ def verify_workspace(state, tools):
 
 def run_session(sid, model, config, out, journal, engine, interrupt=None):
     state = journal.state(sid) or initial_state(sid, model, config)
+    dispatcher=getattr(journal,'requests',None)
+    drained_response=False
+    if dispatcher and sid in dispatcher.pending:
+        if not dispatcher.ready(sid):return
+        drained_response=provider_response(sid,state,model,config,journal) is not None
     from .call_counts import hydrate_calls
     hydrate_calls(state,journal.db,sid)
     from .reasoning import apply_overrides
@@ -528,6 +562,9 @@ def run_session(sid, model, config, out, journal, engine, interrupt=None):
     from .submitted_versions import OwnSubmissions
     tools = Preparation(directory, out / "corpus", engine, config["scenario"], feedback=access_for(out, state),
                         allowed_tools=state.get("calibration", {}).get("tools"), versions=OwnSubmissions(out,state))
+    if state['status']=='budget_exhausted' and state.get('pending') and not state.get('submission'):
+        verify_workspace(state,tools)
+        _finish(sid,state,tools,journal,'budget_exhausted')
     if state["status"] in TERMINAL:
         if "submission" in state and submission(directory / "submission", state["submission"]["entrypoint"]) != state["submission"]:
             raise ArenaError("Archived session submission changed")
@@ -542,6 +579,7 @@ def run_session(sid, model, config, out, journal, engine, interrupt=None):
     previous = state["wall_seconds"]
     journal.save(sid, state, "session_started")
     try:
+        if drained_response and interrupt:interrupt("response",sid)
         while state["status"] == "running":
             state["wall_seconds"] = previous + time.monotonic() - started
             if state["wall_seconds"] >= budget.get("max_wall_seconds", float("inf")):
@@ -626,6 +664,8 @@ def run_session(sid, model, config, out, journal, engine, interrupt=None):
         state["wall_seconds"] = previous + time.monotonic() - started
         journal.save(sid, state, "session_checkpoint")
         write_json(directory / "conversation.json", state["history"])
+        if dispatcher and sid in dispatcher.pending:
+            dispatcher.pending[sid]['paused_at']=time.monotonic()
 
 
 def status(out: Path) -> dict:
@@ -726,12 +766,10 @@ def run(config: dict, out: Path, resume=False, interrupt=None, prepare_only=Fals
                 return {"initialized": True, "sessions": list(journal.states())}
             from .greedy import evaluate as evaluate_ready
             evaluate_ready(engine, config, out, journal)
-            for model in config["models"]:
-                for replicate in range(config["replicates"]):
-                    sid = f"{model['id']}-r{replicate}"
-                    if not retry_session or sid == retry_session:
-                        run_session(sid, model, config, out, journal, engine, interrupt)
-                        evaluate_ready(engine, config, out, journal)
+            from .parallel import prepare
+            tasks=[(f"{model['id']}-r{replicate}",model) for model in config['models']
+                   for replicate in range(config['replicates']) if not retry_session or f"{model['id']}-r{replicate}"==retry_session]
+            prepare(tasks,config,out,journal,engine,interrupt,lambda:evaluate_ready(engine,config,out,journal))
             states = {sid: state for sid, state in journal.states().items() if state.get("generation", 0) == 0}
             assessments = {}
             for sid, state in states.items():

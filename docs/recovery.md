@@ -32,3 +32,13 @@ In a failed Responses conversation, **Test API** sends one explicitly authorized
 This is a billed request: reservations, spending/token/call limits and usage accounting apply. It never executes returned tools or changes saved conversation history, files or submissions. Diagnostics have separate call/cost counters and journal events. An ambiguous transport failure keeps its reservation for billing reconciliation. Probe results are included in **Copy provider diagnostics**.
 
 A rejected minimal request points to the provider/model/request options rather than the competition scenario or complex tool set. An accepted minimal request and rejected full request narrow the problem to differences in the complete request; acceptance alone does not prove an entire tool conversation works.
+
+## Parallel requests
+
+When parallel preparation is enabled, Stop stops scheduling new calls/tools and
+waits for already dispatched provider requests to return or reach their configured
+timeout. Their replies, costs and pending tool calls are saved before stopping;
+Resume consumes them without sending the same request again. A forced process
+termination can leave several unknown requests, each requiring reconciliation.
+The default concurrency remains one. Loopback models sharing a server port are
+prepared sequentially even if the competition allows more concurrent requests.

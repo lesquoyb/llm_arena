@@ -149,7 +149,7 @@ class Workspaces:
             # Different opponent pools remain separate even inside one workspace.
             protocol={'scenario':config.get('scenario'), 'engine':metadata.get('scientific_identity',metadata.get('engine')),
                 'seeds':{k:v for k,v in config.items() if 'seed' in k},
-                'budget':config.get('budget_per_session'),'corpus':metadata.get('corpus_sha256'),
+                'budget':config.get('budget_per_session'),'parallel_requests':config.get('parallel_requests',1),'corpus':metadata.get('corpus_sha256'),
                 'prompts':metadata.get('prompts_sha256',metadata.get('prompt_sha256')),
                 'catalogs':metadata.get('catalogs'),
                 'continuations':sorted({digest(s['continuation_identity']) for s in sessions.values() if s.get('continuation_identity')})}
