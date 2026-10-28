@@ -985,3 +985,9 @@ cards and replays show **Cached reference**, and overview accounting reports the
 reuse count. Each competition keeps independent copies of the replay and executed
 scripts, so exporting it does not require the shared cache. Reused fights report
 zero engine execution time and preserve the original duration in cache metadata.
+
+The competition activity panel lists preparations for the displayed round under
+**Preparing now**, **Preparation finished**, **Needs attention** and **Waiting**.
+Click a session to open its conversation directly. Finished preparation means a
+strategy has been frozen; tournament fight progress is shown separately. Repeated
+runs and feedback tracks have distinct links. These lists refresh with live mode.
