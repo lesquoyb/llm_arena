@@ -187,7 +187,7 @@ class Jobs:
         from arena.roster import update
         with self.lock:
             if self.process and self.process.poll() is None:
-                raise ArenaError('Stop the running competition before editing its participants; checkpoints are retained')
+                raise ArenaError('Stop the running competition before changing participant or metric-collection settings; checkpoints are retained')
             root = self.store.run_path(run_id)
             if (root / 'export.json').exists(): raise ArenaError('Exported archives are read-only')
             metadata = read_json(root / 'experiment.json')

@@ -843,9 +843,10 @@ in every round and feedback track; their labels say **fixed reference · same co
 Legacy scripted mock fixtures can select predefined code for a track; this is
 scripted test behavior, not model learning.
 
-Enable **Compare against previous-round versions (unscored)** in the competition
-editor, or stop an existing competition and use **More > Edit participants**.
-Save and resume to run missing comparisons without regenerating submitted code.
+Enable **Collect extra previous-round comparisons** in the competition
+editor, or stop an existing competition and use **More > Metric collection**.
+This is optional data collection for learning-progress metrics, rather than a
+scoring rule. Save and resume to run missing comparisons without regenerating submitted code.
 Round 2 reuses its existing Round 1 reference fights. From Round 3 onward, extra
 engine fights compare current LLM versions with all preceding-round LLM versions,
 including the same model, on both starting sides. Fixed references are excluded
@@ -927,5 +928,19 @@ against fixed opponents.
 
 Historical reference results supply the initial-version comparisons and Round 2's
 previous pool. From Round 3, the previous-round option supplies additional fights.
-Missing data shows an availability message and the existing comparison settings;
+Missing data shows an availability message and **More > Metric collection**;
 opening a chart never launches model calls or changes standings/feedback.
+
+The competition editor groups this option under **Learning-progress metrics**. It
+adds engine work for two specific charts from Round 3 onward: comparisons against
+the own previous version and against the previous LLM pool. The own-initial and
+global-score-change charts use data collected anyway. A stopped competition has a
+dedicated **More > Metric collection** dialog; changing participants preserves the
+collection setting. Disabling it retains already generated diagnostic results.
+
+If the backend restarts while a page stays open, the next modifying request can
+carry an old application-session token. The interface fetches a new token and
+retries once only when the server explicitly rejected that token before executing
+the action. Draft names, scenario settings and other unsaved form inputs remain
+intact. Network timeouts and unrelated HTTP errors are not retried by this UI
+mechanism.

@@ -360,7 +360,7 @@ class Handler(BaseHTTPRequestHandler):
         try:
             self.check_origin()
             if not secrets.compare_digest(self.headers.get("X-Arena-Token", ""), self.server.app.token):
-                self.json_response(403, {"error": "Reload the page before continuing"})
+                self.json_response(403, {"error": "The application session changed. Refresh its session token and retry.", "code":"stale_arena_token"})
                 return
             if self.headers.get("Content-Type", "").split(";")[0] != "application/json":
                 raise ArenaError("Content-Type application/json requis")

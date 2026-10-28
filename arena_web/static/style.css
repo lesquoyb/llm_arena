@@ -2146,3 +2146,7 @@ svg rect[data-chart-model]:focus-visible,svg rect.chart-selected { outline:none;
 .progression-availability { display:flex; align-items:center; flex-wrap:wrap; gap:8px; padding:10px 12px; border:1px solid #d9e1eb; border-radius:8px; font-size:13px; }
 #learning-progress .overview-details { margin-top:12px; }
 #learning-progress table { font-variant-numeric:tabular-nums; }
+.metric-collection { margin:16px 0; padding:12px 14px; border:1px solid #d9e1eb; border-radius:8px; min-width:0; }
+.metric-collection legend { font-size:13px; font-weight:650; padding:0 5px; }
+.metric-collection p { margin:8px 0; font-size:13px; }
+.metric-collection small { display:block; line-height:1.5; }
