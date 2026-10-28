@@ -1019,3 +1019,17 @@ Deleting a saved competition configuration opens a confirmation naming it and
 explaining the impact. Cancel is focused initially; Cancel or Escape leaves it
 unchanged. Only **Delete configuration** sends the deletion request. Existing
 runs, conversations, strategies and match results are retained.
+
+Parallel model requests use at most one in-flight request per remote provider,
+endpoint and exact model ID. Repetitions and parameter variants of that model
+share this lane, allowing different models to use the remaining slots. Provider
+quotas can still apply across models or accounts; this does not replace RPM/TPM
+limits. A loopback server keeps a single conversation active until it finishes,
+so Ollama repetitions use separate histories while reusing the loaded model
+weights, without requiring a separate model copy for each repetition.
+
+The activity panel defaults to compact counters and links to at most three active
+models. **+N more** opens **Activity details**, which contains the full preparation
+and fight lists in a bounded scroll area. Its expanded state and scroll position
+are preserved during live updates. Finished and waiting preparations remain
+available there without expanding the main page.

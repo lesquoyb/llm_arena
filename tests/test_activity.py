@@ -31,6 +31,10 @@ class ActivityTests(unittest.TestCase):
                 self.assertEqual((report['strategies_ready'],report['strategies_validated'],report['strategies_expected']),(4,4,10))
                 self.assertEqual(report['operation']['kind'],'tournament_fight')
                 self.assertEqual(report['active'][0]['model'],'model-4')
+                phases={item['session']:item['phase'] for item in report['preparations']}
+                self.assertEqual(phases['model-4-r0'],'active')
+                self.assertEqual(phases['model-5-r0'],'waiting')
+                self.assertEqual(phases['model-0-r0'],'ready')
                 restarted=status(store,'run',{'status':'running','started_at':time.time()+1})
                 self.assertFalse(restarted['active'])
                 self.assertFalse(restarted['operation'])

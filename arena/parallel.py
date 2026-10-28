@@ -21,9 +21,20 @@ class Requests:
             return parsed.scheme,parsed.port or (443 if parsed.scheme=='https' else 80)
         return None
 
+    @staticmethod
+    def model_key(model):
+        # Parameter variants and repetitions of the same remote model share a
+        # request lane. Keys and prompt contents never enter this scheduler key.
+        from .api_providers import DEFAULT_ENDPOINTS
+        endpoint=(model.get('endpoint') or DEFAULT_ENDPOINTS.get(model.get('provider'),'')).rstrip('/')
+        for suffix in ('/chat/completions','/responses'):
+            if endpoint.endswith(suffix):endpoint=endpoint[:-len(suffix)];break
+        return (model.get('provider'),endpoint,model.get('model',model['id']))
+
     def can_start(self, sid, model):
         key=self.local_key(model)
-        return len(self.pending)<self.limit and (key is None or self.local_owners.get(key,sid)==sid)
+        occupied=any(self.model_key(context['model'])==self.model_key(model) for context in self.pending.values())
+        return len(self.pending)<self.limit and not occupied and (key is None or self.local_owners.get(key,sid)==sid)
 
     def release(self, sid):
         self.local_owners={key:owner for key,owner in self.local_owners.items() if owner!=sid}

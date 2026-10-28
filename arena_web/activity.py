@@ -70,11 +70,13 @@ def status(store, identifier, job=None):
                     if stamp>=(item.get('started_at') or 0):item['stream_updated_at']=stamp
     activity=[item for item in activity if item.get('started_at') is not None and item['started_at']>=(job or {}).get('started_at',0)]
     active_ids={item['session'] for item in activity}
+    preparing_ids=set(operation.get('participants',[])) if running and operation.get('kind') in {
+        'request_preparation','preparation_analysis','preparation_fight','validation'} else set()
     preparations=[]
     for sid,state in current.items():
         phase=('ready' if state.get('submission') else 'attention' if state.get('status') in
                {'provider_unavailable','generation_failed','no_submission','needs_reconciliation','budget_exhausted'}
-               else 'active' if sid in active_ids or (running and state.get('status')=='running') else 'waiting')
+               else 'active' if sid in active_ids or sid in preparing_ids else 'waiting')
         preparations.append({'session':sid,'model':state['model'],'phase':phase})
     waiting=[{'model':model,'count':max(0,per_model[model]-sum(state['model']==model for state in current.values()))} for model in models]
     waiting=[item for item in waiting if item['count']]

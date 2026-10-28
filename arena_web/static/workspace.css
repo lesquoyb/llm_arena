@@ -377,3 +377,17 @@ body[data-view=editor] main { padding-bottom:140px; }
 @media(max-width:800px) { .error-rate-grid,.replay-sources { grid-template-columns:minmax(0,1fr); } }
 
 #executed-source-content { max-height:55vh; overflow:auto; }
+
+.competition-activity.activity-compact{padding:10px 14px;margin:10px 0 14px}
+.activity-compact .activity-heading{margin-bottom:6px;gap:4px 14px;font-size:13px}
+.activity-compact .activity-heading>strong{min-width:0;flex-wrap:wrap}
+.activity-at-a-glance{display:flex;align-items:center;flex-wrap:wrap;gap:6px 18px;font-size:12px;color:var(--muted)}
+.activity-at-a-glance strong{color:var(--ink);font-variant-numeric:tabular-nums}
+.activity-preview{display:flex;align-items:center;flex-wrap:wrap;gap:4px 8px;margin-top:7px;font-size:12px}
+.activity-preview>span{color:var(--muted)}
+.activity-preview .button{padding:3px 7px;min-height:0;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px}
+.activity-details{margin-top:7px;border-top:1px solid var(--border);padding-top:5px}
+.activity-details>summary{font-size:12px;color:var(--muted);cursor:pointer}
+.activity-detail-body{max-height:340px;overflow:auto;overscroll-behavior:contain;padding:8px 4px 4px 0}
+.activity-detail-body .activity-roster-group{grid-template-columns:145px minmax(0,1fr)}
+@media(max-width:640px){.activity-detail-body .activity-roster-group{grid-template-columns:1fr}.activity-preview .button{max-width:180px}}
