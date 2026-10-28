@@ -120,7 +120,7 @@ class CalibrationWebTests(TestCase):
             journal=Journal(folder)
             try:
                 state=initial_state('target-r0-g0',value['target'],experiment_config(value))
-                state.update(status='no_submission',submission_reminders=3)
+                state.update(status='no_submission',submission_reminders=3,consecutive_submission_reminders=2)
                 journal.save('target-r0-g0',state,'fixture')
             finally: journal.db.close()
             write_json(folder/'report.json',{'session':'target-r0-g0','status':'completed'})
@@ -132,7 +132,8 @@ class CalibrationWebTests(TestCase):
             try:
                 state=journal.state('target-r0-g0')
                 self.assertEqual(state['status'],'running')
-                self.assertEqual(state['submission_reminders'],0)
+                self.assertEqual(state['submission_reminders'],3)
+                self.assertEqual(state['consecutive_submission_reminders'],2)
                 self.assertIn('Inspect the saved code first.',state['history'][-1]['content'])
                 self.assertNotIn('submission',state)
                 pending={'tool_calls':[{'name':'read_file','arguments':{'path':'main.leek'},'id':'pending'}]}

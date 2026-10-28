@@ -38,9 +38,10 @@ def prepare_retry(journal, sid, config, reasoning_effort=None):
     if reason:
         raise ArenaError(reason)
     state = copy.deepcopy(original)
-    from .submission_stops import reset_streak
-    previous_stop_streak=reset_streak(state)
-    interrupted_stop_streak=state.pop('interrupted_stop_streak',0) or previous_stop_streak
+    from .submission_stops import restore_interrupted_streak
+    restored=restore_interrupted_streak(state)
+    if restored:journal.save(sid,state,'submission_counter_restored',restored)
+    previous_stop_streak=state.get('consecutive_submission_reminders',0)
     if reasoning_effort is not None:
         from .reasoning import validate_effort
         model = next(m for m in config['models'] if m['id'] == state['model'])
@@ -56,10 +57,12 @@ def prepare_retry(journal, sid, config, reasoning_effort=None):
     state.pop('failure', None)
     # An API rejection has no response to repair; resend the same history. If the
     # model stopped without submitting, explicitly ask it to continue that work.
-    if (original.get('failure') or {}).get('incomplete_response') or (interrupted_stop_streak and original['status']!='no_submission'):
+    if (original.get('failure') or {}).get('incomplete_response') or (previous_stop_streak and original['status']!='no_submission'):
         state['history'].append({'role':'user','provider_recovery':True,'content':
             'The previous provider request failed or its response was incomplete. Continue the same preparation session from your current workspace. '
-            'Saved files, tool access and remaining budgets are unchanged. The consecutive submission-reminder count is reset. This interruption does not count as a completed model turn.'})
+            'Saved files, tool access, recorded usage and remaining budgets are unchanged. '
+            f'Submission reminders already issued in this streak: {previous_stop_streak}. '
+            'This interruption does not count as a completed model turn.'})
     if original['status'] == 'no_submission':
         state['history'].append({'role':'user', 'content':
             'Continue from your existing files and conversation. The previous attempt did not produce a submission. '
@@ -67,7 +70,7 @@ def prepare_retry(journal, sid, config, reasoning_effort=None):
         state['pending'], state['cursor'], state['reserved'] = None, 0, None
     journal.save(sid, state, 'retry_requested', {'session':sid, 'at':time.time(),
         'previous_status':original['status'], 'previous_checkpoint_sha256':original_hash,
-        'attempt':state['retry_count'], 'history_and_counters_preserved':True,'previous_stop_streak':interrupted_stop_streak,'stop_streak_reset':True,
+        'attempt':state['retry_count'], 'history_and_counters_preserved':True,'previous_stop_streak':previous_stop_streak,'stop_streak_preserved':True,
         'provider_parameter_overrides':state.get('provider_parameter_overrides', {})})
     for child_id, child in journal.states().items():
         if (child.get('parent') == sid and child.get('status') == 'no_submission'

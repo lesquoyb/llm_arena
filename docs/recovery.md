@@ -163,9 +163,9 @@ previously implemented manual recovery remains supported.
 ### Provider interruptions and submission reminders
 
 A timeout, unreadable response, or response lacking a normal completion reason
-does not count as the model ending its turn. Transport failures and retries reset
-the consecutive submission-reminder streak; the historical reminder total stays
-recorded. A retry after an interruption can add a neutral provider-recovery notice
+does not count as the model ending its turn. Transport failures, reconciliation
+and retries preserve both submission-reminder counters, including the consecutive
+streak. Retrying the same conversation never grants a fresh reminder allowance. A retry after an interruption can add a neutral provider-recovery notice
 without a submission warning. Missing completion reasons and token-truncated
 responses preserve their received output and usage, and pause for retry rather
 than automatically freezing saved code.
@@ -174,3 +174,8 @@ Only an explicit normal end-turn without tool calls triggers a submission remind
 The reminder records its originating model call and completion reason. The
 existing fallback for repeated confirmed model stops still applies; configured
 preparation-budget exhaustion continues to follow its separate snapshot policy.
+
+Resuming a target in calibration also preserves its reminder counters. If an
+outstanding `interrupted_stop_streak` marker from the previous implementation
+records an incorrectly cleared streak, its saved value is restored with a
+`submission_counter_restored` audit event. Historical messages are retained.

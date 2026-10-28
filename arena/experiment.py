@@ -442,8 +442,6 @@ def _provider_response_once(sid, state, model, config, journal):
         response = context['future'].result() if 'future' in context else (provider.respond(history, session_tools, bound["output_bound"]) if paid
                     else provider.respond(history, session_tools, output_limit))
     except ProviderFailure as error:
-        from .submission_stops import reset_streak
-        reset_streak(state,interrupted=True)
         from .recovery import zero_cost_requests
         uncertain_charge=error.uncertain and not zero_cost_requests(model)
         if error.uncertain:
@@ -467,8 +465,6 @@ def _provider_response_once(sid, state, model, config, journal):
                 journal.save(sid,state,'context_recovery_blocked',{'reason':'no_further_safe_reduction','consecutive_context_recoveries':state.get('consecutive_context_recoveries',0)})
         return None
     except (KeyError, ValueError, TypeError, ArenaError) as error:
-        from .submission_stops import reset_streak
-        reset_streak(state,interrupted=True)
         from .recovery import zero_cost_requests
         uncertain_charge=paid and not zero_cost_requests(model)
         state["status"] = "needs_reconciliation" if uncertain_charge else "provider_unavailable" if paid else "generation_failed"
@@ -484,7 +480,6 @@ def _provider_response_once(sid, state, model, config, journal):
         return None
     state["in_flight"] = False
     state["consecutive_context_recoveries"]=0
-    state.pop("interrupted_stop_streak",None)
     response["elapsed_seconds"] = context['completed_at']-context['submitted_at'] if 'completed_at' in context else time.monotonic() - started
     response['request_metrics'] = {'history_messages':len(history),
         'request_setup_seconds':context.get('submitted_at',started) - request_setup_started,
@@ -626,6 +621,9 @@ def run_session(sid, model, config, out, journal, engine, interrupt=None):
             raise ArenaError('Archived session submission changed')
         return
     state = journal.state(sid) or initial_state(sid, model, config)
+    from .submission_stops import restore_interrupted_streak
+    restored=restore_interrupted_streak(state)
+    if restored:journal.save(sid,state,'submission_counter_restored',restored)
     dispatcher=getattr(journal,'requests',None)
     drained_response=False
     if dispatcher and sid in dispatcher.pending:

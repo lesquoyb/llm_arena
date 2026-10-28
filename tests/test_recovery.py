@@ -21,7 +21,7 @@ class RecoveryTests(unittest.TestCase):
             with closing(journal.db):
                 state = {'status':'needs_reconciliation', 'history':[{'role':'assistant'}],
                          'pending':{'tool_calls':[{'name':'submit'}]}, 'cursor':0,
-                         'calls':4, 'input_tokens':123, 'cost_spent':'1', 'money_reserved':'2', 'in_flight':False}
+                         'submission_reminders':3,'consecutive_submission_reminders':2,'calls':4, 'input_tokens':123, 'cost_spent':'1', 'money_reserved':'2', 'in_flight':False}
                 journal.save('model-r0', state, 'fixture')
                 journal.save('child', {'parent':'model-r0', 'status':'no_submission', 'calls':0}, 'fixture')
                 recovered = reconcile(journal, 'model-r0', '.25', 'Checked provider dashboard')
@@ -30,6 +30,8 @@ class RecoveryTests(unittest.TestCase):
                 self.assertEqual(recovered['history'], state['history'])
                 self.assertEqual(recovered['calls'], 4)
                 self.assertEqual(recovered['input_tokens'], 123)
+                self.assertEqual(recovered['submission_reminders'],3)
+                self.assertEqual(recovered['consecutive_submission_reminders'],2)
                 self.assertEqual(recovered['status'], 'running')
                 self.assertEqual(recovered['retry_count'], 1)
                 self.assertTrue(journal.state('child')['retry_parent_refresh'])

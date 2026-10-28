@@ -212,7 +212,10 @@ class Workshop:
                     state=reconcile(journal,sid,reconciliation.get('cost_usd'),reconciliation.get('note'))
                 if state['status'] not in {'running','no_submission','generation_failed','provider_unavailable'}:
                     raise ArenaError('This conversation cannot be continued: '+state['status'])
-                state.update(status='running',submission_reminders=0,consecutive_submission_reminders=0)
+                from arena.submission_stops import restore_interrupted_streak
+                restored=restore_interrupted_streak(state)
+                if restored:journal.save(sid,state,'submission_counter_restored',restored)
+                state.update(status='running')
                 state.pop('failure',None)
                 if not state.get('pending'):
                     state['history'].append({'role':'user','content':
