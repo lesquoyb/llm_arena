@@ -10,7 +10,7 @@ CATALOG = [
 ]
 
 
-def participant(name, identifier, scenario):
+def participant(name, identifier, scenario, *, source=None):
     import json
     from tempfile import TemporaryDirectory
     from pathlib import Path
@@ -19,7 +19,7 @@ def participant(name, identifier, scenario):
     from .stats import default_capital
     if name not in {row['id'] for row in CATALOG}:
         raise ArenaError('Unknown reference strategy')
-    files={'main.leek':(ROOT/'examples/strategies'/name/'main.leek').read_text(encoding='utf-8')}
+    files={'main.leek':source if source is not None else (ROOT/'examples/strategies'/name/'main.leek').read_text(encoding='utf-8')}
     if scenario.get('team_selection'):
         members=[]
         for index in range(scenario['team_size']):
@@ -40,3 +40,23 @@ def participant(name, identifier, scenario):
     return {'id':identifier,'provider':'mock','profile':'saved-strategy','strategy':{
         'files':files,'submission':info,'scenario_sha256':digest(scenario),
         'origin':{'reference':name,**next(row for row in CATALOG if row['id']==name)}}}
+
+
+def for_scenario(model, scenario):
+    """Bind a catalog reference to this roster; imported submissions stay pinned."""
+    import copy
+    from .core import digest
+    from .saved_strategy import validate
+    if model.get('provider')!='mock' or model.get('profile')!='saved-strategy':return copy.deepcopy(model)
+    value=validate(model)
+    origin=value.get('origin',{})
+    if not isinstance(origin,dict):return copy.deepcopy(model)
+    reference=origin.get('reference')
+    if (reference not in {row['id'] for row in CATALOG} or origin.get('run') or
+            set(value['files'])-{'main.leek','team.json'} or value['submission']['entrypoint']!='main.leek' or
+            value['scenario_sha256']==digest(scenario)):
+        return copy.deepcopy(model)
+    result=participant(reference,model['id'],scenario,source=value['files']['main.leek'])
+    result['strategy']['origin']={**copy.deepcopy(origin),
+        'adapted_from_scenario_sha256':value['scenario_sha256']}
+    return result

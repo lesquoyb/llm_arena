@@ -266,7 +266,8 @@ class Store(Workspaces):
     def resolve_models(self, config):
         result = copy.deepcopy(config)
         catalog = {model['id']: model for model in self.catalog()}
-        result['models'] = [copy.deepcopy(catalog.get(model['id'], model)) for model in result['models']]
+        from arena.reference_strategies import for_scenario
+        result['models'] = [for_scenario(catalog.get(model['id'], model),result['scenario']) for model in result['models']]
         return result
 
     def drafts(self):

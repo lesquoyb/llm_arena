@@ -68,7 +68,11 @@ Stop the competition, then open **More → Edit participants**. Uncheck an unava
 model to withdraw it, and check existing profiles to add participants or reactivate
 withdrawn ones. Save, then **Resume** the same competition. At least one participant
 must remain active. The catalog contains reusable profiles, including reference
-strategies; add a reference profile from Participants first if needed.
+strategies; add a reference profile from Participants first if needed. Built-in
+references adapt to the selected scenario when added, preserving their code. Shared
+rosters use the competition equipment; open-team scenarios get a validated fixed
+reference team. Strategies imported from a previous run retain their original
+scenario requirement.
 
 Withdrawn participants keep their histories, usage, frozen submissions and completed
 fights. They no longer block progression or start further preparation. Unplayed

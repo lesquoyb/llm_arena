@@ -59,7 +59,8 @@ def update(out, journal, original, catalog, selected, frozen_tracks=None):
     for identifier in selected:
         if identifier not in known:
             if identifier not in profiles: raise ArenaError('Unknown participant: '+identifier)
-            model = copy.deepcopy(profiles[identifier]); models.append(model); known[identifier]=model
+            from .reference_strategies import for_scenario
+            model = for_scenario(profiles[identifier],original['scenario']); models.append(model); known[identifier]=model
     withdrawn = sorted(set(known)-set(selected))
     validate_effective({**original,'models':models},withdrawn)
     states = journal.states()

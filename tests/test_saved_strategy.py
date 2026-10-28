@@ -3,8 +3,8 @@ import copy
 from unittest import TestCase, mock
 from arena.core import ROOT, ArenaError, scratch_directory, read_json
 from arena.experiment import Journal, run_session, validate_config
-from arena.reference_strategies import participant
-from arena.presets import simple_scenario
+from arena.reference_strategies import participant, for_scenario
+from arena.presets import simple_scenario, participant_scenario, dream_team_scenario
 from arena_web.data import Store
 
 
@@ -49,3 +49,55 @@ class SavedStrategyTests(TestCase):
         config['scenario']['max_turns']+=1
         with self.assertRaisesRegex(ArenaError,'original scenario'):
             validate_config(config)
+
+    def test_catalog_reference_adapts_to_scenario_without_changing_source_or_profile(self):
+        from arena.saved_strategy import validate
+        original=participant('passive','reference-passive',simple_scenario())
+        before=copy.deepcopy(original)
+        shared=simple_scenario();shared['max_turns']=333
+        for scenario in (shared,dream_team_scenario(),participant_scenario()):
+            adapted=for_scenario(original,scenario)
+            validate(adapted,scenario)
+            self.assertEqual(original,before)
+            self.assertEqual(adapted['strategy']['files']['main.leek'],original['strategy']['files']['main.leek'])
+            if scenario.get('team_selection'):
+                self.assertEqual(len(adapted['strategy']['submission']['team']['members']),scenario['team_size'])
+            else:
+                self.assertNotIn('team.json',adapted['strategy']['files'])
+
+    def test_imported_submission_is_not_rebound_and_reference_tampering_is_rejected(self):
+        from arena.saved_strategy import validate
+        original=participant('passive','reference-passive',simple_scenario())
+        imported=copy.deepcopy(original)
+        imported['strategy']['origin']={'run':'source','session':'source-r0'}
+        scenario=simple_scenario();scenario['max_turns']=333
+        with self.assertRaisesRegex(ArenaError,'original scenario'):
+            validate(for_scenario(imported,scenario),scenario)
+        original['strategy']['files']['main.leek']+='tampered'
+        with self.assertRaisesRegex(ArenaError,'fingerprint'):
+            for_scenario(original,scenario)
+
+    def test_draft_and_existing_roster_bind_default_reference(self):
+        from arena.core import write_json,digest
+        from arena.experiment import initial_state
+        from arena.roster import update
+        scenario=simple_scenario();scenario['max_turns']=333
+        original=participant('passive','reference-passive',simple_scenario())
+        config=read_json(ROOT/'configs/offline-demo.json')
+        config.update(scenario=scenario,models=[original])
+        with scratch_directory() as root:
+            store=Store(root/'runs',root/'ui')
+            write_json(store.state/'participants.json',[original])
+            draft=store.save_draft(config)
+            self.assertEqual(draft['config']['models'][0]['strategy']['scenario_sha256'],digest(scenario))
+            existing=copy.deepcopy(config)
+            existing['models']=[{'id':'healthy','provider':'mock','profile':'single-shot'}]
+            out=store.runs/'existing';out.mkdir()
+            journal=Journal(out)
+            try:
+                journal.save('healthy-r0',initial_state('healthy-r0',existing['models'][0],existing),'session_created')
+                change=update(out,journal,existing,[original],['healthy','reference-passive'])
+                self.assertEqual(change['models'][-1]['strategy']['scenario_sha256'],digest(scenario))
+                journal.verify()
+            finally:
+                journal.db.close()
