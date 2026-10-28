@@ -111,6 +111,8 @@ def run_generation(config, out, journal, engine, initial, interrupt=None, retry_
                 state['history'] = initial_state(sid, models[parent_state['model']], config)['history']
                 state['message_times'] = []
                 state['history_policy'] = 'fresh-round'
+                state.pop('request_history_start', None)
+                state.pop('context_recoveries', None)
                 state["token_usage_known"] = False
                 state["missing_usage_calls"] = 0
                 state.pop("submission", None)

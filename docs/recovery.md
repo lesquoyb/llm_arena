@@ -4,6 +4,25 @@ Click **Resume** to continue interrupted work and retry failed conversations. Sa
 
 Application updates no longer require starting over in the web interface. Continuations record the original and current identities in the journal and show a notice in the competition. Documentation remains the frozen copy from the original run. New rounds use the installed prompt and tools, so a continuation across versions should not be treated as an unchanged benchmark. Changes to the game engine, build rules or competition settings still require restoring the original environment or starting a separate run.
 
+## A request exceeds the context window
+
+An API test with a short prompt can succeed while the saved conversation is too
+large. Errors such as `invalid_request_prompt_too_long` and
+`context_length_exceeded` are context failures, not rate limits.
+
+**Resume** and **Retry conversation** detect these recorded errors and restart
+request context with the original instructions and a continuation message. The
+model is told to inspect its current saved files and continue the same round.
+Previous tool exchanges remain in the conversation and journal, but are no longer
+resent to the provider. Saved files, team configuration, submissions and completed
+matches stay intact. Usage counters and preparation limits are not reset. This is
+an audited context restart, not a semantic summary of the omitted exchanges.
+
+The recovery panel shows the latest provider error and keeps its open/closed state
+during live refresh. The resume preview lists which conversations will retry and
+why others are blocked. Failed requests without a response do not consume the
+completed model-call quota; immutable request attempt IDs are still retained.
+
 ## Resolve request billing
 
 An interrupted external request may have been charged even if no usable response was received. Missing usage metadata can also leave a received response waiting for reconciliation.

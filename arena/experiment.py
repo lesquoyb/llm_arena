@@ -293,7 +293,7 @@ def _prepare_provider_response(sid, state, model, config, journal):
     from .call_counts import hydrate_calls
     hydrate_calls(state,journal.db,sid)
     request_setup_started = time.monotonic()
-    history=state['history']
+    history=state['history'][state.get('request_history_start', 0):]
     if state.get('calibration',{}).get('tools')==[]:
         from .calibration_models import study_root,portable_analyst_history
         root=study_root(journal.out)
@@ -752,6 +752,8 @@ def run(config: dict, out: Path, resume=False, interrupt=None, prepare_only=Fals
             elif resume:
                 from .retries import prepare_retry, retry_reason
                 for sid,state in journal.states().items():
+                    from .call_counts import hydrate_calls
+                    hydrate_calls(state, journal.db, sid)
                     parent = journal.state(state['parent']) if state.get('parent') else None
                     if retry_reason(state, config['budget_per_session'], parent) is None:
                         prepare_retry(journal, sid, config)

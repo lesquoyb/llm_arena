@@ -3,6 +3,7 @@ import copy
 import time
 from .core import ArenaError, digest
 from .usage import amount
+from .call_counts import completed_calls, hydrate_calls
 
 
 def retry_reason(state, budget=None, parent=None):
@@ -21,13 +22,17 @@ def retry_reason(state, budget=None, parent=None):
         return 'The conversation has reached its configured API spending limit'
     for field, limit in [('calls', 'max_calls'), ('steps', 'max_agent_steps'), ('wall_seconds', 'max_wall_seconds'),
                          ('input_tokens', 'max_input_tokens'), ('output_tokens', 'max_output_tokens')]:
-        if limit in budget and state.get(field, 0) >= budget[limit]:
+        value = completed_calls(state) if field == 'calls' else state.get(field, 0)
+        if limit in budget and value >= budget[limit]:
             return f'The conversation has reached its configured {limit}; retry does not reset limits'
     return None
 
 
 def prepare_retry(journal, sid, config, reasoning_effort=None):
     original = journal.state(sid)
+    original_hash = digest(original)
+    if original is not None:
+        hydrate_calls(original, journal.db, sid)
     parent = journal.state(original['parent']) if original and original.get('parent') else None
     reason = retry_reason(original, config['budget_per_session'], parent)
     if reason:
@@ -41,6 +46,10 @@ def prepare_retry(journal, sid, config, reasoning_effort=None):
         state['provider_parameter_overrides'] = {**state.get('provider_parameter_overrides', {}), 'reasoning_effort':effort}
     state.update(status='running', in_flight=False, money_reserved='0', reservation_unbounded=False,
                  retry_count=state.get('retry_count', 0) + 1)
+    from .context_recovery import context_overflow, rebase
+    if original['status'] == 'provider_unavailable' and context_overflow(original):
+        recovery = rebase(state)
+        journal.save(sid, state, 'context_rebased', recovery)
     state.pop('failure', None)
     # An API rejection has no response to repair; resend the same history. If the
     # model stopped without submitting, explicitly ask it to continue that work.
@@ -50,7 +59,7 @@ def prepare_retry(journal, sid, config, reasoning_effort=None):
             'Fix any tool errors and finish with submit. The scenario and preparation limits are unchanged.'})
         state['pending'], state['cursor'], state['reserved'] = None, 0, None
     journal.save(sid, state, 'retry_requested', {'session':sid, 'at':time.time(),
-        'previous_status':original['status'], 'previous_checkpoint_sha256':digest(original),
+        'previous_status':original['status'], 'previous_checkpoint_sha256':original_hash,
         'attempt':state['retry_count'], 'history_and_counters_preserved':True,
         'provider_parameter_overrides':state.get('provider_parameter_overrides', {})})
     for child_id, child in journal.states().items():

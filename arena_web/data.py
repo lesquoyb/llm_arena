@@ -429,18 +429,25 @@ class Store(Workspaces):
         metadata = self.json(root / "experiment.json")
         sessions = []
         keys = ("model", "replicate", "generation", "condition", "parent", "parent_checkpoint_sha256",
-                "status", "validity", "calls", "steps", "test_matches", "wall_seconds", "cost_spent",
+                "status", "validity", "calls", "completed_calls", "failure", "context_recoveries", "steps", "test_matches", "wall_seconds", "cost_spent",
                 "money_reserved", "token_usage_known", "input_tokens", "output_tokens", "submission", "in_flight", "retry_count", "continuation_identity", "provider_parameter_overrides")
         from arena.retries import retry_reason
         from arena.recovery import needs_reconciliation
         external = {m['id'] for m in metadata.get('config', {}).get('models', []) if m['provider'] != 'mock'}
         states = self.states(root, keys)
         receipts = self.usage_receipts(root)
+        if any('completed_calls' not in state for state in states.values()):
+            with closing(sqlite3.connect((root / 'journal.sqlite').as_uri() + '?mode=ro', uri=True, timeout=2)) as connection:
+                from arena.call_counts import hydrate_calls
+                for sid, state in states.items():
+                    hydrate_calls(state, connection, sid)
         for sid, state in states.items():
             reason = 'Exported archives are read-only' if (root / 'export.json').exists() else retry_reason(state, metadata.get('config', {}).get('budget_per_session'), states.get(state.get('parent')))
             assessment = self.json(safe_path(root, f"sessions/{sid}/assessment.json"))
             validation = (assessment or {}).get('status') or state.get('validity')
-            sessions.append({"validation_status": validation or ('pending' if state.get('submission') or state['status'] == 'submitted' else 'not_submitted'), "id": sid, **{k: state[k] for k in keys if k in state},
+            from arena.context_recovery import context_overflow
+            state['context_recovery_required'] = context_overflow(state)
+            sessions.append({"context_recovery_required":state['context_recovery_required'], "validation_status": validation or ('pending' if state.get('submission') or state['status'] == 'submitted' else 'not_submitted'), "id": sid, **{k: state[k] for k in keys if k in state},
                              "usage_receipts": receipts.get(sid), "messages": state["messages"], "retry_allowed": reason is None, "retry_reason": reason,
                              "reconciliation_required": needs_reconciliation(state, state.get("model") in external)})
         from decimal import Decimal

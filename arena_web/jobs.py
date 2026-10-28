@@ -53,6 +53,24 @@ class Jobs:
                 blocked = [sid for sid,state in self.store.states(out).items() if needs_reconciliation(state, state['model'] in external)]
                 if blocked:
                     raise ArenaError('Resolve billing in Conversations before resuming: ' + ', '.join(blocked))
+                if retry_session is None:
+                    from arena.retries import retry_reason
+                    states = self.store.states(out)
+                    failed = {sid: state for sid, state in states.items()
+                              if state.get('status') in {'provider_unavailable', 'generation_failed', 'no_submission'}
+                              and not state.get('submission')}
+                    # Legacy checkpoints need receipt counts, not request sequence IDs.
+                    from contextlib import closing
+                    import sqlite3
+                    from arena.call_counts import hydrate_calls
+                    if failed:
+                        with closing(sqlite3.connect((out / 'journal.sqlite').as_uri() + '?mode=ro', uri=True)) as db:
+                            for sid, state in failed.items():
+                                hydrate_calls(state, db, sid)
+                    reasons = {sid: retry_reason(state, config['budget_per_session'], states.get(state.get('parent')))
+                               for sid, state in failed.items()}
+                    if failed and all(reasons.values()) and not any(state.get('status') == 'running' for state in states.values()):
+                        raise ArenaError('No failed conversation can resume: ' + '; '.join(sid + ': ' + reason for sid, reason in reasons.items()))
             else:
                 config = self.store.draft(draft_id)["config"]
                 run_id = time.strftime("%Y%m%d-%H%M%S", time.gmtime()) + "-" + uuid4().hex[:8]
@@ -68,6 +86,11 @@ class Jobs:
                     raise ArenaError('Retry requires an existing conversation')
                 from arena.retries import retry_reason
                 state = self.store.session(run_id, retry_session)
+                from contextlib import closing
+                import sqlite3
+                from arena.call_counts import hydrate_calls
+                with closing(sqlite3.connect((out / 'journal.sqlite').as_uri() + '?mode=ro', uri=True)) as db:
+                    hydrate_calls(state, db, retry_session)
                 parent = self.store.session(run_id, state['parent']) if state.get('parent') else None
                 reason = retry_reason(state, config['budget_per_session'], parent)
                 if reason:
