@@ -782,3 +782,26 @@ Resume also reports checkpoint verification instead of appearing idle while it
 checks source and journal integrity. Stopped jobs suppress stale engine/request
 markers. Withdrawn profiles remain archived, but no longer inflate active
 participant counts in the competition list, configuration or progress panel.
+
+## Live rendering
+
+Background updates reconcile the existing DOM instead of remounting the page.
+Dropdowns retain their nodes and selections; a focused native picker defers option
+changes until focus leaves. Open disclosures, text inputs, keyboard focus and
+scrollable readers stay in place. Conversation messages still append progressively.
+Code follows new writes when already viewing the latest version; selecting an older
+version or an explicit comparison keeps that selection. Replays are not restarted
+by unrelated competition activity. Explicit navigation and user commands can mount
+a different view normally.
+
+The shared `live-dom.js` renderer handles these rules for all live-rendered views.
+Independently loaded readers declare `data-live-preserve`; their owner reconciles
+their content after loading. New components should use this update path rather than
+replacing live containers with `innerHTML` or `outerHTML`.
+
+The default preparation prompt explicitly identifies the model as the competing
+coding agent, responsible for editing its own workspace and submitting it. Analysis
+in an answer is allowed, but it is not a submission or a request for a human to
+implement suggestions. Stops without tool calls already trigger bounded submission
+reminders; those reminders now also clarify this role. Existing recorded initial
+prompts stay unchanged; the revised default applies to new preparations.

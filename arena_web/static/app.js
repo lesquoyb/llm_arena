@@ -383,7 +383,7 @@ async function refreshCompetitionActivity(epoch=S.epoch) {
   const data=await api('/api/activity',{run});
   if(epoch!==S.epoch||run!==S.run||S.view!=='run')return;
   S.activity=data;S.activityRun=run;
-  const panel=$('#competition-activity');if(panel)panel.outerHTML=competitionActivity(data);
+  const panel=$('#competition-activity');if(panel)LiveDOM.replace(panel,competitionActivity(data));
 }
 function activeJobs() {
   return S.boot.jobs.filter((j) => ["running", "stopping"].includes(j.status));
@@ -392,10 +392,10 @@ function updateChrome() {
   const picker=$('#workspace-picker');
   const options=workspaceOptions(true);
   if (picker.dataset.options!==pretty(options)) {
-    picker.innerHTML=options.map(([id,name])=>`<option value="${e(id)}">${e(name)}</option>`).join('');
-    picker.dataset.options=pretty(options);
+    if(LiveDOM.update(picker,options.map(([id,name])=>`<option value="${e(id)}">${e(name)}</option>`).join('')))
+      picker.dataset.options=pretty(options);
   }
-  picker.value=S.workspace;
+  if(picker.value!==S.workspace)picker.value=S.workspace;
   const ready = S.boot.engine.ready;
   $("#engine-status").className = "badge " + (ready ? "green" : "orange");
   $("#engine-status").textContent = ready
@@ -1662,13 +1662,13 @@ function sessionChooser(d) {
   }
   return `<div class="toolbar">${modelPicker(d)}<label for="session-choice">Conversation</label><select id="session-choice" ${sessions.length ? "" : "disabled"}>${sessions.map((s) => `<option value="${e(s.id)}" ${s.id === S.session ? "selected" : ""}>${e(sessionLabel(s))}</option>`).join("") || "<option>No conversations yet</option>"}</select>${S.session ? btn("Conversation journal", "conversation-journal") + btn("Copy provider diagnostics", "copy-provider-diagnostics", `data-session="${e(S.session)}"`) + (canProbeProvider(d, S.session) ? btn("Test API", "test-provider", `data-session="${e(S.session)}"`) : "") : ""}${retryButton(d.sessions.find((s) => s.id === S.session))}${d.sessions.find(s=>s.id===S.session)?.submission ? btn("Save as participant","save-strategy",`data-session="${e(S.session)}"`) : ""}<span class="spacer"></span></div>`;
 }
-async function renderRun(epoch) {
+async function renderRun(epoch, liveUpdate=false) {
   const d = S.detail;
   if(S.activityRun!==S.run) {
     await refreshCompetitionActivity(epoch);
     if(epoch!==S.epoch)return;
   }
-  let body = "";
+  let body = "", sourceChanged=false;
   if (S.tab === "summary") {
     const fights = await api("/api/matches", { run: S.run });
     const statistics={training_matches:fights.matches.filter(m=>m.kind==='training').length};
@@ -1740,12 +1740,18 @@ async function renderRun(epoch) {
         '</div></div><div id="conversation-live-status" aria-live="polite">' +
         conversationLiveStatus(S.liveConversation, false) + '</div></section>';
     } else {
+      const previousVersion=S.version;
+      const followLatest=liveUpdate && S.version===(S.versions?.versions?.length||0)-1 && S.previous==null &&
+        !document.activeElement?.matches('#source-file,#source-previous');
+      const previousCount=S.versions?.versions?.length||0;
       S.versions = await api("/api/versions", {
         run: S.run,
         session: S.session,
         model: S.modelFilter,
       });
+      if(followLatest && S.versions.versions.length>previousCount)S.version=null;
       body = chooser + codePage(S.versions);
+      sourceChanged=previousVersion!==S.version;
     }
   } else if (S.tab === "matches") {
     S.matches = (await api("/api/matches", { run: S.run })).matches;
@@ -1774,13 +1780,14 @@ async function renderRun(epoch) {
     body = eventsPage(S.events);
   }
   if (epoch !== S.epoch) return;
-  $("#main").innerHTML =
-    '<div id="run-chrome">' + runHeader(d) + "</div>" + body;
+  const html='<div id="run-chrome">' + runHeader(d) + '</div><div id="run-content">' + body + '</div>';
+  if(liveUpdate) LiveDOM.update($('#main'),html);
+  else $('#main').innerHTML=html;
   if (S.tab === "conversation" && S.follow && !S.explicitOffset)
     animateConversationTail();
-  if (S.tab === "code" && d.sessions.length && S.versions?.versions?.length)
-    await loadSource();
-  if (S.tab === "matches" && S.matchPath) await loadMatch();
+  if ((!liveUpdate || sourceChanged || !$("#source-content")?.liveLoaded) && S.tab === "code" && d.sessions.length && S.versions?.versions?.length)
+    await loadSource(liveUpdate);
+  if ((!liveUpdate || !$("#match-detail")?.liveLoaded) && S.tab === "matches" && S.matchPath) await loadMatch();
   if (
     (S.tab === "files" || (S.tab === "code" && !d.sessions.length)) &&
     S.files.length
@@ -1788,7 +1795,7 @@ async function renderRun(epoch) {
     await loadFile(
       S.files.find((f) => f.path === S.file)?.path ||
         S.files.find((f) => f.path === "report.md")?.path ||
-        S.files[0].path,
+        S.files[0].path, liveUpdate,
     );
 }
 function measuredUsage(session) {
@@ -2489,12 +2496,12 @@ async function refreshLiveConversation(epoch, force = false) {
         run: live.run, session: live.session, offset: S.offset,
       });
       if (epoch !== S.epoch || live !== S.liveConversation || mount !== $("#conversation-transcript")) return true;
-      mount.innerHTML = conversation(data);
+      LiveDOM.update(mount,conversation(data));
       live.next = data.offset + data.messages.length;
       live.total = data.total;
       live.armed = true;
       const banner = $("#conversation-live-status");
-      if (banner) banner.innerHTML = conversationLiveStatus(live, following);
+      if (banner) LiveDOM.update(banner,conversationLiveStatus(live, following));
       return true;
     }
     const scrollWithMessages =
@@ -2535,18 +2542,18 @@ async function refreshLiveConversation(epoch, force = false) {
         holder.innerHTML = html;
         const replacement = holder.content.firstElementChild;
         replacement.dataset.signature = html;
-        diagnosis.replaceWith(replacement);
+        LiveDOM.replace(diagnosis,replacement.outerHTML);
       }
     }
     const pager = $(".pager", mount),
       first = S.offset + 1;
     if (pager)
-      pager.innerHTML = `<span>${fmt(live.total)} messages · ${status(data.status)} · Showing ${first}–${live.next}</span><div class="actions">${btn("← Previous", "conversation-page", `data-offset="${Math.max(0, S.offset - 25)}" ${S.offset === 0 ? "disabled" : ""}`)}${btn("Next →", "conversation-page", `data-offset="${live.next}" ${live.next >= live.total ? "disabled" : ""}`)}</div>`;
+      LiveDOM.update(pager,`<span>${fmt(live.total)} messages · ${status(data.status)} · Showing ${first}–${live.next}</span><div class="actions">${btn("← Previous", "conversation-page", `data-offset="${Math.max(0, S.offset - 25)}" ${S.offset === 0 ? "disabled" : ""}`)}${btn("Next →", "conversation-page", `data-offset="${live.next}" ${live.next >= live.total ? "disabled" : ""}`)}</div>`);
     const banner = $("#conversation-live-status");
-    if (banner) banner.innerHTML = conversationLiveStatus(live, following);
+    if (banner) LiveDOM.update(banner,conversationLiveStatus(live, following));
     if (scrollWithMessages && data.messages.length) animateConversationTail();
     const chrome = $("#run-chrome");
-    if (chrome) chrome.innerHTML = runHeader(S.detail);
+    if (chrome) LiveDOM.update(chrome,runHeader(S.detail));
     if (!scrollWithMessages)
       pane.scrollTop = preservedScroll;
     return true;
@@ -2762,10 +2769,10 @@ function codePage(data) {
       )
       .join(
         "",
-      )}</select></div><div id="source-content">Loading...</div></section></div>`
+      )}</select></div><div id="source-content" data-live-preserve>Loading...</div></section></div>`
   );
 }
-async function loadSource() {
+async function loadSource(liveUpdate=false) {
   const epoch = S.epoch,
     v = S.version,
     filename = S.file,
@@ -2785,7 +2792,7 @@ async function loadSource() {
     !$("#source-content")
   )
     return;
-  $("#source-content").innerHTML =
+  const sourceHTML =
     `<h3>Code at version ${v + 1}</h3><pre class="source">${e(d.after)}</pre><details open><summary>Changes from the selected version</summary><pre class="source">${
       d.diff
         ? d.diff
@@ -2797,9 +2804,12 @@ async function loadSource() {
             .join("")
         : "No changes in this file."
     }</pre></details><small class="mono">SHA-256 : ${e(d.sha256)}</small>`;
+  if(liveUpdate)LiveDOM.update($('#source-content'),sourceHTML);else $('#source-content').innerHTML=sourceHTML;
+  $('#source-content').liveLoaded=true;
 }
 function filesPage() {
-  return `<div class="files-grid"><section class="panel"><h3>Experiment files</h3><input id="file-search" type="search" placeholder="Filter paths..." aria-label="Filter files" style="width:100%;margin-bottom:12px"><label class="check"><input id="engine-files" type="checkbox">Include static engine data</label><small>${fmt(S.files.length)} available files</small><div id="file-list" class="file-list">${fileButtons(S.files)}</div></section><section class="panel"><div id="file-title" class="panel-title"></div><div id="file-content">Select a file.</div></section></div>`;
+  const filter=$('#file-search')?.value?.toLowerCase()||'';
+  return `<div class="files-grid"><section class="panel"><h3>Experiment files</h3><input id="file-search" type="search" placeholder="Filter paths..." aria-label="Filter files" style="width:100%;margin-bottom:12px"><label class="check"><input id="engine-files" type="checkbox">Include static engine data</label><small>${fmt(S.files.length)} available files</small><div id="file-list" class="file-list">${fileButtons(S.files.filter(file=>file.path.toLowerCase().includes(filter)))}</div></section><section class="panel"><div id="file-title" data-live-preserve class="panel-title"></div><div id="file-content" data-live-preserve>Select a file.</div></section></div>`;
 }
 function fileButtons(files) {
   if (!$("#engine-files")?.checked) files = files.filter((f) => !f.engine_data);
@@ -2814,11 +2824,12 @@ function fileButtons(files) {
     (files.length > 1500 ? "<small>Filter to find more files.</small>" : "")
   );
 }
-async function loadFile(path) {
+async function loadFile(path, liveUpdate=false) {
   S.file = path;
   const epoch = S.epoch;
-  $("#file-title").innerHTML =
+  const titleHTML =
     `<h3 class="mono" style="overflow-wrap:anywhere">${e(path)}</h3>${/\.(md|json)$/i.test(path) ? `<div class="actions">${btn("Raw", "file-mode", 'data-mode="raw"')}${btn("Rendered", "file-mode", 'data-mode="rendered"')}</div>` : ""}<a class="button small" href="/api/file?${query({ run: S.run, path, download: 1 })}" download>Download</a>`;
+  if(liveUpdate)LiveDOM.update($('#file-title'),titleHTML);else $('#file-title').innerHTML=titleHTML;
   const response = await fetch("/api/file?" + query({ run: S.run, path }));
   const content = await response.text();
   if (epoch !== S.epoch || S.file !== path) return;
@@ -2826,7 +2837,7 @@ async function loadFile(path) {
     path,
     content: response.ok ? content : JSON.parse(content).error || content,
   };
-  renderFileView();
+  renderFileView(liveUpdate);
   $$(".file-button").forEach((n) =>
     n.classList.toggle("active", n.dataset.path === path),
   );
@@ -2965,7 +2976,7 @@ function matchesPage() {
       ["completed", "Completed"],
     ],
     f.outcome || "",
-  )}<div class="actions">${btn("Clear filters", "clear-match-filters")}<span id="match-filter-count" class="muted">${rows.length} / ${categoryTotal} matches in this category</span></div></div>${S.matches.length ? `<div class="match-layout"><div id="match-list" class="match-list">${matchButtons(rows)}</div><section class="panel" id="match-detail">${rows.length ? "Loading match..." : !categoryTotal && (!f.kind || f.kind === "competition") ? empty("No competition matches yet", "Models may still be preparing their strategies.", btn("View preparation tests", "show-training")) : empty("No matches found", "Change or clear the filters.")}</section></div>` : empty("No competition matches yet", "Models may still be preparing their strategies.", btn("View preparation tests", "show-training"))}`;
+  )}<div class="actions">${btn("Clear filters", "clear-match-filters")}<span id="match-filter-count" class="muted">${rows.length} / ${categoryTotal} matches in this category</span></div></div>${S.matches.length ? `<div class="match-layout"><div id="match-list" class="match-list">${matchButtons(rows)}</div><section class="panel" id="match-detail" data-live-preserve>${rows.length ? "Loading match..." : !categoryTotal && (!f.kind || f.kind === "competition") ? empty("No competition matches yet", "Models may still be preparing their strategies.", btn("View preparation tests", "show-training")) : empty("No matches found", "Change or clear the filters.")}</section></div>` : empty("No competition matches yet", "Models may still be preparing their strategies.", btn("View preparation tests", "show-training"))}`;
 }
 function matchButtons(rows) {
   return (
@@ -3004,6 +3015,7 @@ async function loadMatch() {
             "warn",
           )
     }${data.statistics ? combatStatistics(data.statistics) : ""}${raw(result, "Full metrics: computation, errors and result")}${data.scenario ? raw(data.scenario, "Exact match scenario") : ""}${raw(data.provenance, "Strategies, hashes and provenance")}${data.outcome ? raw(data.outcome, "Full raw replay, actions and logs") : ""}`;
+  $('#match-detail').liveLoaded=true;
   S.combatStatistics = data.statistics;
   $$(".match-card").forEach((n) =>
     n.classList.toggle("active", n.dataset.path === path),
@@ -4165,7 +4177,6 @@ setInterval(async () => {
       !$("#dialog").open &&
       S.follow &&
 
-      !(S.tab === "summary" && $(".overview-details[open]")) &&
       !(S.tab === "matches" && replayTimer) &&
       (activeJobs().some((j) => j.run === S.run) ||
         S.boot.runs.some(
@@ -4186,13 +4197,9 @@ setInterval(async () => {
       ) {
         S.detail = d;
         const scroll = window.scrollY;
-        const replay =
-          S.tab === "matches" && R
-            ? { path: S.matchPath, index: R.index }
-            : null;
         if (S.tab === "conversation" && S.liveConversation?.session === S.session)
           return;
-        if (S.follow && S.tab === "events") {
+        if (S.follow && S.tab === "events" && !S.explicitOffset) {
           const events = await api("/api/events", {
             run: S.run,
             session: S.session || undefined,
@@ -4201,13 +4208,7 @@ setInterval(async () => {
           });
           S.offset = Math.floor(Math.max(0, events.total - 1) / 100) * 100;
         }
-        if (S.follow && S.tab === "code") {
-          S.version = null;
-          S.previous = null;
-        }
-        await renderRun(epoch);
-        if (replay && R && replay.path === S.matchPath)
-          renderReplay(Math.min(replay.index, R.events.length));
+        await renderRun(epoch,true);
         window.scrollTo(0, scroll);
       }
     }
@@ -4329,10 +4330,11 @@ function jsonView(value, key = "JSON", depth = 0, budget = { left: 2500 }) {
   }
   return `<details ${depth < 2 ? "open" : ""}><summary>${e(key)} <small>${Array.isArray(value) ? "[" + entries.length + "]" : "{" + entries.length + "}"}</small></summary><div class="json-children">${children.join("")}${children.length < entries.length ? "<small>More content is available in Raw view.</small>" : ""}</div></details>`;
 }
-function renderFileView() {
-  const node = $("#file-content");
-  if (!node || !S.filePreview) return;
+function renderFileView(liveUpdate=false) {
+  const originalNode = $("#file-content"), node = liveUpdate ? document.createElement("div") : originalNode;
+  if (!originalNode || !S.filePreview) return;
   const { path, content } = S.filePreview;
+  originalNode.classList.add('file-preview');
   node.className = "file-preview";
   if (S.fileMode === "rendered" && /\.md$/i.test(path))
     node.innerHTML = markdownView(content);
@@ -4347,6 +4349,7 @@ function renderFileView() {
   $$("[data-action=file-mode]").forEach((n) =>
     n.classList.toggle("primary", n.dataset.mode === (S.fileMode || "raw")),
   );
+  if(liveUpdate)LiveDOM.update(originalNode,node.innerHTML);
 }
 
 const COMBAT_COLUMNS = [

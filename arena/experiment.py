@@ -637,7 +637,8 @@ def run_session(sid, model, config, out, journal, engine, interrupt=None):
                         state["consecutive_submission_reminders"] = reminders + 1
                         state["history"].append({"role": "user", "content":
                             "Your response ended, but you have not submitted a strategy. "
-                            "This round is not complete. Continue using the Arena tools: "
+                            "This round is not complete. You are the competing coding agent, not a reviewer advising a human. "
+                            "Apply your decisions to your own workspace; do not wait for the user to edit files. Continue using the Arena tools: "
                             "finish your LeekScript files, run analyze to check compilation, "
                             "then explicitly call submit. Ending a response or saying you are "
                             "finished does not submit your files. "
