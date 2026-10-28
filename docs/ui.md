@@ -1014,3 +1014,8 @@ and one fixed reference therefore create 13 initial entrants, not 18. LLM sample
 remain distinct even if they happen to produce identical code. Earlier competitions
 retain their frozen repetition counts and historical schedules; clone their
 configuration to use the new reference sampling policy.
+
+Deleting a saved competition configuration opens a confirmation naming it and
+explaining the impact. Cancel is focused initially; Cancel or Escape leaves it
+unchanged. Only **Delete configuration** sends the deletion request. Existing
+runs, conversations, strategies and match results are retained.

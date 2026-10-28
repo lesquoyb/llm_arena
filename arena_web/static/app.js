@@ -3812,10 +3812,11 @@ document.addEventListener("click", async (event) => {
       S.editConfig = structuredClone(d.config);
       navigate("editor");
     } else if (a === "delete-draft") {
-      await api("/api/competition/delete", { id: node.dataset.id }, true);
-      await refreshBoot();
-      await renderRoute();
-      toast("Configuration removed. Runs were kept.");
+      const draft=S.boot.drafts.find(d=>d.id===node.dataset.id);
+      if(!draft)throw new Error('Saved configuration no longer exists.');
+      openDialog('Delete competition configuration?',draft.config.name,
+        `<p>This permanently deletes this saved configuration and its settings. Existing runs, conversations, strategies and match results are kept.</p><form data-form="delete-draft" data-id="${e(draft.id)}"><div class="form-footer">${btn('Cancel','close-dialog')}<button type="submit" class="button danger">Delete configuration</button></div></form>`);
+      $('#dialog .form-footer [data-action="close-dialog"]').focus();
     } else if (a === "clone-run") {
       S.editDraft = null;
       S.editConfig = structuredClone(S.detail.metadata.config);
@@ -4050,6 +4051,10 @@ document.addEventListener("submit", async (event) => {
     } else if(type === 'workspace') {
       const saved=await api('/api/workspace',{id:form.dataset.id||null,name:f.get('name'),description:f.get('description')},true);
       $('#dialog').close();await refreshBoot();await chooseWorkspace(saved.id);toast('Workspace saved.');
+    } else if(type === 'delete-draft') {
+      await api('/api/competition/delete',{id:form.dataset.id},true);
+      $('#dialog').close();await refreshBoot();await renderRoute();
+      toast('Configuration removed. Runs were kept.');
     } else if(type === 'delete-workspace') {
       await api('/api/workspace/delete',{id:form.dataset.id},true);
       $('#dialog').close();setWorkspace('');await refreshBoot();await chooseWorkspace('');toast('Workspace deleted. Competitions are kept.');
