@@ -99,8 +99,9 @@ all future rounds. Other optional budgets still apply. In JSON, `generations` is
 the total round count, or `null` for manual stopping.
 
 A match seed controls reproducible map generation and placement. Preparation
-seed 17, feedback seeds and final evaluation seeds are separate. Mirrors compare
-a strategy with itself and do not affect the ranked score.
+seed 17, feedback seeds and final evaluation seeds are separate. Optional self-play
+diagnostics compare a strategy and team with an identical copy. They are unscored.
+The standard A-vs-B and B-vs-A side-swapped fixtures both count toward standings.
 
 All preparation limits are optional and blank in new competitions: calls, tools,
 test matches, time, tokens and cost. A **Model call** is one API response,
@@ -207,7 +208,7 @@ Text search matches participant IDs and seeds.
 In **Summary**, the match matrix shows row-against-column wins, draws and losses.
 Click a count to open those fights. Failure counts open failed matches; a score
 opens completed matches in its denominator. Links preserve the exact stage and
-both participants and exclude mirrors. Filters remain in the URL, so a view
+both participants and exclude self-play diagnostics. Filters remain in the URL, so a view
 can be reloaded or shared. **Clear filters** restores the full match list.
 A zero count opens an empty filtered list rather than selecting an unrelated fight.
 
@@ -251,7 +252,7 @@ The competition Summary uses one shared filter bar: **Round**, **Model** and **M
 
 The default view shows four indicators, a model ranking, evolution by version and a head-to-head matrix. Detailed metrics, conversations, accounting and methodology expand on demand. Numeric columns in detail tables can be sorted. Small matrices fit the available width; large matrices scroll within their own container. Full model names are available from abbreviated headers.
 
-Score is `(wins + 0.5 * draws) / completed appearances`. The ranking pools the selected appearances for each model; a 50% score can mean all draws. Failures are displayed separately. A tournament fight contributes an appearance to each model, so appearance counts can exceed unique fight counts. The completed-fight indicator counts each selected fight once. Tournament mirrors and preparation tests do not enter the scores.
+Score is `(wins + 0.5 * draws) / completed appearances`. The ranking pools the selected appearances for each model; a 50% score can mean all draws. Failures are displayed separately. A tournament fight contributes an appearance to each model, so appearance counts can exceed unique fight counts. The completed-fight indicator counts each selected fight once. Self-play diagnostics and preparation tests do not enter the scores.
 
 Round 1 is the initial submission. Round 2 has two alternative branches, with and without feedback. Tournament opponents may change between rounds; use Reference tests to compare against frozen initial submissions and built-in scripts. Reference tests count only the candidate side, including tests against its own initial strategy. The evolution chart uses the same selected matches and rounds as the ranking.
 
@@ -649,7 +650,7 @@ Performance charts keep different scenarios, engines, preparation settings,
 rounds and configured opponent pools in separate comparison groups. Reference
 panels also require matching archived opponent hashes. Tournament matches between
 versions or repetitions of the same participant are excluded from model scores;
-mirrors and preparation fights are excluded too. Model variants with different
+self-play diagnostics and preparation fights are excluded too. Model variants with different
 participant IDs remain distinct. The score is an equal-weight mean of each
 conversation's completed-fight score (win 1, draw 0.5, loss 0). Engine failures
 are shown separately. An evolving tournament score measures performance against
@@ -951,3 +952,23 @@ is no Round 3 cutoff. Round 2 needs no extra matches because the standard frozen
 Round 1 evaluation panel is also its immediately preceding round. From Round 3
 onward, a separate previous-round panel supplies those diagnostic fights after
 each preparation round.
+
+### Fight categories and self-play
+
+Setup and the match-list guide distinguish current-vs-current ranked fights,
+current-vs-frozen-Round-1 baseline evaluations, and optional current-vs-previous
+progression comparisons. Round 5 examples show the difference directly: R5 vs R5,
+R5 vs R1, and R5 vs R4.
+
+The setup checkbox **Add self-play diagnostics (A vs an identical A)** enables the
+old `include_mirrors` option; stored configuration and CSV field names are retained.
+Each distinct pair already plays A/B and B/A with both results scored. Self-play
+uses identical code and team builds on both sides and stays outside standings and
+model feedback.
+
+**Matches > Self-play diagnostics (A vs A, unscored)** filters these fights. The
+overview accounting links directly to this category and separates their count
+from ranked fights. Match cards and replay notices identify self-play explicitly;
+winners are labeled Blue or Orange rather than repeating the same strategy name.
+The outcome filter uses the blue side for self-play. Fixed-baseline, previous-round
+and preparation fights also carry unscored badges in the match list.

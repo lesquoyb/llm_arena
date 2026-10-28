@@ -2150,3 +2150,14 @@ svg rect[data-chart-model]:focus-visible,svg rect.chart-selected { outline:none;
 .metric-collection legend { font-size:13px; font-weight:650; padding:0 5px; }
 .metric-collection p { margin:8px 0; font-size:13px; }
 .metric-collection small { display:block; line-height:1.5; }
+.fight-purpose-guide { display:grid; gap:8px; margin:10px 0 14px; }
+.fight-purpose-guide > div { display:grid; grid-template-columns:minmax(130px,.8fr) minmax(0,2fr); gap:12px; padding:9px 11px; background:#f5f7fa; border-radius:6px; font-size:13px; }
+.fight-purpose-guide dt { font-weight:650; }
+.fight-purpose-guide dd { margin:0; }
+.fight-purpose-guide dd span { display:block; margin-top:3px; color:var(--muted); line-height:1.4; }
+.metric-collection > .check { margin-bottom:8px; }
+.self-play-help { display:block; margin:5px 0 12px; line-height:1.5; color:var(--muted); }
+.fight-category-guide { margin-bottom:14px; padding:10px 12px; border:1px solid #d9e1eb; border-radius:8px; }
+.fight-category-guide > summary { cursor:pointer; font-weight:550; font-size:13px; }
+.fight-category-guide > p { font-size:13px; }
+@media(max-width:600px) { .fight-purpose-guide > div { grid-template-columns:minmax(0,1fr); gap:5px; } }
