@@ -32,6 +32,8 @@ def reconcile(journal, sid, cost, note, *, automatic=False):
         raise ArenaError('This conversation has no request awaiting reconciliation')
     charge = amount(cost)
     state = copy.deepcopy(original)
+    from .submission_stops import reset_streak
+    reset_streak(state,interrupted=True)
     state['cost_spent'] = str(amount(state.get('cost_spent', '0')) + charge)
     state.update(in_flight=False, money_reserved='0', reservation_unbounded=False)
     if automatic and original.get('in_flight'):

@@ -159,3 +159,18 @@ request is still too large, or there are no tool/model exchanges to remove, the
 conversation stops with an explicit recovery explanation rather than looping.
 Existing paused conversations can be continued with Resume or Retry; their
 previously implemented manual recovery remains supported.
+
+### Provider interruptions and submission reminders
+
+A timeout, unreadable response, or response lacking a normal completion reason
+does not count as the model ending its turn. Transport failures and retries reset
+the consecutive submission-reminder streak; the historical reminder total stays
+recorded. A retry after an interruption can add a neutral provider-recovery notice
+without a submission warning. Missing completion reasons and token-truncated
+responses preserve their received output and usage, and pause for retry rather
+than automatically freezing saved code.
+
+Only an explicit normal end-turn without tool calls triggers a submission reminder.
+The reminder records its originating model call and completion reason. The
+existing fallback for repeated confirmed model stops still applies; configured
+preparation-budget exhaustion continues to follow its separate snapshot policy.

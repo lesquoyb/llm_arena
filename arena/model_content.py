@@ -3,6 +3,8 @@ import copy
 import json
 import re
 
+MESSAGE_METADATA={'submission_reminder','trigger_model_call','completion_reason','provider_recovery'}
+
 METADATA = {'sha256', 'commit', 'source_commit', 'generator_commit', 'engine_commit',
             'source_url', 'source_urls', 'sources', 'url', 'fetched_at', 'master_version',
             'provenance', 'artifact_dir', 'engine_identity'}
@@ -47,7 +49,7 @@ def history_view(history):
         if message['role'] == 'tool':
             result.append({**message, 'result': visible(message['result'])})
         elif message['role'] == 'user':
-            result.append(visible(message))
+            result.append(visible({key:value for key,value in message.items() if key not in MESSAGE_METADATA}))
         else: result.append(message)
     return result
 
@@ -55,6 +57,7 @@ def history_view(history):
 def message_text(message):
     """Keep source/Markdown line breaks as text, rather than escaped JSON in JSON."""
     value = visible(message)
+    for key in MESSAGE_METADATA:value.pop(key,None)
     if value.get('context_format')=='briefing-v1' and isinstance(value.get('scenario'),dict):
         from .user_briefing import render
         return render(value)

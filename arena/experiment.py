@@ -442,6 +442,8 @@ def _provider_response_once(sid, state, model, config, journal):
         response = context['future'].result() if 'future' in context else (provider.respond(history, session_tools, bound["output_bound"]) if paid
                     else provider.respond(history, session_tools, output_limit))
     except ProviderFailure as error:
+        from .submission_stops import reset_streak
+        reset_streak(state,interrupted=True)
         from .recovery import zero_cost_requests
         uncertain_charge=error.uncertain and not zero_cost_requests(model)
         if error.uncertain:
@@ -465,6 +467,8 @@ def _provider_response_once(sid, state, model, config, journal):
                 journal.save(sid,state,'context_recovery_blocked',{'reason':'no_further_safe_reduction','consecutive_context_recoveries':state.get('consecutive_context_recoveries',0)})
         return None
     except (KeyError, ValueError, TypeError, ArenaError) as error:
+        from .submission_stops import reset_streak
+        reset_streak(state,interrupted=True)
         from .recovery import zero_cost_requests
         uncertain_charge=paid and not zero_cost_requests(model)
         state["status"] = "needs_reconciliation" if uncertain_charge else "provider_unavailable" if paid else "generation_failed"
@@ -480,6 +484,7 @@ def _provider_response_once(sid, state, model, config, journal):
         return None
     state["in_flight"] = False
     state["consecutive_context_recoveries"]=0
+    state.pop("interrupted_stop_streak",None)
     response["elapsed_seconds"] = context['completed_at']-context['submitted_at'] if 'completed_at' in context else time.monotonic() - started
     response['request_metrics'] = {'history_messages':len(history),
         'request_setup_seconds':context.get('submitted_at',started) - request_setup_started,
@@ -701,22 +706,29 @@ def run_session(sid, model, config, out, journal, engine, interrupt=None):
                 journal.save(sid, state, "cancelled_remaining_tools")
             if state["status"] == "running":
                 if not calls:
-                    # A provider stop ends one response, not the Arena preparation session.
+                    from .submission_stops import completed_turn, interrupted_response
+                    pending=state['pending']
+                    if not completed_turn(pending):
+                        details=interrupted_response(state,pending)
+                        journal.save(sid,state,'provider_failure',details)
+                        break
+                    # Only a confirmed model end-turn can count toward this safeguard.
                     state["pending"] = None
                     reminders = state.get("consecutive_submission_reminders", 0)
                     if reminders < 3:
                         state["submission_reminders"] = state.get("submission_reminders", 0) + 1
                         state["consecutive_submission_reminders"] = reminders + 1
                         state["history"].append({"role": "user", "content":
-                            "Your response ended, but you have not submitted a strategy. "
-                            "This round is not complete. You are the competing coding agent, not a reviewer advising a human. "
-                            "Apply your decisions to your own workspace; do not wait for the user to edit files. Continue using the Arena tools: "
+                            "Your response completed without a tool call, but you have not submitted a strategy. "
+                            "This round is still open. You are the competing coding agent. "
+                            "Continue working in your workspace using the Arena tools: "
                             "finish your LeekScript files, run analyze to check compilation, "
                             "then explicitly call submit. Ending a response or saying you are "
                             "finished does not submit your files. "
                             f"Reminder {reminders + 1} of 3; after three reminders, another "
-                            "response without tool calls will end preparation and freeze any saved sources for evaluation."})
-                        journal.save(sid, state, "submission_required", {"reminder": reminders + 1})
+                            "completed response without tool calls will end preparation and freeze any saved sources for evaluation.",
+                            'submission_reminder':True,'trigger_model_call':state['calls'],'completion_reason':pending.get('stop_reason') or pending.get('finish_reason')})
+                        journal.save(sid, state, "submission_required", {"reminder": reminders + 1,'trigger_model_call':state['calls'],'completion_reason':pending.get('stop_reason') or pending.get('finish_reason'),'cause':'completed_model_turn'})
                     else:
                         if any(tools.workspace.rglob("*.leek")):
                             state["history"].append({"role":"user","content":"Arena ended preparation after three consecutive reminders. The latest saved sources are frozen automatically and will be evaluated, including any compilation or team configuration errors."})
