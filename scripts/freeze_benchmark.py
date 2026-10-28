@@ -22,6 +22,8 @@ def freeze(selection, out, seeds, catalog=None):
         for index,choice in enumerate(choices,1):
             root=(selection.parent/choice['run']).resolve()
             metadata=read_json(root/'experiment.json');config=metadata['config']
+            from arena.roster import effective
+            config=effective(root,config)
             if scenario is not None and digest(scenario)!=digest(config['scenario']):
                 raise ArenaError('Selected submissions have different scenarios; evaluate those in separate bundles')
             scenario=config['scenario']

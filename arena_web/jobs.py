@@ -47,10 +47,14 @@ class Jobs:
                 metadata = read_json(out / "experiment.json")
                 if "config" not in metadata or (out / "export.json").exists():
                     raise ArenaError("Only original experiments can be resumed here")
-                config = metadata["config"]
+                from arena.roster import effective, snapshot
+                config = effective(out, metadata['config'])
+                roster = snapshot(out) or {}
+                withdrawn = set(roster.get('withdrawn', []))
+                frozen_tracks = roster.get('frozen_tracks', {})
                 from arena.recovery import needs_reconciliation
                 external = {m['id'] for m in config['models'] if m['provider'] != 'mock'}
-                blocked = [sid for sid,state in self.store.states(out).items() if needs_reconciliation(state, state['model'] in external)]
+                blocked = [sid for sid,state in self.store.states(out).items() if state['model'] not in withdrawn and needs_reconciliation(state, state['model'] in external)]
                 if blocked:
                     raise ArenaError('Resolve billing in Conversations before resuming: ' + ', '.join(blocked))
                 if retry_session is None:
@@ -58,7 +62,7 @@ class Jobs:
                     states = self.store.states(out)
                     failed = {sid: state for sid, state in states.items()
                               if state.get('status') in {'provider_unavailable', 'generation_failed', 'no_submission'}
-                              and not state.get('submission')}
+                              and not state.get('submission') and state['model'] not in withdrawn and state.get('condition') not in frozen_tracks.get(state['model'],[])}
                     # Legacy checkpoints need receipt counts, not request sequence IDs.
                     from contextlib import closing
                     import sqlite3
@@ -77,15 +81,25 @@ class Jobs:
                 out = self.store.runs / run_id
             if expected_config_sha256 is not None and expected_config_sha256 != digest(config):
                 raise ArenaError('Participant settings changed after the launch preview. Reopen the launch dialog to review them.')
-            validate_config(config)
+            if draft_id is None:
+                from arena.roster import validate_effective
+                validate_effective(config, withdrawn)
+            else:
+                validate_config(config)
             if retry_reasoning_effort is not None and retry_session is None:
                 raise ArenaError('Choose a specific failed conversation to change reasoning effort')
-            requested_models = config['models']
+            requested_models = [m for m in config['models'] if draft_id is not None or m['id'] not in withdrawn]
+            if draft_id is None and retry_session is None:
+                states = self.store.states(out)
+                requested_models = [model for model in requested_models if not (
+                    set(frozen_tracks.get(model['id'],[])) >= {'control','feedback'} and
+                    all((states.get(f"{model['id']}-r{replicate}") or {}).get('submission') for replicate in range(config['replicates'])))]
             if retry_session is not None:
                 if draft_id is not None or not isinstance(retry_session, str):
                     raise ArenaError('Retry requires an existing conversation')
                 from arena.retries import retry_reason
                 state = self.store.session(run_id, retry_session)
+                if state['model'] in withdrawn: raise ArenaError('Reactivate this participant before retrying it')
                 from contextlib import closing
                 import sqlite3
                 from arena.call_counts import hydrate_calls
@@ -158,6 +172,24 @@ class Jobs:
             self.watcher = threading.Thread(target=self._watch, args=(self.process, row), daemon=True)
             self.watcher.start()
             return row
+
+    def participants(self, run_id, selected, frozen_tracks=None):
+        from contextlib import closing
+        from arena.experiment import Journal, experiment_lock
+        from arena.roster import update
+        with self.lock:
+            if self.process and self.process.poll() is None:
+                raise ArenaError('Stop the running competition before editing its participants; checkpoints are retained')
+            root = self.store.run_path(run_id)
+            if (root / 'export.json').exists(): raise ArenaError('Exported archives are read-only')
+            metadata = read_json(root / 'experiment.json')
+            if 'config' not in metadata: raise ArenaError('Only model competitions support participant changes')
+            with experiment_lock(root):
+                journal = Journal(root)
+                with closing(journal.db):
+                    journal.verify()
+                    change = update(root, journal, metadata['config'], self.store.catalog(), selected, frozen_tracks)
+            return change
 
     def reconcile(self, run_id, sid, cost, note):
         from contextlib import closing

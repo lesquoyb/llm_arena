@@ -745,3 +745,16 @@ saved can still require billing reconciliation.
 Preparation duration includes request waiting and coordination, not just token
 generation. Resource exports record `parallel_requests`, and workspace comparison
 groups keep different concurrency settings separate.
+
+## Edit an existing competition
+
+Stop the run, then use **More → Edit participants** to withdraw, reactivate or add
+profiles without creating another competition. Completed work stays in place.
+Expand **Freeze preparation** to keep a track fighting with its preceding submitted
+strategy without further model calls. Freeze and pool changes are audited; already
+submitted versions are never regenerated. See [recovery details](recovery.md#change-participants-without-restarting).
+
+The **Errors** tab filters observed failures by model, round and track. It includes
+failed compilation checks, unknown tools, invalid arguments, team validation,
+runtime errors and separate provider failures, with rates, recent incidents and an
+**errors.csv** export. These observations are not an automatic hallucination score.

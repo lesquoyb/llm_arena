@@ -91,13 +91,14 @@ def analyze_evolution(config, out, states, initial, branches, baseline, evolved,
                     for key, values in groups.items()}
     total_cost = str(sum(amount(s.get("cost_spent", "0")) for s in states.values()))
     held = str(sum(amount(s.get("money_reserved", "0")) for s in states.values()))
-    missing = [{"session": sid, "status": s["status"]} for sid, s in states.items() if "submission" not in s]
+    from .roster import active
+    missing = [{"session": sid, "status": s["status"]} for sid, s in states.items() if active(config,s) and "submission" not in s]
     result = {"rows": rows, "paired": paired, "model_scores": model_scores, "missing_sessions": missing,
               "cost_usd": None if amount(held) > 0 or any(s["status"] == "needs_reconciliation" for s in states.values())
                           else total_cost,
               "known_cost_subtotal_usd": total_cost, "reserved_usd": None if any(s.get("reservation_unbounded") for s in states.values()) else held, "interval_95_exploratory": interval,
               "incomplete": bool(missing) or any(r["failed"] for r in rows) or
-                            any(s["status"] == "needs_reconciliation" for s in states.values()) or
+                            any(active(config,s) and s["status"] == "needs_reconciliation" for s in states.values()) or
                             bool(contemporaries and (contemporaries["failed"] or contemporaries["pending"])),
               "interpretation": "Exploratory bootstrap stratified by model, resampling conversation pairs with all fixtures, conditional on the frozen panel.",
               "pareto": [r["session"] for r in rows if r["panel"] == "all" and r["score"] is not None and r["cost_usd"] is not None and

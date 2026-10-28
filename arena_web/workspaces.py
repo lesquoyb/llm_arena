@@ -124,7 +124,7 @@ class Workspaces:
                 totals['sessions']+=1
                 totals['submitted']+=bool(state.get('submission'))
                 totals['invalid']+=state.get('validation_status')=='invalid'
-                totals['attention']+=state.get('status') in {'provider_unavailable','needs_reconciliation','generation_failed','no_submission'}
+                totals['attention']+=not state.get('withdrawn') and state.get('status') in {'provider_unavailable','needs_reconciliation','generation_failed','no_submission'}
                 key=digest(descriptor(sid))[:16]
                 resource=resources.setdefault(key,{'id':key,'name':state['model'],'model':models.get(state['model'],{}).get('model'),
                     'model_size_billion':model_size(sid),
@@ -147,7 +147,7 @@ class Workspaces:
                     target['unresolved_sessions']+=bool(state.get('reconciliation_required'))
             # Scores only combine the same scenario, preparation and configured pool.
             # Different opponent pools remain separate even inside one workspace.
-            protocol={'scenario':config.get('scenario'), 'engine':metadata.get('scientific_identity',metadata.get('engine')),
+            protocol={'participant_changes':{key:value for key,value in (detail.get('roster') or {}).items() if key in {'revision','active','withdrawn','frozen_tracks','at_round'}}, 'scenario':config.get('scenario'), 'engine':metadata.get('scientific_identity',metadata.get('engine')),
                 'seeds':{k:v for k,v in config.items() if 'seed' in k},
                 'budget':config.get('budget_per_session'),'parallel_requests':config.get('parallel_requests',1),'corpus':metadata.get('corpus_sha256'),
                 'prompts':metadata.get('prompts_sha256',metadata.get('prompt_sha256')),

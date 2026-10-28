@@ -25,13 +25,19 @@ def export(runs, out, catalog=None):
     runs=[Path(root).resolve() for root in runs]
     if len(set(runs)) != len(runs): raise ArenaError('The same run was selected more than once')
     temporary=TemporaryDirectory(prefix="arena-benchmark-reader-")
-    sessions, appearances, scores, run_index = [], [], [], []
+    sessions, appearances, scores, run_index, errors = [], [], [], [], []
     for root in runs:
         root=Path(root).resolve()
         store=Store(root.parent,Path(temporary.name))
         metadata=store.json(root/'experiment.json')
         if not metadata: raise ArenaError('Missing experiment.json: '+str(root))
         config=metadata.get('config') or metadata.get('manifest') or {}
+        if 'config' in metadata:
+            from .roster import effective
+            config=effective(root,config)
+        from .roster import snapshot
+        roster=snapshot(root)
+        withdrawn=set((roster or {}).get('withdrawn',[]))
         models={m['id']:m for m in config.get('models',[])}
         states=store.states(root)
         receipts=store.usage_receipts(root) if (root/'journal.sqlite').exists() else {}
@@ -39,6 +45,9 @@ def export(runs, out, catalog=None):
         run_id=digest({'path':str(root),'identity':metadata})[:20]
         run_index.append({'run_id':run_id,'run':root.name,'directory':str(root),'name':config.get('name'),
                           'scenario_sha256':digest(config.get('scenario',{})),'engine_sha256':digest(metadata.get('engine',{}))})
+        from arena_web.faults import report as fault_report
+        observed=fault_report(store,root.name)
+        errors.extend({'run':root.name,'run_id':run_id,**row} for row in observed['sessions'])
         descriptors={}
         for sid,state in states.items():
             model=models.get(state['model'],{})
@@ -46,7 +55,7 @@ def export(runs, out, catalog=None):
             has_receipts=bool(receipt.get('responses'))
             measured=has_receipts and not receipt.get('missing_usage')
             descriptor={'run':root.name,'run_id':run_id,'participant':sid,'source_run_id':run_id,'source_run':root.name,'source_session':sid,'variant':state['model'],'provider':model.get('provider'),
-                'model':model.get('model',model.get('profile')),'requested_parameters_json':json.dumps({**model.get('parameters',{}),**state.get('provider_parameter_overrides',{})},sort_keys=True),
+                'model':model.get('model',model.get('profile')),'withdrawn':state['model'] in withdrawn,'participant_revision':state.get('participant_revision',0),'current_participant_revision':(roster or {}).get('revision',0),'manually_frozen':bool(state.get('manual_frozen')),'frozen_from_session':state.get('manual_frozen',{}).get('from_session'),'requested_parameters_json':json.dumps({**model.get('parameters',{}),**state.get('provider_parameter_overrides',{})},sort_keys=True),
                 'replicate':state.get('replicate'),'round':state.get('generation',0)+1,'condition':state.get('condition','initial'),
                 'scenario_sha256':digest(config.get('scenario',{})),'engine_sha256':digest(metadata.get('engine',{})),
                 'strategy_sha256':state.get('submission',{}).get('sha256'),'model_size_billion':store.model_size(model,catalog=catalog)}
@@ -108,12 +117,14 @@ def export(runs, out, catalog=None):
         results.append({**score, 'score_per_billion':score['score']/score['model_size_billion'] if score.get('score') is not None and score.get('model_size_billion') else None, **{key:resource.get(key) for key in resource_fields}})
     out=Path(out).resolve();out.mkdir(parents=True,exist_ok=False)
     write_json(out/'runs.json',run_index)
+    _csv(out/'errors.csv',errors,['run','session','tool_calls','tool_errors','analyses','failed_analyses'])
     _csv(out/'sessions.csv',sessions,['run','participant'])
     _csv(out/'fights.csv',appearances,['run','fight_id','side'])
     _csv(out/'scores.csv',scores,['run','participant','kind','stage'])
     _csv(out/'results.csv',results,['run','participant','kind','stage','score','cost_usd'])
     (out/'README.txt').write_text('UTF-8 CSV with BOM. Blank means unknown, not zero. runs.json maps run_id to original directories.\n'
         'results: participant/stage results joined to generation cost, tokens, messages and preparation wall seconds. Resource columns repeat across stages: never sum them across stages. Frozen origins require the source run in the export.\n'
+        'errors: one conversation with tool/compiler/team/provider and runtime error counters; rates use executed calls or compilation checks as denominators.\n'
         'sessions: one generated conversation. Costs and tokens belong here; join frozen origins via source_run_id/source_session, and do not sum costs after joining onto fights.\n'
         'fights: two rows per actual fight, one per side. Count distinct fight_id for unique fights.\n'
         'scores: one participant and stage; mirrors excluded. Training is separate; reference results count only the candidate.\n'

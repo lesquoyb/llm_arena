@@ -21,7 +21,8 @@ def probe(jobs, run_id, sid, mode, confirm_paid):
         root = jobs.store.run_path(run_id)
         if (root/'export.json').exists(): raise ArenaError('Exported archives are read-only')
         metadata = jobs.store.json(root/'experiment.json')
-        config = metadata['config']
+        from arena.roster import effective
+        config = effective(root,metadata['config'])
         if not config['spending'].get('allow_paid_calls'):
             raise ArenaError('API calls are not enabled for this competition')
         with experiment_lock(root):

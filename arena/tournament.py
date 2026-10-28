@@ -104,6 +104,10 @@ def _run_tournament(engine: Engine, manifest: dict, out: Path, resume: bool = Fa
                 raise ArenaError(f"Archived submission changed: {name}")
         else:
             copy_submission(Path(s["path"]), target, s["submission"])
+    from .roster import snapshot
+    roster = snapshot(out.parent)
+    withdrawn = set((roster or {}).get('withdrawn', []))
+    excluded = {s['id'] for s in manifest['strategies'] if s.get('model', s['id']) in withdrawn}
     for index, match in enumerate(matches, 1):
         record_path = out / "records" / f"{match['id']}.json"
         if record_path.exists():
@@ -114,6 +118,8 @@ def _run_tournament(engine: Engine, manifest: dict, out: Path, resume: bool = Fa
                 verify_record(out, record)
                 print(f"[{index}/{len(matches)}] cached {match['sides']}, seed {match['seed']}", flush=True)
                 continue
+        if any(side in excluded for side in match['sides']):
+            continue
         base = out / "matches" / match["id"]
         attempt = 1
         while (base / f"attempt-{attempt}").exists():
@@ -135,9 +141,16 @@ def report(out: Path) -> dict:
                 "failures": 0, "operations": 0, "errors": 0, "operation_limit_hits": 0} for s in ids}
     matrix = {a: {b: {"points": 0, "played": 0} for b in ids if a != b} for a in ids}
     mirrors = []
-    missing = failed = completed = 0
+    from .roster import snapshot
+    roster = snapshot(out.parent)
+    withdrawn = set((roster or {}).get('withdrawn', []))
+    excluded = {s['id'] for s in experiment['manifest']['strategies'] if s.get('model', s['id']) in withdrawn}
+    missing = failed = completed = cancelled = 0
     for match in experiment["schedule"]:
         path = out / "records" / f"{match['id']}.json"
+        if any(side in excluded for side in match['sides']) and (not path.exists() or read_json(path)['result']['status'] != 'completed'):
+            cancelled += 1
+            continue
         if not path.exists():
             missing += 1
             continue
@@ -170,7 +183,8 @@ def report(out: Path) -> dict:
     for row in rows.values():
         row["score"] = (row["wins"] + row["draws"] * 0.5) / row["played"] if row["played"] else None
     standings = sorted(rows.values(), key=lambda r: (-(r["score"] if r["score"] is not None else -1), r["id"]))
-    result = {"completed": completed, "failed": failed, "pending": missing,
+    result = {"completed": completed, "failed": failed, "pending": missing, "cancelled":cancelled,
+              "withdrawn_strategies":sorted(excluded),
               "standings": standings, "matrix": matrix, "mirrors": mirrors}
     write_json(out / "report.json", result)
     lines = [f"# {experiment['manifest'].get('name', 'Tournament')}", "",

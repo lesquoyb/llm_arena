@@ -61,3 +61,55 @@ Resume consumes them without sending the same request again. A forced process
 termination can leave several unknown requests, each requiring reconciliation.
 The default concurrency remains one. Loopback models sharing a server port are
 prepared sequentially even if the competition allows more concurrent requests.
+
+## Change participants without restarting
+
+Stop the competition, then open **More → Edit participants**. Uncheck an unavailable
+model to withdraw it, and check existing profiles to add participants or reactivate
+withdrawn ones. Save, then **Resume** the same competition. At least one participant
+must remain active. The catalog contains reusable profiles, including reference
+strategies; add a reference profile from Participants first if needed.
+
+Withdrawn participants keep their histories, usage, frozen submissions and completed
+fights. They no longer block progression or start further preparation. Unplayed
+fixtures involving their submitted versions are cancelled, not recorded as defeats.
+Reactivation makes those fixtures eligible again. New participants prepare missing
+rounds and play new fixtures; existing models do not regenerate frozen strategies.
+Older rounds can gain fights, but feedback already sent stays unchanged. Comparisons
+therefore describe the opponents actually faced, rather than a constant pool.
+
+Each change is an immutable `participants_updated` journal event containing the
+profile snapshots, active/withdrawn IDs, revision and round. The original experiment
+configuration stays unchanged. Changes require the competition to be stopped; exports
+are read-only. Previously uncertain charges remain in accounting after withdrawal.
+
+### Freeze preparation while keeping a strategy in the pool
+
+In **Edit participants**, expand **Freeze preparation** for a participant with a
+submitted strategy. Freeze **No feedback**, **With feedback**, or both. Resume the
+competition. Future preparation in that track reuses its preceding submitted source
+and team without making model calls. A pending, unsubmitted preparation also reuses
+its parent submission; its edits and prior charges stay recorded. Resolve any unknown
+in-flight request before freezing that track.
+
+Frozen versions continue fighting. `track_frozen` records identify the exact source
+session, submission hash and participant-change revision. Each reused conversation
+is labelled **Manually frozen**, and exports identify its source. Unchecking the
+option enables preparation in subsequent rounds; already submitted versions remain
+immutable.
+
+## Inspect observed errors
+
+The competition **Errors** tab reads existing journal receipts and fight metrics.
+Filter by model and round to inspect tool-call error rates, unknown tools, invalid
+arguments, compilation checks and compiler error counts, invalid team drafts, runtime
+errors and provider failures. Warnings are excluded from compiler error counts.
+Repeated attempts count separately. Tool failures can also represent missing files,
+access restrictions or operational problems, so these are not a direct hallucination
+score. API and malformed-response incidents are listed separately from tool errors.
+
+Recent incidents link to their conversation and give the journal event number. The
+full receipts remain in the Journal. **Download errors CSV** exports one summary row
+per conversation; this table is also available as `errors.csv` in benchmark exports.
+Runtime execution errors across tournament/reference fights and preparation tests are
+separate counters. Models' written claims are not counted as executed errors.

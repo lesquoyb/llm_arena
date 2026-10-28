@@ -496,7 +496,7 @@ def initial_state(sid, model, config):
     from .budget_context import progress, NOTICE
     limits = progress({}, config['budget_per_session'])
     shared = config.get('spending',{}).get('max_total_usd') if model.get('provider','mock') != 'mock' else None
-    return {"model": model["id"], "replicate": int(sid.split("-r")[-1].split("-")[0]),
+    return {"participant_revision":config.get('_roster_revision',0), "model": model["id"], "replicate": int(sid.split("-r")[-1].split("-")[0]),
             "generation": 0, "condition": "initial", "status": "running",
             "history": [{"role": "user", "context_format":"briefing-v1", "content": phase(1, config.get('generations', 2)) + '\n' + PROMPT, "budgets": config["budget_per_session"],
                          **({'preparation_budget':limits,'budget_instructions':NOTICE} if limits else {}),
@@ -734,10 +734,16 @@ def run(config: dict, out: Path, resume=False, interrupt=None, prepare_only=Fals
                 journal.db.commit()
             if resume:
                 journal.verify()
+            from .roster import effective, snapshot, active
+            config = effective(out, config)
+            roster = snapshot(out)
+            config['_withdrawn_models'] = roster['withdrawn'] if roster else []
+            config['_frozen_tracks'] = (roster or {}).get('frozen_tracks', {})
+            config['_roster_revision'] = (roster or {}).get('revision',0)
             if resume:
                 from .recovery import needs_reconciliation
                 external = {m['id'] for m in config['models'] if m['provider'] != 'mock'}
-                blocked = [sid for sid,state in journal.states().items() if needs_reconciliation(state, state['model'] in external)]
+                blocked = [sid for sid,state in journal.states().items() if active(config,state) and needs_reconciliation(state, state['model'] in external)]
                 if blocked:
                     raise ArenaError('Resolve billing for these conversations before resuming: ' + ', '.join(blocked))
                 if previous_identity != identity:
@@ -755,7 +761,7 @@ def run(config: dict, out: Path, resume=False, interrupt=None, prepare_only=Fals
                     from .call_counts import hydrate_calls
                     hydrate_calls(state, journal.db, sid)
                     parent = journal.state(state['parent']) if state.get('parent') else None
-                    if retry_reason(state, config['budget_per_session'], parent) is None:
+                    if active(config,state) and retry_reason(state, config['budget_per_session'], parent) is None:
                         prepare_retry(journal, sid, config)
             allow_extend = any(s.get('retry_count') for s in journal.states().values())
             if prepare_only:
@@ -770,9 +776,9 @@ def run(config: dict, out: Path, resume=False, interrupt=None, prepare_only=Fals
             evaluate_ready(engine, config, out, journal)
             from .parallel import prepare
             tasks=[(f"{model['id']}-r{replicate}",model) for model in config['models']
-                   for replicate in range(config['replicates']) if not retry_session or f"{model['id']}-r{replicate}"==retry_session]
+                   for replicate in range(config['replicates']) if active(config,model) and (not retry_session or f"{model['id']}-r{replicate}"==retry_session)]
             prepare(tasks,config,out,journal,engine,interrupt,lambda:evaluate_ready(engine,config,out,journal))
-            states = {sid: state for sid, state in journal.states().items() if state.get("generation", 0) == 0}
+            states = {sid: state for sid, state in journal.states().items() if state.get("generation", 0) == 0 and active(config,state)}
             assessments = {}
             for sid, state in states.items():
                 if "submission" not in state:
@@ -812,10 +818,16 @@ def run(config: dict, out: Path, resume=False, interrupt=None, prepare_only=Fals
                        "cost_usd": None if any(s["status"] == "needs_reconciliation" or amount(s.get("money_reserved", "0")) > 0
                                               for s in states.values()) else str(sum(amount(s.get("cost_spent", "0")) for s in states.values())),
                        "cost_status": "simulation" if simulated else "calculated_or_reserved",
-                       **token_totals(config, states),
+                       **token_totals(config, {sid:s for sid,s in journal.states().items() if s.get("generation",0)==0}),
                        "tournament": tournament,
-                       "incomplete": len(states) < len(config["models"])*config["replicates"] or any("submission" not in s for s in states.values()),
-                       "unresolved_sessions": [sid for sid,s in states.items() if s["status"] == "needs_reconciliation"]}
+                       "incomplete": len(states) < sum(active(config,m) for m in config["models"])*config["replicates"] or any("submission" not in s for s in states.values()),
+                       "unresolved_sessions": [sid for sid,s in states.items() if active(config,s) and s["status"] == "needs_reconciliation"]}
+            initial_resources = [state for state in journal.states().values() if state.get('generation',0)==0]
+            for key, field in [('model_calls','completed_calls'), ('tool_calls','steps'), ('preparation_matches_reserved','test_matches')]:
+                summary[key] = sum(state.get(field,state.get('calls',0) if field=='completed_calls' else 0) for state in initial_resources)
+            summary['known_cost_subtotal_usd'] = str(sum(amount(state.get('cost_spent','0')) for state in initial_resources))
+            summary['reserved_usd'] = None if any(state.get('reservation_unbounded') for state in initial_resources) else str(sum(amount(state.get('money_reserved','0')) for state in initial_resources))
+            summary['cost_usd'] = None if any(state['status']=='needs_reconciliation' or amount(state.get('money_reserved','0'))>0 for state in initial_resources) else summary['known_cost_subtotal_usd']
             write_json(out / "report.json", summary)
             if config.get("generations", 1) != 1 and not summary["incomplete"] and not summary["unresolved_sessions"]:
                 from .evolution import run_evolution
@@ -827,7 +839,7 @@ def run(config: dict, out: Path, resume=False, interrupt=None, prepare_only=Fals
                 summary["model_calls"] = sum(s.get("completed_calls",s["calls"]) for s in final_states.values())
                 summary["tool_calls"] = sum(s["steps"] for s in final_states.values())
                 summary["preparation_matches_reserved"] = sum(s["test_matches"] for s in final_states.values())
-                summary["unresolved_sessions"] = [sid for sid,s in final_states.items() if s["status"] == "needs_reconciliation"]
+                summary["unresolved_sessions"] = [sid for sid,s in final_states.items() if active(config,s) and s["status"] == "needs_reconciliation"]
                 summary["with_submission"] = sum("submission" in s for s in final_states.values())
                 summary["no_submission"] = sum("submission" not in s for s in final_states.values())
                 summary["valid_submissions"] = sum(s.get("validity") == "valid" for s in final_states.values())
@@ -840,7 +852,8 @@ def run(config: dict, out: Path, resume=False, interrupt=None, prepare_only=Fals
                 summary["reserved_usd"] = summary["evolution"]["reserved_usd"]
                 summary.update(token_totals(config, final_states))
             summary['blocked_sessions'] = [{'session':sid, 'status':state['status']}
-                for sid,state in journal.states().items() if 'submission' not in state or state.get('status') == 'needs_reconciliation']
+                for sid,state in journal.states().items() if active(config,state) and ('submission' not in state or state.get('status') == 'needs_reconciliation')]
+            summary['participant_changes'] = {key:value for key,value in roster.items() if key!='models'} if roster else None
             summary['waiting_for_recovery'] = bool(summary['blocked_sessions'])
             summary['incomplete'] = summary['incomplete'] or summary['waiting_for_recovery']
             summary["session_failures"] = [{"session": sid, "status": state["status"], **state["failure"]}

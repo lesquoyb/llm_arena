@@ -1473,14 +1473,33 @@ function planMarkup(p) {
     (p.common_reference_matches || 0);
   return `<div class="info-row"><span>Parallel model requests</span><strong>${p.parallel_requests || 1}</strong></div><div class="info-row"><span>Conversations</span><strong>${p.sessions == null ? "Until manual stop" : fmt(p.sessions)}</strong></div><div class="info-row"><span>Evaluation matches</span><strong>${p.sessions == null ? "Until manual stop" : fmt(total)}</strong></div><div class="info-row"><span>Maximum preparation matches</span><strong>${p.max_preparation_matches == null ? "Unlimited" : fmt(p.max_preparation_matches)}</strong></div><div class="info-row"><span>Total API spending limit</span><strong>${p.simulated ? "$0 (mock)" : p.max_cost_usd == null ? "No limit" : money(p.max_cost_usd)}</strong></div><p class="muted" style="font-size:10px;margin-top:12px">Schedule assuming every participant submits a strategy. ${p.simulated ? "Mock run with no API calls." : "Reservations estimate cost; they do not confirm provider billing."}</p>`;
 }
+async function runParticipantsDialog() {
+  await refreshBoot();
+  S.detail = await api('/api/run', {run:S.run});
+  const config=S.detail.metadata.config;
+  if(!config || S.detail.archived) throw new Error('This competition is read-only');
+  const active=activeJobs().some(job=>job.run===S.run);
+  if(active) {
+    openDialog('Edit participants',config.name, '<p>Stop this competition before changing participants. Saved conversations, files and fights are retained. Reopen this dialog after it stops.</p>'+btn('Close','close-dialog'));
+    return;
+  }
+  const known=new Set(config.models.map(model=>model.id));
+  const withdrawn=new Set(S.detail.roster?.withdrawn || []);
+  const profiles=[...config.models,...S.boot.participants.map(row=>row.spec).filter(model=>!known.has(model.id))];
+  const frozen=S.detail.roster?.frozen_tracks || {};
+  const submitted=new Set(S.detail.sessions.filter(session=>session.submission).map(session=>session.model));
+  const rows=profiles.map(model=>`<section data-run-profile="${e(model.id.toLowerCase())}"><label class="check"><input type="checkbox" name="participant" value="${e(model.id)}" ${known.has(model.id)&&!withdrawn.has(model.id)?'checked':''}><span><strong>${e(model.id)}</strong><small>${e(model.model||model.profile)} · ${known.has(model.id)?(withdrawn.has(model.id)?'Withdrawn':'In competition'):'New participant'}</small></span></label>${submitted.has(model.id) ? `<details class="quiet-details"><summary>Freeze preparation</summary><div class="actions">${[['control','No feedback'],['feedback','With feedback']].map(([track,label])=>`<label class="check"><input type="checkbox" name="freeze-${track}" value="${e(model.id)}" ${(frozen[model.id]||[]).includes(track)?'checked':''}>${label}</label>`).join('')}</div></details>` : ''}</section>`).join('');
+  openDialog('Edit participants',config.name,
+    `<form data-form="run-participants"><p>Uncheck a participant to withdraw it. Its history and completed fights stay; it no longer blocks later rounds. Check it again to reactivate it.</p><p>New participants prepare missing rounds with the saved scenario and budgets. Existing submissions stay frozen. New fights can extend earlier rounds; feedback already sent is kept unchanged.</p><details class="quiet-details"><summary>What freezing does</summary><p>A frozen track keeps fighting with its previous submitted strategy, without new model calls. Current unsubmitted edits are kept on disk but not used. Uncheck the freeze option to enable future preparation again. Every reused version is recorded.</p></details><label class="field">Find participant<input type="search" id="run-participant-search"></label><div class="run-participant-list">${rows}</div><div class="form-footer">${btn('Cancel','close-dialog')}<button type="submit" class="button primary">Save participants</button></div></form>`);
+}
 function resumeRecoveryMarkup(detail) {
-  const failed=detail.sessions.filter(s=>["provider_unavailable","generation_failed","no_submission"].includes(s.status));
+  const failed=detail.sessions.filter(s=>!s.withdrawn && !s.planned_frozen && ["provider_unavailable","generation_failed","no_submission"].includes(s.status));
   return failed.length ? `<section class="form-section"><h3>Conversation recovery</h3>${failed.map(s=>`<div class="info-row"><span>${e(s.model)} · ${e(sessionLabel(s))}${s.failure?.message ? `<small>${e(s.failure.message)}</small>` : ""}</span><strong>${s.retry_allowed ? (s.context_recovery_required ? "Will retry with a fresh context" : "Will retry") : "Blocked"}${!s.retry_allowed ? `<small>${e(s.retry_reason)}</small>` : ""}</strong></div>`).join("")}<p>Resuming sends another request. A provider that is still unavailable may reject it again.</p></section>` : "";
 }
 async function launchDialog(draftId = null, runId = null) {
   if (runId) {
     S.detail = await api("/api/run", {run:runId});
-    const blocked = S.detail.sessions.filter(s => s.reconciliation_required);
+    const blocked = S.detail.sessions.filter(s => !s.withdrawn && s.reconciliation_required);
     if (blocked.length) {
       openDialog("Resolve billing before resuming", S.detail.metadata.config.name,
         `<p>These conversations have unresolved provider requests. Record their costs, then resume. All saved submissions and matches are retained.</p>${blocked.map(s => `<div class="info-row"><span>${e(s.model)} · ${e(sessionLabel(s))}</span>${btn("Resolve billing", "reconcile-session", `data-session="${e(s.id)}"`)}</div>`).join("")}`);
@@ -1491,13 +1510,13 @@ async function launchDialog(draftId = null, runId = null) {
   let config = draftId
     ? S.boot.drafts.find((d) => d.id === draftId).config
     : S.detail.metadata.config;
-  const p = await api("/api/plan", { config, frozen: !!runId }, true);
+  const p = await api("/api/plan", { config, frozen: !!runId, run:runId }, true);
   config = p.config;
   S.launch = { draftId, runId, config, expectedHash: p.config_sha256 };
   openDialog(
     runId ? "Resume competition" : "Launch competition",
     config.name,
-    `<form data-form="launch">${runId ? notice("Retryable conversations will continue from their checkpoints. Saved strategies and completed matches are retained.") : ""}${runId ? resumeRecoveryMarkup(S.detail) : ""}${planMarkup(p)}${p.simulated ? notice("Mock participants, real matches. No LLM calls or API charges.") : notice("Calls use the configured keys and prices. Calculated costs are not confirmed provider bills.", "warn")}<div>${config.models.map((m) => `<div class="info-row"><span>${e(m.id)}${m.provider !== "mock" ? `<small>${e(m.endpoint || (m.provider === "anthropic" ? "https://api.anthropic.com/v1/messages" : m.provider === "gemini" ? "https://generativelanguage.googleapis.com/v1beta" : "https://api.openai.com/v1/chat/completions"))}<br>Key: ${e(m.api_key_env)}</small>` : ""}</span><strong>${e(m.model || m.profile)}${m.provider !== "mock" ? `<small>Reasoning: ${e(reasoningLabel(m.parameters))}<br>Seed: ${m.parameters?.seed ?? (m.provider === "anthropic" ? "not available" : "not set")}</small>` : ""}</strong></div>`).join("")}</div>${!p.simulated ? `<label class="check" style="margin-top:20px"><input type="checkbox" name="confirm_paid" required>I authorize API calls ${config.spending.max_total_usd == null ? "without an arena spending limit" : "with a configured total spending limit of " + money(config.spending.max_total_usd)}.</label>` : ""}<div class="form-footer">${btn("Cancel", "close-dialog")}<button type="submit" class="button primary">${runId ? "Resume" : "Start competition"}</button></div></form>`,
+    `<form data-form="launch">${runId ? notice("Retryable conversations will continue from their checkpoints. Saved strategies and completed matches are retained.") : ""}${runId ? resumeRecoveryMarkup(S.detail) : ""}${planMarkup(p)}${p.simulated ? notice("Mock participants, real matches. No LLM calls or API charges.") : notice("Calls use the configured keys and prices. Calculated costs are not confirmed provider bills.", "warn")}<div>${config.models.filter(m=>!p.active_models||p.active_models.includes(m.id)).map((m) => `<div class="info-row"><span>${e(m.id)}${m.provider !== "mock" ? `<small>${e(m.endpoint || (m.provider === "anthropic" ? "https://api.anthropic.com/v1/messages" : m.provider === "gemini" ? "https://generativelanguage.googleapis.com/v1beta" : "https://api.openai.com/v1/chat/completions"))}<br>Key: ${e(m.api_key_env)}</small>` : ""}</span><strong>${e(m.model || m.profile)}${m.provider !== "mock" ? `<small>Reasoning: ${e(reasoningLabel(m.parameters))}<br>Seed: ${m.parameters?.seed ?? (m.provider === "anthropic" ? "not available" : "not set")}</small>` : ""}</strong></div>`).join("")}</div>${!p.simulated ? `<label class="check" style="margin-top:20px"><input type="checkbox" name="confirm_paid" required>I authorize API calls ${config.spending.max_total_usd == null ? "without an arena spending limit" : "with a configured total spending limit of " + money(config.spending.max_total_usd)}.</label>` : ""}<div class="form-footer">${btn("Cancel", "close-dialog")}<button type="submit" class="button primary">${runId ? "Resume" : "Start competition"}</button></div></form>`,
   );
 }
 function retryButton(session) {
@@ -1524,7 +1543,7 @@ async function retryDialog(sid) {
     throw new Error(session?.retry_reason || "Conversation cannot be retried");
   const model = config.models.find((m) => m.id === session.model),
     paid = model.provider !== "mock";
-  const reviewed = await api("/api/plan", { config, frozen: true }, true);
+  const reviewed = await api("/api/plan", { config, frozen: true, run:S.run }, true);
   S.launch = {
     draftId: null,
     runId: S.run,
@@ -1543,6 +1562,7 @@ const TABS = [
   ["conversation", "Conversations"],
   ["code", "Code & versions"],
   ["matches", "Matches"],
+  ["faults", "Errors"],
   ["files", "Files"],
   ["events", "Journal"],
   ["config", "Configuration"],
@@ -1554,10 +1574,11 @@ function runHeader(d) {
     job = S.boot.jobs.find((j) => j.run === S.run),
     active = job && ["running", "stopping"].includes(job.status),
     experiment = !!d.metadata.config;
-  const problems = d.sessions.filter(s=>["provider_unavailable","generation_failed","no_submission"].includes(s.status) || (s.reconciliation_required && (!active || s.status === "needs_reconciliation")));
+  const problems = d.sessions.filter(s=>!s.withdrawn && !s.planned_frozen && (["provider_unavailable","generation_failed","no_submission"].includes(s.status) || (s.reconciliation_required && (!active || s.status === "needs_reconciliation"))));
   const recovery = problems.length ? `<details class="recovery-panel" data-recovery-run="${e(S.run)}" ${S.recoveryOpen?.[S.run] ? "open" : ""}><summary><span class="recovery-count">${problems.length}</span><strong>Conversations need attention</strong><span>Review & recover</span></summary><div>${problems.map(s=>`<div class="recovery-row"><div><strong>${e(s.model)}</strong><small>${e(sessionLabel(s))}</small>${s.failure?.message ? `<small class="provider-error">${e(s.failure.message)}</small>` : `<small>${e(text(s.status))}</small>`}${!s.retry_allowed && !s.reconciliation_required && !active ? `<small>${e(s.retry_reason || "Retry unavailable")}</small>` : ""}</div><div class="actions">${btn("Open conversation","session-conversation",`data-session="${e(s.id)}"`)}${!active ? (s.reconciliation_required ? btn("Resolve billing","reconcile-session",`data-session="${e(s.id)}"`) : retryButton(s)) : ""}</div></div>`).join("")}</div></details>` : "";
-  return `<a class="back-link" href="#view=competitions">← Competitions</a>` + head(config.name, "", `${active ? btn("■ Stop", "stop-job", `data-id="${e(job.id)}"`) : experiment && !d.archived ? btn("Resume", "resume", "", true) : ""}<details class="action-menu"><summary class="button">More <span aria-hidden="true">⌄</span></summary><div>${btn("Move to workspace","move-workspace",`data-run="${e(S.run)}"`)}<a class="button" href="/api/results.csv?${query({run:S.run})}" download>Download results CSV</a><a class="button" href="/api/results.csv?${query({run:S.run,table:"fights"})}" download>Download match results CSV</a><a class="button" href="/api/results.csv?${query({run:S.run,table:"sessions"})}" download>Download sessions CSV</a>${experiment ? btn("Clone configuration", "clone-run") + btn("Export competition", "export-run") : ""}</div></details>`) +
+  return `<a class="back-link" href="#view=competitions">← Competitions</a>` + head(config.name, "", `${active ? btn("■ Stop", "stop-job", `data-id="${e(job.id)}"`) : experiment && !d.archived ? btn("Resume", "resume", "", true) : ""}<details class="action-menu"><summary class="button">More <span aria-hidden="true">⌄</span></summary><div>${experiment && !d.archived ? btn("Edit participants","edit-run-participants") : ""}${btn("Move to workspace","move-workspace",`data-run="${e(S.run)}"`)}<a class="button" href="/api/results.csv?${query({run:S.run})}" download>Download results CSV</a><a class="button" href="/api/results.csv?${query({run:S.run,table:"fights"})}" download>Download match results CSV</a><a class="button" href="/api/results.csv?${query({run:S.run,table:"sessions"})}" download>Download sessions CSV</a>${experiment ? btn("Clone configuration", "clone-run") + btn("Export competition", "export-run") : ""}</div></details>`) +
     `<div class="toolbar run-toolbar">${job ? status(job.status === "failed" && d.report?.incomplete ? "incomplete" : job.status) : ""}${config.models ? badge(config.models.every(m=>m.provider==="mock") ? "Built-in strategies" : "Model competition") : badge("Provided strategies")}${d.archived ? badge("Exported copy", "orange") : ""}<span class="run-id mono" title="Competition ID">${e(S.run)}</span><span class="spacer"></span>${active ? badge(runningPhase(d), "blue") : ""}<label class="check live-toggle"><input id="follow-live" type="checkbox" ${S.follow ? "checked" : ""}>Live</label>${job ? btn("Run log", "job-log", `data-id="${e(job.id)}"`) : ""}</div>` + recovery +
+    (d.roster ? `<details class="quiet-details"><summary>Participant pool changed · revision ${d.roster.revision}</summary><p>${d.roster.active.length} active · ${d.roster.withdrawn.length} withdrawn · ${Object.values(d.roster.frozen_tracks||{}).reduce((sum,tracks)=>sum+tracks.length,0)} frozen tracks. Completed fights and earlier submissions are retained. Scores cover the opponents actually faced.</p><p>Withdrawn: ${e(d.roster.withdrawn.join(", ") || "None")}</p>${btn("Edit participants","edit-run-participants")}</details>` : "") +
     (d.sessions.some(s=>s.continuation_identity) ? `<details class="quiet-details"><summary>Continued after an application update</summary><p>Version changes are recorded in the journal.</p></details>` : "") +
     `<nav class="tabs" aria-label="Competition views">${TABS.map(([key,label])=>`<button class="tab ${S.tab===key ? "active" : ""}" ${S.tab===key ? 'aria-current="page"' : ""} data-action="tab" data-tab="${key}">${label}</button>`).join("")}</nav>`;
 }
@@ -1599,7 +1620,7 @@ function strategyName(id) {
   return `Round ${item.generation+1} · ${item.model} · repetition ${item.replicate+1} · ${item.generation ? `improved ${item.condition === "feedback" ? "with" : "without"} feedback` : "initial strategy"}`;
 }
 function sessionLabel(session) {
-  return `Repetition ${Number(session.replicate || 0) + 1} · ${generationLabel(session.generation)}${session.generation ? " · " + text(session.condition) : ""} · ${text(session.status)}`;
+  return `Repetition ${Number(session.replicate || 0) + 1} · ${generationLabel(session.generation)}${session.generation ? " · " + text(session.condition) : ""} · ${session.withdrawn ? "Withdrawn" : session.manual_frozen ? "Manually frozen" : text(session.status)}`;
 }
 function canProbeProvider(d, sid) {
   const session = d.sessions.find(s => s.id === sid);
@@ -1635,7 +1656,9 @@ async function renderRun(epoch) {
   } else if (S.tab === "config")
     body = configurationView(d);
   else if (S.tab === "conversation" || S.tab === "code") {
-    const chooser = sessionChooser(d);
+    const selectedSession=d.sessions.find(session=>session.id===S.session);
+    const frozenNotice=selectedSession?.manual_frozen ? notice(`Manually frozen from ${e(selectedSession.manual_frozen.from_session)}. Evaluation uses the reused submission; workspace edits remain for audit. <a href="/api/file?${query({run:S.run,path:`sessions/${selectedSession.id}/submission/${selectedSession.submission.entrypoint}`})}" target="_blank" rel="noopener">View executed entrypoint</a>`) : '';
+    const chooser = sessionChooser(d) + frozenNotice;
     if (d.sessions.length && !S.session)
       body =
         chooser +
@@ -1704,6 +1727,11 @@ async function renderRun(epoch) {
   } else if (S.tab === "matches") {
     S.matches = (await api("/api/matches", { run: S.run })).matches;
     body = matchesPage();
+  } else if (S.tab === 'faults') {
+    const data=await api('/api/faults',{run:S.run});
+    if(epoch!==S.epoch)return;
+    S.faults=data;
+    body=faultsPage();
   } else if (S.tab === "files") {
     S.files = (await api("/api/files", { run: S.run })).files;
     body = filesPage();
@@ -1753,6 +1781,18 @@ function measuredUsage(session) {
     reasoning_tokens: null,
     complete: !!session.token_usage_known && !session.in_flight,
   };
+}
+function faultsPage() {
+  const data=S.faults || {sessions:[],incidents:[]};
+  const rows=data.sessions.filter(row=>(!S.faultModel||row.model===S.faultModel)&&(!S.faultRound||String(row.round)===S.faultRound)&&(!S.faultCondition||row.condition===S.faultCondition));
+  const selected=new Set(rows.map(row=>row.session));
+  const total=key=>rows.reduce((sum,row)=>sum+(row[key]||0),0);
+  const rateMetric=S.faultMetric||'tools',numerator=rateMetric==='tools'?'tool_errors':'failed_analyses',denominator=rateMetric==='tools'?'tool_calls':'analyses';
+  const models=new Map();
+  for(const row of rows) {const group=models.get(row.model)||{errors:0,attempts:0};group.errors+=row[numerator];group.attempts+=row[denominator];models.set(row.model,group);}
+  const bars=[...models].sort((a,b)=>(b[1].errors/(b[1].attempts||1))-(a[1].errors/(a[1].attempts||1))).map(([model,value])=>`<div class="workspace-bar"><strong>${e(model)}</strong><div class="workspace-bar-track"><span style="width:${100*value.errors/(value.attempts||1)}%"></span></div><span>${value.errors} / ${value.attempts} · ${value.attempts?pct(value.errors/value.attempts):'N/A'}</span></div>`).join('');
+  const incidents=[...data.incidents].reverse().filter(row=>selected.has(row.session));
+  return `<section id="faults-content"><div class="collection-toolbar">${selectField('Model','fault_model', [['','All models'],...[...new Set(data.sessions.map(row=>row.model))].map(model=>[model,model])],S.faultModel||'')}${selectField('Round','fault_round',[['','All rounds'],...[...new Set(data.sessions.map(row=>row.round))].sort((a,b)=>a-b).map(round=>[String(round),'Round '+round])],S.faultRound||'')}${selectField('Track','fault_condition',[['','All tracks'],['initial','Initial'],['control','No feedback'],['feedback','With feedback']],S.faultCondition||'')}<a class="button" href="/api/results.csv?${query({run:S.run,table:'errors'})}" download>Download errors CSV</a></div><div class="metrics">${metric('Tool errors',`${total('tool_errors')} / ${total('tool_calls')}`,total('tool_calls')?pct(total('tool_errors')/total('tool_calls')):'No executed tools')}${metric('Failed compilation checks',`${total('failed_analyses')} / ${total('analyses')}`,`${total('compiler_errors')} compiler error diagnostics`)}${metric('Runtime errors',fmt(total('runtime_errors')),`${total('preparation_runtime_errors')} in preparation tests`)}${metric('Provider failures',fmt(total('provider_failures')),'Reported separately from authoring errors')}</div><section class="panel">${selectField('Failure rate','fault_metric',[['tools','Tool calls'],['compilation','Compilation checks']],rateMetric)}<div class="workspace-bars">${bars||'<p>No observations yet.</p>'}</div></section><section class="panel"><h2>By round and track</h2>${table(['Participant','Round / track','Tool errors','Unknown tools','Bad arguments','Failed compilation checks','Invalid teams','Runtime errors'],rows.map(row=>`<tr><td>${e(row.model)}${row.manual_frozen?'<small>Manually frozen</small>':''}</td><td>R${row.round} · ${e(text(row.condition))}</td><td>${row.tool_errors} / ${row.tool_calls}</td><td>${row.unknown_tools}</td><td>${row.invalid_arguments}</td><td>${row.failed_analyses} / ${row.analyses}</td><td>${row.invalid_teams}</td><td>${row.runtime_errors}</td></tr>`))}<p class="muted">Observed errors, not a hallucination score. Tool failures include unavailable files and other operational errors. Compiler warnings are excluded. Repeated attempts count separately. Runtime errors count recorded execution events across scored and reference fights; preparation is separate.</p></section><section class="panel"><h2>Recent incidents</h2><p>${data.incidents_total??data.incidents.length} recorded incidents; the most recent 200 are available here. Full receipts remain in the Journal.</p>${incidents.map(row=>`<details class="quiet-details" data-fault-event="${row.event}" data-fault-run="${e(S.run)}" ${S.faultOpen?.[S.run+'/'+row.event]?'open':''}><summary>${e(row.model)} · R${row.round} · ${e(text(row.category))}${row.tool?' · '+e(row.tool):''}</summary><p>${date(row.at)} · ${e(text(row.condition))} · Journal event ${row.event}</p><pre>${e(row.message)}</pre>${btn('Open conversation','session-conversation',`data-session="${e(row.session)}"`)}</details>`).join('')||'<p>No incidents in this selection.</p>'}</section></section>`;
 }
 function usageAccounting(d) {
   const models = d.metadata.config?.models || [];
@@ -2182,7 +2222,7 @@ function overviewDetails(d, data, statistics) {
 function summary(d, statistics = null) {
   const data = overviewData(d),
     sessions = data.sessions;
-  const failures = sessions.filter(
+  const failures = sessions.filter(s=>!s.withdrawn && !s.planned_frozen).filter(
     (s) =>
       [
         "provider_unavailable",
@@ -3471,6 +3511,7 @@ document.addEventListener("click", async (event) => {
     } else if (a === "show-training")
       navigate("run", { run: S.run, tab: "matches", kind: "training" });
     else if (a === "launch") await launchDialog(node.dataset.id);
+    else if (a === "edit-run-participants") await runParticipantsDialog();
     else if (a === "resume") await launchDialog(null, S.run);
     else if (a === "reconcile-session") reconciliationDialog(node.dataset.session);
     else if (a === "retry-session") await retryDialog(node.dataset.session);
@@ -3777,6 +3818,14 @@ document.addEventListener("submit", async (event) => {
       $("#dialog").close();
       await renderRoute();
       toast("Billing recorded. Resume the competition or retry this conversation.");
+    } else if (type === "run-participants") {
+      const frozenTracks={};
+      for(const track of ['control','feedback']) for(const id of f.getAll('freeze-'+track)) (frozenTracks[id] ||= []).push(track);
+      await api('/api/run/participants',{run:S.run,participants:f.getAll('participant'),frozen_tracks:frozenTracks},true);
+      $('#dialog').close();
+      await refreshBoot();
+      await renderRoute();
+      toast('Participants saved. Resume this competition to continue.');
     } else if (type === "launch") {
       const launch = S.launch;
       const job = await api(
@@ -3816,6 +3865,11 @@ document.addEventListener("submit", async (event) => {
 document.addEventListener("change", async (event) => {
   const n = event.target;
   try {
+    if(['fault_model','fault_round','fault_condition','fault_metric'].includes(n.name)) {
+      S[{fault_model:'faultModel',fault_round:'faultRound',fault_condition:'faultCondition',fault_metric:'faultMetric'}[n.name]]=n.value;
+      $('#faults-content').outerHTML=faultsPage();
+      return;
+    }
     if(n.matches('#competition-form input[name=participant]') || n.id==='competition-selected-only') {
       updateCompetitionSelection();
     } else if(n.matches('[data-resource-axis]')) {
@@ -4031,6 +4085,9 @@ document.addEventListener("input", (event) => {
   if (n.id === 'provider-model-search') {
     for(const section of $$('[data-provider-model]'))section.hidden=!S.providerModelCatalog[Number(section.dataset.providerModel)].id.toLowerCase().includes(n.value.toLowerCase());
   }
+  if (n.id === 'run-participant-search') {
+    for(const row of $$('[data-run-profile]')) row.hidden=!row.dataset.runProfile.includes(n.value.toLowerCase());
+  }
   if (n.id === "match-search") filterMatches().catch(showError);
   if (n.id === "replay-range") renderReplay(Number(n.value));
 });
@@ -4041,6 +4098,10 @@ $("#dialog").addEventListener("close", () => {
 });
 document.addEventListener("toggle", event => {
   const node=event.target;
+  if(node.matches?.('details[data-fault-event]') && node.isConnected) {
+    S.faultOpen ||= {};
+    S.faultOpen[node.dataset.faultRun+'/'+node.dataset.faultEvent]=node.open;
+  }
   if(node.matches?.("details[data-recovery-run]")) {
     S.recoveryOpen ||= {};
     // Ignore toggle events queued by a panel replaced during a live refresh.

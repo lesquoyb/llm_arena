@@ -347,6 +347,9 @@ class Store(Workspaces):
             try:
                 metadata = self.json(path / "experiment.json")
                 config = metadata.get("config", metadata.get("manifest", {}))
+                if 'config' in metadata:
+                    from arena.roster import effective
+                    config = effective(path, config)
                 report = self.json(path / "report.json", {})
                 rows.append({"id": identifier, "name": config.get("name", identifier),
                              "kind": "experiment" if "config" in metadata else "tournament",
@@ -390,6 +393,9 @@ class Store(Workspaces):
         from arena.usage import normalize, cost, effective_pricing
         from decimal import Decimal
         metadata = self.json(root / 'experiment.json', {})
+        if 'config' in metadata:
+            from arena.roster import effective
+            metadata = {**metadata, 'config':effective(root,metadata['config'])}
         models = {m['id']: m for m in metadata.get('config', {}).get('models', [])}
         states = self.states(root, ('model', 'provider_parameter_overrides'))
         for sid, reference in rows:
@@ -427,9 +433,14 @@ class Store(Workspaces):
     def detail(self, identifier):
         root = self.run_path(identifier)
         metadata = self.json(root / "experiment.json")
+        from arena.roster import effective, snapshot
+        roster = snapshot(root)
+        if 'config' in metadata:
+            metadata = {**metadata, 'config':effective(root, metadata['config'])}
+        withdrawn = set((roster or {}).get('withdrawn', []))
         sessions = []
-        keys = ("model", "replicate", "generation", "condition", "parent", "parent_checkpoint_sha256",
-                "status", "validity", "calls", "completed_calls", "failure", "context_recoveries", "steps", "test_matches", "wall_seconds", "cost_spent",
+        keys = ("model", "participant_revision", "replicate", "generation", "condition", "parent", "parent_checkpoint_sha256",
+                "status", "validity", "calls", "completed_calls", "failure", "context_recoveries", "manual_frozen", "steps", "test_matches", "wall_seconds", "cost_spent",
                 "money_reserved", "token_usage_known", "input_tokens", "output_tokens", "submission", "in_flight", "retry_count", "continuation_identity", "provider_parameter_overrides")
         from arena.retries import retry_reason
         from arena.recovery import needs_reconciliation
@@ -442,12 +453,12 @@ class Store(Workspaces):
                 for sid, state in states.items():
                     hydrate_calls(state, connection, sid)
         for sid, state in states.items():
-            reason = 'Exported archives are read-only' if (root / 'export.json').exists() else retry_reason(state, metadata.get('config', {}).get('budget_per_session'), states.get(state.get('parent')))
+            reason = 'Participant withdrawn; reactivate it to retry' if state['model'] in withdrawn else 'Exported archives are read-only' if (root / 'export.json').exists() else retry_reason(state, metadata.get('config', {}).get('budget_per_session'), states.get(state.get('parent')))
             assessment = self.json(safe_path(root, f"sessions/{sid}/assessment.json"))
             validation = (assessment or {}).get('status') or state.get('validity')
             from arena.context_recovery import context_overflow
             state['context_recovery_required'] = context_overflow(state)
-            sessions.append({"context_recovery_required":state['context_recovery_required'], "validation_status": validation or ('pending' if state.get('submission') or state['status'] == 'submitted' else 'not_submitted'), "id": sid, **{k: state[k] for k in keys if k in state},
+            sessions.append({"withdrawn":state["model"] in withdrawn, "planned_frozen":state.get("condition") in (roster or {}).get("frozen_tracks",{}).get(state["model"],[]), "context_recovery_required":state['context_recovery_required'], "validation_status": validation or ('pending' if state.get('submission') or state['status'] == 'submitted' else 'not_submitted'), "id": sid, **{k: state[k] for k in keys if k in state},
                              "usage_receipts": receipts.get(sid), "messages": state["messages"], "retry_allowed": reason is None, "retry_reason": reason,
                              "reconciliation_required": needs_reconciliation(state, state.get("model") in external)})
         from decimal import Decimal
@@ -457,7 +468,7 @@ class Store(Workspaces):
             if session.get('cost_spent') is not None:
                 session['cost_spent'] = str(Decimal(session['cost_spent']) + Decimal(adjustment))
         sessions.sort(key=lambda s:(s.get('model',''),s.get('replicate',0),s.get('generation',0),s.get('condition','')))
-        return {"id": identifier, "revision": self.revision(root), "metadata": metadata, "report": self.json(root / "report.json", {}),
+        return {"id": identifier, "revision": self.revision(root), "metadata": metadata, "roster":{key:value for key,value in roster.items() if key!='models'} if roster else None, "report": self.json(root / "report.json", {}),
                 'model_metadata':{m['id']:{'model_size_billion':self.model_size(m)} for m in metadata.get('config',{}).get('models',[])},
                 "analysis": self.json(root / "analysis.json"), "sessions": sessions,
                 "g0": self.json(root / "tournament/report.json"),
@@ -469,6 +480,9 @@ class Store(Workspaces):
         """Public transport facts only: no credentials, prompts or source contents."""
         root = self.run_path(identifier)
         metadata = self.json(root/'experiment.json', {})
+        if 'config' in metadata:
+            from arena.roster import effective
+            metadata = {**metadata, 'config':effective(root,metadata['config'])}
         selected = self.session(identifier, sid)
         current, state, visited = sid, selected, set()
         while state.get('parent') and not state.get('calls') and not state.get('submission') and current not in visited:

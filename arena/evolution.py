@@ -61,6 +61,7 @@ def references(engine, config, out, journal, entrants, label, panel, *, incremen
 def run_generation(config, out, journal, engine, initial, interrupt=None, retry_session=None, allow_extend=False, generation=1, roots=None):
     from .experiment import run_session, PROMPT, initial_state
     from .analysis import analyze_evolution
+    from .roster import active
     models = {m["id"]: m for m in config["models"]}
     initial_states = {s["id"]: journal.state(s["id"]) for s in initial}
     branches = []
@@ -81,6 +82,7 @@ def run_generation(config, out, journal, engine, initial, interrupt=None, retry_
     def evaluate_available():
         evaluate_ready(engine, config, out, journal, generation)
         for entrant in ready_entrants(journal, out, generation):
+            if not active(config,entrant): continue
             if entrant['id'] not in evaluated:
                 references(engine, config, out, journal, [entrant], f'g{generation}-panel', panel, incremental=True)
                 evaluated.add(entrant['id'])
@@ -104,7 +106,7 @@ def run_generation(config, out, journal, engine, initial, interrupt=None, retry_
                 if not permitted:
                     continue
                 state = copy.deepcopy(parent_state)
-                state.update(generation=generation, condition=condition, parent=parent["id"], lineage_root=root,
+                state.update(generation=generation, condition=condition, parent=parent["id"], lineage_root=root, participant_revision=config.get('_roster_revision',0),
                              parent_checkpoint_sha256=digest(parent_state), status="running",
                              calls=0, completed_calls=0, steps=0, test_matches=0, wall_seconds=0, pending=None, cursor=0,
                              in_flight=False, money_reserved="0", reservation_unbounded=False, cost_spent="0", input_tokens=0, output_tokens=0, diagnostic_calls=0, diagnostic_cost_usd="0")
@@ -122,6 +124,7 @@ def run_generation(config, out, journal, engine, initial, interrupt=None, retry_
                 state.pop("failure", None)
                 state.pop("retry_parent_refresh", None)
                 state.pop("retry_count", None)
+                state.pop('manual_frozen', None)
                 state.pop("submission_reminders", None)
                 prompt_path = ROOT / "prompts" / ("feedback.md" if condition == "feedback" else "control.md")
                 message = state['history'][0]
@@ -146,6 +149,23 @@ def run_generation(config, out, journal, engine, initial, interrupt=None, retry_
                 journal.save(sid, state, "branch_created", {"parent": parent["id"],
                                                           "checkpoint_sha256": state["parent_checkpoint_sha256"],
                                                           "condition": condition})
+            if condition in config.get('_frozen_tracks',{}).get(parent_state['model'], []):
+                state = journal.state(sid)
+                if not state.get('submission'):
+                    target = out/'sessions'/sid/'submission'
+                    if target.exists():
+                        if submission(target,parent['submission']['entrypoint']) != parent['submission']:
+                            raise ArenaError('An existing frozen source differs from the requested manual freeze')
+                    else:
+                        copy_submission(Path(parent['path']),target,parent['submission'])
+                    for call in (state.get('pending') or {}).get('tool_calls',[])[state.get('cursor',0):]:
+                        state['history'].append({'role':'tool','name':call['name'],'provider_call_id':call.get('id'),
+                                                 'result':{'error':'Not executed: this track was manually frozen at its previous submitted strategy'}})
+                    state.update(status='submitted',submission=parent['submission'],pending=None,cursor=0,reserved=None,
+                                 manual_frozen={'from_session':parent['id'],'submission_sha256':parent['submission']['sha256'],
+                                                'roster_revision':config.get('_roster_revision',0)})
+                    state.pop('failure',None)
+                    journal.save(sid,state,'track_frozen',state['manual_frozen'])
             if permitted:tasks.append((sid,models[parent_state['model']]))
             candidates.append(sid)
     from .parallel import prepare
@@ -171,7 +191,7 @@ def run_generation(config, out, journal, engine, initial, interrupt=None, retry_
                              "submission": state["submission"], "model": state["model"],
                              "replicate": state["replicate"], "parent": state["parent"], "generation": generation, "condition": state["condition"]})
     for parent_sid, parent_state in list(journal.states().items()):
-        if parent_state.get("generation", 0) != generation-1 or "submission" in parent_state:
+        if not active(config,parent_state) or parent_state.get("generation", 0) != generation-1 or "submission" in parent_state:
             continue
         for condition in config["improvement_conditions"]:
             if generation > 1 and condition != parent_state.get('condition'): continue
@@ -195,6 +215,7 @@ def run_evolution(config, out, journal, engine, initial, interrupt=None, retry_s
     """Two persistent improvement tracks, with a tournament barrier between rounds."""
     import itertools
     from .analysis import analyze_evolution
+    from .roster import active
     previous, branches, evolved, tournaments = initial, [], {}, []
     indices = range(1, config.get('generations', 1)) if config.get('generations', 1) is not None else itertools.count(1)
     for generation in indices:
@@ -204,7 +225,7 @@ def run_evolution(config, out, journal, engine, initial, interrupt=None, retry_s
         current = [{'id':sid,'path':out/'sessions'/sid/'submission','submission':s['submission'],
                     'model':s['model'],'replicate':s['replicate'],'parent':s['parent'],
                     'condition':s['condition'],'generation':generation}
-                   for sid,s in states.items() if s.get('generation')==generation and 'submission' in s]
+                   for sid,s in states.items() if active(config,s) and s.get('generation')==generation and 'submission' in s]
         branches.extend(current)
         evolved.update(read_json(out/'evaluations'/f'g{generation}-panel/results.json'))
         if result['contemporaries']: tournaments.append(result['contemporaries'])
@@ -229,7 +250,7 @@ def run_evolution(config, out, journal, engine, initial, interrupt=None, retry_s
         # Preserve a resumable boundary if any model needs recovery. Do not silently
         # exclude it from all future rounds or spin forever with an empty panel.
         if (not current or len(current) != 2*len(initial)
-                or any(s.get('generation',0)<=generation and 'submission' not in s for s in states.values())
+                or any(active(config,s) and s.get('generation',0)<=generation and 'submission' not in s for s in states.values())
                 or any(r['failed'] for r in result['rows'])):
             break
         previous = current

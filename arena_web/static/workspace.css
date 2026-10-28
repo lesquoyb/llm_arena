@@ -332,3 +332,6 @@ body[data-view=editor] main { padding-bottom:140px; }
 .profile-card-footer [data-action=profile-groups] { grid-column:1; grid-row:2; }
 .profile-card-footer [data-action=test-model] { grid-column:2; grid-row:2; }
 .profile-card-footer [data-action=edit-participant] { grid-column:3; grid-row:2; }
+
+.run-participant-list { max-height: min(48vh, 420px); overflow-y: auto; display: grid; gap: 12px; padding: 8px 4px; }
+.run-participant-list small { display: block; color: var(--muted); overflow-wrap: anywhere; }

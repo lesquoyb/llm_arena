@@ -78,6 +78,9 @@ class Application:
             return {"runs": store.listing(), "jobs": self.jobs.listing()}
         if route == '/api/workspace':
             return store.workspace_summary(value('workspace',''))
+        if route == '/api/faults':
+            from .faults import report
+            return report(store,run)
         if route == "/api/run":
             return store.detail(run)
         if route == "/api/provider-diagnostics":
@@ -194,8 +197,18 @@ class Application:
         if route == "/api/competition/delete":
             return self.store.delete_draft(data["id"])
         if route == "/api/plan":
+            if data.get('frozen') and data.get('run'):
+                from arena.roster import effective, snapshot, validate_effective
+                root=self.store.run_path(data['run'])
+                config=effective(root,read_json(root/'experiment.json')['config'])
+                withdrawn=set((snapshot(root) or {}).get('withdrawn',[]))
+                validate_effective(config,withdrawn)
+                selected={**config,'models':[model for model in config['models'] if model['id'] not in withdrawn]}
+                return {**plan(selected),'active_models':[model['id'] for model in selected['models']], 'config':config,'config_sha256':digest(config)}
             config = data['config'] if data.get('frozen') else self.store.resolve_models(data['config'])
             return {**plan(validate_config(config)), 'config':config, 'config_sha256':digest(config)}
+        if route == '/api/run/participants':
+            return self.jobs.participants(data['run'], data.get('participants'), data.get('frozen_tracks'))
         if route == "/api/launch":
             return self.jobs.launch(draft_id=data.get("draft_id"), run_id=data.get("run"),
                                     confirm_paid=data.get("confirm_paid", False), ceiling=data.get("ceiling"), retry_session=data.get("retry_session"), expected_config_sha256=data.get("expected_config_sha256"), allow_updated_runner=data.get("allow_updated_runner") is True, retry_reasoning_effort=data.get("retry_reasoning_effort"))
@@ -292,7 +305,7 @@ class Handler(BaseHTTPRequestHandler):
                                 'runs':json.dumps(group['runs']), 'participant':row['name'],'strategies':row['conversations'],
                                 **{key:row[key] for key in ('round','condition','score','wins','draws','losses','failed','model_size_billion','score_per_billion','mean_cost_usd','mean_wall_seconds')}})
                     body=stream.getvalue().encode('utf-8-sig')
-                elif table in {'results', 'fights', 'sessions'}:
+                elif table in {'results', 'fights', 'sessions', 'errors'}:
                     with TemporaryDirectory(prefix='arena-results-') as directory:
                         target = Path(directory) / 'export'
                         export(roots, target,catalog=app.store.catalog())
