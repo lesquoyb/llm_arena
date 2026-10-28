@@ -972,3 +972,16 @@ from ranked fights. Match cards and replay notices identify self-play explicitly
 winners are labeled Blue or Orange rather than repeating the same strategy name.
 The outcome filter uses the blue side for self-play. Fixed-baseline, previous-round
 and preparation fights also carry unscored badges in the match list.
+
+Fights between two fixed references reuse a shared replay cache in
+`.arena/reference-fights`. The first occurrence executes the engine; identical
+occurrences across rounds, repetitions and competitions reuse that result.
+Scripts, team builds, resolved scenario, seed, side order, engine identity and
+timeout must all match. Fights involving an LLM strategy execute normally.
+Failed engine runs are not cached, and corrupt entries are rebuilt.
+
+Cached fights retain their logical place in the schedule and statistics. Match
+cards and replays show **Cached reference**, and overview accounting reports the
+reuse count. Each competition keeps independent copies of the replay and executed
+scripts, so exporting it does not require the shared cache. Reused fights report
+zero engine execution time and preserve the original duration in cache metadata.

@@ -15,12 +15,17 @@ def references(engine, config, out, journal, entrants, label, panel, *, incremen
     """Both positions, identical reference opponents and final seeds for each branch."""
     root = out / "evaluations" / label
     root.mkdir(parents=True, exist_ok=True)
+    models={model['id']:model for model in config.get('models',[])}
+    def fixed(source):
+        if source.get('model') in models:return models[source['model']].get('provider')=='mock'
+        return source['id'] in {'fixed-rush','fixed-single-shot','fixed-passive'}
     results = read_json(root / 'results.json') if incremental and (root / 'results.json').exists() else {}
     for entrant in entrants:
         for opponent in panel:
             for seed in config["final_seeds"]:
                 for side in (0, 1):
                     sources = [entrant, opponent] if side == 0 else [opponent, entrant]
+                    reference_only=all(fixed(source) for source in sources)
                     key = digest({"entrant": entrant["id"], "opponent": opponent["id"], "seed": seed, "side": side})[:24]
                     cached = root / "records" / (key + ".json")
                     if cached.exists():
@@ -43,6 +48,9 @@ def references(engine, config, out, journal, entrants, label, panel, *, incremen
                             for index, source in enumerate(sources, 1):
                                 if submission(work / "strategies" / str(index), source["submission"]["entrypoint"]) != source["submission"]:
                                     raise ArenaError("Reference source changed")
+                            if reference_only:
+                                from .reference_cache import seed as seed_reference
+                                seed_reference(engine,[source['submission'] for source in sources],config['scenario'],seed,work)
                         else:
                             cached = None
                     if not cached or not cached.exists():
@@ -50,7 +58,9 @@ def references(engine, config, out, journal, entrants, label, panel, *, incremen
                         from .activity import operation
                         with operation(out,'previous_round_fight' if label.endswith('-previous') else 'reference_fight',participants=[s['id'] for s in sources],
                                        generation=entrant.get('generation',0),seed=seed):
-                            result = engine.fight([Path(s["path"]) for s in sources], [s["submission"] for s in sources],
+                            from .reference_cache import fight as cached_reference_fight
+                            fight=cached_reference_fight if reference_only else lambda engine,*args:engine.fight(*args)
+                            result = fight(engine,[Path(s["path"]) for s in sources], [s["submission"] for s in sources],
                                                   config["scenario"], seed, work)
                         record = {"session": entrant["id"], "opponent": opponent["id"], "seed": seed,
                                   "side": side, "result": result, "artifact_dir": work.relative_to(out).as_posix()}
