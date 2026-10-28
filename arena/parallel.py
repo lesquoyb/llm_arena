@@ -7,12 +7,14 @@ from .endpoints import is_loopback
 
 
 class Requests:
-    def __init__(self, limit):
+    def __init__(self, limit, tasks=()):
         self.limit=limit
         self.pool=ThreadPoolExecutor(max_workers=limit,thread_name_prefix='arena-provider')
         self.pending={}
         self.deferred=set()
         self.local_owners={}
+        self.models=dict(tasks)
+        self.finished=set()
 
     def local_key(self, model):
         endpoint=model.get('endpoint','')
@@ -23,8 +25,8 @@ class Requests:
 
     @staticmethod
     def model_key(model):
-        # Parameter variants and repetitions of the same remote model share a
-        # request lane. Keys and prompt contents never enter this scheduler key.
+        # Group repetitions and parameter variants for ordering and local model
+        # residency. This key never imposes a remote per-model request limit.
         from .api_providers import DEFAULT_ENDPOINTS
         endpoint=(model.get('endpoint') or DEFAULT_ENDPOINTS.get(model.get('provider'),'')).rstrip('/')
         for suffix in ('/chat/completions','/responses'):
@@ -33,11 +35,13 @@ class Requests:
 
     def can_start(self, sid, model):
         key=self.local_key(model)
-        occupied=any(self.model_key(context['model'])==self.model_key(model) for context in self.pending.values())
-        return len(self.pending)<self.limit and not occupied and (key is None or self.local_owners.get(key,sid)==sid)
+        return len(self.pending)<self.limit and (key is None or self.local_owners.get(key,self.model_key(model))==self.model_key(model))
 
     def release(self, sid):
-        self.local_owners={key:owner for key,owner in self.local_owners.items() if owner!=sid}
+        self.finished.add(sid)
+        self.local_owners={key:owner for key,owner in self.local_owners.items() if any(
+            other not in self.finished and self.local_key(model)==key and self.model_key(model)==owner
+            for other,model in self.models.items())}
 
     def other_reservations(self, sid, journal):
         from .usage import amount
@@ -45,7 +49,8 @@ class Requests:
 
     def submit(self, sid, context):
         key=self.local_key(context['model'])
-        if key is not None:self.local_owners[key]=sid
+        self.models[sid]=context['model']
+        if key is not None:self.local_owners[key]=self.model_key(context['model'])
         context['submitted_at']=time.monotonic()
         def respond():
             try:
@@ -59,18 +64,35 @@ class Requests:
         return sid in self.pending and self.pending[sid]['future'].done()
 
 
+def ordered_tasks(tasks, order='models', *, serial=False):
+    """A scheduling preference never prevents otherwise available concurrency."""
+    fixed=[];groups={}
+    for task in tasks:
+        if task[1].get('provider')=='mock':fixed.append(task);continue
+        groups.setdefault(Requests.model_key(task[1]),deque()).append(task)
+    if order=='repetitions':return fixed+[task for group in groups.values() for task in group]
+    result=list(fixed)
+    while any(groups.values()):
+        for group in groups.values():
+            if not group:continue
+            # Even sequential local runs finish a loaded model before switching.
+            count=len(group) if serial and is_loopback(group[0][1].get('endpoint','')) else 1
+            for _ in range(count):result.append(group.popleft())
+    return result
+
+
 def prepare(tasks, config, out, journal, engine, interrupt=None, on_progress=None):
     """Finish one round before its caller starts the next round's preparation."""
     from .experiment import run_session, TERMINAL, provider_response
-    tasks=sorted(tasks,key=lambda item:item[1].get('provider')!='mock')
     limit=config.get('parallel_requests',1)
+    tasks=ordered_tasks(tasks,config.get('_request_order',config.get('request_order','models')),serial=limit==1)
     if limit==1:
         for sid,model in tasks:
             before=journal.metadata(sid).get(sid,{})
             run_session(sid,model,config,out,journal,engine,interrupt)
             if on_progress and before.get('status') not in TERMINAL:on_progress()
         return
-    dispatcher=Requests(limit)
+    dispatcher=Requests(limit,tasks)
     journal.requests=dispatcher
     queue=deque(tasks);models=dict(tasks)
     try:

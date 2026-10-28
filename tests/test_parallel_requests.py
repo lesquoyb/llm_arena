@@ -84,16 +84,19 @@ class ParallelRequestsTests(TestCase):
         for bad in (0,21,True,1.5,'2'):
             trial=copy.deepcopy(value);trial['parallel_requests']=bad
             with self.assertRaises(ArenaError):validate_config(trial)
+        for order in ('models','repetitions'):
+            validate_config({**value,'request_order':order})
+        with self.assertRaises(ArenaError):validate_config({**value,'request_order':'random'})
 
-    def test_same_remote_model_parameter_variants_share_a_request_lane(self):
+    def test_same_remote_model_parameter_variants_can_fill_free_slots(self):
         from arena.parallel import Requests
         dispatcher=Requests(3)
         model=config()['models'][0]
         variant={**model,'id':'other-profile','parameters':{'temperature':.7}}
         try:
             dispatcher.pending['one-r0']={'model':model}
-            self.assertFalse(dispatcher.can_start('one-r1',model))
-            self.assertFalse(dispatcher.can_start('variant-r0',variant))
+            self.assertTrue(dispatcher.can_start('one-r1',model))
+            self.assertTrue(dispatcher.can_start('variant-r0',variant))
             self.assertTrue(dispatcher.can_start('two-r0',config()['models'][1]))
             dispatcher.pending.clear()
             self.assertTrue(dispatcher.can_start('variant-r0',variant))
@@ -104,3 +107,24 @@ class ParallelRequestsTests(TestCase):
         model={'id':'first','provider':'openai','model':'example'}
         explicit={**model,'id':'second','endpoint':'https://api.openai.com/v1/responses'}
         self.assertEqual(Requests.model_key(model),Requests.model_key(explicit))
+
+    def test_order_is_a_preference_and_local_weights_stay_until_all_samples_finish(self):
+        from arena.parallel import Requests,ordered_tasks
+        one,two=config()['models']
+        tasks=[('a0',one),('a1',one),('b0',two),('b1',two)]
+        self.assertEqual([sid for sid,_ in ordered_tasks(tasks,'models')],['a0','b0','a1','b1'])
+        self.assertEqual([sid for sid,_ in ordered_tasks(tasks,'repetitions')],['a0','a1','b0','b1'])
+        one,two=config(local=True)['models']
+        tasks=[('a0',one),('a1',one),('b0',two)]
+        self.assertEqual([sid for sid,_ in ordered_tasks(tasks,'models',serial=True)],['a0','a1','b0'])
+        dispatcher=Requests(3,tasks)
+        try:
+            key=dispatcher.local_key(one)
+            dispatcher.local_owners[key]=dispatcher.model_key(one)
+            self.assertTrue(dispatcher.can_start('a1',one))
+            self.assertFalse(dispatcher.can_start('b0',two))
+            dispatcher.release('a0')
+            self.assertFalse(dispatcher.can_start('b0',two))
+            dispatcher.release('a1')
+            self.assertTrue(dispatcher.can_start('b0',two))
+        finally:dispatcher.pool.shutdown()

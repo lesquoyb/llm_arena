@@ -183,7 +183,7 @@ class Jobs:
             self.watcher.start()
             return row
 
-    def participants(self, run_id, selected, frozen_tracks=None, compare_previous_round=None, parallel_fights=None):
+    def participants(self, run_id, selected, frozen_tracks=None, compare_previous_round=None, parallel_fights=None, request_order=None):
         from contextlib import closing
         from arena.experiment import Journal, experiment_lock
         from arena.roster import update
@@ -198,7 +198,7 @@ class Jobs:
                 journal = Journal(root)
                 with closing(journal.db):
                     journal.verify()
-                    change = update(root, journal, metadata['config'], self.store.catalog(), selected, frozen_tracks, compare_previous_round, parallel_fights)
+                    change = update(root, journal, metadata['config'], self.store.catalog(), selected, frozen_tracks, compare_previous_round, parallel_fights, request_order)
             return change
 
     def reconcile(self, run_id, sid, cost, note):

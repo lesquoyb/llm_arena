@@ -186,3 +186,10 @@ participant-settings revision without changing frozen strategies or replay
 provenance. Resume retains every completed fight and runs the remaining work
 with the new worker limit. Other active workers finish and publish their results
 if a peer raises an error. Each engine invocation keeps its own timeout.
+
+The same dialog offers **Request scheduling preference**: different models first
+or repetitions first. It changes ordering only; several requests for the same
+model can fill otherwise free slots. Local endpoints finish all conversations
+of one loaded model before starting a different model, while permitting concurrent
+conversations of that same model. Saving the preference preserves histories,
+submissions and usage counters.

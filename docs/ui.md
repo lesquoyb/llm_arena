@@ -731,11 +731,12 @@ sequential execution. The setting applies to initial preparation and subsequent
 feedback/no-feedback rounds and is frozen when the competition starts.
 
 Each conversation keeps its own source files, tools, history and streamed output.
-Only provider transports run in background threads. One coordinator executes
-tools and engine fights, writes checkpoints and accounts for shared spending.
+Provider transports run in background threads. One coordinator executes tools,
+records engine results, writes checkpoints and accounts for shared spending.
+Engine fights use the separate simultaneous-fights setting.
 A request waits when another active request temporarily holds the required budget
-reservation. Models sharing a loopback server and port run one conversation at a
-time to avoid loading several local models or repeatedly swapping them in memory.
+reservation. Models sharing a loopback server and port finish one loaded model
+before switching to another; conversations of that same model can overlap.
 Hosted requests can overlap up to the selected limit; provider quotas still apply.
 
 Submitted sources remain frozen. Available fights run progressively, and the next
@@ -1020,13 +1021,20 @@ explaining the impact. Cancel is focused initially; Cancel or Escape leaves it
 unchanged. Only **Delete configuration** sends the deletion request. Existing
 runs, conversations, strategies and match results are retained.
 
-Parallel model requests use at most one in-flight request per remote provider,
-endpoint and exact model ID. Repetitions and parameter variants of that model
-share this lane, allowing different models to use the remaining slots. Provider
-quotas can still apply across models or accounts; this does not replace RPM/TPM
-limits. A loopback server keeps a single conversation active until it finishes,
-so Ollama repetitions use separate histories while reusing the loaded model
-weights, without requiring a separate model copy for each repetition.
+**Request scheduling preference** controls the order of conversations: **Different
+models first** alternates models before taking another repetition; **Repetitions
+of one model first** groups their conversations. This is a preference, not a
+per-model limit: any free request slots may run repetitions or parameter variants
+of the same model. The overall **Parallel model requests** ceiling still applies.
+Change the preference for a stopped competition in **More > Execution & metrics**.
+The change is audited and does not reset conversations or usage counters.
+
+On each loopback server, all conversations of the currently loaded model finish
+before another model starts, under either preference. Several conversations of
+that same model may run concurrently up to the overall request ceiling. Ollama
+reuses its model weights; each conversation has separate history and context.
+Ollama itself may queue requests according to its server parallelism and available
+memory. This ordering does not configure or guarantee provider RPM/TPM quotas.
 
 The activity panel defaults to compact counters and links to at most three active
 models. **+N more** opens **Activity details**, which contains the full preparation

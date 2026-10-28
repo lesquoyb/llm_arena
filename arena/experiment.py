@@ -38,12 +38,13 @@ def load_config(path: Path) -> dict:
 def validate_config(value: dict) -> dict:
     required = {"schema_version", "name", "models", "replicates", "budget_per_session",
                 "spending", "seeds", "scenario", "include_mirrors"}
-    optional = {"generations", "improvement_conditions", "prompt_language", "final_seeds", "parallel_requests", "parallel_fights", "compare_previous_round"}
+    optional = {"generations", "improvement_conditions", "prompt_language", "final_seeds", "parallel_requests", "parallel_fights", "request_order", "compare_previous_round"}
     if (not isinstance(value, dict) or not required <= set(value) or set(value) - required - optional or
             type(value["schema_version"]) is not int or value["schema_version"] not in (1, 2)):
         raise ArenaError("Unsupported offline experiment schema")
     integer(value.get('parallel_requests',1),1,20,'parallel_requests')
     integer(value.get('parallel_fights',1),1,16,'parallel_fights')
+    if value.get('request_order','models') not in ('models','repetitions'):raise ArenaError('Request order must be models or repetitions')
     if type(value.get('compare_previous_round',False)) is not bool:raise ArenaError('compare_previous_round must be boolean')
     spending = value["spending"]
     if not isinstance(spending, dict) or "allow_paid_calls" not in spending or set(spending) - {"allow_paid_calls", "max_total_usd"}:
@@ -171,7 +172,7 @@ def plan(config: dict) -> dict:
     paid = [m for m in config["models"] if m["provider"] != "mock"]
     learned=sum(model['provider']!='mock' for model in config['models'])*config['replicates']
     previous_matches=(None if config.get('generations',1) is None else 8*learned*learned*max(0,config.get('generations',1)-2)*len(config.get('final_seeds',[]))) if config.get('compare_previous_round') and learned else 0
-    return {"previous_comparison_matches":previous_matches, "parallel_requests":config.get("parallel_requests",1), "parallel_fights":config.get("_parallel_fights",config.get("parallel_fights",1)), "sessions": None if config.get("generations", 1) is None else n * (2 * config.get("generations", 1) - 1), "generation": None if config.get("generations", 1) is None else config.get("generations", 1) - 1,
+    return {"previous_comparison_matches":previous_matches, "parallel_requests":config.get("parallel_requests",1), "request_order":config.get("_request_order",config.get("request_order","models")), "parallel_fights":config.get("_parallel_fights",config.get("parallel_fights",1)), "sessions": None if config.get("generations", 1) is None else n * (2 * config.get("generations", 1) - 1), "generation": None if config.get("generations", 1) is None else config.get("generations", 1) - 1,
             "provider": "mixed" if paid else "mock", "simulated": not paid,
             "ranked_matches_if_all_submit": n * (n - 1) * len(config["seeds"]),
             "mirrors_if_all_submit": n * len(config["seeds"]) if config["include_mirrors"] else 0,
@@ -833,6 +834,7 @@ def run(config: dict, out: Path, resume=False, interrupt=None, prepare_only=Fals
             from .reference_strategies import repetitions
             roster = snapshot(out)
             config['_withdrawn_models'] = roster['withdrawn'] if roster else []
+            config['_request_order']=(roster or {}).get('request_order',config.get('request_order','models'))
             config['_parallel_fights']=(roster or {}).get('parallel_fights',config.get('parallel_fights',1))
             config['_frozen_tracks'] = (roster or {}).get('frozen_tracks', {})
             config['_roster_revision'] = (roster or {}).get('revision',0)
