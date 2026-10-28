@@ -150,13 +150,13 @@ def validate_config(value: dict) -> dict:
             raise ArenaError("Evaluation seeds must differ from preparation seed 17")
     final = value.get("final_seeds", [])
     if value.get("generations", 1) != 1 and not final:
-        raise ArenaError("G1 requires separate final seeds")
+        raise ArenaError("Round 2+ evaluation seeds are required")
     if not isinstance(final, list) or len(final) != len(set(final)) or len(final) > 100:
         raise ArenaError("Invalid final seeds")
     for seed in final:
         integer(seed, 1, 2**31 - 1, "final seed")
-        if seed in seeds or seed == 17:
-            raise ArenaError("Preparation, feedback and final seeds must be distinct")
+        if seed == 17:
+            raise ArenaError("Evaluation seeds must differ from preparation seed 17")
     validate_scenario(value["scenario"])
     if type(value["include_mirrors"]) is not bool:
         raise ArenaError("include_mirrors must be boolean")

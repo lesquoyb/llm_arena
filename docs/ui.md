@@ -99,7 +99,9 @@ all future rounds. Other optional budgets still apply. In JSON, `generations` is
 the total round count, or `null` for manual stopping.
 
 A match seed controls reproducible map generation and placement. Preparation
-seed 17, feedback seeds and final evaluation seeds are separate. Optional self-play
+seed 17 is reserved for preparation. Round 1 and Round 2+ evaluation seeds
+may overlap: keeping the same seeds compares versions on the same maps; using
+different seeds tests other maps. The Round 2+ list is reused in every later round. Optional self-play
 diagnostics compare a strategy and team with an identical copy. They are unscored.
 The standard A-vs-B and B-vs-A side-swapped fixtures both count toward standings.
 
