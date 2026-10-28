@@ -6,7 +6,7 @@ def entrants(journal, out, generation):
     return [{'id':sid, 'model':state['model'], 'replicate':state['replicate'],
              'path':str(out/'sessions'/sid/'submission'), 'submission':state['submission'],
              **({'parent':state['parent'], 'generation':generation} if generation else {})}
-            for sid,state in journal.states().items()
+            for sid,state in journal.metadata().items()
             if state.get('generation',0) == generation and 'submission' in state]
 
 
@@ -22,4 +22,14 @@ def evaluate(engine, config, out, journal, generation=0):
     # are verified by run_tournament before any new fixtures are admitted.
     reference_models={model['id'] for model in config['models'] if model.get('provider')=='mock'}
     priority={source['id'] for source in ready if source['model'] in reference_models}
-    return run_tournament(engine, manifest, root, root.exists(), allow_extend=True, priority_ids=priority)
+    from .core import digest
+    signature=digest({'manifest':manifest,'withdrawn':config.get('_withdrawn_models',[])})
+    cached=getattr(journal,'_ready_evaluations',{}).get(generation)
+    if cached and cached[0]==signature:return cached[1]
+    from .activity import operation
+    with operation(out,'checking_fights',generation=generation,participants=[s['id'] for s in ready]):
+        result=run_tournament(engine,manifest,root,root.exists(),allow_extend=True,priority_ids=priority)
+    if not result.get('failed') and not result.get('pending'):
+        if not hasattr(journal,'_ready_evaluations'):journal._ready_evaluations={}
+        journal._ready_evaluations[generation]=(signature,result)
+    return result

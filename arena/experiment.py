@@ -209,6 +209,21 @@ class Journal:
         row = self.db.execute("SELECT state FROM sessions WHERE id=?", (sid,)).fetchone()
         return json.loads(row[0]) if row else None
 
+    def metadata(self, sid=None):
+        """Coordinator counters without deserializing every conversation."""
+        from .session_metadata import FIELDS
+        condition=' WHERE s.id=?' if sid is not None else ''
+        args=(sid,) if sid is not None else ()
+        rows=self.db.execute("SELECT s.id,m.metadata FROM sessions s LEFT JOIN objects o ON o.id=s.id AND o.kind='Session' LEFT JOIN session_metadata m ON m.id=s.id AND m.checkpoint_sha256=o.sha256"+condition,args).fetchall()
+        values={key:json.loads(raw) for key,raw in rows if raw is not None}
+        missing=[key for key,raw in rows if raw is None]
+        # Old checkpoints need a small JSON projection, never the whole history.
+        paths=', '.join("'$."+field+"'" for field in FIELDS)
+        for key in missing:
+            raw=self.db.execute('SELECT json_extract(state,'+paths+') FROM sessions WHERE id=?',(key,)).fetchone()[0]
+            values[key]={field:value for field,value in zip(FIELDS,json.loads(raw)) if value is not None}
+        return values
+
     def save(self, sid, state, kind, payload=None):
         times = state.setdefault("message_times", [None] * len(state.get("history", [])))
         times.extend([time.time()] * (len(state.get("history", [])) - len(times)))
@@ -305,6 +320,14 @@ def _finish(sid, state, tools, journal, reason):
 def _prepare_provider_response(sid, state, model, config, journal):
     dispatcher=getattr(journal,'requests',None)
     if dispatcher and not dispatcher.can_start(sid,model):return None
+    from .activity import operation
+    with operation(journal.out,'request_preparation',participants=[sid],generation=state.get('generation',0)):
+        return _build_provider_response(sid,state,model,config,journal)
+
+
+def _build_provider_response(sid, state, model, config, journal):
+    dispatcher=getattr(journal,'requests',None)
+    if dispatcher and not dispatcher.can_start(sid,model):return None
     from .call_counts import hydrate_calls
     hydrate_calls(state,journal.db,sid)
     request_setup_started = time.monotonic()
@@ -342,7 +365,7 @@ def _prepare_provider_response(sid, state, model, config, journal):
             return None
         spent = amount(state.get("cost_spent", "0"))
         total = sum(amount(s.get("cost_spent", "0")) + amount(s.get("money_reserved", "0"))
-                    for s in journal.states().values())
+                    for s in journal.metadata().values())
         if state.get("calibration"):
             from .calibration import study_spending
             total = study_spending(journal)
@@ -575,6 +598,11 @@ def verify_workspace(state, tools):
 
 
 def run_session(sid, model, config, out, journal, engine, interrupt=None):
+    brief=journal.metadata(sid).get(sid)
+    if brief and brief['status'] in TERMINAL and (brief['status']!='budget_exhausted' or brief.get('submission')):
+        if 'submission' in brief and submission(out/'sessions'/sid/'submission',brief['submission']['entrypoint'])!=brief['submission']:
+            raise ArenaError('Archived session submission changed')
+        return
     state = journal.state(sid) or initial_state(sid, model, config)
     dispatcher=getattr(journal,'requests',None)
     drained_response=False

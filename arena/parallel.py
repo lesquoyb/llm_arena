@@ -55,8 +55,9 @@ def prepare(tasks, config, out, journal, engine, interrupt=None, on_progress=Non
     limit=config.get('parallel_requests',1)
     if limit==1:
         for sid,model in tasks:
+            before=journal.metadata(sid).get(sid,{})
             run_session(sid,model,config,out,journal,engine,interrupt)
-            if on_progress:on_progress()
+            if on_progress and before.get('status') not in TERMINAL:on_progress()
         return
     dispatcher=Requests(limit)
     journal.requests=dispatcher
@@ -68,11 +69,12 @@ def prepare(tasks, config, out, journal, engine, interrupt=None, on_progress=Non
                 if sid in dispatcher.pending and not dispatcher.ready(sid):continue
                 if sid not in dispatcher.pending and (not dispatcher.can_start(sid,model) or (sid in dispatcher.deferred and dispatcher.pending)):
                     queue.append((sid,model));continue
+                before=journal.metadata(sid).get(sid,{})
                 run_session(sid,model,config,out,journal,engine,interrupt)
-                state=journal.state(sid)
+                state=journal.metadata(sid).get(sid)
                 if state and state['status'] in TERMINAL:
                     dispatcher.release(sid)
-                    if on_progress:on_progress()
+                    if on_progress and before.get('status') not in TERMINAL:on_progress()
                 elif sid not in dispatcher.pending:
                     queue.append((sid,model))
             # Responses can arrive while serialized tools or available fights run.

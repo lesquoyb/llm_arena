@@ -71,6 +71,7 @@ class Store(Workspaces):
         self._usage_cache = {}
         from collections import OrderedDict
         self._session_metadata_cache = OrderedDict()
+        self._session_cache=OrderedDict()
 
     def json(self, path, default=None):
         if any(is_link(p) for p in [path, *path.parents]):
@@ -363,13 +364,25 @@ class Store(Workspaces):
 
     def session(self, identifier, sid):
         path = self.run_path(identifier) / "journal.sqlite"
-        if not path.is_file() or is_link(path):
-            raise ArenaError("Session not found")
-        with closing(sqlite3.connect(path.as_uri() + "?mode=ro", uri=True, timeout=2)) as connection:
-            row = connection.execute("SELECT state FROM sessions WHERE id=?", (sid,)).fetchone()
-        if row is None:
-            raise ArenaError("Session not found")
-        return json.loads(row[0])
+        if not path.is_file() or is_link(path):raise ArenaError("Session not found")
+        with closing(sqlite3.connect(path.as_uri()+"?mode=ro",uri=True,timeout=2)) as connection:
+            connection.execute('BEGIN')
+            objects=connection.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='objects'").fetchone()
+            fingerprint=connection.execute("SELECT sha256 FROM objects WHERE id=? AND kind='Session'",(sid,)).fetchone() if objects else None
+            key=(str(path),sid,fingerprint[0]) if fingerprint else None
+            with self.lock:
+                cached=self._session_cache.get(key) if key else None
+                if cached is not None:self._session_cache.move_to_end(key)
+            if cached is None:
+                row=connection.execute('SELECT state FROM sessions WHERE id=?',(sid,)).fetchone()
+                if row is None:raise ArenaError('Session not found')
+                cached=json.loads(row[0])
+                if key and len(row[0])<=16_000_000:
+                    with self.lock:
+                        self._session_cache[key]=cached
+                        while len(self._session_cache)>2:self._session_cache.popitem(last=False)
+        # Callers can annotate their view without changing a cached checkpoint.
+        return copy.deepcopy(cached)
 
     def listing(self):
         rows = []
@@ -641,9 +654,10 @@ class Store(Workspaces):
             raise ArenaError("Output block not found")
         return parts[block]
 
-    def conversation(self, identifier, sid, offset=0, limit=25):
+    def conversation(self, identifier, sid, offset=0, limit=25, *, include_diagnostics=True, tail=False):
         state = self.session(identifier, sid)
         history = state.get("history", [])
+        if tail:offset=max(0,len(history)-limit)
         failure = state.get("failure")
         times = list(state.get("message_times", [None] * len(history)))
         times.extend([None] * (len(history) - len(times)))
@@ -725,7 +739,7 @@ class Store(Workspaces):
                 "times": times[offset:offset + limit], "timeline": timeline[offset:offset + limit], "model": state.get("model"),
                 "status": state["status"], "failure": failure, "instruction_index": start, "history_policy":state.get("history_policy"),
                 "generation": state.get("generation", 0), "condition": state.get("condition", "initial"),
-                "failure_event": failure_event, "diagnostics": self.session_diagnostics(identifier, sid)}
+                "failure_event": failure_event, "diagnostics": self.session_diagnostics(identifier, sid) if include_diagnostics else None}
 
     def events(self, identifier, sid=None, offset=0, limit=100, model=None):
         root = self.run_path(identifier)

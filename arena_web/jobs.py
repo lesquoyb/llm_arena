@@ -55,12 +55,16 @@ class Jobs:
                 from arena.recovery import needs_reconciliation, zero_cost_requests
                 external = {m['id'] for m in config['models'] if m['provider'] != 'mock'}
                 free = {m['id'] for m in config['models'] if zero_cost_requests(m)}
-                blocked = [sid for sid,state in self.store.states(out).items() if state['model'] not in withdrawn and needs_reconciliation(state, state['model'] in external) and (state['model'] not in free or amount(state.get('money_reserved','0'))>0)]
+                from arena.session_metadata import FIELDS
+                states=self.store.states(out,FIELDS)
+                blocked = [sid for sid,state in states.items() if state['model'] not in withdrawn and needs_reconciliation(state, state['model'] in external) and (state['model'] not in free or amount(state.get('money_reserved','0'))>0)]
                 if blocked:
                     raise ArenaError('Resolve billing in Conversations before resuming: ' + ', '.join(blocked))
+                for state in states.values():
+                    if state['model'] in free and state.get('status')=='needs_reconciliation' and amount(state.get('money_reserved','0'))==0:
+                        state.update(status='provider_unavailable' if state.get('in_flight') else 'running',in_flight=False)
                 if retry_session is None:
                     from arena.retries import retry_reason
-                    states = self.store.states(out)
                     failed = {sid: state for sid, state in states.items()
                               if state.get('status') in {'provider_unavailable', 'generation_failed', 'no_submission'}
                               and not state.get('submission') and state['model'] not in withdrawn and state.get('condition') not in frozen_tracks.get(state['model'],[])}
@@ -91,7 +95,6 @@ class Jobs:
                 raise ArenaError('Choose a specific failed conversation to change reasoning effort')
             requested_models = [m for m in config['models'] if draft_id is not None or m['id'] not in withdrawn]
             if draft_id is None and retry_session is None:
-                states = self.store.states(out)
                 requested_models = [model for model in requested_models if not (
                     set(frozen_tracks.get(model['id'],[])) >= {'control','feedback'} and
                     all((states.get(f"{model['id']}-r{replicate}") or {}).get('submission') for replicate in range(config['replicates'])))]
@@ -100,6 +103,8 @@ class Jobs:
                     raise ArenaError('Retry requires an existing conversation')
                 from arena.retries import retry_reason
                 state = self.store.session(run_id, retry_session)
+                if state['model'] in free and state.get('status')=='needs_reconciliation' and amount(state.get('money_reserved','0'))==0:
+                    state.update(status='provider_unavailable' if state.get('in_flight') else 'running',in_flight=False)
                 if state['model'] in withdrawn: raise ArenaError('Reactivate this participant before retrying it')
                 from contextlib import closing
                 import sqlite3

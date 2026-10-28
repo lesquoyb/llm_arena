@@ -59,6 +59,31 @@ for(const name of ['pointerover','focusin'])document.addEventListener(name,event
 for(const name of ['pointerout','focusout'])document.addEventListener(name,event=>{
   const target=event.target.closest?.('[data-chart-model]');if(target&&!target.contains(event.relatedTarget))clearChartHover();
 });
+const hiddenChartModels=new Map();
+function applyChartVisibility() {
+  for(const scope of document.querySelectorAll('[data-chart-key]')) {
+    const hidden=hiddenChartModels.get(scope.dataset.chartKey)||new Set();
+    for(const item of scope.querySelectorAll('[data-chart-model]')) {
+      const legend=!!item.closest('.chart-legend,.overview-legend');
+      const off=hidden.has(item.dataset.chartModel);
+      item.classList.toggle('chart-hidden',off&&!legend);
+      item.classList.toggle('chart-legend-hidden',off&&legend);
+      if(legend) {item.setAttribute('role','button');item.setAttribute('tabindex','0');item.setAttribute('aria-pressed',String(!off));item.setAttribute('title',`${off?'Show':'Hide'} ${item.dataset.chartModel}`);}
+    }
+  }
+}
+function toggleChartModel(event) {
+  const item=event.target.closest?.('.chart-legend [data-chart-model],.overview-legend [data-chart-model]');
+  const scope=item?.closest('[data-chart-key]');if(!scope)return;
+  event.preventDefault();
+  const key=scope.dataset.chartKey,hidden=hiddenChartModels.get(key)||new Set();
+  if(hidden.has(item.dataset.chartModel))hidden.delete(item.dataset.chartModel);else hidden.add(item.dataset.chartModel);
+  hiddenChartModels.set(key,hidden);clearChartHover();applyChartVisibility();
+}
+document.addEventListener('click',toggleChartModel);
+document.addEventListener('keydown',event=>{if(event.key==='Enter'||event.key===' ')toggleChartModel(event);});
+let chartVisibilityFrame=null;
+new MutationObserver(()=>{if(chartVisibilityFrame===null)chartVisibilityFrame=requestAnimationFrame(()=>{chartVisibilityFrame=null;applyChartVisibility();});}).observe(document.documentElement,{childList:true,subtree:true});
 const LABELS = {
   submitted: "Submitted",
   running: "Running",
@@ -414,7 +439,7 @@ function activityDuration(started) {
 }
 function competitionActivity(activity=S.activity) {
   if(!activity || S.activityRun!==S.run)return '<section id="competition-activity" class="competition-activity"><strong>Loading competition activity…</strong></section>';
-  const labels={starting:'Starting / resuming',checkpoint_verification:'Checking saved history and source integrity',tournament_fight:'Tournament fight',reference_fight:'Reference evaluation',previous_round_fight:'Previous-round comparison (unscored)',validation:'Validating a submitted strategy',preparation_analysis:'Compiling a preparation script',preparation_fight:'Preparation test (unscored)'};
+  const labels={starting:'Starting / resuming',checkpoint_verification:'Checking saved history and source integrity',checking_fights:'Checking completed fights and scheduling missing fights',request_preparation:'Preparing provider request',tournament_fight:'Tournament fight',reference_fight:'Reference evaluation',previous_round_fight:'Previous-round comparison (unscored)',validation:'Validating a submitted strategy',preparation_analysis:'Compiling a preparation script',preparation_fight:'Preparation test (unscored)'};
   const op=activity.operation||{},busy=op.kind&&op.kind!=='idle';
   const title=!activity.running ? text(activity.job_status || 'Paused') : labels[op.kind] || (activity.active.length?'Model preparation in progress':'Scheduling next work');
   const actor=sid=>{const info=activity.labels?.[sid];const label=info?`${info.model} · R${info.round}${info.condition!=='initial'?' · '+text(info.condition):''}${info.replicate?' · Repetition '+(info.replicate+1):''}`:sid;return info?btn(e(label),'session-conversation',`data-session="${e(sid)}"`):`<span>${e(label)}</span>`;};
@@ -771,7 +796,7 @@ function resourcePanel(points, context) {
   points=points.map(p=>({...p,color:p.color||seriesColor(names.indexOf(p.model||p.label))}));
   S.resourcePoints ||= {};S.resourcePoints[context]=points;
   const metric=S.resourceMetric||'tools';
-  return `<div class="resource-chart"><div class="overview-section-head"><h3>Performance vs resources</h3><label class="field">Compare by<select data-resource-axis="${context}">${[['size','Model size'],['cost','Preparation cost'],['time','Preparation time'],['tools','Tool calls'],['tests','Preparation fights'],['replays','Replay reads']].map(([id,name])=>`<option value="${id}" ${id===metric?'selected':''}>${name}</option>`).join('')}</select></label></div><div class="resource-pair"><section><h4>Total tool calls</h4>${toolCallTotals(points)}<p class="muted">Each tool invocation counts, including failures. Preparation fights count both starting sides. Replay reads count read_replay and read_past_fight calls, including pagination; they are not distinct replays.</p></section><section><h4>Performance by resource</h4><div id="${context}-resource-chart">${resourceScatter(points,metric)}</div></section></div></div>`;
+  return `<div class="resource-chart" data-chart-key="resource:${e(context)}:${e(context==='workspace'?S.workspace:S.run)}"><div class="overview-section-head"><h3>Performance vs resources</h3><label class="field">Compare by<select data-resource-axis="${context}">${[['size','Model size'],['cost','Preparation cost'],['time','Preparation time'],['tools','Tool calls'],['tests','Preparation fights'],['replays','Replay reads']].map(([id,name])=>`<option value="${id}" ${id===metric?'selected':''}>${name}</option>`).join('')}</select></label></div><div class="resource-pair"><section><h4>Total tool calls</h4>${toolCallTotals(points)}<p class="muted">Each tool invocation counts, including failures. Preparation fights count both starting sides. Replay reads count read_replay and read_past_fight calls, including pagination; they are not distinct replays.</p></section><section><h4>Performance by resource</h4><div id="${context}-resource-chart">${resourceScatter(points,metric)}</div></section></div></div>`;
 }
 function overviewModelSize(d, id) {
   const pinned=d.model_metadata?.[id]?.model_size_billion;
@@ -1775,16 +1800,20 @@ async function renderRun(epoch, liveUpdate=false) {
       );
     else if (S.tab === "conversation") {
       let data = await api("/api/conversation", {
+        lightweight:1,
         run: S.run,
         session: S.session,
         model: S.modelFilter,
         offset: S.offset,
+        tail:S.explicitOffset?undefined:1,
       });
       if (epoch !== S.epoch) return;
+      S.offset=data.offset;
       // Opening a conversation follows its tail; explicit page links retain history.
-      if (!S.explicitOffset && data.total > data.messages.length) {
+      if (!S.explicitOffset && data.offset+data.messages.length < data.total) {
         S.offset = Math.max(0, data.total - 25);
         data = await api("/api/conversation", {
+        lightweight:1,
           run: S.run, session: S.session, offset: S.offset,
         });
         if (epoch !== S.epoch) return;
@@ -1855,6 +1884,7 @@ async function renderRun(epoch, liveUpdate=false) {
   if(liveUpdate) LiveDOM.update($('#main'),html);
   else $('#main').innerHTML=html;
   if(deferredErrors)deferredErrors();
+  if(S.tab==='conversation')refreshConversationDiagnostics(epoch);
   if (S.tab === "conversation" && S.follow && !S.explicitOffset)
     animateConversationTail();
   if ((!liveUpdate || sourceChanged || !$("#source-content")?.liveLoaded) && S.tab === "code" && d.sessions.length && S.versions?.versions?.length)
@@ -2168,7 +2198,7 @@ function overviewEvolution(data) {
       i === generations.length - 1 ||
       i % Math.max(1, Math.ceil(generations.length / 8)) === 0,
   );
-  return `<svg class="overview-evolution" viewBox="0 0 ${width} ${height}" role="img" aria-label="Model scores across strategy rounds">${[0, 0.5, 1].map((v) => `<line x1="38" x2="${width - 25}" y1="${y(v)}" y2="${y(v)}" stroke="#e7ebf2"/><text x="0" y="${y(v) + 4}">${v * 100}%</text>`).join("")}${ticks.map((g) => `<text x="${x(g)}" y="195" text-anchor="middle">R${g + 1}</text>`).join("")}${models
+  return `<div class="chart-filterable" data-chart-key="evolution:${e(S.run)}"><svg class="overview-evolution" viewBox="0 0 ${width} ${height}" role="img" aria-label="Model scores across strategy rounds">${[0, 0.5, 1].map((v) => `<line x1="38" x2="${width - 25}" y1="${y(v)}" y2="${y(v)}" stroke="#e7ebf2"/><text x="0" y="${y(v) + 4}">${v * 100}%</text>`).join("")}${ticks.map((g) => `<text x="${x(g)}" y="195" text-anchor="middle">R${g + 1}</text>`).join("")}${models
     .map((model) => {
       const rows = data.history.filter((r) => r.model === model),
         color = overviewColor(model);
@@ -2191,7 +2221,7 @@ function overviewEvolution(data) {
     })
     .join(
       "",
-    )}</svg><div class="overview-legend">${models.map((model) => `<span tabindex="0" data-chart-model="${e(model)}"><i style="background:${overviewColor(model)}"></i>${e(model)}</span>`).join("")}<span>Solid: feedback · Dashed: no feedback</span></div>`;
+    )}</svg><div class="overview-legend">${models.map((model) => `<span tabindex="0" data-chart-model="${e(model)}"><i style="background:${overviewColor(model)}"></i>${e(model)}</span>`).join("")}<span>Solid: feedback · Dashed: no feedback</span></div></div>`;
 }
 function overviewMatchLink(data, who, other, outcome, value, description) {
   const cell = data.matrix.find(
@@ -2408,7 +2438,7 @@ function providerOutput(message, index) {
   );
 }
 function sessionDiagnostics(data, full = false) {
-  if (!data) return "";
+  if (!data) return '<div data-session-diagnostics><small>Loading fight summary…</small></div>';
   const problems = data.problems || [],
     compilation = data.compilation || [];
   const validationProblems = problems.filter(
@@ -2527,6 +2557,27 @@ function conversationLiveStatus(live, following) {
       ? "<small>Following new messages</small>"
       : "<small>Reading history. Return to the bottom to follow new messages.</small>";
 }
+document.addEventListener('click',event=>{if(event.target.closest('[data-action=retry-conversation-diagnostics]'))refreshConversationDiagnostics(S.epoch);});
+function refreshConversationDiagnostics(epoch) {
+  const run=S.run,session=S.session,key=run+'/'+session;
+  S.conversationDiagnoses ||= {};
+  const previous=S.conversationDiagnoses[key];
+  if((previous?.pending && previous.epoch===epoch) || (previous?.data && Date.now()-previous.at<15000)) {
+    const mount=$('[data-session-diagnostics]');
+    if(previous?.data&&mount)LiveDOM.replace(mount,sessionDiagnostics(previous.data));
+    return;
+  }
+  const entry={epoch,at:Date.now(),pending:true,data:previous?.data};S.conversationDiagnoses[key]=entry;
+  if(Object.keys(S.conversationDiagnoses).length>8)for(const old of Object.keys(S.conversationDiagnoses).slice(0,-8))delete S.conversationDiagnoses[old];
+  api('/api/session-diagnostics',{run,session}).then(data=>{
+    entry.data=data;entry.at=Date.now();
+    if(epoch!==S.epoch||run!==S.run||session!==S.session||S.tab!=='conversation')return;
+    const mount=$('[data-session-diagnostics]');if(mount)LiveDOM.replace(mount,sessionDiagnostics(data));
+  }).catch(error=>{
+    if(epoch!==S.epoch||error.name==='AbortError')return;
+    const mount=$('[data-session-diagnostics]');if(mount)mount.innerHTML='<small>Fight summary unavailable.</small>'+btn('Retry summary','retry-conversation-diagnostics');entry.at=0;
+  }).finally(()=>{entry.pending=false;});
+}
 async function refreshLiveConversation(epoch, force = false) {
   const live = S.liveConversation,
     mount = $("#conversation-transcript");
@@ -2549,6 +2600,7 @@ async function refreshLiveConversation(epoch, force = false) {
       force || (live.armed && !live.userPaused && nearConversationEnd() &&
         !$(".chat-message details[open], details[data-provider-event][open]"));
     let data = await api("/api/conversation", {
+        lightweight:1,
       run: live.run,
       session: live.session,
       offset: live.next,
@@ -2571,6 +2623,7 @@ async function refreshLiveConversation(epoch, force = false) {
     if (data.total < live.next) {
       S.offset = Math.max(0, data.total - 25);
       data = await api("/api/conversation", {
+        lightweight:1,
         run: live.run, session: live.session, offset: S.offset,
       });
       if (epoch !== S.epoch || live !== S.liveConversation || mount !== $("#conversation-transcript")) return true;
@@ -2613,7 +2666,7 @@ async function refreshLiveConversation(epoch, force = false) {
       }
     }
     const diagnosis = $("[data-session-diagnostics]", mount);
-    if (following && diagnosis && !diagnosis.querySelector("details[open]")) {
+    if (following && diagnosis && data.diagnostics && !diagnosis.querySelector("details[open]")) {
       const html = sessionDiagnostics(data.diagnostics);
       if (diagnosis.dataset.signature !== html) {
         const holder = document.createElement("template");
@@ -2623,6 +2676,7 @@ async function refreshLiveConversation(epoch, force = false) {
         LiveDOM.replace(diagnosis,replacement.outerHTML);
       }
     }
+    refreshConversationDiagnostics(epoch);
     const pager = $(".pager", mount),
       first = S.offset + 1;
     if (pager)
@@ -3344,8 +3398,8 @@ function lineChart(group) {
     })
     .join("")}</svg>`;
   return (
-    chart +
-    `<div class="chart-legend">${[...series.keys()].map((key, j) => `<span tabindex="0" data-chart-model="${e(labels.get(key))}"><i class="dot" style="background:${seriesColor(j)}"></i>${e(labels.get(key))}</span>`).join("")}</div>`
+    `<div class="chart-filterable" data-chart-key="history:${e(JSON.stringify(group.protocol))}">`+chart +
+    `<div class="chart-legend">${[...series.keys()].map((key, j) => `<span tabindex="0" data-chart-model="${e(labels.get(key))}"><i class="dot" style="background:${seriesColor(j)}"></i>${e(labels.get(key))}</span>`).join("")}</div></div>`
   );
 }
 function comparisonResult(data) {

@@ -96,7 +96,7 @@ class Application:
         if route == "/api/session-diagnostics":
             return store.session_diagnostics(run, sid)
         if route == "/api/conversation":
-            return store.conversation(run, sid, number("offset", 0), min(number("limit", 25), 100))
+            return store.conversation(run, sid, number("offset", 0), min(number("limit", 25), 100),include_diagnostics=value("lightweight")!="1",tail=value("tail")=="1")
         if route == "/api/tool-exchange":
             return store.tool_exchange(run, sid, number("index", 0))
         if route == "/api/message-output":
@@ -273,8 +273,11 @@ class Handler(BaseHTTPRequestHandler):
 
     def json_response(self, status, value):
         body = json.dumps(value, ensure_ascii=False).encode("utf-8")
-        self.headers_for(status, "application/json; charset=utf-8", len(body))
-        self.wfile.write(body)
+        try:
+            self.headers_for(status, "application/json; charset=utf-8", len(body))
+            self.wfile.write(body)
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            self.close_connection=True
 
     def check_origin(self):
         expected = {f"127.0.0.1:{self.server.server_port}", f"localhost:{self.server.server_port}"}
@@ -348,10 +351,10 @@ class Handler(BaseHTTPRequestHandler):
                 mime = {".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".png": "image/png"}[path.suffix]
                 self.headers_for(200, mime if path.suffix == ".png" else mime + "; charset=utf-8", len(body))
                 self.wfile.write(body)
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            self.close_connection=True
         except (ArenaError, ValueError, KeyError, TypeError, OSError, sqlite3.Error) as error:
             self.json_response(400, {"error": str(error)})
-        except (BrokenPipeError, ConnectionResetError):
-            pass
 
     def do_POST(self):
         try:
@@ -366,6 +369,8 @@ class Handler(BaseHTTPRequestHandler):
                 raise ArenaError("Request is empty or too large")
             data = json.loads(self.rfile.read(length))
             self.json_response(200, self.server.app.post(urlsplit(self.path).path, data))
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            self.close_connection=True
         except (ArenaError, ValueError, KeyError, TypeError, OSError, sqlite3.Error) as error:
             self.json_response(400, {"error": str(error)})
 

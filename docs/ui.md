@@ -874,3 +874,12 @@ Preparation fights count both starting sides. Replay reads count executed
 `read_replay` and `read_past_fight` invocations, including failed reads and
 pagination, rather than distinct fights. These counters are also exported in
 `sessions.csv` and `results.csv`.
+
+Click a model's name in a chart legend to hide or show its marks. Enter and Space
+work on a focused legend item. Visibility is local to that chart and survives
+live refreshes, axis changes and navigation during the current page session.
+It does not change statistical filters or exports; axes keep their original scale.
+
+Conversation pages request their latest page directly and show messages before
+loading the fight-health summary in the background. Exact messages, requests,
+provider outputs and file diffs remain available on demand.

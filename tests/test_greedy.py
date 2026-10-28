@@ -8,14 +8,14 @@ from arena.evolution import references
 
 class GreedyTests(unittest.TestCase):
     def test_only_frozen_current_round_sources_enter_append_only_tournament(self):
-        journal=mock.Mock()
-        journal.states.return_value={
+        journal=mock.Mock(spec=['metadata'])
+        journal.metadata.return_value={
             'initial':{'generation':0,'model':'one','replicate':0,'submission':{'entrypoint':'main.leek'}},
             'ready':{'generation':1,'parent':'initial','model':'one','replicate':0,'submission':{'entrypoint':'main.leek'}},
             'editing':{'generation':1,'model':'one','replicate':0,'status':'running'}}
-        config={'name':'test','seeds':[101],'final_seeds':[301],'scenario':{},'include_mirrors':True}
-        with mock.patch('arena.greedy.run_tournament',return_value={'completed':1}) as tournament:
-            evaluate(mock.Mock(),config,Path('/unused'),journal,1)
+        config={'name':'test','seeds':[101],'final_seeds':[301],'scenario':{},'include_mirrors':True,'models':[]}
+        with scratch_directory() as out, mock.patch('arena.greedy.run_tournament',return_value={'completed':1}) as tournament:
+            evaluate(mock.Mock(),config,out,journal,1)
             manifest=tournament.call_args.args[1]
             self.assertEqual([s['id'] for s in manifest['strategies']],['ready'])
             self.assertEqual(manifest['strategies'][0]['parent'],'initial')
@@ -41,3 +41,16 @@ class GreedyTests(unittest.TestCase):
             self.assertEqual(len(second),4)
             self.assertTrue(first.keys() <= second.keys())
             self.assertEqual({row['session'] for row in second.values()},{'one','two'})
+
+    def test_completed_ready_pool_is_checked_once_until_new_submission_arrives(self):
+        journal=mock.Mock(spec=['metadata'])
+        states={name:{'generation':0,'model':name,'replicate':0,'submission':{'entrypoint':'main.leek'}} for name in ('a','b')}
+        journal.metadata.return_value=states
+        config={'name':'cache','seeds':[101],'scenario':{},'include_mirrors':False,'models':[]}
+        with scratch_directory() as out, mock.patch('arena.greedy.run_tournament',return_value={'completed':2,'pending':0,'failed':0}) as tournament:
+            first=evaluate(mock.Mock(),config,out,journal)
+            self.assertEqual(evaluate(mock.Mock(),config,out,journal),first)
+            self.assertEqual(tournament.call_count,1)
+            states['c']={'generation':0,'model':'c','replicate':0,'submission':{'entrypoint':'main.leek'}}
+            evaluate(mock.Mock(),config,out,journal)
+            self.assertEqual(tournament.call_count,2)

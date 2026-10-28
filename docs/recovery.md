@@ -131,3 +131,14 @@ Resume also resolves older zero-price interruptions automatically, with a saved
 submissions, usage counters and completed fights are retained. This rule uses
 explicit rates, not the current displayed cost: a paid request with a displayed
 cost of zero can still require review, as can a nonzero outstanding reservation.
+
+### Resume phases and browser disconnects
+
+Resume verifies saved work before preparing new requests. Activity distinguishes
+checking completed fights, preparing a provider request, waiting for its response
+and executing a fight. An unchanged completed opponent pool is checked once per
+runner invocation; adding a submitted entrant schedules its missing fixtures.
+
+A browser cancelling a page request can close its HTTP socket while the server is
+writing. This does not cancel the competition worker. Disconnected GET and POST
+clients are handled without attempting to send a second error response.
