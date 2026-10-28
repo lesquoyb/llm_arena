@@ -365,18 +365,25 @@ function syncLiveMode() {
   if (activeJobs().some((job) => job.run === S.run)) S.autoLiveRun = S.run;
   S.follow = S.livePreferences[S.run] ?? S.autoLiveRun === S.run;
 }
-function runningPhase(d) {
-  const states = d.sessions,
-    config = d.metadata.config;
-  if (!config) return "Evaluating frozen strategies";
-  const generation = Math.max(0, ...states.map(s => Number(s.generation || 0)));
-  const round = states.filter(s => Number(s.generation || 0) === generation);
-  const expected = config.models.length * config.replicates *
-    (generation ? (config.improvement_conditions?.length || 2) : 1);
-  const finished = round.filter(s => s.status !== "running").length;
-  if (round.length < expected || round.some(s => s.status === "running"))
-    return `Round ${generation + 1} · ${finished}/${expected} preparations finished · Available fights run as strategies submit`;
-  return `Round ${generation + 1} · Evaluating frozen strategies`;
+function activityDuration(started) {
+  if(!started)return '';
+  const seconds=Math.max(0,Math.floor(Date.now()/1000-started));
+  return seconds<60?`${seconds}s`:`${Math.floor(seconds/60)}m ${seconds%60}s`;
+}
+function competitionActivity(activity=S.activity) {
+  if(!activity || S.activityRun!==S.run)return '<section id="competition-activity" class="competition-activity"><strong>Loading competition activity…</strong></section>';
+  const labels={starting:'Starting / resuming',checkpoint_verification:'Checking saved history and source integrity',tournament_fight:'Tournament fight',reference_fight:'Reference evaluation',validation:'Validating a submitted strategy',preparation_analysis:'Compiling a preparation script',preparation_fight:'Preparation test (unscored)'};
+  const op=activity.operation||{},busy=op.kind&&op.kind!=='idle';
+  const title=!activity.running ? text(activity.job_status || 'Paused') : labels[op.kind] || (activity.active.length?'Model preparation in progress':'Scheduling next work');
+  const actor=sid=>{const info=activity.labels?.[sid];const label=info?`${info.model} · R${info.round}${info.condition!=='initial'?' · '+text(info.condition):''}${info.replicate?' · Repetition '+(info.replicate+1):''}`:sid;return info?btn(e(label),'session-conversation',`data-session="${e(sid)}"`):`<span>${e(label)}</span>`;};
+  return `<section id="competition-activity" class="competition-activity" aria-label="Competition activity"><div class="activity-heading"><strong>${activity.running?'<i class="activity-dot" aria-hidden="true"></i>':''}${e(title)}${activity.running&&busy&&op.started_at?` <small>· ${activityDuration(op.started_at)}</small>`:''}</strong><span>Round ${activity.round}${activity.rounds==null?'':` / ${activity.rounds}`} · ${activity.participants} active participants${activity.withdrawn?` · ${activity.withdrawn} withdrawn`:''}</span></div><div class="activity-progress"><span><strong>${activity.ready_participants} / ${activity.participants}</strong> participants ready</span><span><strong>${activity.strategies_ready} / ${activity.strategies_expected}</strong> strategies submitted</span><span><strong>${activity.strategies_validated} / ${activity.strategies_expected}</strong> strategies validated</span><span><strong>${activity.tournament_completed} / ${activity.tournament_total}</strong> tournament fights${activity.tournament_failed?` · ${activity.tournament_failed} failed`:''}</span></div>${activity.running&&busy&&op.participants?.length?`<div class="activity-actors"><span>${op.kind==='preparation_fight'?'Testing':'Engine'}:</span>${op.participants.map(actor).join('<span>vs</span>')}${op.opponent?`<span>vs ${e(op.opponent)}</span>`:''}</div>`:''}${activity.running&&activity.active.length?`<div class="activity-requests">${activity.active.map(item=>`<span>${actor(item.session)}<small>${item.kind==='model_request'?'Awaiting model response':e(item.name||'Using tool')} · ${activityDuration(item.started_at)}${item.stream_updated_at?' · Stream updated '+activityDuration(item.stream_updated_at)+' ago':''}</small></span>`).join('')}</div>`:''}${activity.failed_preparations?`<p>${activity.failed_preparations} preparations need recovery.</p>`:''}<div class="activity-footer"><span>${activity.last_event?.at?'Last recorded progress: '+date(activity.last_event.at):'No checkpoint event recorded yet.'}</span><small>Updated ${new Date(activity.observed_at*1000).toLocaleTimeString()}</small></div>${activity.running&&!busy&&!activity.active.length?'<small>No model request or engine operation is currently recorded.</small>':''}${!activity.running&&activity.job_note?`<p>${e(activity.job_note)}</p>`:''}</section>`;
+}
+async function refreshCompetitionActivity(epoch=S.epoch) {
+  const run=S.run;
+  const data=await api('/api/activity',{run});
+  if(epoch!==S.epoch||run!==S.run||S.view!=='run')return;
+  S.activity=data;S.activityRun=run;
+  const panel=$('#competition-activity');if(panel)panel.outerHTML=competitionActivity(data);
 }
 function activeJobs() {
   return S.boot.jobs.filter((j) => ["running", "stopping"].includes(j.status));
@@ -680,7 +687,7 @@ function workspacesPage() {
   return title+draftPanel+
     `<div class="metrics">${metric('Competitions',fmt(t.competitions),'Exported copies excluded')}${metric('Strategies',`${t.submitted+t.frozen_strategies} / ${t.sessions+t.frozen_strategies}`,`${t.frozen_strategies} frozen · ${t.invalid} invalid · ${t.attention} need attention`)}${metric('Completed fights',fmt(t.completed_matches),`${t.preparation_matches} preparation · ${t.failed_matches} engine failures`)}${metric('Recorded API cost',money(t.known_cost_usd),`${money(t.reserved_usd)} reserved${t.unresolved_sessions?` · ${t.unresolved_sessions} unresolved`:''}`)}</div>
     <section class="panel workspace-resources"><div class="panel-title"><h2>Model resources</h2><details class="action-menu"><summary class="button">Download CSV</summary><div>${['summary','fights','sessions','results'].map(table=>`<a class="button" href="/api/results.csv?${query({workspace:id,table})}">${table==='summary'?'Workspace scores':table==='fights'?'Match results':table==='sessions'?'Usage & conversations':'Raw strategy results'}</a>`).join('')}</div></details></div>
-    ${data.models.length?table(['Participant','Size (B)','Submitted','Input / output tokens','Recorded cost','Messages','Preparation time'],data.models.map(m=>`<tr><td><strong>${e(m.name)}</strong><small>${e(m.model||'Built-in strategy')}</small>${raw(m.configuration,'Configuration')}</td><td>${fmt(m.model_size_billion,3)}</td><td>${m.submitted} / ${m.sessions}<small>${m.invalid} invalid</small></td><td>${fmt(m.input_tokens)} / ${fmt(m.output_tokens)}${m.unmeasured_sessions?`<small>${m.unmeasured_sessions} conversations with missing measurements</small>`:''}</td><td>${money(m.known_cost_usd)}${Number(m.reserved_usd)?`<small>${money(m.reserved_usd)} reserved</small>`:''}</td><td>${fmt(m.messages)}</td><td>${fmt(m.wall_seconds/60,1)} min</td></tr>`)):'<p class="muted">No model conversations yet.</p>'}</section>
+    ${data.models.length?table(['Participant','Size (B)','Submitted','Input / output tokens','Recorded cost','Tool calls','Preparation time'],data.models.map(m=>`<tr><td><strong>${e(m.name)}</strong><small>${e(m.model||'Built-in strategy')}</small>${raw(m.configuration,'Configuration')}</td><td>${fmt(m.model_size_billion,3)}</td><td>${m.submitted} / ${m.sessions}<small>${m.invalid} invalid</small></td><td>${fmt(m.input_tokens)} / ${fmt(m.output_tokens)}${m.unmeasured_sessions?`<small>${m.unmeasured_sessions} conversations with missing measurements</small>`:''}</td><td>${money(m.known_cost_usd)}${Number(m.reserved_usd)?`<small>${money(m.reserved_usd)} reserved</small>`:''}</td><td>${fmt(m.tool_calls)}</td><td>${fmt(m.wall_seconds/60,1)} min</td></tr>`)):'<p class="muted">No model conversations yet.</p>'}</section>
     <section class="panel"><div class="panel-title"><h2>Performance</h2><label class="field">Comparison group<select id="workspace-group">${data.groups.map((g,i)=>`<option value="${i}">${g.kind==='evaluation'?'Reference evaluation':'Tournament'} · ${workspaceStage(g.stage)} · ${e(workspaceScenario(g.scenario))} · ${g.runs.length} competition${g.runs.length===1?'':'s'} · Group ${i+1}</option>`).join('')}</select></label></div><p class="muted">Groups keep different scenarios, preparation settings and opponent pools separate. Same-model fights are excluded from tournament scores.</p><div id="workspace-performance">${workspacePerformance(data.groups[0])}</div></section>
     <section class="panel flush"><div class="panel-head"><h2>Competitions</h2>${btn('New competition','new-competition')}</div>${runTable(scoped(S.boot.runs))}</section>
     ${data.excluded.length?`<details class="panel"><summary>${data.excluded.length} competitions excluded from statistics</summary>${data.excluded.map(r=>`<p>${e(r.run)}: ${e(r.reason)}</p>`).join('')}</details>`:''}`;
@@ -696,8 +703,8 @@ function workspaceStage(stage) {
   return match?`Round ${Number(match[1])+1}`:stage;
 }
 function resourceScatter(points, metric='size') {
-  const labels={size:'Model size (B parameters)',cost:'Mean preparation cost ($ / strategy)',time:'Mean preparation time (minutes / strategy)'};
-  const eligible=points.filter(p=>!['cost','time'].includes(metric)||!p.reference);
+  const labels={size:'Model size (B parameters)',cost:'Mean preparation cost ($ / strategy)',time:'Mean preparation time (minutes / strategy)',tools:'Mean tool calls / strategy'};
+  const eligible=points.filter(p=>!['cost','time','tools'].includes(metric)||!p.reference);
   const valid=eligible.filter(p=>p.score!=null && Number.isFinite(p[metric]) && p[metric]>=0 && (metric!=='size'||p[metric]>0));
   if(!valid.length)return `<p class="muted">${metric==='size'?'No model sizes recorded for this selection. Set the optional size in Participants.':'No complete measurements for this selection.'}</p>`;
   const W=760,H=260,L=56,R=728,T=20,B=208,max=Math.max(...valid.map(p=>p[metric]))*1.1||1;
@@ -706,14 +713,14 @@ function resourceScatter(points, metric='size') {
     ${[0,.5,1].map(v=>`<line x1="${L}" x2="${R}" y1="${y(v)}" y2="${y(v)}" stroke="#e0e7e4"/><text x="${L-8}" y="${y(v)+4}" text-anchor="end">${v*100}%</text>`).join('')}
     ${[0,.25,.5,.75,1].map(v=>`<text x="${x(v*max)}" y="${B+20}" text-anchor="middle">${fmt(v*max,metric==='cost'?4:2)}</text>`).join('')}
     <text x="${(L+R)/2}" y="${H-5}" text-anchor="middle">${e(labels[metric])}</text>
-    ${valid.map((p,i)=>`<circle cx="${x(p[metric])}" cy="${y(p.score)}" r="6" fill="${p.color||COLORS[i%COLORS.length]}" stroke="white" stroke-width="1.5" tabindex="0"><title>${e(p.label)}: ${pct(p.score)} · ${fmt(p[metric],metric==='cost'?6:3)}${metric==='size'?'B':metric==='time'?' min':' USD'}</title></circle>`).join('')}</svg>
-    <div class="chart-legend">${valid.map((p,i)=>`<span><i class="dot" style="background:${p.color||COLORS[i%COLORS.length]}"></i>${e(p.label)} · ${pct(p.score)} · ${metric==='cost'?money(p.cost):fmt(p[metric],3)+(metric==='size'?'B':' min')}</span>`).join('')}</div>
+    ${valid.map((p,i)=>`<circle cx="${x(p[metric])}" cy="${y(p.score)}" r="6" fill="${p.color||COLORS[i%COLORS.length]}" stroke="white" stroke-width="1.5" tabindex="0"><title>${e(p.label)}: ${pct(p.score)} · ${fmt(p[metric],metric==='cost'?6:3)}${metric==='size'?'B':metric==='time'?' min':metric==='tools'?' tool calls':' USD'}</title></circle>`).join('')}</svg>
+    <div class="chart-legend">${valid.map((p,i)=>`<span><i class="dot" style="background:${p.color||COLORS[i%COLORS.length]}"></i>${e(p.label)} · ${pct(p.score)} · ${metric==='cost'?money(p.cost):fmt(p[metric],3)+(metric==='size'?'B':metric==='tools'?' tool calls':' min')}</span>`).join('')}</div>
     ${valid.length<eligible.length?`<p class="muted">${eligible.length-valid.length} entries with missing measurements excluded from this chart.</p>`:''}`;
 }
 function resourcePanel(points, context) {
   S.resourcePoints ||= {};S.resourcePoints[context]=points;
-  const metric=S.resourceMetric||'size';
-  return `<div class="resource-chart"><div class="overview-section-head"><h3>Performance vs resources</h3><label class="field">Compare by<select data-resource-axis="${context}">${[['size','Model size'],['cost','Preparation cost'],['time','Preparation time']].map(([id,name])=>`<option value="${id}" ${id===metric?'selected':''}>${name}</option>`).join('')}</select></label></div><div id="${context}-resource-chart">${resourceScatter(points,metric)}</div></div>`;
+  const metric=S.resourceMetric||'tools';
+  return `<div class="resource-chart"><div class="overview-section-head"><h3>Performance vs resources</h3><label class="field">Compare by<select data-resource-axis="${context}">${[['size','Model size'],['cost','Preparation cost'],['time','Preparation time'],['tools','Tool calls']].map(([id,name])=>`<option value="${id}" ${id===metric?'selected':''}>${name}</option>`).join('')}</select></label></div><div class="resource-pair"><section><h4>Total tool calls</h4>${toolCallTotals(points)}<p class="muted">One count per tool invocation, including failed calls. Batches count each tool separately.</p></section><section><h4>Performance by resource</h4><div id="${context}-resource-chart">${resourceScatter(points,metric)}</div></section></div></div>`;
 }
 function overviewModelSize(d, id) {
   const pinned=d.model_metadata?.[id]?.model_size_billion;
@@ -723,17 +730,27 @@ function overviewModelSize(d, id) {
   return sizes.length===1 && sizes[0]>0?sizes[0]:null;
 }
 function overviewResourcePoints(d,data) {
-  return data.models.map(row=>{
-    const sessions=data.sessions.filter(s=>s.model===row.model),costKnown=sessions.length && sessions.every(s=>s.status!=='needs_reconciliation'&&!Number(s.money_reserved||0));
-    return {reference:d.metadata.config?.models.find(model=>model.id===row.model)?.provider==='mock' || (!sessions.length && !!d.metadata.manifest),label:row.model,color:overviewColor(row.model),score:row.score,size:overviewModelSize(d,row.model),
-      cost:costKnown?sessions.reduce((n,s)=>n+Number(s.cost_spent||0),0)/sessions.length:null,
-      time:sessions.length&&sessions.every(s=>s.wall_seconds!=null)?sessions.reduce((n,s)=>n+s.wall_seconds,0)/sessions.length/60:null};
+  const scores=new Map(data.models.map(row=>[row.model,row.score]));
+  const ids=[...new Set([...scores.keys(),...data.sessions.map(session=>session.model)])];
+  return ids.map(id=>{
+    const sessions=data.sessions.filter(session=>session.model===id),costKnown=sessions.length && sessions.every(session=>session.status!=='needs_reconciliation'&&!Number(session.money_reserved||0));
+    const total=sessions.reduce((sum,session)=>sum+(session.steps||0),0);
+    return {reference:d.metadata.config?.models.find(model=>model.id===id)?.provider==='mock' || (!sessions.length && !!d.metadata.manifest),
+      label:id,color:overviewColor(id),score:scores.get(id)??null,size:overviewModelSize(d,id),
+      toolTotal:total,tools:sessions.length?total/sessions.length:null,
+      cost:costKnown?sessions.reduce((sum,session)=>sum+Number(session.cost_spent||0),0)/sessions.length:null,
+      time:sessions.length&&sessions.every(session=>session.wall_seconds!=null)?sessions.reduce((sum,session)=>sum+session.wall_seconds,0)/sessions.length/60:null};
   });
+}
+function toolCallTotals(points) {
+  const rows=points.filter(point=>!point.reference&&Number.isFinite(point.toolTotal)).sort((a,b)=>b.toolTotal-a.toolTotal);
+  const max=Math.max(1,...rows.map(row=>row.toolTotal));
+  return rows.length?`<div class="tool-call-bars">${rows.map(row=>`<div><span title="${e(row.label)}">${e(row.label)}</span><div class="workspace-bar-track"><span style="width:${100*row.toolTotal/max}%;background:${row.color||COLORS[0]}"></span></div><strong>${fmt(row.toolTotal)}</strong></div>`).join('')}</div>`:'<p class="muted">No model tool calls recorded for this selection.</p>';
 }
 
 function workspacePerformance(group) {
   if(!group)return '<p class="muted">No evaluation results yet.</p>';
-  return resourcePanel(group.models.map(m=>({reference:m.is_reference,label:`${m.name} · ${m.round ? "R"+m.round : "Frozen"} · ${text(m.condition)}`,score:m.score,size:m.model_size_billion,cost:m.mean_cost_usd,time:m.mean_wall_seconds==null?null:m.mean_wall_seconds/60})),"workspace")+`<div class="workspace-bars">${group.models.map(m=>`<div class="workspace-bar"><div><strong>${e(m.name)}</strong><small>${m.round ? `Round ${m.round}` : 'Frozen strategy'} · ${e(text(m.condition))}</small></div><div class="workspace-bar-track"><span style="width:${Math.max(0,Math.min(100,(m.score||0)*100))}%"></span></div><strong>${pct(m.score)}</strong></div>`).join('')}</div>`+
+  return resourcePanel(group.models.map(m=>({reference:m.is_reference,toolTotal:m.total_tool_calls,tools:m.mean_tool_calls,label:`${m.name} · ${m.round ? "R"+m.round : "Frozen"} · ${text(m.condition)}`,score:m.score,size:m.model_size_billion,cost:m.mean_cost_usd,time:m.mean_wall_seconds==null?null:m.mean_wall_seconds/60})),"workspace")+`<div class="workspace-bars">${group.models.map(m=>`<div class="workspace-bar"><div><strong>${e(m.name)}</strong><small>${m.round ? `Round ${m.round}` : 'Frozen strategy'} · ${e(text(m.condition))}</small></div><div class="workspace-bar-track"><span style="width:${Math.max(0,Math.min(100,(m.score||0)*100))}%"></span></div><strong>${pct(m.score)}</strong></div>`).join('')}</div>`+
     table(['Participant','Size (B)','Score / B','Round / track','Win / draw / loss','Failed fights','Strategies'],group.models.map(m=>`<tr><td>${e(m.name)}</td><td>${fmt(m.model_size_billion,3)}</td><td>${fmt(m.score_per_billion,4)}</td><td>${m.round??'Frozen'} · ${e(text(m.condition))}</td><td>${m.wins} / ${m.draws} / ${m.losses}</td><td>${m.failed}</td><td>${m.conversations}</td></tr>`))+
     `<p class="muted">Mean score per conversation: win 1, draw 0.5, loss 0. ${group.internal_matches} same-model fights excluded. ${group.runs.length} competitions in this group.</p><details class="quiet-details"><summary>Included competitions & scenario</summary><div class="actions">${group.runs.map(id=>btn(e(S.boot.runs.find(r=>r.id===id)?.name||id),'open-run',`data-run="${e(id)}"`)).join('')}</div>${raw(group.scenario,'Scenario settings')}</details>`;
 }
@@ -1578,7 +1595,7 @@ function runHeader(d) {
   const problems = d.sessions.filter(s=>!s.withdrawn && !s.planned_frozen && (["provider_unavailable","generation_failed","no_submission"].includes(s.status) || (s.reconciliation_required && (!active || s.status === "needs_reconciliation"))));
   const recovery = problems.length ? `<details class="recovery-panel" data-recovery-run="${e(S.run)}" ${S.recoveryOpen?.[S.run] ? "open" : ""}><summary><span class="recovery-count">${problems.length}</span><strong>Conversations need attention</strong><span>Review & recover</span></summary><div>${problems.map(s=>`<div class="recovery-row"><div><strong>${e(s.model)}</strong><small>${e(sessionLabel(s))}</small>${s.failure?.message ? `<small class="provider-error">${e(s.failure.message)}</small>` : `<small>${e(text(s.status))}</small>`}${!s.retry_allowed && !s.reconciliation_required && !active ? `<small>${e(s.retry_reason || "Retry unavailable")}</small>` : ""}</div><div class="actions">${btn("Open conversation","session-conversation",`data-session="${e(s.id)}"`)}${!active ? (s.reconciliation_required ? btn("Resolve billing","reconcile-session",`data-session="${e(s.id)}"`) : retryButton(s)) : ""}</div></div>`).join("")}</div></details>` : "";
   return `<a class="back-link" href="#view=competitions">← Competitions</a>` + head(config.name, "", `${active ? btn("■ Stop", "stop-job", `data-id="${e(job.id)}"`) : experiment && !d.archived ? btn("Resume", "resume", "", true) : ""}<details class="action-menu"><summary class="button">More <span aria-hidden="true">⌄</span></summary><div>${experiment && !d.archived ? btn("Edit participants","edit-run-participants") : ""}${btn("Move to workspace","move-workspace",`data-run="${e(S.run)}"`)}<a class="button" href="/api/results.csv?${query({run:S.run})}" download>Download results CSV</a><a class="button" href="/api/results.csv?${query({run:S.run,table:"fights"})}" download>Download match results CSV</a><a class="button" href="/api/results.csv?${query({run:S.run,table:"sessions"})}" download>Download sessions CSV</a>${experiment ? btn("Clone configuration", "clone-run") + btn("Export competition", "export-run") : ""}</div></details>`) +
-    `<div class="toolbar run-toolbar">${job ? status(job.status === "failed" && d.report?.incomplete ? "incomplete" : job.status) : ""}${config.models ? badge(config.models.every(m=>m.provider==="mock") ? "Built-in strategies" : "Model competition") : badge("Provided strategies")}${d.archived ? badge("Exported copy", "orange") : ""}<span class="run-id mono" title="Competition ID">${e(S.run)}</span><span class="spacer"></span>${active ? badge(runningPhase(d), "blue") : ""}<label class="check live-toggle"><input id="follow-live" type="checkbox" ${S.follow ? "checked" : ""}>Live</label>${job ? btn("Run log", "job-log", `data-id="${e(job.id)}"`) : ""}</div>` + recovery +
+    `<div class="toolbar run-toolbar">${job ? status(job.status === "failed" && d.report?.incomplete ? "incomplete" : job.status) : ""}${config.models ? badge(config.models.every(m=>m.provider==="mock") ? "Built-in strategies" : "Model competition") : badge("Provided strategies")}${d.archived ? badge("Exported copy", "orange") : ""}<span class="run-id mono" title="Competition ID">${e(S.run)}</span><span class="spacer"></span><label class="check live-toggle"><input id="follow-live" type="checkbox" ${S.follow ? "checked" : ""}>Live</label>${job ? btn("Run log", "job-log", `data-id="${e(job.id)}"`) : ""}</div>` + competitionActivity() + recovery +
     (d.roster ? `<details class="quiet-details"><summary>Participant pool changed · revision ${d.roster.revision}</summary><p>${d.roster.active.length} active · ${d.roster.withdrawn.length} withdrawn · ${Object.values(d.roster.frozen_tracks||{}).reduce((sum,tracks)=>sum+tracks.length,0)} frozen tracks. Completed fights and earlier submissions are retained. Scores cover the opponents actually faced.</p><p>Withdrawn: ${e(d.roster.withdrawn.join(", ") || "None")}</p>${btn("Edit participants","edit-run-participants")}</details>` : "") +
     (d.sessions.some(s=>s.continuation_identity) ? `<details class="quiet-details"><summary>Continued after an application update</summary><p>Version changes are recorded in the journal.</p></details>` : "") +
     `<nav class="tabs" aria-label="Competition views">${TABS.map(([key,label])=>`<button class="tab ${S.tab===key ? "active" : ""}" ${S.tab===key ? 'aria-current="page"' : ""} data-action="tab" data-tab="${key}">${label}</button>`).join("")}</nav>`;
@@ -1586,7 +1603,8 @@ function runHeader(d) {
 function configurationView(d) {
   const c = d.metadata.config;
   if (!c) return `<section class="panel"><h2>Competition configuration</h2>${raw(d.metadata,"Full configuration")}</section>`;
-  return `<div class="grid two"><section class="panel"><h2>Format</h2><dl class="configuration-facts"><div><dt>Rounds</dt><dd>${c.generations === null ? "Until manual stop" : c.generations || 1}</dd></div><div><dt>Repetitions per model</dt><dd>${c.replicates}</dd></div><div><dt>Parallel model requests</dt><dd>${c.parallel_requests||1}</dd></div><div><dt>Team size</dt><dd>${c.scenario.team_size}</dd></div><div><dt>Maximum turns</dt><dd>${fmt(c.scenario.max_turns)}</dd></div><div><dt>Team selection</dt><dd>${c.scenario.team_selection ? "Chosen by each model" : "Shared roster"}</dd></div></dl></section><section class="panel"><h2>Participants</h2><div class="configuration-models">${c.models.map(m=>`<div><strong>${e(m.id)}</strong><small>${e(PROVIDER_NAMES[m.provider] || m.provider)} · ${e(m.model || m.profile)}</small></div>`).join("")}</div></section></div><section class="panel"><div class="panel-title"><div><h2>Saved settings</h2><p class="muted">Frozen when launched. Clone to edit and run a new competition.</p></div>${`<a class="button" href="/api/results.csv?${query({run:S.run})}" download>Download results CSV</a><a class="button" href="/api/results.csv?${query({run:S.run,table:"fights"})}" download>Download match results CSV</a><a class="button" href="/api/results.csv?${query({run:S.run,table:"sessions"})}" download>Download sessions CSV</a>`}${btn("Clone configuration", "clone-run")}</div>${raw(d.metadata,"Full JSON & provenance")}</section>`;
+  const activeModels=c.models.filter(model=>!d.roster?.withdrawn.includes(model.id));
+  return `<div class="grid two"><section class="panel"><h2>Format</h2><dl class="configuration-facts"><div><dt>Rounds</dt><dd>${c.generations === null ? "Until manual stop" : c.generations || 1}</dd></div><div><dt>Repetitions per model</dt><dd>${c.replicates}</dd></div><div><dt>Parallel model requests</dt><dd>${c.parallel_requests||1}</dd></div><div><dt>Team size</dt><dd>${c.scenario.team_size}</dd></div><div><dt>Maximum turns</dt><dd>${fmt(c.scenario.max_turns)}</dd></div><div><dt>Team selection</dt><dd>${c.scenario.team_selection ? "Chosen by each model" : "Shared roster"}</dd></div></dl></section><section class="panel"><h2>Participants (${activeModels.length} active)</h2><div class="configuration-models">${activeModels.map(m=>`<div><strong>${e(m.id)}</strong><small>${e(PROVIDER_NAMES[m.provider] || m.provider)} · ${e(m.model || m.profile)}</small></div>`).join("")}</div></section></div><section class="panel"><div class="panel-title"><div><h2>Saved settings</h2><p class="muted">Scenario and budgets remain fixed. Participant changes are audited; historical profiles remain in the full record.</p></div>${`<a class="button" href="/api/results.csv?${query({run:S.run})}" download>Download results CSV</a><a class="button" href="/api/results.csv?${query({run:S.run,table:"fights"})}" download>Download match results CSV</a><a class="button" href="/api/results.csv?${query({run:S.run,table:"sessions"})}" download>Download sessions CSV</a>`}${btn("Clone configuration", "clone-run")}</div>${raw(d.metadata,"Full JSON & provenance")}</section>`;
 }
 function runModels(d) {
   const configured = d.metadata?.config?.models || [];
@@ -1646,6 +1664,10 @@ function sessionChooser(d) {
 }
 async function renderRun(epoch) {
   const d = S.detail;
+  if(S.activityRun!==S.run) {
+    await refreshCompetitionActivity(epoch);
+    if(epoch!==S.epoch)return;
+  }
   let body = "";
   if (S.tab === "summary") {
     const fights = await api("/api/matches", { run: S.run });
@@ -1961,7 +1983,7 @@ function overviewData(d) {
     return row;
   };
   const sessions = d.sessions.filter((v) =>
-    overviewAccept(overviewIdentity(v.id), scope),
+    (!v.withdrawn || v.submission) && overviewAccept(overviewIdentity(v.id), scope),
   );
   return {
     scope,
@@ -2251,7 +2273,7 @@ function summary(d, statistics = null) {
         Number(s.money_reserved || 0) > 0,
     ),
     cost = sessions.reduce((n, s) => n + Number(s.cost_spent || 0), 0);
-  return `<div class="competition-overview">${overviewFilters(d, data)}${failures.length ? `<div class="overview-alert">${failures.length} conversation${failures.length === 1 ? "" : "s"} need attention. <button class="table-button" data-action="overview-failures">Review & retry</button></div>` : ""}<div class="overview-kpis"><div><span>Completed fights</span><strong>${fmt(data.selected.filter((v) => v.match.result.status === "completed").length)}</strong><small>${data.selected.filter((v) => v.match.result.status !== "completed").length} failed</small></div><div><span>Submitted strategies</span><strong>${sessions.length ? sessions.filter((s) => s.submission || s.status === "submitted").length : d.metadata.manifest?.strategies?.filter(s=>overviewAccept(overviewIdentity(s.id),data.scope)).length ?? data.models.length}${sessions.length ? `<small> / ${sessions.length}</small>` : ""}</strong><small>${new Set(sessions.map((s) => s.model)).size || data.models.length} models</small></div><div><span>Estimated API cost</span><strong>${sessions.length ? (costUnknown ? "Unknown" : money(cost)) : "N/A"}</strong><small>Selected versions</small></div><div><span>Tokens · selected versions</span><strong>${known.length ? fmt(tokens) : real.length ? "Unknown" : "N/A"}</strong><small>${known.length ? (known.length < real.length || known.some(u=>!u.complete) ? "Partial reported usage" : "Input + output") : real.length ? "Not reported by provider" : "No measured LLM usage"}</small></div></div>
+  return `<div class="competition-overview">${overviewFilters(d, data)}${failures.length ? `<div class="overview-alert">${failures.length} conversation${failures.length === 1 ? "" : "s"} need attention. <button class="table-button" data-action="overview-failures">Review & retry</button></div>` : ""}<div class="overview-kpis"><div><span>Completed fights</span><strong>${fmt(data.selected.filter((v) => v.match.result.status === "completed").length)}</strong><small>${data.selected.filter((v) => v.match.result.status !== "completed").length} failed</small></div><div><span>Submitted strategies</span><strong>${sessions.length ? sessions.filter((s) => s.submission || s.status === "submitted").length : d.metadata.manifest?.strategies?.filter(s=>overviewAccept(overviewIdentity(s.id),data.scope)).length ?? data.models.length}${sessions.length ? `<small> / ${sessions.length}</small>` : ""}</strong><small>${d.metadata.config ? d.metadata.config.models.filter(model=>!d.roster?.withdrawn.includes(model.id)&&(!data.scope.model||data.scope.model===model.id)).length : data.models.length} active participants</small></div><div><span>Estimated API cost</span><strong>${sessions.length ? (costUnknown ? "Unknown" : money(cost)) : "N/A"}</strong><small>Selected versions</small></div><div><span>Tokens · selected versions</span><strong>${known.length ? fmt(tokens) : real.length ? "Unknown" : "N/A"}</strong><small>${known.length ? (known.length < real.length || known.some(u=>!u.complete) ? "Partial reported usage" : "Input + output") : real.length ? "Not reported by provider" : "No measured LLM usage"}</small></div></div>
   <div class="overview-charts"><section class="overview-card"><div class="overview-section-head"><h2>Model ranking</h2><span>Score</span></div>${overviewRanking(data)}</section><section class="overview-card"><div class="overview-section-head"><h2>Evolution</h2><span>Score by version</span></div>${overviewEvolution(data)}</section></div><section class="overview-card">${resourcePanel(overviewResourcePoints(d,data),"overview")}</section>
   ${data.matrix.length ? `<section class="overview-card overview-head-to-head"><div class="overview-section-head"><h2>Match matrix</h2><span>Click a result to see fights</span></div>${overviewMatrix(data)}</section>` : `<div class="overview-empty">${data.selected.length ? "No head-to-head pairs in this selection." : `No ${data.scope.source === "competition" ? "tournament" : "reference"} matches yet.`}${statistics?.training_matches ? ` ${statistics.training_matches} preparation tests recorded; excluded from standings. ${btn("View preparation tests", "show-training")}` : ""}</div>`}
   ${overviewDetails(d, data, statistics)}</div>`;
@@ -4122,6 +4144,10 @@ setInterval(async () => {
     const liveToggle = $("#follow-live");
     if (liveToggle) liveToggle.checked = !!S.follow;
     updateChrome();
+    if(S.view==='run') {
+      try {await refreshCompetitionActivity(S.epoch);}
+      catch(error) {const panel=$('#competition-activity');if(panel)panel.dataset.stale='true';}
+    }
     if (S.logJob && $("#job-log-live")) {
       const log = await api("/api/job", { id: S.logJob });
       $("#job-log-live").textContent = log.content;

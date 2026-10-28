@@ -351,6 +351,8 @@ class Store(Workspaces):
                 if 'config' in metadata:
                     from arena.roster import effective
                     config = effective(path, config)
+                from arena.roster import snapshot
+                withdrawn=set((snapshot(path) or {}).get('withdrawn',[]))
                 report = self.json(path / "report.json", {})
                 rows.append({"id": identifier, "name": config.get("name", identifier),
                              "kind": "experiment" if "config" in metadata else "tournament",
@@ -358,7 +360,8 @@ class Store(Workspaces):
                              "archived": (path / "export.json").exists(),
                              "simulated": all(m.get("provider") == "mock" for m in config.get("models", []))
                                           if "models" in config else None,
-                             "models": len(config.get("models", config.get("strategies", []))),
+                             "models": sum(model['id'] not in withdrawn for model in config['models']) if 'models' in config else len(config.get('strategies',[])),
+                             "withdrawn_models":len(withdrawn),
                              "replicates": config.get("replicates"), "report": report,
                              "complete": bool(report) and not any(report.get(k) for k in
                                   ("incomplete", "failed", "pending", "assessment_failures", "unresolved_sessions"))

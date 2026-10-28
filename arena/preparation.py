@@ -205,7 +205,9 @@ class Preparation:
                     return readable_analysis(read_json(out / "result.json"), getattr(self.engine, "identity", None), self.workspace)
                 # An interrupted invocation is retained; retry in a new directory.
                 out = self._attempt(out)
-                return readable_analysis(self.engine.analyze(self.workspace, entry, out), getattr(self.engine, "identity", None), self.workspace)
+                from .activity import operation, session_root
+                with operation(session_root(self.directory),'preparation_analysis',participants=[self.directory.name]):
+                    return readable_analysis(self.engine.analyze(self.workspace, entry, out), getattr(self.engine, "identity", None), self.workspace)
             opponent = ROOT / 'examples/strategies/passive'
             opponent_info = submission(opponent,'main.leek')
             if own_opponent is not None:
@@ -240,7 +242,10 @@ class Preparation:
                 sources = [self.workspace, opponent] if side == 0 else [opponent, self.workspace]
                 infos = [info,opponent_info] if side == 0 else [opponent_info,info]
                 work = self._attempt(base / "match")
-                result = self.engine.fight(sources, infos, self.scenario, 17, work)
+                from .activity import operation, session_root
+                with operation(session_root(self.directory),'preparation_fight',participants=[self.directory.name],
+                               opponent=opponent_id,side=side):
+                    result = self.engine.fight(sources, infos, self.scenario, 17, work)
                 result["artifact_dir"] = work.relative_to(self.directory).as_posix()
                 result['own_side'] = side
                 result['opponent'] = opponent_id

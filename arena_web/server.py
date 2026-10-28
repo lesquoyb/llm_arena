@@ -78,6 +78,10 @@ class Application:
             return {"runs": store.listing(), "jobs": self.jobs.listing()}
         if route == '/api/workspace':
             return store.workspace_summary(value('workspace',''))
+        if route == '/api/activity':
+            from .activity import status
+            job=next((job for job in self.jobs.listing() if job['run']==run),None)
+            return status(store,run,job)
         if route == '/api/faults':
             from .faults import report
             return report(store,run)
@@ -296,14 +300,14 @@ class Handler(BaseHTTPRequestHandler):
                     import io
                     summary=app.store.workspace_summary(query['workspace'][0])
                     stream=io.StringIO(newline='')
-                    columns=['workspace_id','comparison_group','kind','stage','scenario_sha256','runs','participant','round','condition','score','wins','draws','losses','failed','strategies','model_size_billion','score_per_billion','mean_cost_usd','mean_wall_seconds']
+                    columns=['workspace_id','comparison_group','kind','stage','scenario_sha256','runs','participant','round','condition','score','wins','draws','losses','failed','strategies','model_size_billion','score_per_billion','mean_cost_usd','mean_wall_seconds','mean_tool_calls','total_tool_calls']
                     writer=csv.DictWriter(stream,fieldnames=columns);writer.writeheader()
                     for group in summary['groups']:
                         for row in group['models']:
                             writer.writerow({'workspace_id':query['workspace'][0],'comparison_group':group['id'],
                                 'kind':group['kind'],'stage':group['stage'],'scenario_sha256':digest(group['scenario']),
                                 'runs':json.dumps(group['runs']), 'participant':row['name'],'strategies':row['conversations'],
-                                **{key:row[key] for key in ('round','condition','score','wins','draws','losses','failed','model_size_billion','score_per_billion','mean_cost_usd','mean_wall_seconds')}})
+                                **{key:row[key] for key in ('round','condition','score','wins','draws','losses','failed','model_size_billion','score_per_billion','mean_cost_usd','mean_wall_seconds','mean_tool_calls','total_tool_calls')}})
                     body=stream.getvalue().encode('utf-8-sig')
                 elif table in {'results', 'fights', 'sessions', 'errors'}:
                     with TemporaryDirectory(prefix='arena-results-') as directory:

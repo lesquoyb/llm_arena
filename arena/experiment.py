@@ -463,6 +463,7 @@ def execute_tool(sid, state, tools, journal, call, call_id, budget):
         state["steps"] += 1
         state["test_matches"] += 2 if call["name"] == "test" else 0
         state["reserved"] = call_id
+        state['current_tool'] = {'name':call['name'],'started_at':time.time()}
         journal.save(sid, state, "tool_reserved", call)
     tool_started = time.monotonic()
     try:
@@ -477,6 +478,7 @@ def execute_tool(sid, state, tools, journal, call, call_id, budget):
                              "provider_call_id": call.get("id", call_id),
                              "name": call["name"], "result": result})
     state["cursor"] += 1
+    state.pop('current_tool',None)
     state["reserved"] = None
     state["workspace_files"] = workspace_files(tools.workspace)
     if not result.get('error') and call['name'] in {'analyze','test'}:
@@ -733,7 +735,9 @@ def run(config: dict, out: Path, resume=False, interrupt=None, prepare_only=Fals
                                    ("experiment", "Experiment", None, "experiment.json", file_hash(out / "experiment.json")))
                 journal.db.commit()
             if resume:
-                journal.verify()
+                from .activity import operation
+                with operation(out,'checkpoint_verification'):
+                    journal.verify()
             from .roster import effective, snapshot, active
             config = effective(out, config)
             roster = snapshot(out)
@@ -792,7 +796,9 @@ def run(config: dict, out: Path, resume=False, interrupt=None, prepare_only=Fals
                     assessments[sid] = read_json(cached)
                 else:
                     target = Preparation._attempt(directory / "assessment")
-                    assessments[sid] = engine.analyze(directory / "submission", state["submission"]["entrypoint"], target)
+                    from .activity import operation
+                    with operation(out,'validation',participants=[sid],generation=0):
+                        assessments[sid] = engine.analyze(directory / "submission", state["submission"]["entrypoint"], target)
                     write_json(cached, assessments[sid])
                 state["validity"] = assessments[sid]["status"]
                 state["assessment_sha256"] = file_hash(cached)

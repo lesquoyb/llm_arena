@@ -127,8 +127,11 @@ def _run_tournament(engine: Engine, manifest: dict, out: Path, resume: bool = Fa
         work = base / f"attempt-{attempt}"
         sides = match["sides"]
         print(f"[{index}/{len(matches)}] {sides[0]} vs {sides[1]}, seed {match['seed']}", flush=True)
-        result = engine.fight([out / "submissions" / s for s in sides],
-                              [strategies[s]["submission"] for s in sides], manifest["scenario"], match["seed"], work)
+        from .activity import operation
+        with operation(out.parent,'tournament_fight',participants=sides,
+                       generation=max(strategies[s].get('generation',0) for s in sides),seed=match['seed']):
+            result = engine.fight([out / "submissions" / s for s in sides],
+                                  [strategies[s]["submission"] for s in sides], manifest["scenario"], match["seed"], work)
         write_json(record_path, {"match": match, "directory": work.relative_to(out).as_posix(), "result": result})
         report(out)
     return report(out)

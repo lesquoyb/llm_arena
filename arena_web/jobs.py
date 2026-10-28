@@ -160,6 +160,8 @@ class Jobs:
             row = {"id": identifier, "run": run_id, "name": config["name"], "started_at": time.time(),
                    "status": "running", "resumed": draft_id is None, "retry_session": retry_session, "config_sha256": digest(config),
                    "log": identifier + ".log"}
+            if draft_id is None:
+                write_json(out/'activity.json',{'kind':'starting','started_at':row['started_at']})
             with (logs / row["log"]).open("wb") as log:
                 if draft_id is not None:
                     self.store.inherit_workspace(draft_id,run_id)

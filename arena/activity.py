@@ -1,0 +1,19 @@
+"""Small transient coordinator status, separate from immutable fight artifacts."""
+from contextlib import contextmanager
+import time
+from .core import write_json
+
+
+@contextmanager
+def operation(out, kind, **details):
+    started=time.time()
+    value={'kind':kind,'started_at':started,**details}
+    write_json(out/'activity.json',value)
+    try:
+        yield
+    finally:
+        write_json(out/'activity.json',{**value,'kind':'idle','previous_kind':kind,'finished_at':time.time()})
+
+
+def session_root(directory):
+    return directory.parent.parent if directory.parent.name=='sessions' else directory

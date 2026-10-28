@@ -47,8 +47,11 @@ def references(engine, config, out, journal, entrants, label, panel, *, incremen
                             cached = None
                     if not cached or not cached.exists():
                         work = Preparation._attempt(root / "matches" / key)
-                        result = engine.fight([Path(s["path"]) for s in sources], [s["submission"] for s in sources],
-                                              config["scenario"], seed, work)
+                        from .activity import operation
+                        with operation(out,'reference_fight',participants=[s['id'] for s in sources],
+                                       generation=entrant.get('generation',0),seed=seed):
+                            result = engine.fight([Path(s["path"]) for s in sources], [s["submission"] for s in sources],
+                                                  config["scenario"], seed, work)
                         record = {"session": entrant["id"], "opponent": opponent["id"], "seed": seed,
                                   "side": side, "result": result, "artifact_dir": work.relative_to(out).as_posix()}
                         write_json(root / "records" / (key + ".json"), record)
@@ -181,8 +184,10 @@ def run_generation(config, out, journal, engine, initial, interrupt=None, retry_
                     raise ArenaError("G1 assessment changed")
                 assessment = read_json(cached)
             else:
-                assessment = engine.analyze(directory / "submission", state["submission"]["entrypoint"],
-                                            Preparation._attempt(directory / "assessment"))
+                from .activity import operation
+                with operation(out,'validation',participants=[sid],generation=generation):
+                    assessment = engine.analyze(directory / "submission", state["submission"]["entrypoint"],
+                                                Preparation._attempt(directory / "assessment"))
                 write_json(cached, assessment)
             state["validity"] = assessment["status"]
             state["assessment_sha256"] = file_hash(cached)

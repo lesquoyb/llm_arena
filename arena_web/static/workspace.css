@@ -335,3 +335,34 @@ body[data-view=editor] main { padding-bottom:140px; }
 
 .run-participant-list { max-height: min(48vh, 420px); overflow-y: auto; display: grid; gap: 12px; padding: 8px 4px; }
 .run-participant-list small { display: block; color: var(--muted); overflow-wrap: anywhere; }
+
+.resource-pair { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1.6fr); gap:28px; }
+.resource-pair > section { min-width:0; }
+.resource-pair h4 { margin:12px 0 18px; }
+.tool-call-bars { display:grid; gap:14px; max-height:420px; overflow-y:auto; padding-right:4px; }
+.tool-call-bars > div { display:grid; grid-template-columns:minmax(80px,1fr) minmax(70px,1fr) auto; gap:12px; align-items:center; }
+.tool-call-bars > div > span { overflow-wrap:anywhere; font-size:13px; }
+.tool-call-bars strong { font-variant-numeric:tabular-nums; }
+.competition-activity { background:#fff; border:1px solid var(--border); border-left:3px solid #27836c; border-radius:10px; margin:12px 0 20px; padding:16px 20px; }
+.activity-heading,.activity-progress,.activity-footer,.activity-actors { display:flex; flex-wrap:wrap; align-items:center; gap:10px 22px; }
+.activity-heading { justify-content:space-between; margin-bottom:14px; }
+.activity-heading > strong { display:flex; gap:8px; align-items:center; }
+.activity-heading > span,.activity-footer,.activity-requests small,.competition-activity > small { color:var(--muted); font-size:12px; }
+.activity-progress { gap:10px 24px; font-size:12px; }
+.activity-progress strong { font-variant-numeric:tabular-nums; font-size:14px; margin-right:3px; }
+.activity-actors { margin-top:12px; }
+.activity-actors .button,.activity-requests .button { padding:5px 8px; min-height:0; font-size:12px; }
+.activity-requests { display:flex; flex-wrap:wrap; gap:10px 18px; margin-top:12px; }
+.activity-requests > span { display:grid; gap:3px; }
+.activity-footer { justify-content:space-between; border-top:1px solid var(--border); margin-top:12px; padding-top:10px; }
+.activity-dot { width:7px; height:7px; border-radius:50%; background:#27836c; animation:activity-pulse 2s ease-in-out infinite; }
+.competition-activity[data-stale=true] .activity-footer::after { content:'Activity refresh interrupted; retrying'; color:#985d19; }
+@keyframes activity-pulse { 50% { opacity:.4; } }
+@media(max-width:1050px) { .resource-pair { grid-template-columns:minmax(0,1fr); } }
+@media(max-width:600px) { .competition-activity { padding:14px; }.activity-progress { display:grid; grid-template-columns:1fr 1fr; }.activity-heading { align-items:flex-start; } }
+@media(prefers-reduced-motion:reduce) { .activity-dot { animation:none; } }
+.activity-actors .button,.activity-requests .button { white-space:normal; overflow-wrap:anywhere; max-width:100%; text-align:left; }
+.activity-requests > span { min-width:0; max-width:100%; }
+
+.activity-heading small { white-space:nowrap; }
+.activity-dot { flex-shrink:0; }

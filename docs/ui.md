@@ -758,3 +758,27 @@ The **Errors** tab filters observed failures by model, round and track. It inclu
 failed compilation checks, unknown tools, invalid arguments, team validation,
 runtime errors and separate provider failures, with rates, recent incidents and an
 **errors.csv** export. These observations are not an automatic hallucination score.
+
+## Tool-call comparisons and live activity
+
+The competition overview shows **Total tool calls** and **Performance vs resources**,
+with **Tool calls** selected by default. The total is the sum of tool invocations
+in the selected rounds/models. The performance chart uses mean invocations per
+strategy, so repetitions do not inflate its horizontal axis. Every tool in a batch
+counts separately; failed invocations count too. Message and API-response counts
+are retained in logs/exports but do not determine these charts. References are
+excluded. Workspace comparison groups expose the same tool totals and means;
+workspace resource tables show tool calls instead of message counts.
+
+An activity panel is present on every competition tab. It refreshes independently
+of the detailed **Live** toggle, showing the current round, active participants,
+submitted/validated strategies, tournament progress, models awaiting responses,
+and the engine's current pair or compilation. Preparation tests and reference
+checks are labelled separately from tournament fights. Durations, last recorded
+progress and the most recent activity observation are visible. When available,
+provider stream-file updates are reported without loading the streamed text.
+
+Resume also reports checkpoint verification instead of appearing idle while it
+checks source and journal integrity. Stopped jobs suppress stale engine/request
+markers. Withdrawn profiles remain archived, but no longer inflate active
+participant counts in the competition list, configuration or progress panel.

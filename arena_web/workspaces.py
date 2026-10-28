@@ -130,11 +130,11 @@ class Workspaces:
                     'model_size_billion':model_size(sid),
                     'configuration':descriptor(sid),
                     'sessions':0,'submitted':0,'invalid':0,'input_tokens':0,'output_tokens':0,'unmeasured_sessions':0,
-                    'known_cost_usd':Decimal(0),'reserved_usd':Decimal(0),'unresolved_sessions':0,'messages':0,'wall_seconds':0})
+                    'known_cost_usd':Decimal(0),'reserved_usd':Decimal(0),'unresolved_sessions':0,'messages':0,'tool_calls':0,'wall_seconds':0})
                 if resource['model_size_billion']!=model_size(sid):resource['model_size_billion']=None
                 resource['sessions']+=1;resource['submitted']+=bool(state.get('submission'))
                 resource['invalid']+=state.get('validation_status')=='invalid'
-                resource['messages']+=state.get('messages',0);resource['wall_seconds']+=state.get('wall_seconds',0)
+                resource['tool_calls']+=state.get('steps',0);resource['messages']+=state.get('messages',0);resource['wall_seconds']+=state.get('wall_seconds',0)
                 receipt=state.get('usage_receipts') or {}
                 measured=not receipt.get('missing_usage') if receipt.get('responses') else state.get('token_usage_known',False)
                 for field in ('input_tokens','output_tokens'):
@@ -197,7 +197,7 @@ class Workspaces:
                         'round':round_number,'condition':condition,
                         'is_reference':sid in frozen or models.get(state.get('model'),{}).get('provider')=='mock',
                         'model_size_billion':model_size(sid),
-                        'wins':0,'draws':0,'losses':0,'failed':0,'conversations':defaultdict(lambda:[0,0,None,None])})
+                        'wins':0,'draws':0,'losses':0,'failed':0,'conversations':defaultdict(lambda:[0,0,None,None,None])})
                     if row['model_size_billion']!=model_size(sid):row['model_size_billion']=None
                     if not done:row['failed']+=1;continue
                     outcome='draws' if result.get('winner_side')==-1 else 'wins' if result.get('winner_side')==side else 'losses'
@@ -207,6 +207,7 @@ class Workspaces:
                     if sid in sessions:
                         entry[2]=float(state.get('cost_spent') or '0') if not state.get('reconciliation_required') and not float(state.get('money_reserved') or '0') else None
                         entry[3]=state.get('wall_seconds')
+                        entry[4]=state.get('steps',0)
         for group in groups.values():
             group['runs']=sorted(group['runs'])
             for row in group['models'].values():
@@ -215,9 +216,10 @@ class Workspaces:
                 row['score']=sum(averages)/len(averages) if averages else None
                 row['conversations']=len(averages)
                 row['score_per_billion']=row['score']/row['model_size_billion'] if row['score'] is not None and row['model_size_billion'] else None
-                for field,index in (('mean_cost_usd',2),('mean_wall_seconds',3)):
+                for field,index in (('mean_cost_usd',2),('mean_wall_seconds',3),('mean_tool_calls',4)):
                     values=[value[index] for value in conversations]
                     row[field]=sum(values)/len(values) if values and all(value is not None for value in values) else None
+                row['total_tool_calls']=sum(value[4] for value in conversations) if all(value[4] is not None for value in conversations) else None
             group['models']=sorted(group['models'].values(),key=lambda row:-(row['score'] if row['score'] is not None else -1))
         for row in [totals,*resources.values()]:
             for key in ('known_cost_usd','reserved_usd'):row[key]=str(row[key])
