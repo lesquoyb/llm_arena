@@ -52,9 +52,10 @@ class Jobs:
                 roster = snapshot(out) or {}
                 withdrawn = set(roster.get('withdrawn', []))
                 frozen_tracks = roster.get('frozen_tracks', {})
-                from arena.recovery import needs_reconciliation
+                from arena.recovery import needs_reconciliation, zero_cost_requests
                 external = {m['id'] for m in config['models'] if m['provider'] != 'mock'}
-                blocked = [sid for sid,state in self.store.states(out).items() if state['model'] not in withdrawn and needs_reconciliation(state, state['model'] in external)]
+                free = {m['id'] for m in config['models'] if zero_cost_requests(m)}
+                blocked = [sid for sid,state in self.store.states(out).items() if state['model'] not in withdrawn and needs_reconciliation(state, state['model'] in external) and (state['model'] not in free or amount(state.get('money_reserved','0'))>0)]
                 if blocked:
                     raise ArenaError('Resolve billing in Conversations before resuming: ' + ', '.join(blocked))
                 if retry_session is None:

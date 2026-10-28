@@ -112,6 +112,9 @@ def summarize(out, sid, target, config):
                               {'role':'user','content':json.dumps(evidence,ensure_ascii=False)}]
             state['calibration']={'tools':[], 'previous_sessions':[], 'stream_responses':config.get('stream_responses',True)}
             journal.save(name,state,'session_created')
+        from .recovery import recover_zero_cost_requests
+        recover_zero_cost_requests(journal,[model])
+        state=journal.state(name)
         if state.get('in_flight') or state['status']=='needs_reconciliation':
             raise ArenaError('Summary request needs billing reconciliation; it will not be repeated automatically')
         if state['status'] in {'provider_unavailable','budget_exhausted'}: state['status']='running'

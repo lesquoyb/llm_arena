@@ -136,7 +136,7 @@ class Workspaces:
                 resource['invalid']+=state.get('validation_status')=='invalid'
                 resource['tool_calls']+=state.get('steps',0);resource['messages']+=state.get('messages',0);resource['wall_seconds']+=state.get('wall_seconds',0)
                 receipt=state.get('usage_receipts') or {}
-                measured=not receipt.get('missing_usage') if receipt.get('responses') else state.get('token_usage_known',False)
+                measured=(not receipt.get('missing_usage') and state.get('token_usage_known') is not False) if receipt.get('responses') else state.get('token_usage_known',False)
                 for field in ('input_tokens','output_tokens'):
                     value=receipt.get(field,0) if receipt.get('responses') else state.get(field,0) if measured else 0
                     resource[field]+=value or 0;totals[field]+=value or 0
@@ -197,7 +197,7 @@ class Workspaces:
                         'round':round_number,'condition':condition,
                         'is_reference':sid in frozen or models.get(state.get('model'),{}).get('provider')=='mock',
                         'model_size_billion':model_size(sid),
-                        'wins':0,'draws':0,'losses':0,'failed':0,'conversations':defaultdict(lambda:[0,0,None,None,None])})
+                        'wins':0,'draws':0,'losses':0,'failed':0,'conversations':defaultdict(lambda:[0,0,None,None,None,None,None])})
                     if row['model_size_billion']!=model_size(sid):row['model_size_billion']=None
                     if not done:row['failed']+=1;continue
                     outcome='draws' if result.get('winner_side')==-1 else 'wins' if result.get('winner_side')==side else 'losses'
@@ -208,6 +208,8 @@ class Workspaces:
                         entry[2]=float(state.get('cost_spent') or '0') if not state.get('reconciliation_required') and not float(state.get('money_reserved') or '0') else None
                         entry[3]=state.get('wall_seconds')
                         entry[4]=state.get('steps',0)
+                        entry[5]=state.get('test_matches',0)
+                        entry[6]=state.get('replay_reads')
         for group in groups.values():
             group['runs']=sorted(group['runs'])
             for row in group['models'].values():
@@ -216,7 +218,7 @@ class Workspaces:
                 row['score']=sum(averages)/len(averages) if averages else None
                 row['conversations']=len(averages)
                 row['score_per_billion']=row['score']/row['model_size_billion'] if row['score'] is not None and row['model_size_billion'] else None
-                for field,index in (('mean_cost_usd',2),('mean_wall_seconds',3),('mean_tool_calls',4)):
+                for field,index in (('mean_cost_usd',2),('mean_wall_seconds',3),('mean_tool_calls',4),('mean_test_matches',5),('mean_replay_reads',6)):
                     values=[value[index] for value in conversations]
                     row[field]=sum(values)/len(values) if values and all(value is not None for value in values) else None
                 row['total_tool_calls']=sum(value[4] for value in conversations) if all(value[4] is not None for value in conversations) else None

@@ -23,7 +23,7 @@ def needs_reconciliation(state, external=True):
                 amount(state.get('money_reserved', '0')) > 0)
 
 
-def reconcile(journal, sid, cost, note):
+def reconcile(journal, sid, cost, note, *, automatic=False):
     import copy
     if not isinstance(note, str) or not note.strip():
         raise ArenaError('Explain how the request cost was checked')
@@ -34,6 +34,9 @@ def reconcile(journal, sid, cost, note):
     state = copy.deepcopy(original)
     state['cost_spent'] = str(amount(state.get('cost_spent', '0')) + charge)
     state.update(in_flight=False, money_reserved='0', reservation_unbounded=False)
+    if automatic and original.get('in_flight'):
+        state['token_usage_known']=False
+        state['missing_usage_calls']=state.get('missing_usage_calls',0)+1
     # A received response still has pending tools; continue them without resending it.
     state['status'] = 'running' if state.get('pending') else 'provider_unavailable'
     if state.get('pending'):
@@ -41,10 +44,28 @@ def reconcile(journal, sid, cost, note):
     state.pop('failure', None)
     journal.save(sid, state, 'billing_reconciled', {'cost_usd': str(charge), 'note':note.strip(),
         'previous_checkpoint_sha256':digest(original), 'previous_status':original['status'],
-        'response_received':bool(state.get('pending')), 'usage_counters_preserved':True})
+        'response_received':bool(state.get('pending')), 'usage_counters_preserved':True, 'automatic':automatic})
     for child_id, child in journal.states().items():
         if (child.get('parent') == sid and child.get('status') == 'no_submission'
                 and not child.get('calls') and not child.get('submission')):
             child['retry_parent_refresh'] = True
             journal.save(child_id, child, 'branch_waiting_retry', {'parent':sid})
     return state
+
+
+def zero_cost_requests(model):
+    """Only explicit all-zero prices establish that an unknown request costs zero."""
+    from .usage import effective_pricing
+    pricing=effective_pricing(model)
+    return bool(pricing is not None and all(key in pricing for key in ('input_per_million','output_per_million')) and
+                all(amount(pricing.get(key,pricing['input_per_million']))==0 for key in
+                    ('input_per_million','output_per_million','cached_input_per_million','cache_creation_per_million')))
+
+
+def recover_zero_cost_requests(journal, models):
+    """Audit recovery of interrupted free requests; never fabricate token usage."""
+    by_id={model['id']:model for model in models}
+    for sid,state in journal.states().items():
+        model=by_id.get(state.get('model'))
+        if model and zero_cost_requests(model) and needs_reconciliation(state) and amount(state.get('money_reserved','0'))==0:
+            reconcile(journal,sid,'0','Automatically resolved: all configured request prices are zero; token usage of the interrupted request remains unknown.',automatic=True)

@@ -2098,3 +2098,14 @@ dialog::backdrop {
     animation: none;
   }
 }
+
+/* Chart identity remains readable with many series, by pointer or keyboard. */
+#chart-tooltip { position:fixed; z-index:10000; max-width:min(390px,calc(100vw - 16px)); padding:9px 12px; border-radius:8px; background:#172638; color:#fff; box-shadow:0 4px 20px #0003; font-size:13px; pointer-events:none; }
+[data-chart-model] { transition:opacity .12s ease; }
+.chart-dimmed { opacity:.15; }
+.chart-selected { opacity:1; }
+svg circle.chart-selected { stroke:#142d43; stroke-width:2.5; }
+svg path[data-chart-model] { pointer-events:stroke; }
+svg path.chart-selected { stroke-width:3.5; }
+.chart-legend [data-chart-model],.overview-legend [data-chart-model] { cursor:default; }
+@media (prefers-reduced-motion:reduce) { [data-chart-model] { transition:none; } }

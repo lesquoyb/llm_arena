@@ -515,6 +515,9 @@ def _propose(config, report, incumbent_dir, proposal_dir, learning=None):
         if policy and state.get('analyst_input_policy')!=policy:
             state['analyst_input_policy']=policy
             journal.save(sid,state,'analyst_input_policy_applied',policy)
+        from .recovery import recover_zero_cost_requests
+        recover_zero_cost_requests(journal,[analyst])
+        state=journal.state(sid)
         if state.get('status') == 'provider_unavailable' and not state.get('in_flight'):
             state['status'] = 'running'
         if state.get('in_flight') or state.get('status') == 'needs_reconciliation':

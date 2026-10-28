@@ -117,3 +117,17 @@ full receipts remain in the Journal. **Download errors CSV** exports one summary
 per conversation; this table is also available as `errors.csv` in benchmark exports.
 Runtime execution errors across tournament/reference fights and preparation tests are
 separate counters. Models' written claims are not counted as executed errors.
+
+### Interrupted requests with zero configured prices
+
+If all configured input, output, cached-input and cache-write rates are zero, an
+unknown request outcome cannot add a monetary charge in arena accounting.
+Timeouts and unreadable responses therefore remain retryable provider failures,
+without a billing reconciliation step. Missing token usage remains unknown.
+A successful free response with missing usage can still execute its saved tools.
+
+Resume also resolves older zero-price interruptions automatically, with a saved
+`billing_reconciled` event marked `automatic: true`. Existing successful
+submissions, usage counters and completed fights are retained. This rule uses
+explicit rates, not the current displayed cost: a paid request with a displayed
+cost of zero can still require review, as can a nonzero outstanding reservation.

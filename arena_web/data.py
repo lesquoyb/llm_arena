@@ -340,15 +340,15 @@ class Store(Workspaces):
                         fingerprint=fingerprints.get(sid)
                         cached=metadata.get(sid)
                         key=(str(root),sid,fingerprint)
-                        if cached and fingerprint and cached[0]==fingerprint:
+                        if cached and fingerprint and cached[0]==fingerprint and 'replay_reads' in json.loads(cached[1]):
                             value=json.loads(cached[1])
                         else:
                             with self.lock:
                                 value=self._session_metadata_cache.get(key) if fingerprint else None
                                 if value is not None:self._session_metadata_cache.move_to_end(key)
                             if value is None:
-                                raw,count=connection.execute("SELECT json_extract(state,"+paths+"),json_array_length(state,'$.history') FROM sessions WHERE id=?",(sid,)).fetchone()
-                                value={**{field:item for field,item in zip(FIELDS,json.loads(raw)) if item is not None},'messages':count or 0}
+                                raw,count,replays=connection.execute("SELECT json_extract(state,"+paths+"),json_array_length(state,'$.history'),(SELECT count(*) FROM json_each(state,'$.history') WHERE json_extract(value,'$.role')='tool' AND json_extract(value,'$.name') IN ('read_replay','read_past_fight')) FROM sessions WHERE id=?",(sid,)).fetchone()
+                                value={**{field:item for field,item in zip(FIELDS,json.loads(raw)) if item is not None},'messages':count or 0,'replay_reads':replays}
                                 if fingerprint:
                                     with self.lock:
                                         self._session_metadata_cache[key]=value
@@ -474,10 +474,11 @@ class Store(Workspaces):
         withdrawn = set((roster or {}).get('withdrawn', []))
         sessions = []
         keys = ("model", "participant_revision", "replicate", "generation", "condition", "parent", "parent_checkpoint_sha256",
-                "status", "validity", "calls", "completed_calls", "failure", "context_recoveries", "manual_frozen", "steps", "test_matches", "wall_seconds", "cost_spent",
+                "status", "validity", "calls", "completed_calls", "failure", "context_recoveries", "manual_frozen", "steps", "test_matches", "replay_reads", "wall_seconds", "cost_spent",
                 "money_reserved", "token_usage_known", "input_tokens", "output_tokens", "submission", "in_flight", "retry_count", "continuation_identity", "provider_parameter_overrides")
         from arena.retries import retry_reason
-        from arena.recovery import needs_reconciliation
+        from arena.recovery import needs_reconciliation, zero_cost_requests
+        free={m["id"] for m in metadata.get("config",{}).get("models",[]) if zero_cost_requests(m)}
         external = {m['id'] for m in metadata.get('config', {}).get('models', []) if m['provider'] != 'mock'}
         states = self.states(root, keys)
         receipts = self.usage_receipts(root)
@@ -487,6 +488,8 @@ class Store(Workspaces):
                 for sid, state in states.items():
                     hydrate_calls(state, connection, sid)
         for sid, state in states.items():
+            if state["model"] in free and state.get("status")=="needs_reconciliation" and not float(state.get("money_reserved","0")):
+                state.update(status="provider_unavailable" if state.get("in_flight") else "running",in_flight=False)
             reason = 'Participant withdrawn; reactivate it to retry' if state['model'] in withdrawn else 'Exported archives are read-only' if (root / 'export.json').exists() else retry_reason(state, metadata.get('config', {}).get('budget_per_session'), states.get(state.get('parent')))
             assessment = self.json(safe_path(root, f"sessions/{sid}/assessment.json"))
             validation = (assessment or {}).get('status') or state.get('validity')

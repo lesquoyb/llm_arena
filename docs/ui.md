@@ -862,3 +862,15 @@ Competition tabs reuse previously loaded data and refresh it when the saved
 revision changes. Replays are cached in a bounded cache. Dashboard counters use a
 small checkpoint-linked session index; old journals remain readable without a
 migration or a rewrite of their conversation history.
+
+### Chart identification and preparation resources
+
+Hover or keyboard-focus a series point or its legend to show its full model name
+and highlight matching marks. Series colors no longer cycle after six models.
+The resource chart supports **Preparation fights** and **Replay reads** in both
+competition and workspace summaries. Values are means per selected strategy,
+consistent with cost, time and tool-call axes; fixed references are excluded.
+Preparation fights count both starting sides. Replay reads count executed
+`read_replay` and `read_past_fight` invocations, including failed reads and
+pagination, rather than distinct fights. These counters are also exported in
+`sessions.csv` and `results.csv`.

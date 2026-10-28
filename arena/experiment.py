@@ -263,7 +263,10 @@ class Journal:
             metadata=self.db.execute('SELECT checkpoint_sha256,metadata FROM session_metadata WHERE id=?',(sid,)).fetchone()
             if row and metadata and metadata[0]==row[1]:
                 from .session_metadata import project
-                if json.loads(metadata[1])!=project(state):raise ArenaError('Session metadata index was modified')
+                saved_metadata=json.loads(metadata[1])
+                expected_metadata=project(state)
+                if 'replay_reads' not in saved_metadata:expected_metadata.pop('replay_reads',None)
+                if saved_metadata!=expected_metadata:raise ArenaError('Session metadata index was modified')
 
     def states(self):
         return {sid: json.loads(raw) for sid, raw in self.db.execute("SELECT id,state FROM sessions ORDER BY id")}
@@ -408,9 +411,14 @@ def provider_response(sid, state, model, config, journal):
         response = context['future'].result() if 'future' in context else (provider.respond(history, session_tools, bound["output_bound"]) if paid
                     else provider.respond(history, session_tools, output_limit))
     except ProviderFailure as error:
-        state["status"] = "needs_reconciliation" if error.uncertain else "provider_unavailable"
-        state["in_flight"] = error.uncertain
-        if not error.uncertain:
+        from .recovery import zero_cost_requests
+        uncertain_charge=error.uncertain and not zero_cost_requests(model)
+        if error.uncertain:
+            state["token_usage_known"]=False
+            state["missing_usage_calls"]=state.get("missing_usage_calls",0)+1
+        state["status"] = "needs_reconciliation" if uncertain_charge else "provider_unavailable"
+        state["in_flight"] = uncertain_charge
+        if not uncertain_charge:
             state["money_reserved"] = "0"
             state["reservation_unbounded"] = False
         state["failure"] = {"message": str(error), "phase": "provider request", "at": time.time(), "uncertain": error.uncertain, "retryable": error.retryable, "diagnostics":error.diagnostics}
@@ -418,12 +426,16 @@ def provider_response(sid, state, model, config, journal):
                                                     "uncertain": error.uncertain, "retryable": error.retryable, "diagnostics":error.diagnostics})
         return None
     except (KeyError, ValueError, TypeError, ArenaError) as error:
-        state["status"] = "needs_reconciliation" if paid else "generation_failed"
+        from .recovery import zero_cost_requests
+        uncertain_charge=paid and not zero_cost_requests(model)
+        state["status"] = "needs_reconciliation" if uncertain_charge else "provider_unavailable" if paid else "generation_failed"
         if paid:
             state["missing_usage_calls"] = state.get("missing_usage_calls", 0) + 1
             state["token_usage_known"] = False
-        state["in_flight"] = paid
-        state["failure"] = {"message": "The provider returned an unreadable response (" + type(error).__name__ + "). Inspect the recorded response in the journal; billing may need reconciliation.", "phase": "provider response", "at": time.time()}
+        state["in_flight"] = uncertain_charge
+        if not uncertain_charge:
+            state.update(money_reserved="0",reservation_unbounded=False)
+        state["failure"] = {"message": "The provider returned an unreadable response (" + type(error).__name__ + "). Inspect the recorded response in the journal." + (" Billing needs reconciliation." if uncertain_charge else " Retry without billing reconciliation." if paid else ""), "phase": "provider response", "at": time.time()}
         journal.save(sid, state, "malformed_provider_response", {"error_type": type(error).__name__,
                                                                "response": getattr(provider, "last_response", None)})
         return None
@@ -441,13 +453,16 @@ def provider_response(sid, state, model, config, journal):
         else:
             state["missing_usage_calls"] = state.get("missing_usage_calls", 0) + 1
         state["token_usage_known"] = tokens_known and not state.get("missing_usage_calls")
-        known = response["cost_usd"] is not None and tokens_known
+        from .recovery import zero_cost_requests
+        free_request=zero_cost_requests(model)
+        if free_request:response["cost_usd"]="0"
+        known = free_request or (response["cost_usd"] is not None and tokens_known)
         if known:
             state["cost_spent"] = str(amount(state.get("cost_spent", "0")) + amount(response["cost_usd"]))
             state["money_reserved"] = "0"
             state["reservation_unbounded"] = False
-            if (("max_input_tokens" in budget and state["input_tokens"] > budget["max_input_tokens"])
-                    or ("max_output_tokens" in budget and state["output_tokens"] > budget["max_output_tokens"])
+            if (("max_input_tokens" in budget and state.get("input_tokens",0) > budget["max_input_tokens"])
+                    or ("max_output_tokens" in budget and state.get("output_tokens",0) > budget["max_output_tokens"])
                     or ("max_cost_usd" in budget and amount(state["cost_spent"]) > amount(budget["max_cost_usd"]))):
                 state["status"] = "budget_exhausted"
         else:
@@ -759,7 +774,8 @@ def run(config: dict, out: Path, resume=False, interrupt=None, prepare_only=Fals
             config['_roster_revision'] = (roster or {}).get('revision',0)
             config['_compare_previous_round'] = (roster or {}).get('compare_previous_round',config.get('compare_previous_round',False))
             if resume:
-                from .recovery import needs_reconciliation
+                from .recovery import needs_reconciliation, recover_zero_cost_requests
+                recover_zero_cost_requests(journal,config["models"])
                 external = {m['id'] for m in config['models'] if m['provider'] != 'mock'}
                 blocked = [sid for sid,state in journal.states().items() if active(config,state) and needs_reconciliation(state, state['model'] in external)]
                 if blocked:

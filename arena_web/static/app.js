@@ -31,6 +31,34 @@ const COLORS = [
   "#cb718b",
   "#7e91ad",
 ];
+// More series than the original six-color palette, with no cyclic reuse.
+const SERIES_COLORS=['#3568c0','#b3482c','#16826a','#9255ac','#b27b0a','#c13e79','#397d94','#647824','#783f93','#99613d','#277947','#7759d4','#bd5915','#a43240','#477aaf','#736b36','#3d6973','#ad6889','#6b52a0','#43855b'];
+function seriesColor(index) {return SERIES_COLORS[index]||`hsl(${(index*137.508)%360} 58% ${index%2?38:48}%)`;}
+let chartHover=null,chartTooltip=null;
+function clearChartHover() {
+  if(chartHover)for(const item of chartHover.querySelectorAll('[data-chart-model]'))item.classList.remove('chart-dimmed','chart-selected');
+  chartHover=null;if(chartTooltip)chartTooltip.hidden=true;
+}
+function showChartHover(target,event) {
+  const scope=target.closest('.resource-chart,.overview-card,.comparison-chart,.panel');
+  if(!scope)return;
+  if(chartHover!==scope)clearChartHover();chartHover=scope;
+  for(const item of scope.querySelectorAll('[data-chart-model]')) {
+    const selected=item.dataset.chartModel===target.dataset.chartModel;
+    item.classList.toggle('chart-dimmed',!selected);item.classList.toggle('chart-selected',selected);
+  }
+  if(!chartTooltip) {chartTooltip=document.createElement('div');chartTooltip.id='chart-tooltip';chartTooltip.setAttribute('role','tooltip');document.body.append(chartTooltip);}
+  chartTooltip.textContent=target.dataset.chartLabel||target.dataset.chartModel;chartTooltip.hidden=false;
+  const rect=target.getBoundingClientRect(),left=event?.clientX??rect.left,top=event?.clientY??rect.bottom;
+  chartTooltip.style.left=`${Math.max(8,Math.min(left+12,innerWidth-chartTooltip.offsetWidth-8))}px`;
+  chartTooltip.style.top=`${Math.max(8,Math.min(top+16,innerHeight-chartTooltip.offsetHeight-8))}px`;
+}
+for(const name of ['pointerover','focusin'])document.addEventListener(name,event=>{
+  const target=event.target.closest?.('[data-chart-model]');if(target)showChartHover(target,event.type==='focusin'?null:event);
+});
+for(const name of ['pointerout','focusout'])document.addEventListener(name,event=>{
+  const target=event.target.closest?.('[data-chart-model]');if(target&&!target.contains(event.relatedTarget))clearChartHover();
+});
 const LABELS = {
   submitted: "Submitted",
   running: "Running",
@@ -443,7 +471,7 @@ function updateChrome() {
     }[S.view] || "Overview");
 }
 async function renderRoute() {
-  hideHelp();
+  hideHelp();clearChartHover();
   document.body.dataset.view = S.view;
   const epoch = ++S.epoch;
   clearInterval(replayTimer);
@@ -724,8 +752,8 @@ function workspaceStage(stage) {
   return match?`Round ${Number(match[1])+1}`:stage;
 }
 function resourceScatter(points, metric='size') {
-  const labels={size:'Model size (B parameters)',cost:'Mean preparation cost ($ / strategy)',time:'Mean preparation time (minutes / strategy)',tools:'Mean tool calls / strategy'};
-  const eligible=points.filter(p=>!['cost','time','tools'].includes(metric)||!p.reference);
+  const labels={size:'Model size (B parameters)',cost:'Mean preparation cost ($ / strategy)',time:'Mean preparation time (minutes / strategy)',tools:'Mean tool calls / strategy',tests:'Mean preparation fights / strategy',replays:'Mean replay read calls / strategy'};
+  const eligible=points.filter(p=>!['cost','time','tools','tests','replays'].includes(metric)||!p.reference);
   const valid=eligible.filter(p=>p.score!=null && Number.isFinite(p[metric]) && p[metric]>=0 && (metric!=='size'||p[metric]>0));
   if(!valid.length)return `<p class="muted">${metric==='size'?'No model sizes recorded for this selection. Set the optional size in Participants.':'No complete measurements for this selection.'}</p>`;
   const W=760,H=260,L=56,R=728,T=20,B=208,max=Math.max(...valid.map(p=>p[metric]))*1.1||1;
@@ -734,14 +762,16 @@ function resourceScatter(points, metric='size') {
     ${[0,.5,1].map(v=>`<line x1="${L}" x2="${R}" y1="${y(v)}" y2="${y(v)}" stroke="#e0e7e4"/><text x="${L-8}" y="${y(v)+4}" text-anchor="end">${v*100}%</text>`).join('')}
     ${[0,.25,.5,.75,1].map(v=>`<text x="${x(v*max)}" y="${B+20}" text-anchor="middle">${fmt(v*max,metric==='cost'?4:2)}</text>`).join('')}
     <text x="${(L+R)/2}" y="${H-5}" text-anchor="middle">${e(labels[metric])}</text>
-    ${valid.map((p,i)=>`<circle cx="${x(p[metric])}" cy="${y(p.score)}" r="6" fill="${p.color||COLORS[i%COLORS.length]}" stroke="white" stroke-width="1.5" tabindex="0"><title>${e(p.label)}: ${pct(p.score)} · ${fmt(p[metric],metric==='cost'?6:3)}${metric==='size'?'B':metric==='time'?' min':metric==='tools'?' tool calls':' USD'}</title></circle>`).join('')}</svg>
-    <div class="chart-legend">${valid.map((p,i)=>`<span><i class="dot" style="background:${p.color||COLORS[i%COLORS.length]}"></i>${e(p.label)} · ${pct(p.score)} · ${metric==='cost'?money(p.cost):fmt(p[metric],3)+(metric==='size'?'B':metric==='tools'?' tool calls':' min')}</span>`).join('')}</div>
+    ${valid.map((p,i)=>`<circle cx="${x(p[metric])}" cy="${y(p.score)}" r="6" fill="${p.color||seriesColor(i)}" stroke="white" stroke-width="1.5" tabindex="0" data-chart-model="${e(p.model||p.label)}" data-chart-label="${e(p.label)} · ${pct(p.score)} · ${fmt(p[metric],metric==='cost'?6:2)} ${e(labels[metric])}"><title>${e(p.label)}: ${pct(p.score)} · ${fmt(p[metric],metric==='cost'?6:3)}${metric==='size'?'B':metric==='time'?' min':metric==='tools'?' tool calls':metric==='tests'?' preparation fights':metric==='replays'?' replay reads':' USD'}</title></circle>`).join('')}</svg>
+    <div class="chart-legend">${valid.map((p,i)=>`<span tabindex="0" data-chart-model="${e(p.model||p.label)}" data-chart-label="${e(p.label)} · ${pct(p.score)}"><i class="dot" style="background:${p.color||seriesColor(i)}"></i>${e(p.label)} · ${pct(p.score)} · ${metric==='cost'?money(p.cost):fmt(p[metric],3)+(metric==='size'?'B':metric==='tools'?' tool calls':metric==='tests'?' preparation fights':metric==='replays'?' replay reads':' min')}</span>`).join('')}</div>
     ${valid.length<eligible.length?`<p class="muted">${eligible.length-valid.length} entries with missing measurements excluded from this chart.</p>`:''}`;
 }
 function resourcePanel(points, context) {
+  const names=[...new Set(points.map(p=>p.model||p.label))].sort();
+  points=points.map(p=>({...p,color:p.color||seriesColor(names.indexOf(p.model||p.label))}));
   S.resourcePoints ||= {};S.resourcePoints[context]=points;
   const metric=S.resourceMetric||'tools';
-  return `<div class="resource-chart"><div class="overview-section-head"><h3>Performance vs resources</h3><label class="field">Compare by<select data-resource-axis="${context}">${[['size','Model size'],['cost','Preparation cost'],['time','Preparation time'],['tools','Tool calls']].map(([id,name])=>`<option value="${id}" ${id===metric?'selected':''}>${name}</option>`).join('')}</select></label></div><div class="resource-pair"><section><h4>Total tool calls</h4>${toolCallTotals(points)}<p class="muted">One count per tool invocation, including failed calls. Batches count each tool separately.</p></section><section><h4>Performance by resource</h4><div id="${context}-resource-chart">${resourceScatter(points,metric)}</div></section></div></div>`;
+  return `<div class="resource-chart"><div class="overview-section-head"><h3>Performance vs resources</h3><label class="field">Compare by<select data-resource-axis="${context}">${[['size','Model size'],['cost','Preparation cost'],['time','Preparation time'],['tools','Tool calls'],['tests','Preparation fights'],['replays','Replay reads']].map(([id,name])=>`<option value="${id}" ${id===metric?'selected':''}>${name}</option>`).join('')}</select></label></div><div class="resource-pair"><section><h4>Total tool calls</h4>${toolCallTotals(points)}<p class="muted">Each tool invocation counts, including failures. Preparation fights count both starting sides. Replay reads count read_replay and read_past_fight calls, including pagination; they are not distinct replays.</p></section><section><h4>Performance by resource</h4><div id="${context}-resource-chart">${resourceScatter(points,metric)}</div></section></div></div>`;
 }
 function overviewModelSize(d, id) {
   const pinned=d.model_metadata?.[id]?.model_size_billion;
@@ -757,8 +787,10 @@ function overviewResourcePoints(d,data) {
     const sessions=data.sessions.filter(session=>session.model===id),costKnown=sessions.length && sessions.every(session=>session.status!=='needs_reconciliation'&&!Number(session.money_reserved||0));
     const total=sessions.reduce((sum,session)=>sum+(session.steps||0),0);
     return {reference:d.metadata.config?.models.find(model=>model.id===id)?.provider==='mock' || (!sessions.length && !!d.metadata.manifest),
-      label:id,color:overviewColor(id),score:scores.get(id)??null,size:overviewModelSize(d,id),
+      model:id,label:id,color:overviewColor(id),score:scores.get(id)??null,size:overviewModelSize(d,id),
       toolTotal:total,tools:sessions.length?total/sessions.length:null,
+      tests:sessions.length?sessions.reduce((sum,s)=>sum+(s.test_matches||0),0)/sessions.length:null,
+      replays:sessions.length&&sessions.every(s=>s.replay_reads!=null)?sessions.reduce((sum,s)=>sum+s.replay_reads,0)/sessions.length:null,
       cost:costKnown?sessions.reduce((sum,session)=>sum+Number(session.cost_spent||0),0)/sessions.length:null,
       time:sessions.length&&sessions.every(session=>session.wall_seconds!=null)?sessions.reduce((sum,session)=>sum+session.wall_seconds,0)/sessions.length/60:null};
   });
@@ -766,12 +798,12 @@ function overviewResourcePoints(d,data) {
 function toolCallTotals(points) {
   const rows=points.filter(point=>!point.reference&&Number.isFinite(point.toolTotal)).sort((a,b)=>b.toolTotal-a.toolTotal);
   const max=Math.max(1,...rows.map(row=>row.toolTotal));
-  return rows.length?`<div class="tool-call-bars">${rows.map(row=>`<div><span title="${e(row.label)}">${e(row.label)}</span><div class="workspace-bar-track"><span style="width:${100*row.toolTotal/max}%;background:${row.color||COLORS[0]}"></span></div><strong>${fmt(row.toolTotal)}</strong></div>`).join('')}</div>`:'<p class="muted">No model tool calls recorded for this selection.</p>';
+  return rows.length?`<div class="tool-call-bars">${rows.map(row=>`<div tabindex="0" data-chart-model="${e(row.model||row.label)}" data-chart-label="${e(row.label)} · ${fmt(row.toolTotal)} tool calls"><span title="${e(row.label)}">${e(row.label)}</span><div class="workspace-bar-track"><span style="width:${100*row.toolTotal/max}%;background:${row.color||COLORS[0]}"></span></div><strong>${fmt(row.toolTotal)}</strong></div>`).join('')}</div>`:'<p class="muted">No model tool calls recorded for this selection.</p>';
 }
 
 function workspacePerformance(group) {
   if(!group)return '<p class="muted">No evaluation results yet.</p>';
-  return resourcePanel(group.models.map(m=>({reference:m.is_reference,toolTotal:m.total_tool_calls,tools:m.mean_tool_calls,label:`${m.name} · ${m.round ? "R"+m.round : "Frozen"} · ${text(m.condition)}`,score:m.score,size:m.model_size_billion,cost:m.mean_cost_usd,time:m.mean_wall_seconds==null?null:m.mean_wall_seconds/60})),"workspace")+`<div class="workspace-bars">${group.models.map(m=>`<div class="workspace-bar"><div><strong>${e(m.name)}</strong><small>${m.round ? `Round ${m.round}` : 'Frozen strategy'} · ${e(text(m.condition))}</small></div><div class="workspace-bar-track"><span style="width:${Math.max(0,Math.min(100,(m.score||0)*100))}%"></span></div><strong>${pct(m.score)}</strong></div>`).join('')}</div>`+
+  return resourcePanel(group.models.map(m=>({model:m.name,reference:m.is_reference,toolTotal:m.total_tool_calls,tools:m.mean_tool_calls,tests:m.mean_test_matches,replays:m.mean_replay_reads,label:`${m.name} · ${m.round ? "R"+m.round : "Frozen"} · ${text(m.condition)}`,score:m.score,size:m.model_size_billion,cost:m.mean_cost_usd,time:m.mean_wall_seconds==null?null:m.mean_wall_seconds/60})),"workspace")+`<div class="workspace-bars">${group.models.map(m=>`<div class="workspace-bar"><div><strong>${e(m.name)}</strong><small>${m.round ? `Round ${m.round}` : 'Frozen strategy'} · ${e(text(m.condition))}</small></div><div class="workspace-bar-track"><span style="width:${Math.max(0,Math.min(100,(m.score||0)*100))}%"></span></div><strong>${pct(m.score)}</strong></div>`).join('')}</div>`+
     table(['Participant','Size (B)','Score / B','Round / track','Win / draw / loss','Failed fights','Strategies'],group.models.map(m=>`<tr><td>${e(m.name)}</td><td>${fmt(m.model_size_billion,3)}</td><td>${fmt(m.score_per_billion,4)}</td><td>${m.round??'Frozen'} · ${e(text(m.condition))}</td><td>${m.wins} / ${m.draws} / ${m.losses}</td><td>${m.failed}</td><td>${m.conversations}</td></tr>`))+
     `<p class="muted">Mean score per conversation: win 1, draw 0.5, loss 0. ${group.internal_matches} same-model fights excluded. ${group.runs.length} competitions in this group.</p><details class="quiet-details"><summary>Included competitions & scenario</summary><div class="actions">${group.runs.map(id=>btn(e(S.boot.runs.find(r=>r.id===id)?.name||id),'open-run',`data-run="${e(id)}"`)).join('')}</div>${raw(group.scenario,'Scenario settings')}</details>`;
 }
@@ -1842,7 +1874,7 @@ function measuredUsage(session) {
   const receipt = session.usage_receipts;
   if (receipt?.responses) return {
     ...receipt,
-    complete: !receipt.missing_usage && !session.in_flight && session.status !== "needs_reconciliation",
+    complete: !receipt.missing_usage && session.token_usage_known!==false && !session.in_flight && session.status !== "needs_reconciliation",
   };
   return {
     input_tokens: session.input_tokens || 0,
@@ -2113,14 +2145,8 @@ function overviewRanking(data) {
   return `<p class="muted">${data.scope.source==='progression'?'Against previous-round versions, including the same model.':'Against other models only.'} Click a result to inspect its fights.</p><ol class="overview-ranking">${data.models.map((r, i) => `<li><span class="overview-rank">${i + 1}</span><div class="overview-rank-body"><div><strong>${e(r.model)}</strong><span>${pct(r.score)}</span></div><div class="overview-bar"><span style="width:${100 * (r.score || 0)}%;background:${overviewColor(r.model)}"></span></div><small>${resultLink(r,"win",r.wins+"W")} · ${resultLink(r,"draw",r.draws+"D")} · ${resultLink(r,"loss",r.losses+"L")}${r.failures ? ` · ${r.failures} failed` : ""}</small></div></li>`).join("")}</ol>`;
 }
 function overviewColor(model) {
-  const names = [
-    ...new Set(
-      (S.overviewMatches || []).flatMap((m) =>
-        m.sides.map((id) => overviewIdentity(id).model),
-      ),
-    ),
-  ].sort();
-  return COLORS[Math.max(0, names.indexOf(model)) % COLORS.length];
+  const names=[...new Set([...(S.detail?.metadata.config?.models||[]).map(m=>m.id),...(S.overviewMatches||[]).flatMap(m=>m.sides.map(id=>overviewIdentity(id).model))])].sort();
+  return seriesColor(Math.max(0,names.indexOf(model)));
 }
 function overviewEvolution(data) {
   if (!data.history.length)
@@ -2157,7 +2183,7 @@ function overviewEvolution(data) {
             .map((r, i) => {
               if (r.score == null) return "";
               const prev = track[i - 1];
-              return `${prev?.score != null ? `<path d="M${x(prev.generation)},${y(prev.score)} L${x(r.generation)},${y(r.score)}" fill="none" stroke="${color}" stroke-width="2" ${condition === "control" ? 'stroke-dasharray="4 4"' : ""}/>` : ""}<circle cx="${x(r.generation)}" cy="${y(r.score)}" r="4" fill="${color}" tabindex="0"><title>${e(model)} · ${overviewRound(r.condition, r.generation)}: ${pct(r.score)} (${r.completed} appearances)</title></circle>`;
+              return `${prev?.score != null ? `<path d="M${x(prev.generation)},${y(prev.score)} L${x(r.generation)},${y(r.score)}" fill="none" stroke="${color}" stroke-width="2" data-chart-model="${e(model)}" data-chart-label="${e(model)} · ${condition==='control'?'No feedback':'With feedback'}" ${condition === "control" ? 'stroke-dasharray="4 4"' : ""}/>` : ""}<circle cx="${x(r.generation)}" cy="${y(r.score)}" r="4" fill="${color}" tabindex="0" data-chart-model="${e(model)}" data-chart-label="${e(model)} · ${overviewRound(r.condition,r.generation)} · ${pct(r.score)} (${r.completed} appearances)"><title>${e(model)} · ${overviewRound(r.condition, r.generation)}: ${pct(r.score)} (${r.completed} appearances)</title></circle>`;
             })
             .join("");
         })
@@ -2165,7 +2191,7 @@ function overviewEvolution(data) {
     })
     .join(
       "",
-    )}</svg><div class="overview-legend">${models.map((model) => `<span><i style="background:${overviewColor(model)}"></i>${e(model)}</span>`).join("")}<span>Solid: feedback · Dashed: no feedback</span></div>`;
+    )}</svg><div class="overview-legend">${models.map((model) => `<span tabindex="0" data-chart-model="${e(model)}"><i style="background:${overviewColor(model)}"></i>${e(model)}</span>`).join("")}<span>Solid: feedback · Dashed: no feedback</span></div>`;
 }
 function overviewMatchLink(data, who, other, outcome, value, description) {
   const cell = data.matrix.find(
@@ -3308,18 +3334,18 @@ function lineChart(group) {
         .map((p) => `${p.x},${p.y}`)
         .join(
           " ",
-        )}" fill="none" stroke="${COLORS[j % COLORS.length]}" stroke-width="2"/>${points
+        )}" fill="none" stroke="${seriesColor(j)}" stroke-width="2" data-chart-model="${e(label)}" data-chart-label="${e(label)}"/>${points
         .filter(Boolean)
         .map(
           (p) =>
-            `<circle cx="${p.x}" cy="${p.y}" r="4" fill="${COLORS[j % COLORS.length]}"><title>${e(label)} · ${e(p.id)} : ${pct(p.v)}</title></circle>`,
+            `<circle cx="${p.x}" cy="${p.y}" r="4" fill="${seriesColor(j)}" tabindex="0" data-chart-model="${e(label)}" data-chart-label="${e(label)} · ${e(p.id)} · ${pct(p.v)}"><title>${e(label)} · ${e(p.id)} : ${pct(p.v)}</title></circle>`,
         )
         .join("")}`;
     })
     .join("")}</svg>`;
   return (
     chart +
-    `<div class="chart-legend">${[...series.keys()].map((key, j) => `<span><i class="dot" style="background:${COLORS[j % COLORS.length]}"></i>${e(labels.get(key))}</span>`).join("")}</div>`
+    `<div class="chart-legend">${[...series.keys()].map((key, j) => `<span tabindex="0" data-chart-model="${e(labels.get(key))}"><i class="dot" style="background:${seriesColor(j)}"></i>${e(labels.get(key))}</span>`).join("")}</div>`
   );
 }
 function comparisonResult(data) {
