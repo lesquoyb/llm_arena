@@ -25,3 +25,20 @@ def operation(out, kind, **details):
 
 def session_root(directory):
     return directory.parent.parent if directory.parent.name=='sessions' else directory
+
+
+_provider_poller=ContextVar('arena_provider_poller',default=None)
+
+
+def poll_provider_failures():
+    """Called only on the coordinator; engine threads have no poller context."""
+    callback=_provider_poller.get()
+    if callback is not None:callback()
+
+
+_provider_yielder=ContextVar('arena_provider_yielder',default=None)
+
+
+def provider_work_ready():
+    callback=_provider_yielder.get()
+    return bool(callback and callback())

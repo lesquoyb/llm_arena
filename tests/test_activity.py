@@ -52,3 +52,21 @@ class ActivityTests(unittest.TestCase):
             self.assertEqual(read_json(root/'activity.json')['kind'],'idle')
             self.assertEqual(session_root(root/'sessions'/'one'),root)
             self.assertEqual(session_root(root/'standalone'),root/'standalone')
+
+    def test_billing_review_and_received_replies_are_not_active_network_requests(self):
+        with scratch_directory() as root:
+            store=Store(root/'runs',root/'settings');out=store.runs/'run';out.mkdir()
+            config=read_json(ROOT/'configs/offline-complete.json')
+            write_json(out/'experiment.json',{'config':config})
+            journal=Journal(out)
+            with closing(journal.db):
+                for index,model in enumerate(config['models']):
+                    sid=model['id']+'-r0';state=initial_state(sid,model,config)
+                    state.update(in_flight=True,status='needs_reconciliation' if index==0 else 'running')
+                    journal.save(sid,state,'model_intent',{})
+                    if index==1:write_json(out/'sessions'/sid/'request-status.json',{'phase':'completed','updated_at':time.time()})
+            report=status(store,'run',{'status':'running','started_at':0})
+            self.assertEqual(report['failed_preparations'],1)
+            self.assertEqual(len(report['active']),1)
+            self.assertEqual(report['active'][0]['kind'],'provider_receipt_waiting')
+            self.assertFalse(any(item['kind']=='model_request' for item in report['active']))

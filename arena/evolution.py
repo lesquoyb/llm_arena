@@ -25,6 +25,8 @@ def references(engine, config, out, journal, entrants, label, panel, *, incremen
             for opponent in panel:
                 for seed in config["final_seeds"]:
                     for side in (0, 1):
+                        from .activity import poll_provider_failures
+                        poll_provider_failures()
                         sources = [entrant, opponent] if side == 0 else [opponent, entrant]
                         reference_only=all(fixed(source) for source in sources)
                         key = digest({"entrant": entrant["id"], "opponent": opponent["id"], "seed": seed, "side": side})[:24]
@@ -106,8 +108,10 @@ def run_generation(config, out, journal, engine, initial, interrupt=None, retry_
         for entrant in ready_entrants(journal, out, generation):
             if not active(config,entrant): continue
             if entrant['id'] not in evaluated:
-                references(engine, config, out, journal, [entrant], f'g{generation}-panel', panel, incremental=True)
-                evaluated.add(entrant['id'])
+                collected=references(engine, config, out, journal, [entrant], f'g{generation}-panel', panel, incremental=True)
+                expected=len(panel)*len(config['final_seeds'])*2
+                if sum(record['session']==entrant['id'] for record in collected.values())>=expected:
+                    evaluated.add(entrant['id'])
         evaluate_ready(engine, config, out, journal, generation)
     evaluate_available()
     tasks=[];candidates=[]

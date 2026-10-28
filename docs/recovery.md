@@ -193,3 +193,18 @@ model can fill otherwise free slots. Local endpoints finish all conversations
 of one loaded model before starting a different model, while permitting concurrent
 conversations of that same model. Saving the preference preserves histories,
 submissions and usage counters.
+
+Parallel preparation now yields long engine batches when a model reply is ready:
+currently running fights are saved before the coordinator resumes preparation.
+A received reply is distinguished from an active network request in Activity
+details. Provider failures pause that conversation and release its concurrency
+slot while healthy peers continue in the current round. Pending participants
+remain recoverable and still hold the next-round barrier.
+
+After stopping a competition, **More > Execution & metrics > Parallel model
+requests** can lower the request cap without cloning or resetting conversations.
+Participant **Advanced settings > Pause after no provider output** defaults to
+300 seconds. Streaming heartbeats do not reset that timer; actual output does.
+Interrupted paid requests can have unknown charges; explicitly free requests keep
+the existing automatic recovery policy. Reading a known HTTP error body is
+bounded to five seconds while preserving the known HTTP status.

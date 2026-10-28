@@ -128,3 +128,61 @@ class ParallelRequestsTests(TestCase):
             dispatcher.release('a1')
             self.assertTrue(dispatcher.can_start('b0',two))
         finally:dispatcher.pool.shutdown()
+
+    def test_failed_provider_releases_capacity_without_eliminating_healthy_peers(self):
+        from arena.api_providers import ProviderFailure
+        value=config()
+        value['models'].append({**value['models'][1],'id':'three','model':'three'})
+        def respond(provider,history,tools,limit):
+            if provider.model['id']=='one':raise ProviderFailure('HTTP 429 fixture',retryable=True)
+            seen={message.get('name') for message in history if message['role']=='tool'}
+            tool='write_file' if 'write_file' not in seen else 'analyze' if 'analyze' not in seen else 'submit'
+            args={'path':'main.leek','content':'var v = 1;'} if tool=='write_file' else {}
+            return {'role':'assistant','native':{'role':'assistant','content':''},'tool_calls':[
+                {'id':tool,'name':tool,'arguments':args}],'usage':{'input_tokens':10,'output_tokens':1},'cost_usd':'0'}
+        with scratch_directory() as root:
+            journal=Journal(root)
+            try:
+                with mock.patch('arena.api_providers.APIProvider.respond',new=respond):
+                    prepare([(m['id']+'-r0',m) for m in value['models']],value,root,journal,CoordinatorEngine())
+                states=journal.states()
+                self.assertEqual(states['one-r0']['status'],'provider_unavailable')
+                self.assertEqual(states['one-r0']['calls'],1)
+                self.assertTrue(all(states[sid]['status']=='submitted' for sid in ('two-r0','three-r0')))
+                journal.verify()
+            finally:journal.db.close()
+
+    def test_engine_batches_yield_to_a_ready_model_response(self):
+        from arena.fight_pool import run as run_fights
+        started=threading.Event();resumed=threading.Event();saved=[];observed=[]
+        value=config()
+        with scratch_directory() as root:
+            journal=Journal(root)
+            def respond(provider,history,tools,limit):
+                seen={message.get('name') for message in history if message['role']=='tool'}
+                if provider.model['id']=='two':
+                    if not seen:
+                        if not started.wait(10):raise RuntimeError('No engine fight started')
+                    else:
+                        if not resumed.is_set():observed.append(len(saved))
+                        resumed.set()
+                tool='write_file' if 'write_file' not in seen else 'analyze' if 'analyze' not in seen else 'submit'
+                args={'path':'main.leek','content':'var v = 1;'} if tool=='write_file' else {}
+                return {'role':'assistant','native':{'role':'assistant','content':''},'tool_calls':[
+                    {'id':tool,'name':tool,'arguments':args}],'usage':{'input_tokens':10,'output_tokens':1},'cost_usd':'0'}
+            def execute(job):
+                if not resumed.is_set():
+                    started.set();journal.requests.pending['two-r0']['future'].result(timeout=10)
+                return job['seed']
+            def progress():
+                missing=[{'participants':['one-r0','one-r0'],'seed':i} for i in range(100) if i not in saved]
+                run_fights(missing,execute,lambda job,result:saved.append(result),limit=2,out=root,kind='tournament_fight')
+            try:
+                with mock.patch('arena.api_providers.APIProvider.respond',new=respond):
+                    prepare([(m['id']+'-r0',m) for m in value['models']],value,root,journal,CoordinatorEngine(),on_progress=progress)
+                self.assertTrue(observed)
+                self.assertLessEqual(observed[0],2)
+                self.assertEqual(sorted(saved),list(range(100)))
+                self.assertTrue(all(s['status']=='submitted' for s in journal.states().values()))
+                journal.verify()
+            finally:journal.db.close()

@@ -85,7 +85,7 @@ def validate_config(value: dict) -> dict:
         else:
             fields = {"id", "provider", "model", "api_key_env", "pricing"}
             if (model["provider"] not in {"openai", "openai-compatible", "anthropic", "gemini"} or not fields <= set(model)
-                    or set(model) - fields - {"endpoint", "parameters", "timeout_seconds", "max_retries", "max_input_tokens_per_call", "max_output_tokens", "model_size_billion"}):
+                    or set(model) - fields - {"endpoint", "parameters", "timeout_seconds", "inactivity_timeout_seconds", "max_retries", "max_input_tokens_per_call", "max_output_tokens", "model_size_billion"}):
                 raise ArenaError("Invalid API model configuration")
             if 'model_size_billion' in model:
                 import math
@@ -108,6 +108,7 @@ def validate_config(value: dict) -> dict:
             if model["provider"] == "anthropic" and "max_output_tokens" not in model:
                 raise ArenaError("Anthropic requires an explicit maximum output per call (max_tokens)")
             integer(model.get("timeout_seconds", 60), 1, 3600, "timeout_seconds")
+            integer(model.get("inactivity_timeout_seconds",300),1,3600,"inactivity_timeout_seconds")
             integer(model.get("max_retries", 0), 0, 3, "max_retries")
             params = model.get("parameters", {})
             allowed = {"temperature", "top_p", "reasoning_effort", "seed"}
@@ -172,7 +173,7 @@ def plan(config: dict) -> dict:
     paid = [m for m in config["models"] if m["provider"] != "mock"]
     learned=sum(model['provider']!='mock' for model in config['models'])*config['replicates']
     previous_matches=(None if config.get('generations',1) is None else 8*learned*learned*max(0,config.get('generations',1)-2)*len(config.get('final_seeds',[]))) if config.get('compare_previous_round') and learned else 0
-    return {"previous_comparison_matches":previous_matches, "parallel_requests":config.get("parallel_requests",1), "request_order":config.get("_request_order",config.get("request_order","models")), "parallel_fights":config.get("_parallel_fights",config.get("parallel_fights",1)), "sessions": None if config.get("generations", 1) is None else n * (2 * config.get("generations", 1) - 1), "generation": None if config.get("generations", 1) is None else config.get("generations", 1) - 1,
+    return {"previous_comparison_matches":previous_matches, "parallel_requests":config.get("_parallel_requests",config.get("parallel_requests",1)), "request_order":config.get("_request_order",config.get("request_order","models")), "parallel_fights":config.get("_parallel_fights",config.get("parallel_fights",1)), "sessions": None if config.get("generations", 1) is None else n * (2 * config.get("generations", 1) - 1), "generation": None if config.get("generations", 1) is None else config.get("generations", 1) - 1,
             "provider": "mixed" if paid else "mock", "simulated": not paid,
             "ranked_matches_if_all_submit": n * (n - 1) * len(config["seeds"]),
             "mirrors_if_all_submit": n * len(config["seeds"]) if config["include_mirrors"] else 0,
@@ -409,7 +410,7 @@ def _build_provider_response(sid, state, model, config, journal):
         from .streaming import LiveResponse
         stream_progress=LiveResponse(journal.out,sid,state['calls'])
     provider = (APIProvider(model,stream_progress=stream_progress) if stream_progress else APIProvider(model)) if paid else MockProvider(model["profile"])
-    return dict(model=model,history=history,session_tools=session_tools,paid=paid,bound=bound,
+    return dict(request_status_path=journal.out/'sessions'/sid/'request-status.json',request_call=state['calls'],model=model,history=history,session_tools=session_tools,paid=paid,bound=bound,
                 output_limit=output_limit,request=request,provider=provider,request_setup_started=request_setup_started)
 
 
@@ -834,6 +835,7 @@ def run(config: dict, out: Path, resume=False, interrupt=None, prepare_only=Fals
             from .reference_strategies import repetitions
             roster = snapshot(out)
             config['_withdrawn_models'] = roster['withdrawn'] if roster else []
+            config['_parallel_requests']=(roster or {}).get('parallel_requests',config.get('parallel_requests',1))
             config['_request_order']=(roster or {}).get('request_order',config.get('request_order','models'))
             config['_parallel_fights']=(roster or {}).get('parallel_fights',config.get('parallel_fights',1))
             config['_frozen_tracks'] = (roster or {}).get('frozen_tracks', {})

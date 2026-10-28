@@ -1041,3 +1041,34 @@ models. **+N more** opens **Activity details**, which contains the full preparat
 and fight lists in a bounded scroll area. Its expanded state and scroll position
 are preserved during live updates. Finished and waiting preparations remain
 available there without expanding the main page.
+
+Provider errors pause only the affected conversation and release its parallel
+request slot. Other conversations in the current round continue; the next round
+waits for unresolved participants. Submissions, files and counters are preserved.
+
+Participant **Advanced settings > Pause after no provider output** defaults to
+300 seconds. It interrupts a silent request, including SSE connections that only
+send heartbeats. Actual text, reasoning and tool deltas reset the timer; active
+streams can therefore last longer. Increase this setting for long silent
+reasoning or local prompt processing. The socket connection/read timeout remains
+separate. Silence alone is reported as an inactivity timeout, not a proven quota
+error. Free requests need no billing reconciliation; an interrupted paid request
+can still have an unknown charge under the existing recovery policy.
+
+The compact activity panel counts **requests in flight** separately from models.
+Details show the time since output and the inactivity threshold. Responses already
+received while engine work is being processed show **Response received; waiting
+for coordinator**. Failed requests are recorded during engine batches and no
+longer appear as active network requests, including those awaiting billing review.
+
+Engine batches yield when a model response is ready or another conversation can
+start: currently running fights finish and are saved, then preparation resumes.
+Remaining tournament and reference fights are collected progressively and drained
+before the round ends. A long list of pending fights therefore does not make an
+already-responded model wait for the entire list. A stale local-model residency
+marker is also released automatically if no requests are in flight and it blocks
+every queued conversation; the recovery is journaled without changing counters.
+
+To lower an existing competition's request concurrency, stop it, open **More >
+Execution & metrics**, change **Parallel model requests**, save and resume.
+The effective cap is shown with the number of requests actually in flight.

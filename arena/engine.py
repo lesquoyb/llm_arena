@@ -72,6 +72,8 @@ def wait_worker(process, work: Path, timeout: float):
     # Polling can overshoot the limit briefly, unlike the POSIX kernel limit.
     deadline = time.monotonic() + timeout
     while True:
+        from .activity import poll_provider_failures
+        poll_provider_failures()
         if any(p.exists() and p.stat().st_size > OUTPUT_LIMIT
                for p in (work / "stdout.log", work / "stderr.log", work / "outcome.json")):
             raise WorkerOutputLimit("Worker output exceeded 8 MB per file")

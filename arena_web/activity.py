@@ -37,7 +37,7 @@ def status(store, identifier, job=None):
     activity=[]
     if running:
         for sid,state in states.items():
-            if state.get('in_flight'):
+            if state.get('in_flight') and state.get('status')=='running':
                 activity.append({'session':sid,'model':state['model'],'kind':'model_request'})
             elif state.get('status')=='running' and state.get('reserved'):
                 activity.append({'session':sid,'model':state['model'],'kind':'tool',**(state.get('current_tool') or {})})
@@ -64,11 +64,24 @@ def status(store, identifier, job=None):
                 row=db.execute("SELECT payload FROM events WHERE session=? AND kind=? ORDER BY id DESC LIMIT 1",
                                (item['session'],'model_intent' if item['kind']=='model_request' else 'tool_reserved')).fetchone()
                 if row:item['started_at']=json.loads(row[0]).get('at')
+                transport=store.json(root/'sessions'/item['session']/'request-status.json',{})
+                if item['kind']=='model_request' and transport.get('updated_at',0)>=(item.get('started_at') or 0) and transport.get('phase') in {'completed','failed'}:
+                    item['kind']='provider_receipt_waiting'
+                    item['transport_phase']=transport['phase']
                 live=root/'sessions'/item['session']/'live-response.json'
-                if item['kind']=='model_request' and live.is_file():
-                    stamp=live.stat().st_mtime
-                    if stamp>=(item.get('started_at') or 0):item['stream_updated_at']=stamp
+                if item['kind'] in {'model_request','provider_receipt_waiting'} and live.is_file():
+                    progress_path=live.with_name('live-progress.json')
+                    if progress_path.is_file():
+                        progress=store.json(progress_path,{})
+                        stamp=progress.get('progress_at')
+                    else:stamp=live.stat().st_mtime
+                    if stamp and stamp>=(item.get('started_at') or 0):item['stream_updated_at']=stamp
     activity=[item for item in activity if item.get('started_at') is not None and item['started_at']>=(job or {}).get('started_at',0)]
+    profiles={model['id']:model for model in config.get('models',[])}
+    for item in activity:
+        if item['kind']=='model_request':
+            item['inactivity_timeout_seconds']=profiles.get(item['model'],{}).get('inactivity_timeout_seconds',300)
+            item['no_output_since']=item.get('stream_updated_at') or item.get('started_at')
     active_ids={item['session'] for item in activity}
     preparing_ids=set(operation.get('participants',[])) if running and operation.get('kind') in {
         'request_preparation','preparation_analysis','preparation_fight','validation'} else set()
@@ -81,7 +94,7 @@ def status(store, identifier, job=None):
     waiting=[{'model':model,'count':max(0,per_model[model]-sum(state['model']==model for state in current.values()))} for model in models]
     waiting=[item for item in waiting if item['count']]
     return {'labels':{sid:{'model':state['model'],'round':state.get('generation',0)+1,'condition':state.get('condition','initial'),'replicate':state.get('replicate',0)} for sid,state in states.items()}, 'running':running,'job_status':(job or {}).get('status'),'job_note':(job or {}).get('note'),
-            'round':generation+1,'rounds':config.get('generations',1),'participants':len(models),
+            'parallel_requests':roster.get('parallel_requests',config.get('parallel_requests',1)),'round':generation+1,'rounds':config.get('generations',1),'participants':len(models),
             'withdrawn':len(withdrawn),'ready_participants':ready_models,'strategies_ready':ready,
             'strategies_expected':expected,'strategies_validated':assessed,'failed_preparations':errors,
             'tournament_completed':report.get('completed',0),'tournament_failed':report.get('failed',0),

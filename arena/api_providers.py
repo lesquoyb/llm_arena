@@ -62,27 +62,40 @@ def open_provider_response(req, timeout):
         raise ProviderFailure('Provider connection failed: '+description,uncertain=uncertain,diagnostics=diagnostics) from None
 
 
-def http_json(url, payload, headers, timeout):
+def http_json(url, payload, headers, timeout, *, inactivity_timeout=None):
     validate_endpoint(url, allow_query=True)
     req = request.Request(url, data=json.dumps(payload).encode() if payload is not None else None,
                           headers=headers, method="POST" if payload is not None else "GET")
     try:
-        with open_provider_response(req,timeout) as response:
-            body = response.read(8_000_001)
+        from .provider_watchdog import InactivityGuard
+        idle=inactivity_timeout or timeout
+        started=time.monotonic()
+        with open_provider_response(req,min(timeout,idle)) as response, InactivityGuard(response,idle,started_at=started) as guard:
+            body=bytearray()
+            read=getattr(response,'read1',response.read)
+            while len(body)<=8_000_000:
+                chunk=read(min(65536,8_000_001-len(body)))
+                guard.check()
+                if not chunk:break
+                body.extend(chunk)
             if len(body) > 8_000_000:
                 raise ProviderFailure("Provider response exceeded quota", uncertain=True)
+            guard.touch()
             return json.loads(body), response.headers.get("x-request-id") or response.headers.get("request-id")
     except error.HTTPError as exc:
-        raise_http_error(exc,url,headers)
+        raise_http_error(exc,url,headers,read_timeout=idle)
     except (error.URLError, TimeoutError, OSError, ValueError) as exc:
         raise ProviderFailure(f"Provider response could not be read ({type(exc).__name__}); the request outcome is unknown.", uncertain=True,
                               diagnostics={'network_error':'response_read_failed','cause_type':type(exc).__name__,'request_delivery':'unknown'}) from None
 
 
-def raise_http_error(exc,url,headers):
+def raise_http_error(exc,url,headers,*,read_timeout=60):
     # Extract public validation fields, including proxy/FastAPI error formats.
-    try: body = exc.read(16000).decode('utf-8', errors='replace')
-    except OSError: body = ''
+    from .provider_watchdog import InactivityGuard
+    try:
+        with exc, InactivityGuard(exc,min(read_timeout,5)):
+            body=exc.read(16000).decode('utf-8',errors='replace')
+    except (OSError,ProviderFailure):body=''
     def public(value):
         if isinstance(value, str): return value
         if isinstance(value, list): return ' · '.join(public(item) for item in value[:8])
@@ -186,7 +199,9 @@ class APIProvider:
             try:
                 if m.get('_stream') and self.stream_progress is not None:
                     from .streaming import stream_json
-                    raw,request_id=stream_json(endpoint,payload,headers,m.get('timeout_seconds',60),self.stream_progress)
+                    raw,request_id=stream_json(endpoint,payload,headers,m.get('timeout_seconds',60),self.stream_progress,inactivity_timeout=m.get('inactivity_timeout_seconds',300))
+                elif self.transport is http_json:
+                    raw,request_id=self.transport(endpoint,payload,headers,m.get('timeout_seconds',60),inactivity_timeout=m.get('inactivity_timeout_seconds',300))
                 else:
                     raw, request_id = self.transport(endpoint, payload, headers, m.get("timeout_seconds", 60))
                 break

@@ -1,7 +1,8 @@
-"""Concurrent transports; the coordinator alone owns tools, files and SQLite."""
+"""Concurrent transports; the coordinator owns tools, checkpoints and SQLite."""
 from collections import deque
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 import time
+import threading
 from urllib.parse import urlsplit
 from .endpoints import is_loopback
 
@@ -52,11 +53,24 @@ class Requests:
         self.models[sid]=context['model']
         if key is not None:self.local_owners[key]=self.model_key(context['model'])
         context['submitted_at']=time.monotonic()
+        from .core import write_json
+        status_path=context.get('request_status_path')
+        receipt={'call':context.get('request_call'),'started_at':time.time()}
+        def publish(phase):
+            if status_path is not None:
+                try:write_json(status_path,{**receipt,'phase':phase,'updated_at':time.time()})
+                except OSError:pass
+        publish('waiting')
         def respond():
+            phase='completed'
             try:
                 return context['provider'].respond(context['history'],context['session_tools'],context['output_limit'])
+            except BaseException:
+                phase='failed'
+                raise
             finally:
                 context['completed_at']=time.monotonic()
+                publish(phase)
         context['future']=self.pool.submit(respond)
         self.pending[sid]=context
 
@@ -84,7 +98,7 @@ def ordered_tasks(tasks, order='models', *, serial=False):
 def prepare(tasks, config, out, journal, engine, interrupt=None, on_progress=None):
     """Finish one round before its caller starts the next round's preparation."""
     from .experiment import run_session, TERMINAL, provider_response
-    limit=config.get('parallel_requests',1)
+    limit=config.get('_parallel_requests',config.get('parallel_requests',1))
     tasks=ordered_tasks(tasks,config.get('_request_order',config.get('request_order','models')),serial=limit==1)
     if limit==1:
         for sid,model in tasks:
@@ -95,8 +109,37 @@ def prepare(tasks, config, out, journal, engine, interrupt=None, on_progress=Non
     dispatcher=Requests(limit,tasks)
     journal.requests=dispatcher
     queue=deque(tasks);models=dict(tasks)
+    coordinator=threading.get_ident()
+    def drain_failures():
+        if threading.get_ident()!=coordinator:return
+        # Long engine batches must not delay the visibility of failed requests.
+        # Successful receipts keep their normal tool/coordinator ordering.
+        for sid,context in list(dispatcher.pending.items()):
+            future=context['future']
+            if not future.done() or future.exception() is None:continue
+            state=journal.state(sid)
+            if state is None:continue
+            provider_response(sid,state,models[sid],config,journal)
+            if state['status'] in TERMINAL:dispatcher.release(sid)
+            if sid not in {item[0] for item in queue}:queue.append((sid,models[sid]))
+    from .activity import _provider_poller,_provider_yielder
+    poll_token=_provider_poller.set(drain_failures)
+    yield_token=_provider_yielder.set(lambda:any(dispatcher.ready(sid) for sid in dispatcher.pending) or
+        any(sid not in dispatcher.pending and dispatcher.can_start(sid,model) for sid,model in queue))
     try:
         while queue or dispatcher.pending:
+            if queue and not dispatcher.pending and not any(dispatcher.can_start(sid,model) for sid,model in queue):
+                # A stale local residency marker must never leave a fully idle
+                # scheduler spinning. No request is running, so releasing it is safe.
+                owners=list(dispatcher.local_owners.values())
+                dispatcher.local_owners.clear()
+                saved=journal.metadata()
+                if saved:
+                    sid=next(iter(saved));state=journal.state(sid)
+                    journal.save(sid,state,'provider_scheduler_recovered',{
+                        'reason':'No in-flight requests and all queued conversations blocked by local residency',
+                        'previous_local_models':[list(owner) for owner in owners],
+                        'queued_sessions':[sid for sid,_ in queue],'counters_preserved':True})
             for _ in range(len(queue)):
                 sid,model=queue.popleft()
                 if sid in dispatcher.pending and not dispatcher.ready(sid):continue
@@ -126,3 +169,5 @@ def prepare(tasks, config, out, journal, engine, interrupt=None, on_progress=Non
                 if state:provider_response(sid,state,models[sid],config,journal)
         finally:
             journal.requests=None
+            _provider_poller.reset(poll_token)
+            _provider_yielder.reset(yield_token)

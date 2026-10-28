@@ -113,6 +113,8 @@ def _run_tournament(engine: Engine, manifest: dict, out: Path, resume: bool = Fa
     execution=sorted(matches,key=lambda match:-sum(side in priority_ids for side in match['sides']))
     def jobs():
         for index, match in enumerate(execution, 1):
+            from .activity import poll_provider_failures
+            poll_provider_failures()
             record_path = out / "records" / f"{match['id']}.json"
             if record_path.exists():
                 record = read_json(record_path)
