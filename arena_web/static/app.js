@@ -61,7 +61,7 @@ const LABELS = {
 const generationLabel = (value) =>
   Number(value || 0) === 0
     ? "Round 1: initial strategy"
-    : `Round ${Number(value) + 1}: improved strategy`;
+    : `Round ${Number(value) + 1}: strategy version`;
 const text = (v) => LABELS[v] || v || "N/A";
 const badge = (label, color = "") =>
   `<span class="badge ${color}">${e(label)}</span>`;
@@ -266,6 +266,17 @@ let S = {
 };
 let toastTimer, replayTimer, R;
 let pageRequests = new AbortController();
+const runReadCache=new Map();
+async function runResource(path,args) {
+  const key=JSON.stringify([path,args,path==='/api/match'?'immutable':S.detail?.revision]);
+  if(runReadCache.has(key))return runReadCache.get(key).value;
+  const value=await api(path,args);
+  runReadCache.set(key,{path,value});
+  const replays=[...runReadCache].filter(([,entry])=>entry.path==='/api/match');
+  for(const [old] of replays.slice(0,Math.max(0,replays.length-2)))runReadCache.delete(old);
+  while(runReadCache.size>16)runReadCache.delete(runReadCache.keys().next().value);
+  return value;
+}
 async function api(path, args = {}, post = false) {
   const response = await fetch(
     path + (post ? "" : Object.keys(args).length ? "?" + query(args) : ""),
@@ -283,6 +294,8 @@ async function api(path, args = {}, post = false) {
   const value = await response.json();
   if (!response.ok)
     throw new Error(value.error || `HTTP error ${response.status}`);
+  if(post) {runReadCache.clear();S.detailFetchedAt=0;}
+  if(path==='/api/run') {S.detailFetchedAt=Date.now();S.detailFetchedRun=args.run;}
   return value;
 }
 function toast(message, error = false) {
@@ -373,7 +386,7 @@ function activityDuration(started) {
 }
 function competitionActivity(activity=S.activity) {
   if(!activity || S.activityRun!==S.run)return '<section id="competition-activity" class="competition-activity"><strong>Loading competition activity…</strong></section>';
-  const labels={starting:'Starting / resuming',checkpoint_verification:'Checking saved history and source integrity',tournament_fight:'Tournament fight',reference_fight:'Reference evaluation',validation:'Validating a submitted strategy',preparation_analysis:'Compiling a preparation script',preparation_fight:'Preparation test (unscored)'};
+  const labels={starting:'Starting / resuming',checkpoint_verification:'Checking saved history and source integrity',tournament_fight:'Tournament fight',reference_fight:'Reference evaluation',previous_round_fight:'Previous-round comparison (unscored)',validation:'Validating a submitted strategy',preparation_analysis:'Compiling a preparation script',preparation_fight:'Preparation test (unscored)'};
   const op=activity.operation||{},busy=op.kind&&op.kind!=='idle';
   const title=!activity.running ? text(activity.job_status || 'Paused') : labels[op.kind] || (activity.active.length?'Model preparation in progress':'Scheduling next work');
   const actor=sid=>{const info=activity.labels?.[sid];const label=info?`${info.model} · R${info.round}${info.condition!=='initial'?' · '+text(info.condition):''}${info.replicate?' · Repetition '+(info.replicate+1):''}`:sid;return info?btn(e(label),'session-conversation',`data-session="${e(sid)}"`):`<span>${e(label)}</span>`;};
@@ -445,7 +458,9 @@ async function renderRoute() {
   }
   if (S.view === "run") {
     syncLiveMode();
-    const d = await api("/api/run", { run: S.run }).catch(async (error) => {
+    const reuse=S.detail?.id===S.run && S.detailFetchedRun===S.run && S.detailFetchedAt>0;
+    const stale=reuse && Date.now()-S.detailFetchedAt>(activeJobs().some(job=>job.run===S.run)?2500:30000);
+    const d = await (reuse?Promise.resolve(S.detail):api("/api/run", { run: S.run })).catch(async (error) => {
       if (error.name === "AbortError") throw error;
       if (activeJobs().some((j) => j.run === S.run)) {
         setTimeout(() => renderRoute().catch(showError), 800);
@@ -463,6 +478,11 @@ async function renderRoute() {
     }
     S.detail = d;
     await renderRun(epoch);
+    if(stale && epoch===S.epoch) {
+      const fresh=await api('/api/run',{run:S.run});
+      if(epoch!==S.epoch)return;
+      if(fresh.revision!==S.detail.revision) {S.detail=fresh;await renderRun(epoch,true);}
+    }
     return;
   }
   if (S.view === "editor" && !S.equipment) {
@@ -689,7 +709,7 @@ function workspacesPage() {
     `<div class="metrics">${metric('Competitions',fmt(t.competitions),'Exported copies excluded')}${metric('Strategies',`${t.submitted+t.frozen_strategies} / ${t.sessions+t.frozen_strategies}`,`${t.frozen_strategies} frozen · ${t.invalid} invalid · ${t.attention} need attention`)}${metric('Completed fights',fmt(t.completed_matches),`${t.preparation_matches} preparation · ${t.failed_matches} engine failures`)}${metric('Recorded API cost',money(t.known_cost_usd),`${money(t.reserved_usd)} reserved${t.unresolved_sessions?` · ${t.unresolved_sessions} unresolved`:''}`)}</div>
     <section class="panel workspace-resources"><div class="panel-title"><h2>Model resources</h2><details class="action-menu"><summary class="button">Download CSV</summary><div>${['summary','fights','sessions','results'].map(table=>`<a class="button" href="/api/results.csv?${query({workspace:id,table})}">${table==='summary'?'Workspace scores':table==='fights'?'Match results':table==='sessions'?'Usage & conversations':'Raw strategy results'}</a>`).join('')}</div></details></div>
     ${data.models.length?table(['Participant','Size (B)','Submitted','Input / output tokens','Recorded cost','Tool calls','Preparation time'],data.models.map(m=>`<tr><td><strong>${e(m.name)}</strong><small>${e(m.model||'Built-in strategy')}</small>${raw(m.configuration,'Configuration')}</td><td>${fmt(m.model_size_billion,3)}</td><td>${m.submitted} / ${m.sessions}<small>${m.invalid} invalid</small></td><td>${fmt(m.input_tokens)} / ${fmt(m.output_tokens)}${m.unmeasured_sessions?`<small>${m.unmeasured_sessions} conversations with missing measurements</small>`:''}</td><td>${money(m.known_cost_usd)}${Number(m.reserved_usd)?`<small>${money(m.reserved_usd)} reserved</small>`:''}</td><td>${fmt(m.tool_calls)}</td><td>${fmt(m.wall_seconds/60,1)} min</td></tr>`)):'<p class="muted">No model conversations yet.</p>'}</section>
-    <section class="panel"><div class="panel-title"><h2>Performance</h2><label class="field">Comparison group<select id="workspace-group">${data.groups.map((g,i)=>`<option value="${i}">${g.kind==='evaluation'?'Reference evaluation':'Tournament'} · ${workspaceStage(g.stage)} · ${e(workspaceScenario(g.scenario))} · ${g.runs.length} competition${g.runs.length===1?'':'s'} · Group ${i+1}</option>`).join('')}</select></label></div><p class="muted">Groups keep different scenarios, preparation settings and opponent pools separate. Same-model fights are excluded from tournament scores.</p><div id="workspace-performance">${workspacePerformance(data.groups[0])}</div></section>
+    <section class="panel"><div class="panel-title"><h2>Performance</h2><label class="field">Comparison group<select id="workspace-group">${data.groups.map((g,i)=>`<option value="${i}">${g.kind==='evaluation'?'Reference evaluation':g.kind==='progression'?'Previous-round comparison':'Tournament'} · ${workspaceStage(g.stage)} · ${e(workspaceScenario(g.scenario))} · ${g.runs.length} competition${g.runs.length===1?'':'s'} · Group ${i+1}</option>`).join('')}</select></label></div><p class="muted">Groups keep different scenarios, preparation settings and opponent pools separate. Same-model fights are excluded from tournament scores.</p><div id="workspace-performance">${workspacePerformance(data.groups[0])}</div></section>
     <section class="panel flush"><div class="panel-head"><h2>Competitions</h2>${btn('New competition','new-competition')}</div>${runTable(scoped(S.boot.runs))}</section>
     ${data.excluded.length?`<details class="panel"><summary>${data.excluded.length} competitions excluded from statistics</summary>${data.excluded.map(r=>`<p>${e(r.run)}: ${e(r.reason)}</p>`).join('')}</details>`:''}`;
 }
@@ -1386,7 +1406,7 @@ function competitionEditor() {
         ["manual", "Continue until I press Stop"],
       ],
       c.generations === null ? "manual" : "fixed",
-    )}${field("Number of rounds", "generations", c.generations ?? 2, "number", "Includes the initial round. Each later round continues both improvement tracks.", c.generations === null ? 'disabled min="1" step="1"' : 'min="1" step="1"')}</div><h3 class="section-label">Selected participants</h3>${competitionGroupPicker()}<div class="competition-roster-toolbar"><input type="search" id="competition-participant-search" placeholder="Search profiles" aria-label="Search competition participants"><label class="check"><input type="checkbox" id="competition-selected-only">Selected only</label></div><div class="competition-model-list" role="group" aria-label="Competition participants">${S.choiceModels.map((m) => `<label class="choice competition-model" data-search="${e(`${m.id} ${m.provider} ${m.model||m.profile}`.toLowerCase())}"><input type="checkbox" name="participant" value="${e(m.id)}" ${c.models.some((v) => v.id === m.id) ? "checked" : ""}><span><strong>${e(m.id)}</strong><small>${e(m.provider)} · ${e(m.model || m.profile)}</small></span></label>`).join("")}</div>${btn("Manage profiles", "go", 'data-view="participants"')}</section>
+    )}${field("Number of rounds", "generations", c.generations ?? 2, "number", "Includes the initial round. Each later round continues both improvement tracks.", c.generations === null ? 'disabled min="1" step="1"' : 'min="1" step="1"')}</div><label class="check"><input type="checkbox" name="compare_previous_round" ${c.compare_previous_round?'checked':''}>Compare against previous-round versions (unscored)</label><small>Round 2 already includes Round 1 opponents. From Round 3, adds separate engine fights against the preceding LLM versions, without affecting tournament scores or model feedback.</small><h3 class="section-label">Selected participants</h3>${competitionGroupPicker()}<div class="competition-roster-toolbar"><input type="search" id="competition-participant-search" placeholder="Search profiles" aria-label="Search competition participants"><label class="check"><input type="checkbox" id="competition-selected-only">Selected only</label></div><div class="competition-model-list" role="group" aria-label="Competition participants">${S.choiceModels.map((m) => `<label class="choice competition-model" data-search="${e(`${m.id} ${m.provider} ${m.model||m.profile}`.toLowerCase())}"><input type="checkbox" name="participant" value="${e(m.id)}" ${c.models.some((v) => v.id === m.id) ? "checked" : ""}><span><strong>${e(m.id)}</strong><small>${e(m.provider)} · ${e(m.model || m.profile)}</small></span></label>`).join("")}</div>${btn("Manage profiles", "go", 'data-view="participants"')}</section>
  <section class="panel editor-section" id="editor-scenario"><div class="section-heading"><span>02</span><h2>Scenario</h2></div><div class="scenario-presets">${btn("<strong>Simple duel</strong><small>1 level-300 leek · weapons only</small>", "preset-simple", `aria-pressed="${!c.scenario.source && c.scenario.preset !== 'llm-team'}"`)}${btn("<strong>Dream team</strong><small>4 complex builds · saved roster</small>", "preset-dream", `aria-pressed="${!!c.scenario.source}"`)}${btn("<strong>AI-built team</strong><small>Each model builds its own roster</small>", "preset-llm", `aria-pressed="${c.scenario.preset === 'llm-team'}"`)}</div><p id="preset-status" role="status" class="muted">${c.scenario.source ? `Based on public team · original snapshot ${e(c.scenario.source.snapshot_sha256.slice(0, 12))}. The roster below can be edited. Published final stats include component bonuses; component selections and alteration deltas are preserved without adding bonuses twice.` : c.scenario.preset === "llm-team" ? "Each LLM freely chooses 1–4 leeks, their levels (1–301), stats, scripts, equipment and component alterations. preview_build and validate_team check official game rules. No character stats or equipment lists are imposed." : "Starting preset: one level-300 gunner per team, direct-damage weapons, no chips. Edit each character independently below."}</p>${c.scenario.source ? raw(c.scenario.source, "Public source and frozen snapshot") : ""}<details><summary>Refresh or replace the saved Dream team</summary>${btn("Refetch current top farmer", "preset-dream-refresh")}<p class="muted">Only this button reads the current farmer ranking and fetches four leeks of its first player. The saved preset is reused until an explicit refresh; existing competitions keep their frozen roster.</p><p class="muted">Use scripts/import_dream_team.py on a machine with access to leekwars.com, then paste its snapshot JSON here.</p><textarea id="dream-snapshot" class="mono" aria-label="Public team snapshot JSON" rows="4"></textarea>${btn("Import snapshot", "preset-dream-json")}</details></section><section class="panel editor-section" id="editor-rules"><div class="section-heading"><span>03</span><h2>Match rules & roster</h2></div><p class="muted">Matches alternate sides. Use a shared roster or let each LLM build its own team under official game rules.</p><div class="form-grid">${selectField(
    "Team setup",
    "team_mode",
@@ -1417,6 +1437,7 @@ function readCompetition(form) {
   base.models = models;
   base.replicates = n("replicates");
   base.parallel_requests = n("parallel_requests");
+  base.compare_previous_round = f.has('compare_previous_round');
   base.generations = f.get("round_stop") === "manual" ? null : n("generations");
   base.schema_version = 2;
   base.improvement_conditions = ["control", "feedback"];
@@ -1489,7 +1510,7 @@ function planMarkup(p) {
     p.ranked_matches_if_all_submit +
     p.mirrors_if_all_submit +
     (p.g1_contemporary_matches || 0) +
-    (p.common_reference_matches || 0);
+    (p.common_reference_matches || 0) + (p.previous_comparison_matches || 0);
   return `<div class="info-row"><span>Parallel model requests</span><strong>${p.parallel_requests || 1}</strong></div><div class="info-row"><span>Conversations</span><strong>${p.sessions == null ? "Until manual stop" : fmt(p.sessions)}</strong></div><div class="info-row"><span>Evaluation matches</span><strong>${p.sessions == null ? "Until manual stop" : fmt(total)}</strong></div><div class="info-row"><span>Maximum preparation matches</span><strong>${p.max_preparation_matches == null ? "Unlimited" : fmt(p.max_preparation_matches)}</strong></div><div class="info-row"><span>Total API spending limit</span><strong>${p.simulated ? "$0 (mock)" : p.max_cost_usd == null ? "No limit" : money(p.max_cost_usd)}</strong></div><p class="muted" style="font-size:10px;margin-top:12px">Schedule assuming every participant submits a strategy. ${p.simulated ? "Mock run with no API calls." : "Reservations estimate cost; they do not confirm provider billing."}</p>`;
 }
 async function runParticipantsDialog() {
@@ -1509,7 +1530,7 @@ async function runParticipantsDialog() {
   const submitted=new Set(S.detail.sessions.filter(session=>session.submission).map(session=>session.model));
   const rows=profiles.map(model=>`<section data-run-profile="${e(model.id.toLowerCase())}"><label class="check"><input type="checkbox" name="participant" value="${e(model.id)}" ${known.has(model.id)&&!withdrawn.has(model.id)?'checked':''}><span><strong>${e(model.id)}</strong><small>${e(model.model||model.profile)} · ${known.has(model.id)?(withdrawn.has(model.id)?'Withdrawn':'In competition'):'New participant'}</small></span></label>${submitted.has(model.id) ? `<details class="quiet-details"><summary>Freeze preparation</summary><div class="actions">${[['control','No feedback'],['feedback','With feedback']].map(([track,label])=>`<label class="check"><input type="checkbox" name="freeze-${track}" value="${e(model.id)}" ${(frozen[model.id]||[]).includes(track)?'checked':''}>${label}</label>`).join('')}</div></details>` : ''}</section>`).join('');
   openDialog('Edit participants',config.name,
-    `<form data-form="run-participants"><p>Uncheck a participant to withdraw it. Its history and completed fights stay; it no longer blocks later rounds. Check it again to reactivate it.</p><p>New participants prepare missing rounds with the saved scenario and budgets. Existing submissions stay frozen. New fights can extend earlier rounds; feedback already sent is kept unchanged.</p><details class="quiet-details"><summary>What freezing does</summary><p>A frozen track keeps fighting with its previous submitted strategy, without new model calls. Current unsubmitted edits are kept on disk but not used. Uncheck the freeze option to enable future preparation again. Every reused version is recorded.</p></details><label class="field">Find participant<input type="search" id="run-participant-search"></label><div class="run-participant-list">${rows}</div><div class="form-footer">${btn('Cancel','close-dialog')}<button type="submit" class="button primary">Save participants</button></div></form>`);
+    `<form data-form="run-participants"><p>Uncheck a participant to withdraw it. Its history and completed fights stay; it no longer blocks later rounds. Check it again to reactivate it.</p><p>New participants prepare missing rounds with the saved scenario and budgets. Existing submissions stay frozen. New fights can extend earlier rounds; feedback already sent is kept unchanged.</p><details class="quiet-details"><summary>What freezing does</summary><p>A frozen track keeps fighting with its previous submitted strategy, without new model calls. Current unsubmitted edits are kept on disk but not used. Uncheck the freeze option to enable future preparation again. Every reused version is recorded.</p></details><label class="check"><input type="checkbox" name="compare_previous_round" ${(S.detail.roster?.compare_previous_round ?? config.compare_previous_round)?'checked':''}>Compare against previous-round versions (unscored)</label><small>From Round 3, adds engine fights against preceding LLM versions. Existing submissions are kept; no extra model calls or tournament points.</small><label class="field">Find participant<input type="search" id="run-participant-search"></label><div class="run-participant-list">${rows}</div><div class="form-footer">${btn('Cancel','close-dialog')}<button type="submit" class="button primary">Save participants</button></div></form>`);
 }
 function resumeRecoveryMarkup(detail) {
   const failed=detail.sessions.filter(s=>!s.withdrawn && !s.planned_frozen && ["provider_unavailable","generation_failed","no_submission"].includes(s.status));
@@ -1637,10 +1658,14 @@ function strategyName(id) {
   const origin=S.detail?.metadata.manifest?.strategies?.find(s=>s.id===id)?.origin;
   if (!session && !origin && !/^(.*)-r\d+(?:-g\d+-(?:control|feedback))?$/.test(String(id || ""))) return id || "Competition";
   const item=overviewIdentity(id);
-  return `Round ${item.generation+1} · ${item.model} · repetition ${item.replicate+1} · ${item.generation ? `improved ${item.condition === "feedback" ? "with" : "without"} feedback` : "initial strategy"}`;
+  const model=S.detail?.metadata.config?.models.find(model=>model.id===item.model);
+  const fixed=model?.profile==='saved-strategy';
+  const description=fixed?(model.strategy?.origin?.reference?'fixed reference · same code':'frozen strategy · same code'):model?.provider==='mock'?'scripted test fixture':item.generation?`revised ${item.condition==='feedback'?'with':'without'} feedback`:'initial strategy';
+  return `Round ${item.generation+1} · ${item.model} · repetition ${item.replicate+1} · ${description}${fixed&&item.generation?' · '+text(item.condition):''}`;
 }
 function sessionLabel(session) {
-  return `Repetition ${Number(session.replicate || 0) + 1} · ${generationLabel(session.generation)}${session.generation ? " · " + text(session.condition) : ""} · ${session.withdrawn ? "Withdrawn" : session.manual_frozen ? "Manually frozen" : text(session.status)}`;
+  const fixed=S.detail?.metadata.config?.models.find(model=>model.id===session.model)?.profile==='saved-strategy';
+  return `Repetition ${Number(session.replicate || 0) + 1} · ${generationLabel(session.generation)}${session.generation ? " · " + text(session.condition) : ""} · ${fixed?"Fixed code · ":""}${session.withdrawn ? "Withdrawn" : session.manual_frozen ? "Manually frozen" : text(session.status)}`;
 }
 function canProbeProvider(d, sid) {
   const session = d.sessions.find(s => s.id === sid);
@@ -1669,14 +1694,25 @@ async function renderRun(epoch, liveUpdate=false) {
     await refreshCompetitionActivity(epoch);
     if(epoch!==S.epoch)return;
   }
-  let body = "", sourceChanged=false;
+  let body = "", sourceChanged=false, deferredErrors=null;
   if (S.tab === "summary") {
     const refreshFaults=S.overviewFaultRun!==S.run || Date.now()-(S.overviewFaultTime||0)>10000 || !activeJobs().some(job=>job.run===S.run);
-    const [fights,faults] = await Promise.all([api('/api/matches',{run:S.run}),refreshFaults?api('/api/faults',{run:S.run}):Promise.resolve(S.overviewFaults)]);
+    const fights=await runResource('/api/matches',{run:S.run});
     const statistics={training_matches:fights.matches.filter(m=>m.kind==='training').length};
     if (epoch !== S.epoch) return;
     S.overviewMatches = fights.matches;
-    if(refreshFaults) {S.overviewFaults=faults;S.overviewFaultRun=S.run;S.overviewFaultTime=Date.now();}
+    if(refreshFaults) {
+      const run=S.run;
+      if(S.overviewFaultRun!==run)S.overviewFaults={sessions:[],loading:true};
+      deferredErrors=async()=>{
+        try {
+          const faults=await api('/api/faults',{run});
+          if(epoch!==S.epoch||run!==S.run)return;
+          S.overviewFaults=faults;S.overviewFaultRun=run;S.overviewFaultTime=Date.now();
+          const chart=$('#overview-errors');if(chart)LiveDOM.replace(chart,overviewErrors(S.detail,overviewData(S.detail)));
+        } catch(error) {if(error.name!=='AbortError'&&epoch===S.epoch){const chart=$('#overview-errors');if(chart)chart.innerHTML='<h2>Errors</h2><p class="muted">Error statistics could not be loaded. Refresh to retry.</p>';}}
+      };
+    }
     S.statistics = statistics;
     body = summary(d, statistics);
   } else if (S.tab === "config")
@@ -1693,7 +1729,7 @@ async function renderRun(epoch, liveUpdate=false) {
           "Conversations appear when this participant starts.",
         );
     else if (!d.sessions.length && S.tab === "code") {
-      S.files = (await api("/api/files", { run: S.run })).files.filter((f) =>
+      S.files = (await runResource("/api/files", { run: S.run })).files.filter((f) =>
         f.path.endsWith(".leek"),
       );
       body =
@@ -1747,7 +1783,7 @@ async function renderRun(epoch, liveUpdate=false) {
       const followLatest=liveUpdate && S.version===(S.versions?.versions?.length||0)-1 && S.previous==null &&
         !document.activeElement?.matches('#source-file,#source-previous');
       const previousCount=S.versions?.versions?.length||0;
-      S.versions = await api("/api/versions", {
+      S.versions = await runResource("/api/versions", {
         run: S.run,
         session: S.session,
         model: S.modelFilter,
@@ -1757,7 +1793,7 @@ async function renderRun(epoch, liveUpdate=false) {
       sourceChanged=previousVersion!==S.version;
     }
   } else if (S.tab === "matches") {
-    S.matches = (await api("/api/matches", { run: S.run })).matches;
+    S.matches = (await runResource("/api/matches", { run: S.run })).matches;
     body = matchesPage();
   } else if (S.tab === 'faults') {
     const data=await api('/api/faults',{run:S.run});
@@ -1765,7 +1801,7 @@ async function renderRun(epoch, liveUpdate=false) {
     S.faults=data;
     body=faultsPage();
   } else if (S.tab === "files") {
-    S.files = (await api("/api/files", { run: S.run })).files;
+    S.files = (await runResource("/api/files", { run: S.run })).files;
     body = filesPage();
   } else if (S.tab === "events") {
     const chosen = d.sessions.find((s) => s.id === S.session);
@@ -1786,6 +1822,7 @@ async function renderRun(epoch, liveUpdate=false) {
   const html='<div id="run-chrome">' + runHeader(d) + '</div><div id="run-content">' + body + '</div>';
   if(liveUpdate) LiveDOM.update($('#main'),html);
   else $('#main').innerHTML=html;
+  if(deferredErrors)deferredErrors();
   if (S.tab === "conversation" && S.follow && !S.explicitOffset)
     animateConversationTail();
   if ((!liveUpdate || sourceChanged || !$("#source-content")?.liveLoaded) && S.tab === "code" && d.sessions.length && S.versions?.versions?.length)
@@ -1824,7 +1861,7 @@ function faultRateBars(rows,metric='tools') {
 function overviewErrors(d,data) {
   const sessions=new Set(data.sessions.map(session=>session.id));
   const rows=(S.overviewFaults?.sessions||[]).filter(row=>sessions.has(row.session)&&d.metadata.config?.models.find(model=>model.id===row.model)?.provider!=='mock');
-  return `<section class="overview-card" id="overview-errors"><div class="overview-section-head"><h2>Errors</h2>${btn('Details & incidents','open-errors')}</div><div class="error-rate-grid"><section><h3>Tool call errors</h3>${faultRateBars(rows,'tools')}</section><section><h3>Failed compilation checks</h3>${faultRateBars(rows,'compilation')}</section></div><p class="muted">Uses the overview model and round filters. Failed attempts / executed calls or compilation checks. API failures are separate; these rates are not a direct hallucination score.</p></section>`;
+  return `<section class="overview-card" id="overview-errors">${S.overviewFaults?.loading?'<p class="muted">Loading error statistics…</p>':''}<div class="overview-section-head"><h2>Errors</h2>${btn('Details & incidents','open-errors')}</div><div class="error-rate-grid"><section><h3>Tool call errors</h3>${faultRateBars(rows,'tools')}</section><section><h3>Failed compilation checks</h3>${faultRateBars(rows,'compilation')}</section></div><p class="muted">Uses the overview model and round filters. Failed attempts / executed calls or compilation checks. API failures are separate; these rates are not a direct hallucination score.</p></section>`;
 }
 function faultsPage() {
   const data=S.faults || {sessions:[],incidents:[]};
@@ -1832,7 +1869,7 @@ function faultsPage() {
   const selected=new Set(rows.map(row=>row.session));
   const total=key=>rows.reduce((sum,row)=>sum+(row[key]||0),0);
   const rateMetric=S.faultMetric||'tools';
-  const bars=faultRateBars(rows,metric);
+  const bars=faultRateBars(rows,rateMetric);
   const incidents=[...data.incidents].reverse().filter(row=>selected.has(row.session));
   return `<section id="faults-content"><div class="collection-toolbar">${selectField('Model','fault_model', [['','All models'],...[...new Set(data.sessions.map(row=>row.model))].map(model=>[model,model])],S.faultModel||'')}${selectField('Round','fault_round',[['','All rounds'],...[...new Set(data.sessions.map(row=>row.round))].sort((a,b)=>a-b).map(round=>[String(round),'Round '+round])],S.faultRound||'')}${selectField('Track','fault_condition',[['','All tracks'],['initial','Initial'],['control','No feedback'],['feedback','With feedback']],S.faultCondition||'')}<a class="button" href="/api/results.csv?${query({run:S.run,table:'errors'})}" download>Download errors CSV</a></div><div class="metrics">${metric('Tool errors',`${total('tool_errors')} / ${total('tool_calls')}`,total('tool_calls')?pct(total('tool_errors')/total('tool_calls')):'No executed tools')}${metric('Failed compilation checks',`${total('failed_analyses')} / ${total('analyses')}`,`${total('compiler_errors')} compiler error diagnostics`)}${metric('Runtime errors',fmt(total('runtime_errors')),`${total('preparation_runtime_errors')} in preparation tests`)}${metric('Provider failures',fmt(total('provider_failures')),'Reported separately from authoring errors')}</div><section class="panel">${selectField('Failure rate','fault_metric',[['tools','Tool calls'],['compilation','Compilation checks']],rateMetric)}<div class="workspace-bars">${bars||'<p>No observations yet.</p>'}</div></section><section class="panel"><h2>By round and track</h2>${table(['Participant','Round / track','Tool errors','Unknown tools','Bad arguments','Failed compilation checks','Invalid teams','Runtime errors'],rows.map(row=>`<tr><td>${e(row.model)}${row.manual_frozen?'<small>Manually frozen</small>':''}</td><td>R${row.round} · ${e(text(row.condition))}</td><td>${row.tool_errors} / ${row.tool_calls}</td><td>${row.unknown_tools}</td><td>${row.invalid_arguments}</td><td>${row.failed_analyses} / ${row.analyses}</td><td>${row.invalid_teams}</td><td>${row.runtime_errors}</td></tr>`))}<p class="muted">Observed errors, not a hallucination score. Tool failures include unavailable files and other operational errors. Compiler warnings are excluded. Repeated attempts count separately. Runtime errors count recorded execution events across scored and reference fights; preparation is separate.</p></section><section class="panel"><h2>Recent incidents</h2><p>${data.incidents_total??data.incidents.length} recorded incidents; the most recent 200 are available here. Full receipts remain in the Journal.</p>${incidents.map(row=>`<details class="quiet-details" data-fault-event="${row.event}" data-fault-run="${e(S.run)}" ${S.faultOpen?.[S.run+'/'+row.event]?'open':''}><summary>${e(row.model)} · R${row.round} · ${e(text(row.category))}${row.tool?' · '+e(row.tool):''}</summary><p>${date(row.at)} · ${e(text(row.condition))} · Journal event ${row.event}</p><pre>${e(row.message)}</pre>${btn('Open conversation','session-conversation',`data-session="${e(row.session)}"`)}</details>`).join('')||'<p>No incidents in this selection.</p>'}</section></section>`;
 }
@@ -1912,7 +1949,7 @@ function overviewEntries(match) {
     .map((id, side) => ({ ...overviewIdentity(id), side }))
     .filter(
       (item) =>
-        match.kind !== "evaluation" ||
+        !['evaluation','progression'].includes(match.kind) ||
         candidateSide < 0 ||
         item.side === candidateSide,
     );
@@ -1930,7 +1967,7 @@ function overviewData(d) {
     all = (S.overviewMatches || []).filter(
       (m) =>
         !m.mirror &&
-        m.kind === scope.source &&
+        matchCategory(m,scope.source) &&
         (!scope.round.startsWith("stage:") || m.stage === scope.round.slice(6)),
     );
   const selected = all
@@ -1961,7 +1998,7 @@ function overviewData(d) {
   for (const { match, entries } of selected)
     for (const item of entries) {
       const withinModel=overviewIdentity(match.sides[1-item.side]).model===item.model;
-      if (!withinModel) {
+      if (!withinModel || scope.source==='progression') {
         if (!models.has(item.model))
           models.set(item.model, { model: item.model, ...blank() });
         add(models.get(item.model), match, item.side);
@@ -1977,7 +2014,7 @@ function overviewData(d) {
       }
       const who = scope.matrix === "versions" ? item.id : item.model;
       const other = scope.matrix === "versions" ? match.sides[1-item.side] : overviewIdentity(match.sides[1 - item.side]).model;
-      if (scope.matrix !== "versions" && other === item.model) continue;
+      if (scope.matrix !== "versions" && other === item.model && scope.source!=='progression') continue;
       const pair = JSON.stringify([who, other]);
       if (!matrix.has(pair))
         matrix.set(pair, {
@@ -2064,6 +2101,7 @@ function overviewFilters(d, data) {
     [
       ["competition", "Tournament"],
       ["evaluation", "Reference tests"],
+      ["progression", "Previous-round comparisons (unscored)"],
     ],
     data.scope.source,
   )}</select></label><label>Matrix grouping<select data-overview-filter="matrix" aria-label="Matrix grouping">${options([["models","By model"],["versions","By strategy version"]],data.scope.matrix || "models")}</select></label><span class="overview-scope">${data.selected.length} fights · ${data.models.length} models</span></div>`;
@@ -2071,8 +2109,8 @@ function overviewFilters(d, data) {
 function overviewRanking(data) {
   if (!data.models.length)
     return '<div class="overview-empty">No scored matches in this selection.</div>';
-  const resultLink=(row,outcome,value)=>`<a href="#${query({view:'run',run:S.run,tab:'matches',kind:data.scope.source,entrant_model:row.model,round:data.scope.round,outcome,scored:'1',exclude_same_model:'1'})}">${value}</a>`;
-  return `<p class="muted">Against other models only. Click a result to inspect its fights.</p><ol class="overview-ranking">${data.models.map((r, i) => `<li><span class="overview-rank">${i + 1}</span><div class="overview-rank-body"><div><strong>${e(r.model)}</strong><span>${pct(r.score)}</span></div><div class="overview-bar"><span style="width:${100 * (r.score || 0)}%;background:${overviewColor(r.model)}"></span></div><small>${resultLink(r,"win",r.wins+"W")} · ${resultLink(r,"draw",r.draws+"D")} · ${resultLink(r,"loss",r.losses+"L")}${r.failures ? ` · ${r.failures} failed` : ""}</small></div></li>`).join("")}</ol>`;
+  const resultLink=(row,outcome,value)=>`<a href="#${query({view:'run',run:S.run,tab:'matches',kind:data.scope.source,entrant_model:row.model,round:data.scope.round,outcome,scored:'1',exclude_same_model:data.scope.source==='progression'?undefined:'1'})}">${value}</a>`;
+  return `<p class="muted">${data.scope.source==='progression'?'Against previous-round versions, including the same model.':'Against other models only.'} Click a result to inspect its fights.</p><ol class="overview-ranking">${data.models.map((r, i) => `<li><span class="overview-rank">${i + 1}</span><div class="overview-rank-body"><div><strong>${e(r.model)}</strong><span>${pct(r.score)}</span></div><div class="overview-bar"><span style="width:${100 * (r.score || 0)}%;background:${overviewColor(r.model)}"></span></div><small>${resultLink(r,"win",r.wins+"W")} · ${resultLink(r,"draw",r.draws+"D")} · ${resultLink(r,"loss",r.losses+"L")}${r.failures ? ` · ${r.failures} failed` : ""}</small></div></li>`).join("")}</ol>`;
 }
 function overviewColor(model) {
   const names = [
@@ -2150,6 +2188,7 @@ function overviewMatchLink(data, who, other, outcome, value, description) {
       outcome,
       value,
       description,
+      data.scope.source,
     );
   const href =
     "#" +
@@ -2258,8 +2297,8 @@ function overviewDetails(d, data, statistics) {
         )
       : "<p>No conversations recorded.</p>"
   }</div></details>
-  <details class="overview-details"><summary>Usage & match accounting</summary><div class="overview-detail-body">${usageAccounting(d)}<h3>Selected versions</h3><p>Tokens: ${e(tokenDisplay({ ...d, sessions: data.sessions }))} · ${fmt(data.sessions.reduce((n, s) => n + (s.calls || 0), 0))} model calls · ${fmt(data.sessions.reduce((n, s) => n + (s.steps || 0), 0))} tool calls</p><h3>Whole competition</h3><dl class="overview-accounting"><div><dt>All completed fights</dt><dd>${fmt(count((m) => m.kind !== "training"))}</dd></div><div><dt>Round 1 tournament</dt><dd>${fmt(count((m) => m.kind === "competition" && !/^g\d+-tournament$/.test(m.stage)))}</dd></div><div><dt>Improvement tournaments</dt><dd>${fmt(count((m) => /^g\d+-tournament$/.test(m.stage)))}</dd></div><div><dt>Reference evaluations</dt><dd>${fmt(count((m) => m.kind === "evaluation"))}</dd></div><div><dt>Preparation tests (unscored)</dt><dd>${fmt(statistics?.training_matches || 0)}</dd></div><div><dt>Diagnostic mirrors (included above)</dt><dd>${fmt(count((m) => m.mirror))}</dd></div></dl>${btn("View preparation tests", "show-training")}</div></details>
-  <details class="overview-details"><summary>How to read these results</summary><div class="overview-detail-body"><p>Score = (wins + 0.5 × draws) / completed appearances. 50% can mean all draws. Failures do not earn points and remain visible separately.</p><p>The feedback and no-feedback tracks share the initial submission, then continue independently. Every round finishes its tournament before the next preparation begins. Tournament opponents change between rounds. Reference tests use the frozen Round 1 strategies and built-in scripts for a common comparison.</p><p>Filters apply to all charts, the matrix and details. The model filter selects the candidate; opponents remain visible. Tournament mirrors and preparation tests are excluded from scored results. Model rankings and progress exclude fights against versions of the same model. The strategy-version matrix retains these comparisons; fight counts include them. Other appearances can exceed the number of unique fights. Tournament diagonals are omitted.</p><p>Cost and tokens measure preparation of selected versions, independently of the match category. Unknown provider usage stays unknown. Zero configured prices still allow token measurement.</p></div></details>`;
+  <details class="overview-details"><summary>Usage & match accounting</summary><div class="overview-detail-body">${usageAccounting(d)}<h3>Selected versions</h3><p>Tokens: ${e(tokenDisplay({ ...d, sessions: data.sessions }))} · ${fmt(data.sessions.reduce((n, s) => n + (s.calls || 0), 0))} model calls · ${fmt(data.sessions.reduce((n, s) => n + (s.steps || 0), 0))} tool calls</p><h3>Whole competition</h3><dl class="overview-accounting"><div><dt>All completed fights</dt><dd>${fmt(count((m) => m.kind !== "training"))}</dd></div><div><dt>Round 1 tournament</dt><dd>${fmt(count((m) => m.kind === "competition" && !/^g\d+-tournament$/.test(m.stage)))}</dd></div><div><dt>Improvement tournaments</dt><dd>${fmt(count((m) => /^g\d+-tournament$/.test(m.stage)))}</dd></div><div><dt>Reference evaluations</dt><dd>${fmt(count((m) => m.kind === "evaluation"))}</dd></div><div><dt>Extra previous-round comparisons (unscored)</dt><dd>${fmt(count((m) => m.kind === "progression"))}</dd></div><div><dt>Preparation tests (unscored)</dt><dd>${fmt(statistics?.training_matches || 0)}</dd></div><div><dt>Diagnostic mirrors (included above)</dt><dd>${fmt(count((m) => m.mirror))}</dd></div></dl>${btn("View preparation tests", "show-training")}</div></details>
+  <details class="overview-details"><summary>How to read these results</summary><div class="overview-detail-body"><p>Score = (wins + 0.5 × draws) / completed appearances. 50% can mean all draws. Failures do not earn points and remain visible separately.</p><p>The feedback and no-feedback tracks share the initial submission, then continue independently. Every round finishes its tournament before the next preparation begins. Tournament opponents change between rounds. Reference tests use the frozen Round 1 strategies and built-in scripts for a common comparison.</p><p>Filters apply to all charts, the matrix and details. The model filter selects the candidate; opponents remain visible. Tournament mirrors and preparation tests are excluded from scored results. Tournament rankings and progress exclude fights against versions of the same model. The separate previous-round comparison view includes them. The strategy-version matrix retains these comparisons; fight counts include them. Other appearances can exceed the number of unique fights. Tournament diagonals are omitted.</p><p>Cost and tokens measure preparation of selected versions, independently of the match category. Unknown provider usage stays unknown. Zero configured prices still allow token measurement.</p></div></details>`;
 }
 function summary(d, statistics = null) {
   const data = overviewData(d),
@@ -2292,10 +2331,10 @@ function summary(d, statistics = null) {
         Number(s.money_reserved || 0) > 0,
     ),
     cost = sessions.reduce((n, s) => n + Number(s.cost_spent || 0), 0);
-  return `<div class="competition-overview">${overviewFilters(d, data)}${failures.length ? `<div class="overview-alert">${failures.length} conversation${failures.length === 1 ? "" : "s"} need attention. <button class="table-button" data-action="overview-failures">Review & retry</button></div>` : ""}<div class="overview-kpis"><div><span>Completed fights</span><strong>${fmt(data.selected.filter((v) => v.match.result.status === "completed").length)}</strong><small>${data.selected.filter((v) => v.match.result.status !== "completed").length} failed</small></div><div><span>Submitted strategies</span><strong>${sessions.length ? sessions.filter((s) => s.submission || s.status === "submitted").length : d.metadata.manifest?.strategies?.filter(s=>overviewAccept(overviewIdentity(s.id),data.scope)).length ?? data.models.length}${sessions.length ? `<small> / ${sessions.length}</small>` : ""}</strong><small>${d.metadata.config ? d.metadata.config.models.filter(model=>!d.roster?.withdrawn.includes(model.id)&&(!data.scope.model||data.scope.model===model.id)).length : data.models.length} active participants</small></div><div><span>Estimated API cost</span><strong>${sessions.length ? (costUnknown ? "Unknown" : money(cost)) : "N/A"}</strong><small>Selected versions</small></div><div><span>Tokens · selected versions</span><strong>${known.length ? fmt(tokens) : real.length ? "Unknown" : "N/A"}</strong><small>${known.length ? (known.length < real.length || known.some(u=>!u.complete) ? "Partial reported usage" : "Input + output") : real.length ? "Not reported by provider" : "No measured LLM usage"}</small></div></div>
+  return `<div class="competition-overview">${overviewFilters(d, data)}${data.scope.source==='progression'?notice('Unscored progression diagnostic: current LLM versions face the preceding round. This includes same-model historical opponents; results do not change tournament standings or model feedback.'):''}${failures.length ? `<div class="overview-alert">${failures.length} conversation${failures.length === 1 ? "" : "s"} need attention. <button class="table-button" data-action="overview-failures">Review & retry</button></div>` : ""}<div class="overview-kpis"><div><span>Completed fights</span><strong>${fmt(data.selected.filter((v) => v.match.result.status === "completed").length)}</strong><small>${data.selected.filter((v) => v.match.result.status !== "completed").length} failed</small></div><div><span>Submitted strategies</span><strong>${sessions.length ? sessions.filter((s) => s.submission || s.status === "submitted").length : d.metadata.manifest?.strategies?.filter(s=>overviewAccept(overviewIdentity(s.id),data.scope)).length ?? data.models.length}${sessions.length ? `<small> / ${sessions.length}</small>` : ""}</strong><small>${d.metadata.config ? d.metadata.config.models.filter(model=>!d.roster?.withdrawn.includes(model.id)&&(!data.scope.model||data.scope.model===model.id)).length : data.models.length} active participants</small></div><div><span>Estimated API cost</span><strong>${sessions.length ? (costUnknown ? "Unknown" : money(cost)) : "N/A"}</strong><small>Selected versions</small></div><div><span>Tokens · selected versions</span><strong>${known.length ? fmt(tokens) : real.length ? "Unknown" : "N/A"}</strong><small>${known.length ? (known.length < real.length || known.some(u=>!u.complete) ? "Partial reported usage" : "Input + output") : real.length ? "Not reported by provider" : "No measured LLM usage"}</small></div></div>
   <div class="overview-charts"><section class="overview-card"><div class="overview-section-head"><h2>Model ranking</h2><span>Score</span></div>${overviewRanking(data)}</section><section class="overview-card"><div class="overview-section-head"><h2>Evolution</h2><span>Score by version</span></div>${overviewEvolution(data)}</section></div><section class="overview-card">${resourcePanel(overviewResourcePoints(d,data),"overview")}</section>
   ${overviewErrors(d,data)}
-  ${data.matrix.length ? `<section class="overview-card overview-head-to-head"><div class="overview-section-head"><h2>Match matrix</h2><span>Click a result to see fights</span></div>${overviewMatrix(data)}</section>` : `<div class="overview-empty">${data.selected.length ? "No head-to-head pairs in this selection." : `No ${data.scope.source === "competition" ? "tournament" : "reference"} matches yet.`}${statistics?.training_matches ? ` ${statistics.training_matches} preparation tests recorded; excluded from standings. ${btn("View preparation tests", "show-training")}` : ""}</div>`}
+  ${data.matrix.length ? `<section class="overview-card overview-head-to-head"><div class="overview-section-head"><h2>Match matrix</h2><span>Click a result to see fights</span></div>${overviewMatrix(data)}</section>` : `<div class="overview-empty">${data.selected.length ? "No head-to-head pairs in this selection." : `No ${data.scope.source === "competition" ? "tournament" : data.scope.source==='progression'?"previous-round comparison":"reference"} matches yet.`}${statistics?.training_matches ? ` ${statistics.training_matches} preparation tests recorded; excluded from standings. ${btn("View preparation tests", "show-training")}` : ""}</div>`}
   ${overviewDetails(d, data, statistics)}</div>`;
 }
 let conversationValues = [];
@@ -2873,6 +2912,8 @@ function eventsPage(data) {
   )}<div class="pager"><span>Events ${data.total ? S.offset + 1 : 0}-${Math.min(data.total, S.offset + 100)}</span><div class="actions">${btn("← Previous", "event-page", `data-offset="${Math.max(0, S.offset - 100)}" ${S.offset === 0 ? "disabled" : ""}`)}${btn("Next →", "event-page", `data-offset="${S.offset + 100}" ${S.offset + 100 >= data.total ? "disabled" : ""}`)}</div></div></section>`;
 }
 function stageText(stage) {
+  const previous=String(stage).match(/^evaluations\/g(\d+)-previous$/);
+  if(previous)return `Round ${Number(previous[1])+1} vs Round ${Number(previous[1])} (unscored)`;
   const stageRound = String(stage).match(
     /^(?:g(\d+)-tournament|evaluations\/g(\d+)-panel)$/,
   );
@@ -2890,6 +2931,11 @@ function stageText(stage) {
     }[stage] || stage
   );
 }
+function matchCategory(match,kind) {
+  if(kind==='all')return true;
+  if(kind==='progression')return match.kind==='progression'||match.previous_round_comparison;
+  return match.kind===(kind||'competition');
+}
 function matchSubset() {
   const f = S.matchFilters || {};
   return S.matches.filter((m) => {
@@ -2900,7 +2946,7 @@ function matchSubset() {
         : m.stage.startsWith("evaluations/")
           ? "evaluation"
           : "competition");
-    if (f.kind !== "all" && kind !== (f.kind || "competition")) return false;
+    if (!matchCategory({...m,kind},f.kind)) return false;
     if (f.stage && m.stage !== f.stage) return false;
     if (f.scored && m.mirror) return false;
     if (f.exclude_same_model && overviewIdentity(m.sides[0]).model===overviewIdentity(m.sides[1]).model) return false;
@@ -2965,7 +3011,7 @@ function matchesPage() {
   const rounds=[...new Set([...S.detail.sessions.map(session=>Number(session.generation||0)+1),...S.matches.flatMap(match=>match.sides.map(id=>overviewIdentity(id).generation+1))])].sort((a,b)=>a-b);
   const rows = matchSubset();
   const categoryTotal = S.matches.filter(
-    (m) => f.kind === "all" || m.kind === (f.kind || "competition"),
+    (m) => matchCategory(m,f.kind),
   ).length;
   const trainingCount = S.matches.filter((m) => m.kind === "training").length;
   S.matchPath =
@@ -2977,6 +3023,7 @@ function matchesPage() {
       ["competition", "Competition rounds"],
       ["training", "Preparation tests (unscored)"],
       ["evaluation", "Reference evaluations (frozen scripts)"],
+      ["progression", "Previous-round comparisons (unscored)"],
       ["all", "All fights"],
     ],
     f.kind || "competition",
@@ -3022,14 +3069,14 @@ async function loadMatch() {
   replayTimer = null;
   const path = S.matchPath,
     epoch = S.epoch,
-    data = await api("/api/match", { run: S.run, path });
+    data = await runResource("/api/match", { run: S.run, path });
   if (epoch !== S.epoch || S.matchPath !== path) return;
   const row = S.matches.find((m) => m.path === path),
     result = data.result;
   const sources=(await api('/api/match/sources',{run:S.run,path})).sources;
   if(epoch!==S.epoch||S.matchPath!==path)return;
   $("#match-detail").innerHTML =
-    `<div class="panel-title"><div><h2>${result.status === "completed" ? (result.winner_side === -1 ? "Draw" : "Winner: " + e(strategyName(row.sides[result.winner_side]))) : e(text(result.status))}</h2><small>Seed ${e(row.seed)} · ${result.turns == null ? "N/A turns" : countLabel(result.turns, "turn")} · ${fmt(result.elapsed_seconds, 2)} s</small></div>${status(result.status)}</div>${row.kind === "training" ? notice("Preparation test requested by the model. Editable scripts; excluded from competition standings and matrices.", "warn") : notice("Frozen strategies: these scripts cannot change during this round.")}${row.mirror ? notice("Mirror match: excluded from the standings.") : ""}<div class="replay-sources">${row.sides.map((id,side)=>`<div><strong>${side===0?'Blue':'Orange'} · ${e(strategyName(id))}</strong>${sources.find(source=>source.side===side)?.available?btn('View executed code','match-source',`data-side="${side}" data-path="${e(path)}"`):'<small>No archived source available</small>'}${S.detail.sessions.some(session=>session.id===id)?`<a class="button" href="#${query({view:'run',run:S.run,tab:'code',session:id})}">Code history</a>`:''}</div>`).join('')}</div>${
+    `<div class="panel-title"><div><h2>${result.status === "completed" ? (result.winner_side === -1 ? "Draw" : "Winner: " + e(strategyName(row.sides[result.winner_side]))) : e(text(result.status))}</h2><small>Seed ${e(row.seed)} · ${result.turns == null ? "N/A turns" : countLabel(result.turns, "turn")} · ${fmt(result.elapsed_seconds, 2)} s</small></div>${status(result.status)}</div>${row.kind === "progression" ? notice('Previous-round comparison. Diagnostic only: no tournament points and not sent as model feedback.') : row.kind === "training" ? notice("Preparation test requested by the model. Editable scripts; excluded from competition standings and matrices.", "warn") : notice("Frozen strategies: these scripts cannot change during this round.")}${row.mirror ? notice("Mirror match: excluded from the standings.") : ""}<div class="replay-sources">${row.sides.map((id,side)=>`<div><strong>${side===0?'Blue':'Orange'} · ${e(strategyName(id))}</strong>${sources.find(source=>source.side===side)?.available?btn('View executed code','match-source',`data-side="${side}" data-path="${e(path)}"`):'<small>No archived source available</small>'}${S.detail.sessions.some(session=>session.id===id)?`<a class="button" href="#${query({view:'run',run:S.run,tab:'code',session:id})}">Code history</a>`:''}</div>`).join('')}</div>${
       data.replay
         ? `<div class="replay-legend">${Object.entries(row.sides)
             .map(
@@ -3442,6 +3489,7 @@ document.addEventListener("click", async (event) => {
         `<div class="markdown">${markdownView(document.content)}</div>`,
       );
     } else if (a === "refresh") {
+      runReadCache.clear();S.detailFetchedAt=0;
       await refreshBoot();
       await renderRoute();
       toast("Data refreshed.");
@@ -3887,7 +3935,7 @@ document.addEventListener("submit", async (event) => {
     } else if (type === "run-participants") {
       const frozenTracks={};
       for(const track of ['control','feedback']) for(const id of f.getAll('freeze-'+track)) (frozenTracks[id] ||= []).push(track);
-      await api('/api/run/participants',{run:S.run,participants:f.getAll('participant'),frozen_tracks:frozenTracks},true);
+      await api('/api/run/participants',{run:S.run,participants:f.getAll('participant'),frozen_tracks:frozenTracks,compare_previous_round:f.has('compare_previous_round')},true);
       $('#dialog').close();
       await refreshBoot();
       await renderRoute();
@@ -4044,8 +4092,7 @@ document.addEventListener("change", async (event) => {
       });
     else if (n.matches("[data-overview-filter]")) {
       overviewSettings()[n.dataset.overviewFilter] = n.value;
-      $("#main").innerHTML =
-        runHeader(S.detail) + summary(S.detail, S.statistics);
+      LiveDOM.update($("#run-content"),summary(S.detail, S.statistics));
       $(`[data-overview-filter="${n.dataset.overviewFilter}"]`)?.focus({
         preventScroll: true,
       });
@@ -4516,7 +4563,7 @@ async function filterMatches(clear = false) {
   );
   const rows = matchSubset();
   $("#match-filter-count").textContent =
-    `${rows.length} / ${S.matches.filter((m) => S.matchFilters.kind === "all" || m.kind === (S.matchFilters.kind || "competition")).length} matches in this category`;
+    `${rows.length} / ${S.matches.filter((m) => matchCategory(m,S.matchFilters.kind)).length} matches in this category`;
   if (!$("#match-list")) return;
   $("#match-list").innerHTML = matchButtons(rows);
   const path =
@@ -4538,7 +4585,7 @@ async function filterMatches(clear = false) {
 function countLabel(count, noun, plural = noun + "s") {
   return `${count} ${count === 1 ? noun : plural}`;
 }
-function matrixLink(stage, entrant, opponent, outcome, value, description) {
+function matrixLink(stage, entrant, opponent, outcome, value, description, category=null) {
   const href =
     "#" +
     query({
@@ -4546,7 +4593,7 @@ function matrixLink(stage, entrant, opponent, outcome, value, description) {
       run: S.run,
       tab: "matches",
       stage,
-      kind: stage.startsWith("evaluations/") ? "evaluation" : "competition",
+      kind: category || (stage.endsWith("-previous") ? "progression" : stage.startsWith("evaluations/") ? "evaluation" : "competition"),
       entrant,
       opponent,
       outcome,

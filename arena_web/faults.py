@@ -19,7 +19,7 @@ def report(store, identifier):
     rows={sid:{'session':sid,'model':state['model'],'round':state.get('generation',0)+1,
                'condition':state.get('condition','initial'),'manual_frozen':bool(state.get('manual_frozen')),
                **{key:0 for key in ('tool_calls','tool_errors','unknown_tools','invalid_arguments','other_tool_errors',
-                                   'analyses','failed_analyses','compiler_errors','invalid_teams','provider_failures','malformed_responses','runtime_errors','preparation_runtime_errors','operation_limit_hits')}}
+                                   'analyses','failed_analyses','compiler_errors','invalid_teams','provider_failures','malformed_responses','runtime_errors','preparation_runtime_errors','progression_runtime_errors','operation_limit_hits')}}
           for sid,state in states.items()}
     incidents=[];pending={}
     path=root/'journal.sqlite'
@@ -60,9 +60,9 @@ def report(store, identifier):
             incidents.append({**incident,'category':'team_validation','tool':name,'message':'\n'.join(map(str,value.get('errors',[])))})
     for fight in store.matches(identifier)['matches']:
         for side,sid in enumerate(fight['sides']):
-            if sid not in rows or (fight['kind']=='evaluation' and fight.get('candidate')!=sid):continue
+            if sid not in rows or (fight['kind'] in {'evaluation','progression'} and fight.get('candidate')!=sid):continue
             metrics=fight['result'].get('team_metrics',{}).get(str(side),{})
-            field='preparation_runtime_errors' if fight['kind']=='training' else 'runtime_errors'
+            field='preparation_runtime_errors' if fight['kind']=='training' else 'progression_runtime_errors' if fight['kind']=='progression' else 'runtime_errors'
             rows[sid][field]+=metrics.get('errors',0)
             rows[sid]['operation_limit_hits']+=metrics.get('operation_limit_hits',0)
     for row in rows.values():

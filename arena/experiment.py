@@ -38,11 +38,12 @@ def load_config(path: Path) -> dict:
 def validate_config(value: dict) -> dict:
     required = {"schema_version", "name", "models", "replicates", "budget_per_session",
                 "spending", "seeds", "scenario", "include_mirrors"}
-    optional = {"generations", "improvement_conditions", "prompt_language", "final_seeds", "parallel_requests"}
+    optional = {"generations", "improvement_conditions", "prompt_language", "final_seeds", "parallel_requests", "compare_previous_round"}
     if (not isinstance(value, dict) or not required <= set(value) or set(value) - required - optional or
             type(value["schema_version"]) is not int or value["schema_version"] not in (1, 2)):
         raise ArenaError("Unsupported offline experiment schema")
     integer(value.get('parallel_requests',1),1,20,'parallel_requests')
+    if type(value.get('compare_previous_round',False)) is not bool:raise ArenaError('compare_previous_round must be boolean')
     spending = value["spending"]
     if not isinstance(spending, dict) or "allow_paid_calls" not in spending or set(spending) - {"allow_paid_calls", "max_total_usd"}:
         raise ArenaError("Invalid spending policy")
@@ -166,7 +167,9 @@ def plan(config: dict) -> dict:
     n = len(config["models"]) * config["replicates"]
     evolved = config.get("generations", 1) != 1
     paid = [m for m in config["models"] if m["provider"] != "mock"]
-    return {"parallel_requests":config.get("parallel_requests",1), "sessions": None if config.get("generations", 1) is None else n * (2 * config.get("generations", 1) - 1), "generation": None if config.get("generations", 1) is None else config.get("generations", 1) - 1,
+    learned=sum(model['provider']!='mock' for model in config['models'])*config['replicates']
+    previous_matches=(None if config.get('generations',1) is None else 8*learned*learned*max(0,config.get('generations',1)-2)*len(config.get('final_seeds',[]))) if config.get('compare_previous_round') and learned else 0
+    return {"previous_comparison_matches":previous_matches, "parallel_requests":config.get("parallel_requests",1), "sessions": None if config.get("generations", 1) is None else n * (2 * config.get("generations", 1) - 1), "generation": None if config.get("generations", 1) is None else config.get("generations", 1) - 1,
             "provider": "mixed" if paid else "mock", "simulated": not paid,
             "ranked_matches_if_all_submit": n * (n - 1) * len(config["seeds"]),
             "mirrors_if_all_submit": n * len(config["seeds"]) if config["include_mirrors"] else 0,
@@ -196,6 +199,7 @@ class Journal:
         self.db.execute("PRAGMA journal_mode=WAL")
         self.db.execute("PRAGMA synchronous=FULL")
         self.db.execute("CREATE TABLE IF NOT EXISTS sessions (id TEXT PRIMARY KEY, state TEXT NOT NULL)")
+        self.db.execute("CREATE TABLE IF NOT EXISTS session_metadata (id TEXT PRIMARY KEY, checkpoint_sha256 TEXT NOT NULL, metadata TEXT NOT NULL)")
         self.db.execute("CREATE TABLE IF NOT EXISTS events (id INTEGER PRIMARY KEY, session TEXT, kind TEXT, payload TEXT)")
         self.db.execute("CREATE TABLE IF NOT EXISTS objects (id TEXT PRIMARY KEY, kind TEXT, parent TEXT, artifact TEXT, sha256 TEXT)")
         self.db.execute("PRAGMA user_version=2")
@@ -226,7 +230,10 @@ class Journal:
         checkpoint = self.out / "artifacts" / (digest(state) + ".json")
         if not checkpoint.exists():
             write_json(checkpoint, state)
+        checkpoint_sha256=file_hash(checkpoint)
+        from .session_metadata import project
         with self.db:
+            self.db.execute('INSERT OR REPLACE INTO session_metadata VALUES (?,?,?)',(sid,checkpoint_sha256,json.dumps(project(state))))
             self.db.execute("INSERT OR REPLACE INTO sessions VALUES (?,?)", (sid, json.dumps(state)))
             self.db.execute("INSERT INTO events(session,kind,payload) VALUES (?,?,?)",
                             (sid, kind, json.dumps(reference)))
@@ -234,11 +241,11 @@ class Journal:
             self.db.execute("INSERT OR REPLACE INTO objects VALUES (?,?,?,?,?)",
                             (f"{sid}/{kind}/{event_id}", kind, sid, reference["artifact"], reference["sha256"]))
             self.db.execute("INSERT OR REPLACE INTO objects VALUES (?,?,?,?,?)",
-                            (sid, "Session", state.get("parent"), checkpoint.relative_to(self.out).as_posix(), file_hash(checkpoint)))
+                            (sid, "Session", state.get("parent"), checkpoint.relative_to(self.out).as_posix(), checkpoint_sha256))
             category = {"model_intent": "ModelCall", "model_response": "ModelCall",
                         "tool_reserved": "ToolCall", "tool_result": "ToolCall",
                         "usage_event": "UsageEvent", "submission_assessment": "Submission",
-                        "branch_created": "FeedbackArtifact", "reference_match": "Match"}.get(kind)
+                        "branch_created": "FeedbackArtifact", "reference_match": "Match", "progression_match":"Match"}.get(kind)
             if category:
                 identifier = f"{sid}/{category}/{state.get('calls', 0)}/{state.get('cursor', 0)}"
                 self.db.execute("INSERT OR REPLACE INTO objects VALUES (?,?,?,?,?)",
@@ -249,9 +256,14 @@ class Journal:
             if file_hash(self.out / artifact) != expected:
                 raise ArenaError("Journal artifact was modified")
         for sid, raw in self.db.execute("SELECT id,state FROM sessions"):
-            row = self.db.execute("SELECT artifact FROM objects WHERE id=? AND kind='Session'", (sid,)).fetchone()
-            if row and read_json(self.out / row[0]) != json.loads(raw):
+            row = self.db.execute("SELECT artifact,sha256 FROM objects WHERE id=? AND kind='Session'", (sid,)).fetchone()
+            state=json.loads(raw)
+            if row and read_json(self.out / row[0]) != state:
                 raise ArenaError("Journal session checkpoint was modified")
+            metadata=self.db.execute('SELECT checkpoint_sha256,metadata FROM session_metadata WHERE id=?',(sid,)).fetchone()
+            if row and metadata and metadata[0]==row[1]:
+                from .session_metadata import project
+                if json.loads(metadata[1])!=project(state):raise ArenaError('Session metadata index was modified')
 
     def states(self):
         return {sid: json.loads(raw) for sid, raw in self.db.execute("SELECT id,state FROM sessions ORDER BY id")}
@@ -745,6 +757,7 @@ def run(config: dict, out: Path, resume=False, interrupt=None, prepare_only=Fals
             config['_withdrawn_models'] = roster['withdrawn'] if roster else []
             config['_frozen_tracks'] = (roster or {}).get('frozen_tracks', {})
             config['_roster_revision'] = (roster or {}).get('revision',0)
+            config['_compare_previous_round'] = (roster or {}).get('compare_previous_round',config.get('compare_previous_round',False))
             if resume:
                 from .recovery import needs_reconciliation
                 external = {m['id'] for m in config['models'] if m['provider'] != 'mock'}

@@ -48,14 +48,14 @@ def references(engine, config, out, journal, entrants, label, panel, *, incremen
                     if not cached or not cached.exists():
                         work = Preparation._attempt(root / "matches" / key)
                         from .activity import operation
-                        with operation(out,'reference_fight',participants=[s['id'] for s in sources],
+                        with operation(out,'previous_round_fight' if label.endswith('-previous') else 'reference_fight',participants=[s['id'] for s in sources],
                                        generation=entrant.get('generation',0),seed=seed):
                             result = engine.fight([Path(s["path"]) for s in sources], [s["submission"] for s in sources],
                                                   config["scenario"], seed, work)
                         record = {"session": entrant["id"], "opponent": opponent["id"], "seed": seed,
                                   "side": side, "result": result, "artifact_dir": work.relative_to(out).as_posix()}
                         write_json(root / "records" / (key + ".json"), record)
-                        journal.save(entrant["id"], journal.state(entrant["id"]), "reference_match", record)
+                        journal.save(entrant["id"], journal.state(entrant["id"]), "progression_match" if label.endswith('-previous') else "reference_match", record)
                     results[key] = record
     write_json(root / "results.json", results)
     return results
@@ -211,6 +211,11 @@ def run_generation(config, out, journal, engine, initial, interrupt=None, retry_
                 journal.save(sid, skipped, "branch_unavailable", {"reason": "No G0 submission"})
     contemporaries = evaluate_ready(engine, config, out, journal, generation)
     evolved = references(engine, config, out, journal, branches, f"g{generation}-panel", panel)
+    if config.get('_compare_previous_round',config.get('compare_previous_round',False)) and generation>=2:
+        learned=[source for source in initial if models[journal.state(source['id'])['model']]['provider']!='mock']
+        candidates=[source for source in branches if models[source['model']]['provider']!='mock']
+        if candidates and learned:
+            references(engine,config,out,journal,candidates,f'g{generation}-previous',learned,incremental=True)
     result = analyze_evolution(config, out, journal.states(), roots, branches, baseline, evolved, contemporaries)
     result["contemporaries"] = contemporaries
     write_json(out / "evolution.json", result)

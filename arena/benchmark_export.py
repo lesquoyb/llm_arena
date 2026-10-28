@@ -93,13 +93,13 @@ def export(runs, out, catalog=None):
                 row={**descriptor,'fight_id':digest({'run':run_id,'path':fight['path']}),'artifact_path':fight['path'],
                      'side':side,'opponent':fight['sides'][1-side],'kind':fight['kind'],'stage':fight['stage'],'seed':fight['seed'],
                      'mirror':fight['mirror'],'candidate':fight.get('candidate'),'is_candidate':fight.get('candidate')==sid,
-                     'counts_toward_standings':fight['counts_toward_standings'],'status':result.get('status'),'outcome':outcome,
+                     'counts_toward_standings':fight['counts_toward_standings'],'previous_round_comparison':fight.get('previous_round_comparison',False),'status':result.get('status'),'outcome':outcome,
                      'points':None if not done else .5 if outcome=='draw' else int(outcome=='win'),
                      'turns':result.get('turns'),'elapsed_seconds':result.get('elapsed_seconds'),
                      **{key:metrics.get(key) for key in METRICS}}
                 appearances.append(row)
                 # Reference opponents appear in fights.csv, but are not candidate evaluations.
-                if fight['mirror'] or (fight['kind']=='evaluation' and fight.get('candidate')!=sid): continue
+                if fight['mirror'] or (fight['kind'] in {'evaluation','progression'} and fight.get('candidate')!=sid): continue
                 groups[(sid,fight['kind'],fight['stage'])].append(row)
         for (sid,kind,stage),rows in groups.items():
             done=[r for r in rows if r['outcome']!='unscored']

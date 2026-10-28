@@ -48,7 +48,7 @@ def validate_effective(config, withdrawn):
     return config
 
 
-def update(out, journal, original, catalog, selected, frozen_tracks=None):
+def update(out, journal, original, catalog, selected, frozen_tracks=None, compare_previous_round=None):
     if not isinstance(selected, list) or not selected or any(not isinstance(value,str) for value in selected) or len(set(selected)) != len(selected):
         raise ArenaError('Select at least one participant, without duplicates')
     previous = snapshot(out)
@@ -76,7 +76,9 @@ def update(out, journal, original, catalog, selected, frozen_tracks=None):
         if tracks and any(state['model']==model and state.get('condition') in tracks and
                           (state.get('in_flight') or state.get('status')=='needs_reconciliation') for state in states.values()):
             raise ArenaError('Resolve the interrupted request before freezing this track: '+model)
-    change = {'frozen_tracks':frozen_tracks, 'revision':(previous or {}).get('revision',0)+1, 'models':models,
+    if compare_previous_round is None:compare_previous_round=(previous or {}).get('compare_previous_round',original.get('compare_previous_round',False))
+    if type(compare_previous_round) is not bool:raise ArenaError('Previous-round comparison must be boolean')
+    change = {'compare_previous_round':compare_previous_round, 'frozen_tracks':frozen_tracks, 'revision':(previous or {}).get('revision',0)+1, 'models':models,
               'active':selected, 'withdrawn':withdrawn,
               'added':sorted(set(selected)-old_active), 'removed':sorted(old_active-set(selected)),
               'at_round':max(state.get('generation',0) for state in states.values())+1,

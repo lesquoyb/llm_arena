@@ -1,0 +1,12 @@
+"""Small derived metadata for dashboards; full checkpoints remain authoritative."""
+FIELDS = (
+    'model','participant_revision','replicate','generation','condition','parent','parent_checkpoint_sha256',
+    'status','validity','calls','completed_calls','failure','context_recoveries','manual_frozen','steps',
+    'test_matches','wall_seconds','cost_spent','money_reserved','token_usage_known','input_tokens','output_tokens',
+    'submission','in_flight','retry_count','continuation_identity','provider_parameter_overrides','reserved','current_tool',
+)
+
+
+def project(state):
+    return {**{key:state[key] for key in FIELDS if key in state and state[key] is not None},
+            'messages':len(state.get('history',[]))}

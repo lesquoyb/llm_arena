@@ -209,14 +209,15 @@ class Application:
                 from arena.roster import effective, snapshot, validate_effective
                 root=self.store.run_path(data['run'])
                 config=effective(root,read_json(root/'experiment.json')['config'])
-                withdrawn=set((snapshot(root) or {}).get('withdrawn',[]))
+                roster=snapshot(root) or {}
+                withdrawn=set(roster.get('withdrawn',[]))
                 validate_effective(config,withdrawn)
-                selected={**config,'models':[model for model in config['models'] if model['id'] not in withdrawn]}
+                selected={**config,'compare_previous_round':roster.get('compare_previous_round',config.get('compare_previous_round',False)),'models':[model for model in config['models'] if model['id'] not in withdrawn]}
                 return {**plan(selected),'active_models':[model['id'] for model in selected['models']], 'config':config,'config_sha256':digest(config)}
             config = data['config'] if data.get('frozen') else self.store.resolve_models(data['config'])
             return {**plan(validate_config(config)), 'config':config, 'config_sha256':digest(config)}
         if route == '/api/run/participants':
-            return self.jobs.participants(data['run'], data.get('participants'), data.get('frozen_tracks'))
+            return self.jobs.participants(data['run'], data.get('participants'), data.get('frozen_tracks'), data.get('compare_previous_round'))
         if route == "/api/launch":
             return self.jobs.launch(draft_id=data.get("draft_id"), run_id=data.get("run"),
                                     confirm_paid=data.get("confirm_paid", False), ceiling=data.get("ceiling"), retry_session=data.get("retry_session"), expected_config_sha256=data.get("expected_config_sha256"), allow_updated_runner=data.get("allow_updated_runner") is True, retry_reasoning_effort=data.get("retry_reasoning_effort"))

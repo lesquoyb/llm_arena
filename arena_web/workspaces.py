@@ -157,7 +157,7 @@ class Workspaces:
             panels=defaultdict(set);pools=defaultdict(set)
             for match in matches:
                 if match['kind']!='training':pools[match['stage']].update(match['sides'])
-                if match['kind']!='evaluation':continue
+                if match['kind'] not in {'evaluation','progression'}:continue
                 sources=self.json(self.run_path(run['id'])/match['path']/'provenance.json',{}).get('submissions',[])
                 side=match.get('candidate_side')
                 opponent=sources[1-side].get('sha256') if side in (0,1) and len(sources)==2 else None
@@ -174,9 +174,9 @@ class Workspaces:
                 totals['completed_matches']+=done;totals['failed_matches']+=not done
                 if match.get('mirror'):continue
                 candidates=[(side,sid) for side,sid in enumerate(match['sides']) if sid in sessions or sid in frozen]
-                if match['kind']=='evaluation': candidates=[(side,sid) for side,sid in candidates if sid==match.get('candidate')]
+                if match['kind'] in {'evaluation','progression'}: candidates=[(side,sid) for side,sid in candidates if sid==match.get('candidate')]
                 # Missing immutable panel provenance cannot support cross-run pooling.
-                reference=sorted(panels[match['stage']]) if match['kind']=='evaluation' else None
+                reference=sorted(panels[match['stage']]) if match['kind'] in {'evaluation','progression'} else None
                 stage_key=(match['kind'],match['stage'])
                 if stage_key not in group_keys:
                     group_keys[stage_key]=digest({'protocol':protocol,'pool':stage_pools[match['stage']],

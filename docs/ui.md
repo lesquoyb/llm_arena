@@ -836,8 +836,29 @@ tournament fixtures, and the fixed baseline scripts are checked first within the
 panel. This changes execution priority, not the frozen schedule, opponents or
 cached match identities; completed fights are retained on resume.
 
-The common comparison panel still consists of Round 1 frozen submissions plus the
-three built-in controls. Improved versions are tested against that panel and their
-contemporaries. From Round 3 onward, the immediately preceding round is not an
-additional automatic opponent panel. This distinction matters when interpreting
-progress: the fixed panel provides a common scale across rounds.
+The common comparison panel consists of Round 1 frozen submissions plus three
+built-in controls. Later versions are tested against that panel and their
+contemporaries. Built-in references such as passive and rush keep the same code
+in every round and feedback track; their labels say **fixed reference · same code**.
+Legacy scripted mock fixtures can select predefined code for a track; this is
+scripted test behavior, not model learning.
+
+Enable **Compare against previous-round versions (unscored)** in the competition
+editor, or stop an existing competition and use **More > Edit participants**.
+Save and resume to run missing comparisons without regenerating submitted code.
+Round 2 reuses its existing Round 1 reference fights. From Round 3 onward, extra
+engine fights compare current LLM versions with all preceding-round LLM versions,
+including the same model, on both starting sides. Fixed references are excluded
+from this extra panel. Comparisons run after preparation has completed.
+
+Select **Previous-round comparisons (unscored)** in the overview or match list.
+These fights are separate from tournament scores and are not sent to models as
+feedback. CSV exports identify new fights with `kind=progression`; the
+`previous_round_comparison` column also marks reused Round 2 fights. No duplicate
+fights are created for those reused results. Additional engine work grows with
+the square of the number of LLM versions; no extra provider calls are required.
+
+Competition tabs reuse previously loaded data and refresh it when the saved
+revision changes. Replays are cached in a bounded cache. Dashboard counters use a
+small checkpoint-linked session index; old journals remain readable without a
+migration or a rewrite of their conversation history.

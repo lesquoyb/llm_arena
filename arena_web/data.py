@@ -69,6 +69,8 @@ class Store(Workspaces):
         self.secrets = {}
         self._cache = {}
         self._usage_cache = {}
+        from collections import OrderedDict
+        self._session_metadata_cache = OrderedDict()
 
     def json(self, path, default=None):
         if any(is_link(p) for p in [path, *path.parents]):
@@ -325,6 +327,34 @@ class Store(Workspaces):
             if not connection.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='sessions'").fetchone():
                 return {}
             if fields:
+                from arena.session_metadata import FIELDS
+                if set(fields)<=set(FIELDS):
+                    connection.execute('BEGIN')
+                    tables={row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+                    fingerprints=dict(connection.execute("SELECT id,sha256 FROM objects WHERE kind='Session'")) if 'objects' in tables else {}
+                    metadata={sid:(sha,raw) for sid,sha,raw in connection.execute('SELECT id,checkpoint_sha256,metadata FROM session_metadata')} if 'session_metadata' in tables else {}
+                    ids=[row[0] for row in connection.execute('SELECT id FROM sessions ORDER BY id')]
+                    result={}
+                    paths=", ".join("'$."+field+"'" for field in FIELDS)
+                    for sid in ids:
+                        fingerprint=fingerprints.get(sid)
+                        cached=metadata.get(sid)
+                        key=(str(root),sid,fingerprint)
+                        if cached and fingerprint and cached[0]==fingerprint:
+                            value=json.loads(cached[1])
+                        else:
+                            with self.lock:
+                                value=self._session_metadata_cache.get(key) if fingerprint else None
+                                if value is not None:self._session_metadata_cache.move_to_end(key)
+                            if value is None:
+                                raw,count=connection.execute("SELECT json_extract(state,"+paths+"),json_array_length(state,'$.history') FROM sessions WHERE id=?",(sid,)).fetchone()
+                                value={**{field:item for field,item in zip(FIELDS,json.loads(raw)) if item is not None},'messages':count or 0}
+                                if fingerprint:
+                                    with self.lock:
+                                        self._session_metadata_cache[key]=value
+                                        while len(self._session_metadata_cache)>4096:self._session_metadata_cache.popitem(last=False)
+                        result[sid]={**{field:copy.deepcopy(value[field]) for field in fields if field in value},'messages':value.get('messages',0)}
+                    return result
                 paths = ", ".join("'$." + field + "'" for field in fields)
                 rows = connection.execute("SELECT id,json_extract(state," + paths + "),json_array_length(state,'$.history') FROM sessions ORDER BY id")
                 return {sid: {**{key:value for key,value in zip(fields,json.loads(raw)) if value is not None}, "messages": count or 0}
@@ -379,7 +409,7 @@ class Store(Workspaces):
                 if connection.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='events'").fetchone():
                     event_id = connection.execute('SELECT coalesce(max(id),0) FROM events').fetchone()[0]
         files = [root/'report.json', root/'analysis.json']
-        for base in (root, root/'tournament', *sorted(root.glob('g*-tournament')), *sorted((root/'evaluations').glob('g*-panel'))):
+        for base in (root, root/'tournament', *sorted(root.glob('g*-tournament')), *sorted((root/'evaluations').glob('g*-panel')), *sorted((root/'evaluations').glob('g*-previous'))):
             files.extend((base/'records').glob('*.json'))
         files.extend((root/'sessions').glob('*/tools/**/result.json'))
         stamps = [(p.relative_to(root).as_posix(), p.stat().st_mtime_ns, p.stat().st_size) for p in files if p.is_file()]
@@ -818,7 +848,7 @@ class Store(Workspaces):
     def matches(self, identifier):
         root = self.run_path(identifier)
         rows = []
-        for base in (root, root/'tournament', *sorted(root.glob('g*-tournament')), *sorted((root/'evaluations').glob('g*-panel'))):
+        for base in (root, root/'tournament', *sorted(root.glob('g*-tournament')), *sorted((root/'evaluations').glob('g*-panel')), *sorted((root/'evaluations').glob('g*-previous'))):
             for path in sorted((base / "records").glob("*.json")):
                 record = self.json(path)
                 relative = base.relative_to(root).as_posix()
@@ -844,8 +874,16 @@ class Store(Workspaces):
                                        else [path.relative_to(root).parts[1], opponent]),
                              "seed": scenario.get("random_seed"), "mirror": False,
                              "result": self.json(path), "provenance": info})
+        states=self.states(root,('model','generation'))
+        metadata=self.json(root/'experiment.json',{})
+        from arena.roster import effective
+        models={model['id']:model for model in effective(root,metadata['config']).get('models',[])} if 'config' in metadata else {}
         for row in rows:
             row['kind'] = 'training' if row['stage'] == 'training' else 'evaluation' if row['stage'].startswith('evaluations/') else 'competition'
+            if row['stage'].endswith('-previous'):row['kind']='progression'
+            candidate=states.get(row.get('candidate'),{})
+            opponent=next((states.get(sid,{}) for sid in row['sides'] if sid!=row.get('candidate')),{})
+            row['previous_round_comparison']=row['kind']=='progression' or (row['kind']=='evaluation' and candidate.get('generation')==1 and opponent.get('generation')==0 and models.get(candidate.get('model'),{}).get('provider') not in {None,'mock'} and models.get(opponent.get('model'),{}).get('provider') not in {None,'mock'})
             row['counts_toward_standings'] = row['kind'] == 'competition' and not row.get('mirror')
         return {"matches": rows}
 
