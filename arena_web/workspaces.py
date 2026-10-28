@@ -195,6 +195,7 @@ class Workspaces:
                     key=digest({'descriptor':participant_key(sid),'round':round_number,'condition':condition})[:16]
                     row=group['models'].setdefault(key,{'id':key,'name':descriptor(sid)['variant'],
                         'round':round_number,'condition':condition,
+                        'is_reference':sid in frozen or models.get(state.get('model'),{}).get('provider')=='mock',
                         'model_size_billion':model_size(sid),
                         'wins':0,'draws':0,'losses':0,'failed':0,'conversations':defaultdict(lambda:[0,0,None,None])})
                     if row['model_size_billion']!=model_size(sid):row['model_size_billion']=None

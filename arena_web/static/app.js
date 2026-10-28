@@ -697,7 +697,8 @@ function workspaceStage(stage) {
 }
 function resourceScatter(points, metric='size') {
   const labels={size:'Model size (B parameters)',cost:'Mean preparation cost ($ / strategy)',time:'Mean preparation time (minutes / strategy)'};
-  const valid=points.filter(p=>p.score!=null && Number.isFinite(p[metric]) && p[metric]>=0 && (metric!=='size'||p[metric]>0));
+  const eligible=points.filter(p=>!['cost','time'].includes(metric)||!p.reference);
+  const valid=eligible.filter(p=>p.score!=null && Number.isFinite(p[metric]) && p[metric]>=0 && (metric!=='size'||p[metric]>0));
   if(!valid.length)return `<p class="muted">${metric==='size'?'No model sizes recorded for this selection. Set the optional size in Participants.':'No complete measurements for this selection.'}</p>`;
   const W=760,H=260,L=56,R=728,T=20,B=208,max=Math.max(...valid.map(p=>p[metric]))*1.1||1;
   const x=v=>L+(R-L)*v/max,y=v=>B-(B-T)*v;
@@ -707,7 +708,7 @@ function resourceScatter(points, metric='size') {
     <text x="${(L+R)/2}" y="${H-5}" text-anchor="middle">${e(labels[metric])}</text>
     ${valid.map((p,i)=>`<circle cx="${x(p[metric])}" cy="${y(p.score)}" r="6" fill="${p.color||COLORS[i%COLORS.length]}" stroke="white" stroke-width="1.5" tabindex="0"><title>${e(p.label)}: ${pct(p.score)} · ${fmt(p[metric],metric==='cost'?6:3)}${metric==='size'?'B':metric==='time'?' min':' USD'}</title></circle>`).join('')}</svg>
     <div class="chart-legend">${valid.map((p,i)=>`<span><i class="dot" style="background:${p.color||COLORS[i%COLORS.length]}"></i>${e(p.label)} · ${pct(p.score)} · ${metric==='cost'?money(p.cost):fmt(p[metric],3)+(metric==='size'?'B':' min')}</span>`).join('')}</div>
-    ${valid.length<points.length?`<p class="muted">${points.length-valid.length} entries with missing measurements excluded from this chart.</p>`:''}`;
+    ${valid.length<eligible.length?`<p class="muted">${eligible.length-valid.length} entries with missing measurements excluded from this chart.</p>`:''}`;
 }
 function resourcePanel(points, context) {
   S.resourcePoints ||= {};S.resourcePoints[context]=points;
@@ -724,7 +725,7 @@ function overviewModelSize(d, id) {
 function overviewResourcePoints(d,data) {
   return data.models.map(row=>{
     const sessions=data.sessions.filter(s=>s.model===row.model),costKnown=sessions.length && sessions.every(s=>s.status!=='needs_reconciliation'&&!Number(s.money_reserved||0));
-    return {label:row.model,color:overviewColor(row.model),score:row.score,size:overviewModelSize(d,row.model),
+    return {reference:d.metadata.config?.models.find(model=>model.id===row.model)?.provider==='mock' || (!sessions.length && !!d.metadata.manifest),label:row.model,color:overviewColor(row.model),score:row.score,size:overviewModelSize(d,row.model),
       cost:costKnown?sessions.reduce((n,s)=>n+Number(s.cost_spent||0),0)/sessions.length:null,
       time:sessions.length&&sessions.every(s=>s.wall_seconds!=null)?sessions.reduce((n,s)=>n+s.wall_seconds,0)/sessions.length/60:null};
   });
@@ -732,7 +733,7 @@ function overviewResourcePoints(d,data) {
 
 function workspacePerformance(group) {
   if(!group)return '<p class="muted">No evaluation results yet.</p>';
-  return resourcePanel(group.models.map(m=>({label:`${m.name} · ${m.round ? "R"+m.round : "Frozen"} · ${text(m.condition)}`,score:m.score,size:m.model_size_billion,cost:m.mean_cost_usd,time:m.mean_wall_seconds==null?null:m.mean_wall_seconds/60})),"workspace")+`<div class="workspace-bars">${group.models.map(m=>`<div class="workspace-bar"><div><strong>${e(m.name)}</strong><small>${m.round ? `Round ${m.round}` : 'Frozen strategy'} · ${e(text(m.condition))}</small></div><div class="workspace-bar-track"><span style="width:${Math.max(0,Math.min(100,(m.score||0)*100))}%"></span></div><strong>${pct(m.score)}</strong></div>`).join('')}</div>`+
+  return resourcePanel(group.models.map(m=>({reference:m.is_reference,label:`${m.name} · ${m.round ? "R"+m.round : "Frozen"} · ${text(m.condition)}`,score:m.score,size:m.model_size_billion,cost:m.mean_cost_usd,time:m.mean_wall_seconds==null?null:m.mean_wall_seconds/60})),"workspace")+`<div class="workspace-bars">${group.models.map(m=>`<div class="workspace-bar"><div><strong>${e(m.name)}</strong><small>${m.round ? `Round ${m.round}` : 'Frozen strategy'} · ${e(text(m.condition))}</small></div><div class="workspace-bar-track"><span style="width:${Math.max(0,Math.min(100,(m.score||0)*100))}%"></span></div><strong>${pct(m.score)}</strong></div>`).join('')}</div>`+
     table(['Participant','Size (B)','Score / B','Round / track','Win / draw / loss','Failed fights','Strategies'],group.models.map(m=>`<tr><td>${e(m.name)}</td><td>${fmt(m.model_size_billion,3)}</td><td>${fmt(m.score_per_billion,4)}</td><td>${m.round??'Frozen'} · ${e(text(m.condition))}</td><td>${m.wins} / ${m.draws} / ${m.losses}</td><td>${m.failed}</td><td>${m.conversations}</td></tr>`))+
     `<p class="muted">Mean score per conversation: win 1, draw 0.5, loss 0. ${group.internal_matches} same-model fights excluded. ${group.runs.length} competitions in this group.</p><details class="quiet-details"><summary>Included competitions & scenario</summary><div class="actions">${group.runs.map(id=>btn(e(S.boot.runs.find(r=>r.id===id)?.name||id),'open-run',`data-run="${e(id)}"`)).join('')}</div>${raw(group.scenario,'Scenario settings')}</details>`;
 }
