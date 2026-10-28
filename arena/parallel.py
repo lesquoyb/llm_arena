@@ -51,7 +51,7 @@ class Requests:
 def prepare(tasks, config, out, journal, engine, interrupt=None, on_progress=None):
     """Finish one round before its caller starts the next round's preparation."""
     from .experiment import run_session, TERMINAL, provider_response
-    tasks=list(tasks)
+    tasks=sorted(tasks,key=lambda item:item[1].get('provider')!='mock')
     limit=config.get('parallel_requests',1)
     if limit==1:
         for sid,model in tasks:

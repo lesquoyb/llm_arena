@@ -51,12 +51,12 @@ def verify_record(root: Path, record: dict):
             raise ArenaError("Stored match source was modified")
 
 
-def run_tournament(engine: Engine, manifest: dict, out: Path, resume: bool = False, *, allow_extend=False) -> dict:
+def run_tournament(engine: Engine, manifest: dict, out: Path, resume: bool = False, *, allow_extend=False, priority_ids=None) -> dict:
     with file_lock(out.parent / ("." + out.name + ".lock")):
-        return _run_tournament(engine, manifest, out, resume, allow_extend=allow_extend)
+        return _run_tournament(engine, manifest, out, resume, allow_extend=allow_extend, priority_ids=priority_ids)
 
 
-def _run_tournament(engine: Engine, manifest: dict, out: Path, resume: bool = False, *, allow_extend=False) -> dict:
+def _run_tournament(engine: Engine, manifest: dict, out: Path, resume: bool = False, *, allow_extend=False, priority_ids=None) -> dict:
     matches = schedule(manifest)
     # Absolute source locations are metadata, not part of the experiment identity.
     frozen = {**manifest, "strategies": [{k: v for k, v in s.items() if k != "path"} for s in manifest["strategies"]]}
@@ -108,7 +108,9 @@ def _run_tournament(engine: Engine, manifest: dict, out: Path, resume: bool = Fa
     roster = snapshot(out.parent)
     withdrawn = set((roster or {}).get('withdrawn', []))
     excluded = {s['id'] for s in manifest['strategies'] if s.get('model', s['id']) in withdrawn}
-    for index, match in enumerate(matches, 1):
+    priority_ids=set(priority_ids or [])
+    execution=sorted(matches,key=lambda match:-sum(side in priority_ids for side in match['sides']))
+    for index, match in enumerate(execution, 1):
         record_path = out / "records" / f"{match['id']}.json"
         if record_path.exists():
             record = read_json(record_path)

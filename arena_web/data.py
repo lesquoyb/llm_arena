@@ -859,6 +859,34 @@ class Store(Workspaces):
                 "provenance": self.json(work / "provenance.json"),
                 "outcome": self.json(work / "outcome.json")}
 
+    def match_sources(self, identifier, name):
+        root=self.run_path(identifier)
+        work=safe_path(root,name)
+        if not (work/'result.json').is_file():raise ArenaError('Match not found')
+        provenance=self.json(work/'provenance.json',{})
+        result=[]
+        for side,info in enumerate(provenance.get('submissions',[])[:2]):
+            directory=safe_path(root,(work/'strategies'/str(side+1)).relative_to(root).as_posix())
+            result.append({'side':side,'entrypoint':info.get('entrypoint'),'files':sorted(info.get('files',{})),
+                           'sha256':info.get('sha256'),'available':directory.is_dir()})
+        return result
+
+    def match_source(self, identifier, name, side, filename=None):
+        if type(side) is not int or side not in (0,1):raise ArenaError('Choose side 0 or 1')
+        sources=self.match_sources(identifier,name)
+        info=next((row for row in sources if row['side']==side),None)
+        if not info or not info['available']:raise ArenaError('This match has no archived source for this side')
+        filename=filename or info['entrypoint']
+        if filename not in info['files']:raise ArenaError('File is not part of the executed submission')
+        root=self.run_path(identifier);work=safe_path(root,name)
+        provenance=self.json(work/'provenance.json',{})['submissions'][side]
+        path=safe_path(root,(work/'strategies'/str(side+1)/filename).relative_to(root).as_posix())
+        with path.open('rb') as stream:content=stream.read(2_000_001)
+        if len(content)>2_000_000:raise ArenaError('Source file exceeds preview limit')
+        if hashlib.sha256(content).hexdigest()!=provenance['files'][filename]:raise ArenaError('Executed source fingerprint changed')
+        return {'side':side,'path':filename,'content':content.decode('utf-8'),
+                'sha256':provenance['files'][filename],'entrypoint':info['entrypoint'],'files':info['files']}
+
     def statistics(self, identifier):
         from .metrics import competition_stats
         root = self.run_path(identifier)

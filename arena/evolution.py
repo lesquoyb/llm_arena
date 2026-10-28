@@ -81,14 +81,15 @@ def run_generation(config, out, journal, engine, initial, interrupt=None, retry_
         panel.append({"id": "fixed-" + name, "path": target, "submission": info})
     from .greedy import evaluate as evaluate_ready, entrants as ready_entrants
     evaluated = set()
+    panel.sort(key=lambda source:not source['id'].startswith('fixed-'))
     baseline = references(engine, config, out, journal, roots, "g0-panel", panel)
     def evaluate_available():
-        evaluate_ready(engine, config, out, journal, generation)
         for entrant in ready_entrants(journal, out, generation):
             if not active(config,entrant): continue
             if entrant['id'] not in evaluated:
                 references(engine, config, out, journal, [entrant], f'g{generation}-panel', panel, incremental=True)
                 evaluated.add(entrant['id'])
+        evaluate_ready(engine, config, out, journal, generation)
     evaluate_available()
     tasks=[];candidates=[]
     for parent in initial:

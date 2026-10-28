@@ -14,7 +14,7 @@ def report(store, identifier):
     with store.lock:
         cached=getattr(store,'_fault_cache',{}).get(identifier)
     if cached and cached[0]==revision:return copy.deepcopy(cached[1])
-    states=store.states(root)
+    states=store.states(root,('model','generation','condition','manual_frozen'))
     names={tool['name'] for tool in TOOLS}
     rows={sid:{'session':sid,'model':state['model'],'round':state.get('generation',0)+1,
                'condition':state.get('condition','initial'),'manual_frozen':bool(state.get('manual_frozen')),

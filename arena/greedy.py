@@ -20,4 +20,6 @@ def evaluate(engine, config, out, journal, generation=0):
                 'scenario':config['scenario'], 'include_mirrors':config['include_mirrors'], 'strategies':ready}
     # Append-only entrants: archived submissions, seeds and completed fixtures
     # are verified by run_tournament before any new fixtures are admitted.
-    return run_tournament(engine, manifest, root, root.exists(), allow_extend=True)
+    reference_models={model['id'] for model in config['models'] if model.get('provider')=='mock'}
+    priority={source['id'] for source in ready if source['model'] in reference_models}
+    return run_tournament(engine, manifest, root, root.exists(), allow_extend=True, priority_ids=priority)

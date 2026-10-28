@@ -805,3 +805,39 @@ in an answer is allowed, but it is not a submission or a request for a human to
 implement suggestions. Stops without tool calls already trigger bounded submission
 reminders; those reminders now also clarify this role. Existing recorded initial
 prompts stay unchanged; the revised default applies to new preparations.
+
+## Replay source inspection and filters
+
+Every match has **View executed code** for Blue and Orange when its source archive
+is available. The viewer reads that fight's `strategies/1` or `strategies/2` snapshot,
+checks its recorded file hash, and offers every submitted source/support file. This
+also works for fixed opponents and preparation tests, whose scripts can differ from
+the eventual submission. **Code history** opens the participant conversation's
+version browser separately. Viewing source makes no model call.
+
+Match filters separate **Model**, **Opponent model**, **Round** and **Track**. Model
+options do not repeat every round/version. Exact links from the strategy matrix
+retain their precise version pair and identify that restriction; changing filters
+switches to model-level selection. Outcome filters use the selected participant's
+side. Reference-evaluation round filters refer to the candidate's round.
+
+The overview now includes **Errors** charts for tool-call errors and failed
+compilation checks, respecting its model and round selection. **Details & incidents**
+opens the existing Errors tab. Reference scripts are excluded from these overview
+rates; full recorded errors remain available in the detail tab. Error summaries
+refresh at most every ten seconds while live, without reading conversation bodies.
+
+## Reference-first execution
+
+Fixed/mock participants prepare before remote/local LLM participants. Available
+fights involving those reference participants are executed before remaining
+model/model fixtures. Improvement-round reference panels run before contemporary
+tournament fixtures, and the fixed baseline scripts are checked first within the
+panel. This changes execution priority, not the frozen schedule, opponents or
+cached match identities; completed fights are retained on resume.
+
+The common comparison panel still consists of Round 1 frozen submissions plus the
+three built-in controls. Improved versions are tested against that panel and their
+contemporaries. From Round 3 onward, the immediately preceding round is not an
+additional automatic opponent panel. This distinction matters when interpreting
+progress: the fixed panel provides a common scale across rounds.

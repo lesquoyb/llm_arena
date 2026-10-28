@@ -327,6 +327,7 @@ function route() {
       "opponent",
       "outcome",
       "search",
+      "track",
       "entrant_model",
       "opponent_model",
       "round",
@@ -1670,10 +1671,12 @@ async function renderRun(epoch, liveUpdate=false) {
   }
   let body = "", sourceChanged=false;
   if (S.tab === "summary") {
-    const fights = await api("/api/matches", { run: S.run });
+    const refreshFaults=S.overviewFaultRun!==S.run || Date.now()-(S.overviewFaultTime||0)>10000 || !activeJobs().some(job=>job.run===S.run);
+    const [fights,faults] = await Promise.all([api('/api/matches',{run:S.run}),refreshFaults?api('/api/faults',{run:S.run}):Promise.resolve(S.overviewFaults)]);
     const statistics={training_matches:fights.matches.filter(m=>m.kind==='training').length};
     if (epoch !== S.epoch) return;
     S.overviewMatches = fights.matches;
+    if(refreshFaults) {S.overviewFaults=faults;S.overviewFaultRun=S.run;S.overviewFaultTime=Date.now();}
     S.statistics = statistics;
     body = summary(d, statistics);
   } else if (S.tab === "config")
@@ -1812,15 +1815,24 @@ function measuredUsage(session) {
     complete: !!session.token_usage_known && !session.in_flight,
   };
 }
+function faultRateBars(rows,metric='tools') {
+  const numerator=metric==='tools'?'tool_errors':'failed_analyses',denominator=metric==='tools'?'tool_calls':'analyses';
+  const models=new Map();
+  for(const row of rows) {const group=models.get(row.model)||{errors:0,attempts:0};group.errors+=row[numerator]||0;group.attempts+=row[denominator]||0;models.set(row.model,group);}
+  return [...models].sort((a,b)=>(b[1].errors/(b[1].attempts||1))-(a[1].errors/(a[1].attempts||1))).map(([model,value])=>`<div class="error-rate-row"><strong>${e(model)}</strong><div class="workspace-bar-track"><span style="width:${100*value.errors/(value.attempts||1)}%;background:${metric==='tools'?'#bd5c52':'#b8863c'}"></span></div><span>${value.errors} / ${value.attempts} · ${value.attempts?pct(value.errors/value.attempts):'N/A'}</span></div>`).join('')||'<p class="muted">No observations for this selection.</p>';
+}
+function overviewErrors(d,data) {
+  const sessions=new Set(data.sessions.map(session=>session.id));
+  const rows=(S.overviewFaults?.sessions||[]).filter(row=>sessions.has(row.session)&&d.metadata.config?.models.find(model=>model.id===row.model)?.provider!=='mock');
+  return `<section class="overview-card" id="overview-errors"><div class="overview-section-head"><h2>Errors</h2>${btn('Details & incidents','open-errors')}</div><div class="error-rate-grid"><section><h3>Tool call errors</h3>${faultRateBars(rows,'tools')}</section><section><h3>Failed compilation checks</h3>${faultRateBars(rows,'compilation')}</section></div><p class="muted">Uses the overview model and round filters. Failed attempts / executed calls or compilation checks. API failures are separate; these rates are not a direct hallucination score.</p></section>`;
+}
 function faultsPage() {
   const data=S.faults || {sessions:[],incidents:[]};
   const rows=data.sessions.filter(row=>(!S.faultModel||row.model===S.faultModel)&&(!S.faultRound||String(row.round)===S.faultRound)&&(!S.faultCondition||row.condition===S.faultCondition));
   const selected=new Set(rows.map(row=>row.session));
   const total=key=>rows.reduce((sum,row)=>sum+(row[key]||0),0);
-  const rateMetric=S.faultMetric||'tools',numerator=rateMetric==='tools'?'tool_errors':'failed_analyses',denominator=rateMetric==='tools'?'tool_calls':'analyses';
-  const models=new Map();
-  for(const row of rows) {const group=models.get(row.model)||{errors:0,attempts:0};group.errors+=row[numerator];group.attempts+=row[denominator];models.set(row.model,group);}
-  const bars=[...models].sort((a,b)=>(b[1].errors/(b[1].attempts||1))-(a[1].errors/(a[1].attempts||1))).map(([model,value])=>`<div class="workspace-bar"><strong>${e(model)}</strong><div class="workspace-bar-track"><span style="width:${100*value.errors/(value.attempts||1)}%"></span></div><span>${value.errors} / ${value.attempts} · ${value.attempts?pct(value.errors/value.attempts):'N/A'}</span></div>`).join('');
+  const rateMetric=S.faultMetric||'tools';
+  const bars=faultRateBars(rows,metric);
   const incidents=[...data.incidents].reverse().filter(row=>selected.has(row.session));
   return `<section id="faults-content"><div class="collection-toolbar">${selectField('Model','fault_model', [['','All models'],...[...new Set(data.sessions.map(row=>row.model))].map(model=>[model,model])],S.faultModel||'')}${selectField('Round','fault_round',[['','All rounds'],...[...new Set(data.sessions.map(row=>row.round))].sort((a,b)=>a-b).map(round=>[String(round),'Round '+round])],S.faultRound||'')}${selectField('Track','fault_condition',[['','All tracks'],['initial','Initial'],['control','No feedback'],['feedback','With feedback']],S.faultCondition||'')}<a class="button" href="/api/results.csv?${query({run:S.run,table:'errors'})}" download>Download errors CSV</a></div><div class="metrics">${metric('Tool errors',`${total('tool_errors')} / ${total('tool_calls')}`,total('tool_calls')?pct(total('tool_errors')/total('tool_calls')):'No executed tools')}${metric('Failed compilation checks',`${total('failed_analyses')} / ${total('analyses')}`,`${total('compiler_errors')} compiler error diagnostics`)}${metric('Runtime errors',fmt(total('runtime_errors')),`${total('preparation_runtime_errors')} in preparation tests`)}${metric('Provider failures',fmt(total('provider_failures')),'Reported separately from authoring errors')}</div><section class="panel">${selectField('Failure rate','fault_metric',[['tools','Tool calls'],['compilation','Compilation checks']],rateMetric)}<div class="workspace-bars">${bars||'<p>No observations yet.</p>'}</div></section><section class="panel"><h2>By round and track</h2>${table(['Participant','Round / track','Tool errors','Unknown tools','Bad arguments','Failed compilation checks','Invalid teams','Runtime errors'],rows.map(row=>`<tr><td>${e(row.model)}${row.manual_frozen?'<small>Manually frozen</small>':''}</td><td>R${row.round} · ${e(text(row.condition))}</td><td>${row.tool_errors} / ${row.tool_calls}</td><td>${row.unknown_tools}</td><td>${row.invalid_arguments}</td><td>${row.failed_analyses} / ${row.analyses}</td><td>${row.invalid_teams}</td><td>${row.runtime_errors}</td></tr>`))}<p class="muted">Observed errors, not a hallucination score. Tool failures include unavailable files and other operational errors. Compiler warnings are excluded. Repeated attempts count separately. Runtime errors count recorded execution events across scored and reference fights; preparation is separate.</p></section><section class="panel"><h2>Recent incidents</h2><p>${data.incidents_total??data.incidents.length} recorded incidents; the most recent 200 are available here. Full receipts remain in the Journal.</p>${incidents.map(row=>`<details class="quiet-details" data-fault-event="${row.event}" data-fault-run="${e(S.run)}" ${S.faultOpen?.[S.run+'/'+row.event]?'open':''}><summary>${e(row.model)} · R${row.round} · ${e(text(row.category))}${row.tool?' · '+e(row.tool):''}</summary><p>${date(row.at)} · ${e(text(row.condition))} · Journal event ${row.event}</p><pre>${e(row.message)}</pre>${btn('Open conversation','session-conversation',`data-session="${e(row.session)}"`)}</details>`).join('')||'<p>No incidents in this selection.</p>'}</section></section>`;
 }
@@ -2282,6 +2294,7 @@ function summary(d, statistics = null) {
     cost = sessions.reduce((n, s) => n + Number(s.cost_spent || 0), 0);
   return `<div class="competition-overview">${overviewFilters(d, data)}${failures.length ? `<div class="overview-alert">${failures.length} conversation${failures.length === 1 ? "" : "s"} need attention. <button class="table-button" data-action="overview-failures">Review & retry</button></div>` : ""}<div class="overview-kpis"><div><span>Completed fights</span><strong>${fmt(data.selected.filter((v) => v.match.result.status === "completed").length)}</strong><small>${data.selected.filter((v) => v.match.result.status !== "completed").length} failed</small></div><div><span>Submitted strategies</span><strong>${sessions.length ? sessions.filter((s) => s.submission || s.status === "submitted").length : d.metadata.manifest?.strategies?.filter(s=>overviewAccept(overviewIdentity(s.id),data.scope)).length ?? data.models.length}${sessions.length ? `<small> / ${sessions.length}</small>` : ""}</strong><small>${d.metadata.config ? d.metadata.config.models.filter(model=>!d.roster?.withdrawn.includes(model.id)&&(!data.scope.model||data.scope.model===model.id)).length : data.models.length} active participants</small></div><div><span>Estimated API cost</span><strong>${sessions.length ? (costUnknown ? "Unknown" : money(cost)) : "N/A"}</strong><small>Selected versions</small></div><div><span>Tokens · selected versions</span><strong>${known.length ? fmt(tokens) : real.length ? "Unknown" : "N/A"}</strong><small>${known.length ? (known.length < real.length || known.some(u=>!u.complete) ? "Partial reported usage" : "Input + output") : real.length ? "Not reported by provider" : "No measured LLM usage"}</small></div></div>
   <div class="overview-charts"><section class="overview-card"><div class="overview-section-head"><h2>Model ranking</h2><span>Score</span></div>${overviewRanking(data)}</section><section class="overview-card"><div class="overview-section-head"><h2>Evolution</h2><span>Score by version</span></div>${overviewEvolution(data)}</section></div><section class="overview-card">${resourcePanel(overviewResourcePoints(d,data),"overview")}</section>
+  ${overviewErrors(d,data)}
   ${data.matrix.length ? `<section class="overview-card overview-head-to-head"><div class="overview-section-head"><h2>Match matrix</h2><span>Click a result to see fights</span></div>${overviewMatrix(data)}</section>` : `<div class="overview-empty">${data.selected.length ? "No head-to-head pairs in this selection." : `No ${data.scope.source === "competition" ? "tournament" : "reference"} matches yet.`}${statistics?.training_matches ? ` ${statistics.training_matches} preparation tests recorded; excluded from standings. ${btn("View preparation tests", "show-training")}` : ""}</div>`}
   ${overviewDetails(d, data, statistics)}</div>`;
 }
@@ -2892,13 +2905,13 @@ function matchSubset() {
     if (f.scored && m.mirror) return false;
     if (f.exclude_same_model && overviewIdentity(m.sides[0]).model===overviewIdentity(m.sides[1]).model) return false;
     let scopedSide = null;
-    if (f.entrant_model || f.round) {
+    if (f.entrant_model || f.opponent_model || f.round || f.track) {
       const candidates = overviewEntries(m).filter(
         (item) =>
-          overviewAccept(item, {
-            model: f.entrant_model,
-            round: f.round || "all",
-          }) &&
+          (!f.entrant_model || item.model===f.entrant_model) &&
+          (!f.round || f.round==='all' || item.generation+1===Number(f.round)) &&
+          (!f.track || item.condition===f.track) &&
+          (kind!=='training' || S.detail.sessions.some(session=>session.id===item.id)) &&
           (!f.opponent_model ||
             overviewIdentity(m.sides[1 - item.side]).model ===
               f.opponent_model),
@@ -2936,17 +2949,20 @@ function matchSubset() {
   });
 }
 function matchesPage() {
-  const f = S.matchFilters || {},
-    stages = [
-      ...new Set(
-        S.matches
-          .filter(
-            (m) => f.kind === "all" || m.kind === (f.kind || "competition"),
-          )
-          .map((m) => m.stage),
-      ),
-    ],
-    participants = [...new Set(S.matches.flatMap((m) => m.sides))].sort();
+  const f = S.matchFilters ||= {};
+  if(String(f.round||'').startsWith('stage:')) {f.stage=f.round.slice(6);f.round='all';}
+  // Preserve precise old matrix links, while exposing independent model/round filters.
+  const oldRound=String(f.round||'').match(/^g(\d+)-(control|feedback)$/);
+  if(oldRound) {f.round=String(Number(oldRound[1])+1);f.track=oldRound[2];}
+  if(f.round==='initial')f.round='1';
+  if(['control','feedback'].includes(f.round)) {f.track=f.round;f.round='2';}
+  const branchRound=String(f.round||'').match(/^(\d+):(control|feedback)$/);
+  if(branchRound) {f.round=String(Number(branchRound[1])+1);f.track=branchRound[2];}
+  if(f.stage) {const stage=String(f.stage).match(/g(\d+)-(?:tournament|panel)/);if(!f.round)f.round=stage?String(Number(stage[1])+1):'all';}
+  if(f.entrant && !f.entrant_model) {const identity=overviewIdentity(f.entrant);f.entrant_model=identity.model;if(!f.round)f.round=String(identity.generation+1);}
+  if(f.opponent && !f.opponent_model)f.opponent_model=overviewIdentity(f.opponent).model;
+  const participants=[...new Set(S.matches.flatMap(match=>match.sides).map(id=>overviewIdentity(id).model))].sort();
+  const rounds=[...new Set([...S.detail.sessions.map(session=>Number(session.generation||0)+1),...S.matches.flatMap(match=>match.sides.map(id=>overviewIdentity(id).generation+1))])].sort((a,b)=>a-b);
   const rows = matchSubset();
   const categoryTotal = S.matches.filter(
     (m) => f.kind === "all" || m.kind === (f.kind || "competition"),
@@ -2964,7 +2980,7 @@ function matchesPage() {
       ["all", "All fights"],
     ],
     f.kind || "competition",
-  )}${f.entrant_model ? notice(`Filtered from overview: ${e(f.entrant_model)} vs ${e(f.opponent_model || "all opponents")} · ${e(f.round === "all" ? "All rounds" : overviewRound(f.round))}`) : ""}<div class="match-filters">${field("Search", "match-search", f.search || "", "search", "", 'id="match-search"')}${selectField("Stage", "match-stage", [["", "All stages"], ...stages.map((s) => [s, stageText(s)])], f.stage || "")}${selectField("Participant", "match-entrant", [["", "All participants"], ...participants.map((p) => [p, strategyName(p)])], f.entrant || "")}${selectField("Opponent", "match-opponent", [["", "All opponents"], ...participants.map((p) => [p, strategyName(p)])], f.opponent || "")}${selectField(
+  )}<div id="match-origin-scope">${f.stage ? notice('Stage selected from overview: '+e(stageText(f.stage))) : ''}${f.entrant || f.opponent ? notice(`Exact versions selected from the matrix: ${e(strategyName(f.entrant||'Any participant'))} vs ${e(strategyName(f.opponent||'Any opponent'))}. Changing the filters below selects models across versions.`) : ''}</div><div class="match-filters">${field("Search", "match-search", f.search || "", "search", "", 'id="match-search"')}${selectField('Model','match-model',[['','All models'],...participants.map(model=>[model,model])],f.entrant_model||'')}${selectField('Opponent model','match-opponent-model',[['','All opponents'],...participants.map(model=>[model,model])],f.opponent_model||'')}${selectField('Round','match-round',[['all','All rounds'],...(rounds.length?rounds:[1]).map(round=>[String(round),'Round '+round])],f.round||'all')}${selectField('Track','match-track',[['','All tracks'],['initial','Initial'],['control','No feedback'],['feedback','With feedback']],f.track||'')}${selectField(
     "Outcome for participant (or side 1)",
     "match-outcome",
     [
@@ -2990,6 +3006,17 @@ function matchButtons(rows) {
     (rows.length > 800 ? "<small>Filter to find more matches.</small>" : "")
   );
 }
+async function matchSourceDialog(path,side) {
+  const run=S.run,epoch=S.epoch;
+  clearInterval(replayTimer);replayTimer=null;
+  if($('#replay-play'))$('#replay-play').textContent='▷';
+  const source=await api('/api/match/source',{run,path,side});
+  if(epoch!==S.epoch||run!==S.run)return;
+  const match=S.matches.find(match=>match.path===path);
+  S.matchSource={path,side};
+  openDialog('Executed code',`${side===0?'Blue':'Orange'} · ${strategyName(match?.sides[side]||'Unknown')}`,
+    `<p>The archived files used in this fight, including preparation tests. Editing a current workspace does not change this snapshot.</p>${selectField('Source file','executed-source-file',source.files.map(file=>[file,file]),source.path)}<pre class="source" id="executed-source-content">${e(source.content)}</pre><small class="mono" id="executed-source-hash">SHA-256: ${e(source.sha256)}</small>`);
+}
 async function loadMatch() {
   clearInterval(replayTimer);
   replayTimer = null;
@@ -2999,8 +3026,10 @@ async function loadMatch() {
   if (epoch !== S.epoch || S.matchPath !== path) return;
   const row = S.matches.find((m) => m.path === path),
     result = data.result;
+  const sources=(await api('/api/match/sources',{run:S.run,path})).sources;
+  if(epoch!==S.epoch||S.matchPath!==path)return;
   $("#match-detail").innerHTML =
-    `<div class="panel-title"><div><h2>${result.status === "completed" ? (result.winner_side === -1 ? "Draw" : "Winner: " + e(strategyName(row.sides[result.winner_side]))) : e(text(result.status))}</h2><small>Seed ${e(row.seed)} · ${result.turns == null ? "N/A turns" : countLabel(result.turns, "turn")} · ${fmt(result.elapsed_seconds, 2)} s</small></div>${status(result.status)}</div>${row.kind === "training" ? notice("Preparation test requested by the model. Editable scripts; excluded from competition standings and matrices.", "warn") : notice("Frozen strategies: these scripts cannot change during this round.")}${row.mirror ? notice("Mirror match: excluded from the standings.") : ""}${
+    `<div class="panel-title"><div><h2>${result.status === "completed" ? (result.winner_side === -1 ? "Draw" : "Winner: " + e(strategyName(row.sides[result.winner_side]))) : e(text(result.status))}</h2><small>Seed ${e(row.seed)} · ${result.turns == null ? "N/A turns" : countLabel(result.turns, "turn")} · ${fmt(result.elapsed_seconds, 2)} s</small></div>${status(result.status)}</div>${row.kind === "training" ? notice("Preparation test requested by the model. Editable scripts; excluded from competition standings and matrices.", "warn") : notice("Frozen strategies: these scripts cannot change during this round.")}${row.mirror ? notice("Mirror match: excluded from the standings.") : ""}<div class="replay-sources">${row.sides.map((id,side)=>`<div><strong>${side===0?'Blue':'Orange'} · ${e(strategyName(id))}</strong>${sources.find(source=>source.side===side)?.available?btn('View executed code','match-source',`data-side="${side}" data-path="${e(path)}"`):'<small>No archived source available</small>'}${S.detail.sessions.some(session=>session.id===id)?`<a class="button" href="#${query({view:'run',run:S.run,tab:'code',session:id})}">Code history</a>`:''}</div>`).join('')}</div>${
       data.replay
         ? `<div class="replay-legend">${Object.entries(row.sides)
             .map(
@@ -3664,6 +3693,8 @@ document.addEventListener("click", async (event) => {
       S.fileMode = node.dataset.mode;
       renderFileView();
     } else if (a === "file") await loadFile(node.dataset.path);
+    else if (a === 'open-errors') navigate('run',{run:S.run,tab:'faults'});
+    else if (a === 'match-source') await matchSourceDialog(node.dataset.path,Number(node.dataset.side));
     else if (a === "clear-match-filters")
       navigate("run", { run: S.run, tab: "matches" });
     else if (a === "overview-failures") {
@@ -3900,6 +3931,11 @@ document.addEventListener("submit", async (event) => {
 document.addEventListener("change", async (event) => {
   const n = event.target;
   try {
+    if(n.name==='executed-source-file') {
+      const source=await api('/api/match/source',{run:S.run,...S.matchSource,file:n.value});
+      if(n.isConnected && n.value===source.path) {$('#executed-source-content').textContent=source.content;$('#executed-source-hash').textContent='SHA-256: '+source.sha256;}
+      return;
+    }
     if(['fault_model','fault_round','fault_condition','fault_metric'].includes(n.name)) {
       S[{fault_model:'faultModel',fault_round:'faultRound',fault_condition:'faultCondition',fault_metric:'faultMetric'}[n.name]]=n.value;
       $('#faults-content').outerHTML=faultsPage();
@@ -4036,9 +4072,10 @@ document.addEventListener("change", async (event) => {
       navigate("run", { run: S.run, tab: "matches", kind: n.value });
     else if (
       [
-        "match-stage",
-        "match-entrant",
-        "match-opponent",
+        "match-model",
+        "match-opponent-model",
+        "match-round",
+        "match-track",
         "match-outcome",
       ].includes(n.name)
     )
@@ -4159,6 +4196,13 @@ setInterval(async () => {
     if(S.view==='run') {
       try {await refreshCompetitionActivity(S.epoch);}
       catch(error) {const panel=$('#competition-activity');if(panel)panel.dataset.stale='true';}
+    }
+    if(S.view==='run' && S.tab==='summary' && S.follow && !$('#dialog').open && Date.now()-(S.overviewFaultTime||0)>10000) {
+      const epoch=S.epoch,run=S.run;
+      const faults=await api('/api/faults',{run});
+      if(epoch!==S.epoch||run!==S.run)return;
+      S.overviewFaults=faults;S.overviewFaultRun=run;S.overviewFaultTime=Date.now();
+      const chart=$('#overview-errors');if(chart)LiveDOM.replace(chart,overviewErrors(S.detail,overviewData(S.detail)));
     }
     if (S.logJob && $("#job-log-live")) {
       const log = await api("/api/job", { id: S.logJob });
@@ -4454,11 +4498,14 @@ async function filterMatches(clear = false) {
       ...S.matchFilters,
       search: $("#match-search").value,
       kind: $("[name=match-kind]")?.value || "competition",
-      stage: $("[name=match-stage]", form).value,
-      entrant: $("[name=match-entrant]", form).value,
-      opponent: $("[name=match-opponent]", form).value,
+      stage:undefined,entrant:undefined,opponent:undefined,
+      entrant_model: $("[name=match-model]", form).value,
+      opponent_model: $("[name=match-opponent-model]", form).value,
+      round: $("[name=match-round]", form).value,
+      track: $("[name=match-track]", form).value,
       outcome: $("[name=match-outcome]", form).value,
     };
+  $('#match-origin-scope')?.remove();
   const filters = Object.fromEntries(
     Object.entries(S.matchFilters).filter(([, v]) => v),
   );
