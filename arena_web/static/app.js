@@ -40,6 +40,7 @@ function clearChartHover() {
   chartHover=null;if(chartTooltip)chartTooltip.hidden=true;
 }
 function showChartHover(target,event) {
+  target.removeAttribute('title');for(const title of target.querySelectorAll('title,[title]')){if(title.tagName.toLowerCase()==='title')title.remove();else title.removeAttribute('title');}
   const scope=target.closest('.resource-chart,.overview-card,.comparison-chart,.panel');
   if(!scope)return;
   if(chartHover!==scope)clearChartHover();chartHover=scope;
@@ -64,11 +65,13 @@ function applyChartVisibility() {
   for(const scope of document.querySelectorAll('[data-chart-key]')) {
     const hidden=hiddenChartModels.get(scope.dataset.chartKey)||new Set();
     for(const item of scope.querySelectorAll('[data-chart-model]')) {
+      item.removeAttribute('title');
+      for(const title of item.querySelectorAll('title,[title]')){if(title.tagName.toLowerCase()==='title')title.remove();else title.removeAttribute('title');}
       const legend=!!item.closest('.chart-legend,.overview-legend');
       const off=hidden.has(item.dataset.chartModel);
       item.classList.toggle('chart-hidden',off&&!legend);
       item.classList.toggle('chart-legend-hidden',off&&legend);
-      if(legend) {item.setAttribute('role','button');item.setAttribute('tabindex','0');item.setAttribute('aria-pressed',String(!off));item.setAttribute('title',`${off?'Show':'Hide'} ${item.dataset.chartModel}`);}
+      if(legend) {item.setAttribute('role','button');item.setAttribute('tabindex','0');item.setAttribute('aria-pressed',String(!off));item.setAttribute('aria-label',`${off?'Show':'Hide'} ${item.dataset.chartModel}`);}
     }
   }
 }
@@ -791,12 +794,26 @@ function resourceScatter(points, metric='size') {
     <div class="chart-legend">${valid.map((p,i)=>`<span tabindex="0" data-chart-model="${e(p.model||p.label)}" data-chart-label="${e(p.label)} · ${pct(p.score)}"><i class="dot" style="background:${p.color||seriesColor(i)}"></i>${e(p.label)} · ${pct(p.score)} · ${metric==='cost'?money(p.cost):fmt(p[metric],3)+(metric==='size'?'B':metric==='tools'?' tool calls':metric==='tests'?' preparation fights':metric==='replays'?' replay reads':' min')}</span>`).join('')}</div>
     ${valid.length<eligible.length?`<p class="muted">${eligible.length-valid.length} entries with missing measurements excluded from this chart.</p>`:''}`;
 }
+const RESOURCE_LABELS={size:'Size (B)',cost:'Mean cost ($)',time:'Mean time (min)',tools:'Mean tool calls',tests:'Mean preparation fights',replays:'Mean replay reads'};
+function resourceBars(points,metric) {
+  const eligible=points.filter(p=>metric==='size'||!p.reference);
+  const rows=eligible.filter(p=>p.score!=null&&Number.isFinite(p[metric])&&p[metric]>=0&&(metric!=='size'||p[metric]>0)).sort((a,b)=>a[metric]-b[metric]||a.label.localeCompare(b.label));
+  if(!rows.length)return '<p class="muted">No complete measurements for this selection.</p>';
+  return `<div class="resource-bar-head"><span>Model</span><span>${e(RESOURCE_LABELS[metric])} ↑</span><span>Score</span></div><div class="resource-bar-list" role="region" aria-label="Scores ordered by ${e(RESOURCE_LABELS[metric])}" tabindex="0">${rows.map(row=>{
+    const label=`${row.label} · ${pct(row.score)} · ${RESOURCE_LABELS[metric]}: ${fmt(row[metric],metric==='cost'?6:2)}`;
+    return `<div class="resource-score-row" data-chart-model="${e(row.model||row.label)}" data-chart-label="${e(label)}" tabindex="0"><strong>${e(row.label)}</strong><span>${metric==='cost'?money(row[metric]):fmt(row[metric],2)}</span><div class="resource-score"><div class="workspace-bar-track"><span style="width:${100*row.score}%;background:${row.color}"></span></div><b>${pct(row.score)}</b></div></div>`;
+  }).join('')}</div><div class="chart-legend">${[...new Map(rows.map(row=>[row.model||row.label,row])).values()].map(row=>`<span tabindex="0" data-chart-model="${e(row.model||row.label)}"><i class="dot" style="background:${row.color}"></i>${e(row.model||row.label)}</span>`).join('')}</div>${rows.length<eligible.length?`<small>${eligible.length-rows.length} entries with missing measurements excluded.</small>`:''}`;
+}
+function renderResourceChart(context) {
+  const points=S.resourcePoints?.[context]||[],metric=S.resourceMetric||'tools';
+  return S.resourceView==='points'?resourceScatter(points,metric):resourceBars(points,metric);
+}
 function resourcePanel(points, context) {
   const names=[...new Set(points.map(p=>p.model||p.label))].sort();
   points=points.map(p=>({...p,color:p.color||seriesColor(names.indexOf(p.model||p.label))}));
   S.resourcePoints ||= {};S.resourcePoints[context]=points;
   const metric=S.resourceMetric||'tools';
-  return `<div class="resource-chart" data-chart-key="resource:${e(context)}:${e(context==='workspace'?S.workspace:S.run)}"><div class="overview-section-head"><h3>Performance vs resources</h3><label class="field">Compare by<select data-resource-axis="${context}">${[['size','Model size'],['cost','Preparation cost'],['time','Preparation time'],['tools','Tool calls'],['tests','Preparation fights'],['replays','Replay reads']].map(([id,name])=>`<option value="${id}" ${id===metric?'selected':''}>${name}</option>`).join('')}</select></label></div><div class="resource-pair"><section><h4>Total tool calls</h4>${toolCallTotals(points)}<p class="muted">Each tool invocation counts, including failures. Preparation fights count both starting sides. Replay reads count read_replay and read_past_fight calls, including pagination; they are not distinct replays.</p></section><section><h4>Performance by resource</h4><div id="${context}-resource-chart">${resourceScatter(points,metric)}</div></section></div></div>`;
+  return `<div class="resource-chart" data-chart-key="resource:${e(context)}:${e(context==='workspace'?S.workspace:S.run)}"><div class="overview-section-head"><h3>Performance vs resources</h3><div class="chart-controls"><label class="field">Display<select data-resource-view="${context}" aria-label="Resource chart display"><option value="bars" ${S.resourceView!=='points'?'selected':''}>Bars</option><option value="points" ${S.resourceView==='points'?'selected':''}>Points</option></select></label><label class="field">Compare by<select data-resource-axis="${context}">${[['size','Model size'],['cost','Preparation cost'],['time','Preparation time'],['tools','Tool calls'],['tests','Preparation fights'],['replays','Replay reads']].map(([id,name])=>`<option value="${id}" ${id===metric?'selected':''}>${name}</option>`).join('')}</select></label></div></div><div class="resource-pair"><section><h4>Total tool calls</h4>${toolCallTotals(points)}<p class="muted">Each tool invocation counts, including failures. Preparation fights count both starting sides. Replay reads count read_replay and read_past_fight calls, including pagination; they are not distinct replays.</p></section><section><h4>Performance by resource</h4><div id="${context}-resource-chart">${renderResourceChart(context)}</div></section></div></div>`;
 }
 function overviewModelSize(d, id) {
   const pinned=d.model_metadata?.[id]?.model_size_billion;
@@ -2179,6 +2196,34 @@ function overviewColor(model) {
   return seriesColor(Math.max(0,names.indexOf(model)));
 }
 function overviewEvolution(data) {
+  const mode=overviewSettings().evolution||'bars';
+  return `<div class="evolution-view"><label class="chart-view-choice">Display<select data-evolution-view aria-label="Evolution display"><option value="bars" ${mode==='bars'?'selected':''}>Grouped bars</option><option value="lines" ${mode==='lines'?'selected':''}>Lines</option></select></label><div id="overview-evolution-chart">${mode==='lines'?overviewEvolutionLines(data):overviewEvolutionBars(data)}</div></div>`;
+}
+function overviewEvolutionBars(data) {
+  if(!data.history.length)return '<div class="overview-empty">Evolution appears as rounds finish.</div>';
+  const models=[...new Set(data.history.map(row=>row.model))].sort();
+  const rounds=[...new Set(data.history.map(row=>row.generation))].sort((a,b)=>a-b);
+  const gap=24,L=42,R=12,T=20,B=210,H=255;
+  const available=Math.max(320,Math.min(1200,$('#overview-evolution-chart')?.clientWidth||($('#main')?.clientWidth||innerWidth)-96));
+  const band=Math.max(12,Math.min(22,Math.floor((available-L-R-rounds.length*gap)/(rounds.length*models.length))));
+  const groupWidth=Math.max(60,models.length*band),W=Math.max(available,L+R+rounds.length*(groupWidth+gap));
+  const step=(W-L-R)/rounds.length,y=score=>B-(B-T)*score;
+  const rows=new Map(data.history.map(row=>[JSON.stringify([row.model,row.generation,row.condition]),row]));
+  const marks=rounds.map((round,index)=>{
+    const start=L+index*step+(step-models.length*band)/2;
+    return `<text x="${L+(index+.5)*step}" y="${B+25}" text-anchor="middle">Round ${round+1}</text>`+models.map((model,mi)=>{
+      const conditions=round===0?['initial']:['control','feedback'];
+      return conditions.map((condition,ci)=>{
+        const row=rows.get(JSON.stringify([model,round,condition]));if(row?.score==null)return '';
+        const width=round===0?band-6:Math.floor((band-4)/2),x=start+mi*band+(round===0?3:ci*(width+2)+1),color=overviewColor(model);
+        const label=`${model} · ${overviewRound(condition,round)} · ${pct(row.score)} · ${row.wins}W / ${row.draws}D / ${row.losses}L · ${row.completed} appearances`;
+        return `<rect x="${x}" y="${y(row.score)-(row.score===0?2:0)}" width="${width}" height="${Math.max(2,B-y(row.score))}" fill="${color}" fill-opacity="${condition==='control'?.35:1}" stroke="${color}" stroke-width=".6" tabindex="0" aria-label="${e(label)}" data-chart-model="${e(model)}" data-chart-label="${e(label)}"/>`;
+      }).join('');
+    }).join('');
+  }).join('');
+  return `<div class="chart-filterable" data-chart-key="evolution:${e(S.run)}"><div class="evolution-scroll" role="region" aria-label="Evolution by round" tabindex="0"><svg class="overview-evolution evolution-bars" style="min-width:${W}px" viewBox="0 0 ${W} ${H}" role="img" aria-label="Model scores grouped by round">${[0,.25,.5,.75,1].map(value=>`<line x1="${L}" x2="${W-R}" y1="${y(value)}" y2="${y(value)}" stroke="#e0e7e4"/><text x="${L-7}" y="${y(value)+4}" text-anchor="end">${pct(value)}</text>`).join('')}${marks}</svg></div><div class="evolution-track-key"><span><i class="track-swatch"></i>Initial / With feedback</span><span><i class="track-swatch pale"></i>Without feedback</span></div><div class="overview-legend">${models.map(model=>`<span tabindex="0" data-chart-model="${e(model)}"><i style="background:${overviewColor(model)}"></i>${e(model)}</span>`).join('')}</div></div>`;
+}
+function overviewEvolutionLines(data) {
   if (!data.history.length)
     return '<div class="overview-empty">Evolution appears as rounds finish.</div>';
   const models = [...new Set(data.history.map((r) => r.model))];
@@ -4072,7 +4117,11 @@ document.addEventListener("change", async (event) => {
     if(n.matches('#competition-form input[name=participant]') || n.id==='competition-selected-only') {
       updateCompetitionSelection();
     } else if(n.matches('[data-resource-axis]')) {
-      S.resourceMetric=n.value;const context=n.dataset.resourceAxis;$('#'+context+'-resource-chart').innerHTML=resourceScatter(S.resourcePoints[context],n.value);
+      S.resourceMetric=n.value;const context=n.dataset.resourceAxis;clearChartHover();$('#'+context+'-resource-chart').innerHTML=renderResourceChart(context);
+    } else if(n.matches('[data-resource-view]')) {
+      S.resourceView=n.value;clearChartHover();$('#'+n.dataset.resourceView+'-resource-chart').innerHTML=renderResourceChart(n.dataset.resourceView);
+    } else if(n.matches('[data-evolution-view]')) {
+      overviewSettings().evolution=n.value;clearChartHover();$('#overview-evolution-chart').innerHTML=n.value==='lines'?overviewEvolutionLines(overviewData(S.detail)):overviewEvolutionBars(overviewData(S.detail));
     } else if(n.name==='participant_group_filter') {
       S.participantGroup=n.value;refreshParticipantCards();
     } else if(n.id === 'workspace-picker') {

@@ -883,3 +883,19 @@ It does not change statistical filters or exports; axes keep their original scal
 Conversation pages request their latest page directly and show messages before
 loading the fight-health summary in the background. Exact messages, requests,
 provider outputs and file diffs remain available on demand.
+
+### Grouped evolution bars
+
+Evolution defaults to **Grouped bars**: rounds form separate groups, with one
+initial bar per model and paired later bars for feedback/no-feedback versions.
+Solid bars represent initial or feedback strategies; pale bars represent
+no-feedback strategies. The vertical score scale stays fixed at 0–100%.
+**Display > Lines** restores the line view. Both views keep the same filters and
+legend visibility; bar widths adapt to the available space, with scrolling
+confined to the chart for larger histories.
+
+Resource comparisons default to horizontal **Bars**, with exact resource values
+and scores on each model row, sorted by the selected resource. **Display > Points**
+keeps the scatter view available. These displays use the same observations and
+do not aggregate models into bins or change their scores. Chart marks and legend
+items use a single custom tooltip; native browser titles are suppressed there.
