@@ -843,7 +843,7 @@ in every round and feedback track; their labels say **fixed reference · same co
 Legacy scripted mock fixtures can select predefined code for a track; this is
 scripted test behavior, not model learning.
 
-Enable **Collect extra previous-round comparisons** in the competition
+Enable **Compare every round with the previous round** in the competition
 editor, or stop an existing competition and use **More > Metric collection**.
 This is optional data collection for learning-progress metrics, rather than a
 scoring rule. Save and resume to run missing comparisons without regenerating submitted code.
@@ -944,3 +944,10 @@ retries once only when the server explicitly rejected that token before executin
 the action. Draft names, scenario settings and other unsaved form inputs remain
 intact. Network timeouts and unrelated HTTP errors are not retried by this UI
 mechanism.
+
+Previous-round collection continues for every later round, including unlimited
+runs: Round 2 vs Round 1, Round 3 vs Round 2, Round 4 vs Round 3, and so on. There
+is no Round 3 cutoff. Round 2 needs no extra matches because the standard frozen
+Round 1 evaluation panel is also its immediately preceding round. From Round 3
+onward, a separate previous-round panel supplies those diagnostic fights after
+each preparation round.
