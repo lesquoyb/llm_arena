@@ -142,3 +142,20 @@ runner invocation; adding a submitted entrant schedules its missing fixtures.
 A browser cancelling a page request can close its HTTP socket while the server is
 writing. This does not cancel the competition worker. Disconnected GET and POST
 clients are handled without attempting to send a second error response.
+
+### Automatic context-window recovery
+
+A definite provider context-length rejection, including Mistral's
+`invalid_request_prompt_too_long` / code `3059`, now rebases and retries during
+execution. No Retry click is needed for a new overflow. The new request keeps the
+original instructions and scenario, feedback permissions, saved files and team.
+Earlier exchanges remain in the journal, but are omitted from the request; the
+model is told to read its current files and continue the same preparation round.
+Usage and preparation budgets do not reset. The `context_rebased` event records
+that recovery was automatic.
+
+There is at most one automatic rebase between accepted responses. If the reduced
+request is still too large, or there are no tool/model exchanges to remove, the
+conversation stops with an explicit recovery explanation rather than looping.
+Existing paused conversations can be continued with Resume or Retry; their
+previously implemented manual recovery remains supported.

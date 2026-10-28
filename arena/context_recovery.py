@@ -30,3 +30,18 @@ def rebase(state):
     return {'request_history_start':state['request_history_start'], 'archived_messages':len(active),
             'retained_instruction_messages':len(instructions), 'workspace_files':paths,
             'reason':'provider_context_length_exceeded', 'history_preserved':True}
+
+
+def recover_automatically(state):
+    """Retry a definite context rejection once; never loop on oversized instructions."""
+    if state.get('status')!='provider_unavailable' or state.get('in_flight') or not context_overflow(state):
+        return None
+    active=state.get('history',[])[state.get('request_history_start',0):]
+    if state.get('consecutive_context_recoveries',0)>=1 or not any(message.get('role') in {'assistant','tool'} for message in active):
+        return None
+    recovery=rebase(state)
+    state.update(status='running',pending=None,cursor=0,reserved=None,
+                 consecutive_context_recoveries=state.get('consecutive_context_recoveries',0)+1,
+                 context_retry_pending=True)
+    state.pop('failure',None)
+    return {**recovery,'automatic':True,'usage_and_budgets_preserved':True}

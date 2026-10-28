@@ -411,6 +411,14 @@ def _build_provider_response(sid, state, model, config, journal):
 
 
 def provider_response(sid, state, model, config, journal):
+    # The same continuation works for synchronous callers and parallel transports.
+    while True:
+        state.pop('context_retry_pending',None)
+        response=_provider_response_once(sid,state,model,config,journal)
+        if not state.pop('context_retry_pending',False):return response
+
+
+def _provider_response_once(sid, state, model, config, journal):
     dispatcher=getattr(journal,'requests',None)
     if dispatcher and sid in dispatcher.pending:
         if not dispatcher.ready(sid):return None
@@ -447,6 +455,14 @@ def provider_response(sid, state, model, config, journal):
         state["failure"] = {"message": str(error), "phase": "provider request", "at": time.time(), "uncertain": error.uncertain, "retryable": error.retryable, "diagnostics":error.diagnostics}
         journal.save(sid, state, "provider_failure", {"error": str(error),
                                                     "uncertain": error.uncertain, "retryable": error.retryable, "diagnostics":error.diagnostics})
+        if not error.uncertain:
+            from .context_recovery import recover_automatically, context_overflow
+            recovery=recover_automatically(state)
+            if recovery:
+                journal.save(sid,state,'context_rebased',recovery)
+            elif context_overflow(state):
+                state['failure']['message'] += ' Automatic context recovery could not reduce this request further. The retained instructions or tool declarations may exceed the model context window.'
+                journal.save(sid,state,'context_recovery_blocked',{'reason':'no_further_safe_reduction','consecutive_context_recoveries':state.get('consecutive_context_recoveries',0)})
         return None
     except (KeyError, ValueError, TypeError, ArenaError) as error:
         from .recovery import zero_cost_requests
@@ -463,6 +479,7 @@ def provider_response(sid, state, model, config, journal):
                                                                "response": getattr(provider, "last_response", None)})
         return None
     state["in_flight"] = False
+    state["consecutive_context_recoveries"]=0
     response["elapsed_seconds"] = context['completed_at']-context['submitted_at'] if 'completed_at' in context else time.monotonic() - started
     response['request_metrics'] = {'history_messages':len(history),
         'request_setup_seconds':context.get('submitted_at',started) - request_setup_started,
