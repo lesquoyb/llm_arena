@@ -891,7 +891,7 @@ class Store(Workspaces):
                                        else [path.relative_to(root).parts[1], opponent]),
                              "seed": scenario.get("random_seed"), "mirror": False,
                              "result": self.json(path), "provenance": info})
-        states=self.states(root,('model','generation'))
+        states=self.states(root,('model','generation','condition','replicate','parent'))
         metadata=self.json(root/'experiment.json',{})
         from arena.roster import effective
         models={model['id']:model for model in effective(root,metadata['config']).get('models',[])} if 'config' in metadata else {}
@@ -902,7 +902,8 @@ class Store(Workspaces):
             opponent=next((states.get(sid,{}) for sid in row['sides'] if sid!=row.get('candidate')),{})
             row['previous_round_comparison']=row['kind']=='progression' or (row['kind']=='evaluation' and candidate.get('generation')==1 and opponent.get('generation')==0 and models.get(candidate.get('model'),{}).get('provider') not in {None,'mock'} and models.get(opponent.get('model'),{}).get('provider') not in {None,'mock'})
             row['counts_toward_standings'] = row['kind'] == 'competition' and not row.get('mirror')
-        return {"matches": rows}
+        from .progression import summarize
+        return {"matches": rows,"progression":summarize(states,models,rows)}
 
     def match(self, identifier, name):
         root = self.run_path(identifier)

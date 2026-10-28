@@ -2142,3 +2142,7 @@ svg rect[data-chart-model]:focus-visible,svg rect.chart-selected { outline:none;
   .chart-controls { width:100%; }
   .chart-controls .field { flex:1; min-width:120px; }
 }
+#learning-progress { margin-top:20px; }
+.progression-availability { display:flex; align-items:center; flex-wrap:wrap; gap:8px; padding:10px 12px; border:1px solid #d9e1eb; border-radius:8px; font-size:13px; }
+#learning-progress .overview-details { margin-top:12px; }
+#learning-progress table { font-variant-numeric:tabular-nums; }

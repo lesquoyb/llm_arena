@@ -899,3 +899,33 @@ and scores on each model row, sorted by the selected resource. **Display > Point
 keeps the scatter view available. These displays use the same observations and
 do not aggregate models into bins or change their scores. Chart marks and legend
 items use a single custom tooltip; native browser titles are suppressed there.
+
+### Learning progress
+
+**Learning progress** separates stronger code from a changing tournament rank.
+It uses the overview model/round filters and offers grouped bars, lines or latest
+values for four comparisons:
+
+- **Against own Round 1**: newer versions face their frozen initial submission,
+  paired by repetition. This directly compares the end with the beginning.
+- **Against own previous round**: the preceding version of the same repetition
+  and feedback track. Round 2 uses the initial version as its parent.
+- **Against previous-round LLM pool**: all available previous-round LLM versions,
+  including the candidate's own older versions; fixed scripts are excluded.
+- **Score change in selected category**: score at t minus score at t-1, with the
+  initial score used for the first improvement round. The latest-values table
+  also shows the change since Round 1 and its relative percentage change.
+
+Head-to-head scores use `(wins + 0.5 * draws) / completed fights`; 50% is parity.
+Only the newer candidate's outcome is counted, so its own predecessor's loss does
+not cancel its win. Matching an own predecessor never crosses repetitions or
+feedback tracks. Failures and missing results are kept separate from zero scores.
+Score differences are percentage points: 50% to 60% is +10 pp, or +20% relative
+change. Relative change is unavailable for an initial score of zero. Global score
+changes can reflect different opponents or seeds and do not establish improvement
+against fixed opponents.
+
+Historical reference results supply the initial-version comparisons and Round 2's
+previous pool. From Round 3, the previous-round option supplies additional fights.
+Missing data shows an availability message and the existing comparison settings;
+opening a chart never launches model calls or changes standings/feedback.

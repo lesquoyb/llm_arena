@@ -1775,6 +1775,7 @@ async function renderRun(epoch, liveUpdate=false) {
     const statistics={training_matches:fights.matches.filter(m=>m.kind==='training').length};
     if (epoch !== S.epoch) return;
     S.overviewMatches = fights.matches;
+    S.overviewProgression=fights.progression||[];
     if(refreshFaults) {
       const run=S.run;
       if(S.overviewFaultRun!==run)S.overviewFaults={sessions:[],loading:true};
@@ -2041,9 +2042,8 @@ function overviewAccept(item, scope) {
       overviewRoundKey(item) === scope.round)
   );
 }
-function overviewData(d) {
-  const scope = overviewSettings(),
-    all = (S.overviewMatches || []).filter(
+function overviewData(d, scope=overviewSettings()) {
+  const all = (S.overviewMatches || []).filter(
       (m) =>
         !m.mirror &&
         matchCategory(m,scope.source) &&
@@ -2203,11 +2203,12 @@ function overviewEvolutionBars(data) {
   if(!data.history.length)return '<div class="overview-empty">Evolution appears as rounds finish.</div>';
   const models=[...new Set(data.history.map(row=>row.model))].sort();
   const rounds=[...new Set(data.history.map(row=>row.generation))].sort((a,b)=>a-b);
-  const gap=24,L=42,R=12,T=20,B=210,H=255;
+  const gap=24,L=data.signed?70:42,R=12,T=20,B=210,H=255;
   const available=Math.max(320,Math.min(1200,$('#overview-evolution-chart')?.clientWidth||($('#main')?.clientWidth||innerWidth)-96));
   const band=Math.max(12,Math.min(22,Math.floor((available-L-R-rounds.length*gap)/(rounds.length*models.length))));
   const groupWidth=Math.max(60,models.length*band),W=Math.max(available,L+R+rounds.length*(groupWidth+gap));
-  const step=(W-L-R)/rounds.length,y=score=>B-(B-T)*score;
+  const step=(W-L-R)/rounds.length,min=data.signed?-1:0,max=1,y=score=>B-(B-T)*(score-min)/(max-min),origin=y(0);
+  const ticks=data.signed?[-1,-.5,0,.5,1]:[0,.25,.5,.75,1];
   const rows=new Map(data.history.map(row=>[JSON.stringify([row.model,row.generation,row.condition]),row]));
   const marks=rounds.map((round,index)=>{
     const start=L+index*step+(step-models.length*band)/2;
@@ -2216,12 +2217,12 @@ function overviewEvolutionBars(data) {
       return conditions.map((condition,ci)=>{
         const row=rows.get(JSON.stringify([model,round,condition]));if(row?.score==null)return '';
         const width=round===0?band-6:Math.floor((band-4)/2),x=start+mi*band+(round===0?3:ci*(width+2)+1),color=overviewColor(model);
-        const label=`${model} · ${overviewRound(condition,round)} · ${pct(row.score)} · ${row.wins}W / ${row.draws}D / ${row.losses}L · ${row.completed} appearances`;
-        return `<rect x="${x}" y="${y(row.score)-(row.score===0?2:0)}" width="${width}" height="${Math.max(2,B-y(row.score))}" fill="${color}" fill-opacity="${condition==='control'?.35:1}" stroke="${color}" stroke-width=".6" tabindex="0" aria-label="${e(label)}" data-chart-model="${e(model)}" data-chart-label="${e(label)}"/>`;
+        const label=row.tooltip||`${model} · ${overviewRound(condition,round)} · ${pct(row.score)} · ${row.wins}W / ${row.draws}D / ${row.losses}L · ${row.completed} appearances`;
+        return `<rect x="${x}" y="${Math.min(y(row.score),origin)-(row.score===0?2:0)}" width="${width}" height="${Math.max(2,Math.abs(origin-y(row.score)))}" fill="${color}" fill-opacity="${condition==='control'?.35:1}" stroke="${color}" stroke-width=".6" tabindex="0" aria-label="${e(label)}" data-chart-model="${e(model)}" data-chart-label="${e(label)}"/>`;
       }).join('');
     }).join('');
   }).join('');
-  return `<div class="chart-filterable" data-chart-key="evolution:${e(S.run)}"><div class="evolution-scroll" role="region" aria-label="Evolution by round" tabindex="0"><svg class="overview-evolution evolution-bars" style="min-width:${W}px" viewBox="0 0 ${W} ${H}" role="img" aria-label="Model scores grouped by round">${[0,.25,.5,.75,1].map(value=>`<line x1="${L}" x2="${W-R}" y1="${y(value)}" y2="${y(value)}" stroke="#e0e7e4"/><text x="${L-7}" y="${y(value)+4}" text-anchor="end">${pct(value)}</text>`).join('')}${marks}</svg></div><div class="evolution-track-key"><span><i class="track-swatch"></i>Initial / With feedback</span><span><i class="track-swatch pale"></i>Without feedback</span></div><div class="overview-legend">${models.map(model=>`<span tabindex="0" data-chart-model="${e(model)}"><i style="background:${overviewColor(model)}"></i>${e(model)}</span>`).join('')}</div></div>`;
+  return `<div class="chart-filterable" data-chart-key="${e(data.chartKey||'evolution:'+S.run)}"><div class="evolution-scroll" role="region" aria-label="Evolution by round" tabindex="0"><svg class="overview-evolution evolution-bars" style="min-width:${W}px" viewBox="0 0 ${W} ${H}" role="img" aria-label="Model scores grouped by round">${ticks.map(value=>`<line x1="${L}" x2="${W-R}" y1="${y(value)}" y2="${y(value)}" stroke="#e0e7e4"/><text x="${L-7}" y="${y(value)+4}" text-anchor="end">${data.signed?progressionPoints(value):pct(value)}</text>`).join('')}${data.parity?`<line x1="${L}" x2="${W-R}" y1="${y(.5)}" y2="${y(.5)}" stroke="#6f8294" stroke-dasharray="4 4"/>`:''}${marks}</svg></div><div class="evolution-track-key"><span><i class="track-swatch"></i>${data.parity||data.signed?'With feedback':'Initial / With feedback'}</span><span><i class="track-swatch pale"></i>Without feedback</span></div><div class="overview-legend">${models.map(model=>`<span tabindex="0" data-chart-model="${e(model)}"><i style="background:${overviewColor(model)}"></i>${e(model)}</span>`).join('')}</div></div>`;
 }
 function overviewEvolutionLines(data) {
   if (!data.history.length)
@@ -2233,17 +2234,17 @@ function overviewEvolutionLines(data) {
   const width = innerWidth < 600 ? 420 : 560,
     height = 210;
   const x = (g) =>
-    45 +
-    (generations.indexOf(g) * (width - 80)) /
+    (data.signed?75:45) +
+    (generations.indexOf(g) * (width - (data.signed?115:80))) /
       Math.max(1, generations.length - 1);
-  const y = (v) => 165 - v * 140;
+  const y = (v) => 165 - ((v-(data.signed?-1:0))/(data.signed?2:1))*140;
   const ticks = generations.filter(
     (g, i) =>
       i === 0 ||
       i === generations.length - 1 ||
       i % Math.max(1, Math.ceil(generations.length / 8)) === 0,
   );
-  return `<div class="chart-filterable" data-chart-key="evolution:${e(S.run)}"><svg class="overview-evolution" viewBox="0 0 ${width} ${height}" role="img" aria-label="Model scores across strategy rounds">${[0, 0.5, 1].map((v) => `<line x1="38" x2="${width - 25}" y1="${y(v)}" y2="${y(v)}" stroke="#e7ebf2"/><text x="0" y="${y(v) + 4}">${v * 100}%</text>`).join("")}${ticks.map((g) => `<text x="${x(g)}" y="195" text-anchor="middle">R${g + 1}</text>`).join("")}${models
+  return `<div class="chart-filterable" data-chart-key="${e(data.chartKey||'evolution:'+S.run)}"><svg class="overview-evolution" viewBox="0 0 ${width} ${height}" role="img" aria-label="Model scores across strategy rounds">${(data.signed?[-1,-.5,0,.5,1]:[0,.5,1]).map((v) => `<line x1="${data.signed?68:38}" x2="${width - 25}" y1="${y(v)}" y2="${y(v)}" stroke="#e7ebf2"/><text x="0" y="${y(v) + 4}">${data.signed?progressionPoints(v):pct(v)}</text>`).join("")}${ticks.map((g) => `<text x="${x(g)}" y="195" text-anchor="middle">R${g + 1}</text>`).join("")}${models
     .map((model) => {
       const rows = data.history.filter((r) => r.model === model),
         color = overviewColor(model);
@@ -2258,7 +2259,7 @@ function overviewEvolutionLines(data) {
             .map((r, i) => {
               if (r.score == null) return "";
               const prev = track[i - 1];
-              return `${prev?.score != null ? `<path d="M${x(prev.generation)},${y(prev.score)} L${x(r.generation)},${y(r.score)}" fill="none" stroke="${color}" stroke-width="2" data-chart-model="${e(model)}" data-chart-label="${e(model)} · ${condition==='control'?'No feedback':'With feedback'}" ${condition === "control" ? 'stroke-dasharray="4 4"' : ""}/>` : ""}<circle cx="${x(r.generation)}" cy="${y(r.score)}" r="4" fill="${color}" tabindex="0" data-chart-model="${e(model)}" data-chart-label="${e(model)} · ${overviewRound(r.condition,r.generation)} · ${pct(r.score)} (${r.completed} appearances)"><title>${e(model)} · ${overviewRound(r.condition, r.generation)}: ${pct(r.score)} (${r.completed} appearances)</title></circle>`;
+              return `${prev?.score != null ? `<path d="M${x(prev.generation)},${y(prev.score)} L${x(r.generation)},${y(r.score)}" fill="none" stroke="${color}" stroke-width="2" data-chart-model="${e(model)}" data-chart-label="${e(model)} · ${condition==='control'?'No feedback':'With feedback'}" ${condition === "control" ? 'stroke-dasharray="4 4"' : ""}/>` : ""}<circle cx="${x(r.generation)}" cy="${y(r.score)}" r="4" fill="${color}" tabindex="0" data-chart-model="${e(model)}" data-chart-label="${e(r.tooltip||`${model} · ${overviewRound(r.condition,r.generation)} · ${pct(r.score)} (${r.completed} appearances)`)}"><title>${e(model)} · ${overviewRound(r.condition, r.generation)}: ${pct(r.score)} (${r.completed} appearances)</title></circle>`;
             })
             .join("");
         })
@@ -2268,6 +2269,56 @@ function overviewEvolutionLines(data) {
       "",
     )}</svg><div class="overview-legend">${models.map((model) => `<span tabindex="0" data-chart-model="${e(model)}"><i style="background:${overviewColor(model)}"></i>${e(model)}</span>`).join("")}<span>Solid: feedback · Dashed: no feedback</span></div></div>`;
 }
+const PROGRESSION_MODES=[['own_initial','Against own Round 1'],['own_previous','Against own previous round'],['previous_pool','Against previous-round LLM pool'],['score_change','Score change in selected category']];
+const progressionPoints=value=>value==null?'N/A':`${value>0?'+':''}${fmt(value*100,1)} pp`;
+function learningProgressionData(d,mode) {
+  const scope=overviewSettings(),profiles=new Map((d.metadata.config?.models||[]).map(model=>[model.id,model]));
+  let history;
+  if(mode==='score_change') {
+    const all=overviewData(d,{...scope,round:'all'}).history;
+    const indexed=new Map(all.map(row=>[JSON.stringify([row.model,row.generation,row.condition]),row]));
+    const expected=S.overviewProgression?.length?S.overviewProgression:all.filter(row=>row.generation>0&&profiles.get(row.model)?.provider!=='mock');
+    history=expected.map(identity=>{
+      const row=indexed.get(JSON.stringify([identity.model,identity.generation,identity.condition]))||{...identity,score:null,completed:0};
+      const previous=indexed.get(JSON.stringify([row.model,row.generation-1,row.generation===1?'initial':row.condition]));
+      const initial=indexed.get(JSON.stringify([row.model,0,'initial']));
+      const delta=row.score!=null&&previous?.score!=null?row.score-previous.score:null;
+      return {...row,score:delta,currentScore:row.score,previousScore:previous?.score??null,initialScore:initial?.score??null,
+        totalDelta:row.score!=null&&initial?.score!=null?row.score-initial.score:null,
+        relativeChange:row.score!=null&&initial?.score>0?(row.score-initial.score)/initial.score:null,
+        tooltip:`${row.model} · ${overviewRound(row.condition,row.generation)} · ${progressionPoints(delta)} vs previous round · ${pct(previous?.score)} → ${pct(row.score)} · ${row.completed} current fights`};
+    });
+  } else {
+    history=(S.overviewProgression||[]).map(row=>({...row,...row[mode],
+      tooltip:`${row.model} · ${overviewRound(row.condition,row.generation)} · ${pct(row[mode].score)} · ${row[mode].wins}W / ${row[mode].draws}D / ${row[mode].losses}L · ${row[mode].completed} fights against ${row[mode].opponent_versions} versions`}));
+  }
+  const visible=new Set(d.sessions.filter(session=>!session.withdrawn||session.submission).map(session=>JSON.stringify([session.model,session.generation||0,session.condition||'initial'])));
+  history=history.filter(row=>visible.has(JSON.stringify([row.model,row.generation,row.condition]))&&overviewAccept(row,scope));
+  if(scope.round.startsWith('stage:')) {
+    const selected=new Set(overviewData(d).history.map(row=>JSON.stringify([row.model,row.generation,row.condition])));
+    history=history.filter(row=>selected.has(JSON.stringify([row.model,row.generation,row.condition])));
+  }
+  return {history,chartKey:'learning:'+S.run,signed:mode==='score_change',parity:mode!=='score_change'};
+}
+function learningProgression(d) {
+  if(!(d.metadata.config?.models||[]).some(model=>model.provider!=='mock'))return '';
+  const scope=overviewSettings(),mode=scope.progressionMode||'own_initial',view=scope.progressionView||'bars',data=learningProgressionData(d,mode);
+  const descriptions={own_initial:'Direct comparison with your frozen Round 1 strategy, paired by repetition. 50% is parity; above 50% favors the newer version.',
+    own_previous:'Direct comparison with the same repetition and track from the previous round. 50% is parity.',
+    previous_pool:'Available fights against previous-round LLM versions, including your own. Fixed reference scripts are excluded. 50% is parity.',
+    score_change:'Score at round t minus score at t-1 in the category selected above, in percentage points. Opponent pools and evaluation seeds can change between rounds.'};
+  const latest=new Map();for(const row of data.history) {const key=JSON.stringify([row.model,row.condition]);if(!latest.has(key)||latest.get(key).generation<row.generation)latest.set(key,row);}
+  const rows=[...latest.values()].sort((a,b)=>a.model.localeCompare(b.model)||a.condition.localeCompare(b.condition));
+  const measured=data.history.filter(row=>row.score!=null),missing=data.history.length-measured.length;
+  const extra=mode==='own_previous'||mode==='previous_pool';
+  const enabled=d.roster?.compare_previous_round??d.metadata.config?.compare_previous_round;
+  const needsExtra=extra&&data.history.some(row=>row.generation>=2&&row.score==null);
+  const details=mode==='score_change'
+    ?table(['Model','Track','Latest round','Current score','Vs previous round','Since Round 1','Relative to Round 1'],rows.map(row=>`<tr><td>${e(row.model)}</td><td>${e(text(row.condition))}</td><td>R${row.generation+1}</td><td>${pct(row.currentScore)}</td><td>${progressionPoints(row.score)}</td><td>${progressionPoints(row.totalDelta)}<small>R1: ${pct(row.initialScore)}</small></td><td>${row.relativeChange==null?'N/A':(row.relativeChange>0?'+':'')+pct(row.relativeChange)}</td></tr>`))
+    :table(['Model','Track','Latest round','Head-to-head score','Win / draw / loss','Opponent versions','Completed fights'],rows.map(row=>`<tr><td>${e(row.model)}</td><td>${e(text(row.condition))}</td><td>R${row.generation+1}</td><td>${pct(row.score)}</td><td>${row.wins} / ${row.draws} / ${row.losses}</td><td>${row.opponent_versions}</td><td>${row.completed}${row.failures?` · ${row.failures} failed`:''}</td></tr>`));
+  return `<section class="overview-card" id="learning-progress"><div class="overview-section-head"><h2>Learning progress</h2><div class="chart-controls"><label class="field">Comparison<select data-learning-mode aria-label="Learning progress comparison">${PROGRESSION_MODES.map(([id,label])=>`<option value="${id}" ${mode===id?'selected':''}>${e(label)}</option>`).join('')}</select></label><label class="field">Display<select data-learning-view aria-label="Learning progress display">${[['bars','Grouped bars'],['lines','Lines'],['latest','Latest values']].map(([id,label])=>`<option value="${id}" ${view===id?'selected':''}>${label}</option>`).join('')}</select></label></div></div><p class="muted">${descriptions[mode]}</p>${needsExtra&&enabled?'<p class="progression-availability">Previous-round comparisons are enabled. Missing engine fights run after preparation; resume a stopped run to fill gaps.</p>':''}${needsExtra&&!enabled?`<div class="progression-availability">Round 2 reuses existing Round 1 comparisons. For Round 3 onward, enable <strong>Compare against previous-round versions</strong> in More → Edit participants, then resume. ${btn('Comparison settings','edit-run-participants')}</div>`:''}${missing?`<p class="muted">${missing} round/track observations have no usable comparison yet. Missing values are not scored as zero.</p>`:''}${view==='latest'?details:measured.length?view==='lines'?overviewEvolutionLines(data):overviewEvolutionBars(data):'<div class="overview-empty">No completed comparison for the selected model and round yet.</div>'}${view!=='latest'&&rows.length?`<details class="overview-details"><summary>Latest values by model and track</summary>${details}</details>`:''}<small class="muted">Completed fights only; model and round filters apply. ${mode==='score_change'?'Changes describe the selected category; they do not establish improvement against fixed opponents.':'Historical comparisons are unscored diagnostics and are not sent as model feedback.'}</small></section>`;
+}
+
 function overviewMatchLink(data, who, other, outcome, value, description) {
   const cell = data.matrix.find(
     (row) => row.who === who && row.other === other,
@@ -2434,6 +2485,7 @@ function summary(d, statistics = null) {
     cost = sessions.reduce((n, s) => n + Number(s.cost_spent || 0), 0);
   return `<div class="competition-overview">${overviewFilters(d, data)}${data.scope.source==='progression'?notice('Unscored progression diagnostic: current LLM versions face the preceding round. This includes same-model historical opponents; results do not change tournament standings or model feedback.'):''}${failures.length ? `<div class="overview-alert">${failures.length} conversation${failures.length === 1 ? "" : "s"} need attention. <button class="table-button" data-action="overview-failures">Review & retry</button></div>` : ""}<div class="overview-kpis"><div><span>Completed fights</span><strong>${fmt(data.selected.filter((v) => v.match.result.status === "completed").length)}</strong><small>${data.selected.filter((v) => v.match.result.status !== "completed").length} failed</small></div><div><span>Submitted strategies</span><strong>${sessions.length ? sessions.filter((s) => s.submission || s.status === "submitted").length : d.metadata.manifest?.strategies?.filter(s=>overviewAccept(overviewIdentity(s.id),data.scope)).length ?? data.models.length}${sessions.length ? `<small> / ${sessions.length}</small>` : ""}</strong><small>${d.metadata.config ? d.metadata.config.models.filter(model=>!d.roster?.withdrawn.includes(model.id)&&(!data.scope.model||data.scope.model===model.id)).length : data.models.length} active participants</small></div><div><span>Estimated API cost</span><strong>${sessions.length ? (costUnknown ? "Unknown" : money(cost)) : "N/A"}</strong><small>Selected versions</small></div><div><span>Tokens · selected versions</span><strong>${known.length ? fmt(tokens) : real.length ? "Unknown" : "N/A"}</strong><small>${known.length ? (known.length < real.length || known.some(u=>!u.complete) ? "Partial reported usage" : "Input + output") : real.length ? "Not reported by provider" : "No measured LLM usage"}</small></div></div>
   <div class="overview-charts"><section class="overview-card"><div class="overview-section-head"><h2>Model ranking</h2><span>Score</span></div>${overviewRanking(data)}</section><section class="overview-card"><div class="overview-section-head"><h2>Evolution</h2><span>Score by version</span></div>${overviewEvolution(data)}</section></div><section class="overview-card">${resourcePanel(overviewResourcePoints(d,data),"overview")}</section>
+  ${learningProgression(d)}
   ${overviewErrors(d,data)}
   ${data.matrix.length ? `<section class="overview-card overview-head-to-head"><div class="overview-section-head"><h2>Match matrix</h2><span>Click a result to see fights</span></div>${overviewMatrix(data)}</section>` : `<div class="overview-empty">${data.selected.length ? "No head-to-head pairs in this selection." : `No ${data.scope.source === "competition" ? "tournament" : data.scope.source==='progression'?"previous-round comparison":"reference"} matches yet.`}${statistics?.training_matches ? ` ${statistics.training_matches} preparation tests recorded; excluded from standings. ${btn("View preparation tests", "show-training")}` : ""}</div>`}
   ${overviewDetails(d, data, statistics)}</div>`;
@@ -4120,6 +4172,9 @@ document.addEventListener("change", async (event) => {
       S.resourceMetric=n.value;const context=n.dataset.resourceAxis;clearChartHover();$('#'+context+'-resource-chart').innerHTML=renderResourceChart(context);
     } else if(n.matches('[data-resource-view]')) {
       S.resourceView=n.value;clearChartHover();$('#'+n.dataset.resourceView+'-resource-chart').innerHTML=renderResourceChart(n.dataset.resourceView);
+    } else if(n.matches('[data-learning-mode],[data-learning-view]')) {
+      const key=n.matches('[data-learning-mode]')?'progressionMode':'progressionView';overviewSettings()[key]=n.value;clearChartHover();
+      LiveDOM.replace($('#learning-progress'),learningProgression(S.detail));
     } else if(n.matches('[data-evolution-view]')) {
       overviewSettings().evolution=n.value;clearChartHover();$('#overview-evolution-chart').innerHTML=n.value==='lines'?overviewEvolutionLines(overviewData(S.detail)):overviewEvolutionBars(overviewData(S.detail));
     } else if(n.name==='participant_group_filter') {
