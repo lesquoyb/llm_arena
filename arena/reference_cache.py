@@ -1,6 +1,8 @@
 """Content-addressed, verified replays for fights between fixed references."""
 import shutil
 import time
+import threading
+from weakref import WeakValueDictionary
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from uuid import uuid4
@@ -62,7 +64,22 @@ def seed(engine, infos, config, seed_value, work):
         # Concurrent first misses may both execute; publication never blocks a run.
 
 
+_locks=WeakValueDictionary()
+_lock_guard=threading.Lock()
+
+
 def fight(engine, sources, infos, config, seed_value, work):
+    key=digest(_request(engine,infos,config,seed_value))
+    with _lock_guard:
+        lock=_locks.get(key)
+        if lock is None:
+            lock=threading.Lock()
+            _locks[key]=lock
+    with lock:
+        return _fight(engine,sources,infos,config,seed_value,work)
+
+
+def _fight(engine, sources, infos, config, seed_value, work):
     """Use the full replay only when both fixed-reference inputs match exactly."""
     request=_request(engine,infos,config,seed_value);key=digest(request);entry=_directory(engine)/key
     for source,info in zip(sources,infos):

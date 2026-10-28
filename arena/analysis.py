@@ -85,9 +85,11 @@ def analyze_evolution(config, out, states, initial, branches, baseline, evolved,
     for row in rows:
         key = f"{row['model']}/g{row['generation']}/{row['condition']}/{row['panel']}"
         groups.setdefault(key, []).append(row)
+    from .reference_strategies import repetitions
+    models={model["id"]:model for model in config["models"]}
     model_scores = {key: {"score": sum(r["score"] for r in values if r["score"] is not None) /
                          sum(r["score"] is not None for r in values) if any(r["score"] is not None for r in values) else None,
-                         "replicates_present": len(values), "replicates_configured": config["replicates"]}
+                         "replicates_present": len(values), "replicates_configured": repetitions(config,models[values[0]["model"]])}
                     for key, values in groups.items()}
     total_cost = str(sum(amount(s.get("cost_spent", "0")) for s in states.values()))
     held = str(sum(amount(s.get("money_reserved", "0")) for s in states.values()))

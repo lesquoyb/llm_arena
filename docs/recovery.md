@@ -179,3 +179,10 @@ Resuming a target in calibration also preserves its reminder counters. If an
 outstanding `interrupted_stop_streak` marker from the previous implementation
 records an incorrectly cleared streak, its saved value is restored with a
 `submission_counter_restored` audit event. Historical messages are retained.
+
+Combat concurrency can be changed after stopping a competition through
+**More > Execution & metrics > Simultaneous fights**. Saving records an audited
+participant-settings revision without changing frozen strategies or replay
+provenance. Resume retains every completed fight and runs the remaining work
+with the new worker limit. Other active workers finish and publish their results
+if a peer raises an error. Each engine invocation keeps its own timeout.

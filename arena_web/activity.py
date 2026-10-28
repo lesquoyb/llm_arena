@@ -27,11 +27,13 @@ def status(store, identifier, job=None):
             generation=int(match[1]) if match else 0
     current={sid:state for sid,state in states.items() if state.get('generation',0)==generation}
     multiplier=len(config.get('improvement_conditions',['control','feedback'])) if generation else 1
-    per_model=config.get('replicates',1)*multiplier
-    expected=len(models)*per_model
+    from arena.reference_strategies import repetitions
+    config['_fixed_reference_repetitions']=metadata.get('fixed_reference_repetitions',config.get('replicates',1))
+    per_model={model['id']:repetitions(config,model)*multiplier for model in config.get('models',[]) if model['id'] in models}
+    expected=sum(per_model.values())
     ready=sum(bool(state.get('submission')) for state in current.values())
     assessed=sum(bool(state.get('submission')) and state.get('validity') in {'valid','invalid'} for state in current.values())
-    ready_models=sum(sum(bool(state.get('submission')) for state in current.values() if state['model']==model)>=per_model for model in models)
+    ready_models=sum(sum(bool(state.get('submission')) for state in current.values() if state['model']==model)>=per_model[model] for model in models)
     activity=[]
     if running:
         for sid,state in states.items():
@@ -74,7 +76,7 @@ def status(store, identifier, job=None):
                {'provider_unavailable','generation_failed','no_submission','needs_reconciliation','budget_exhausted'}
                else 'active' if sid in active_ids or (running and state.get('status')=='running') else 'waiting')
         preparations.append({'session':sid,'model':state['model'],'phase':phase})
-    waiting=[{'model':model,'count':max(0,per_model-sum(state['model']==model for state in current.values()))} for model in models]
+    waiting=[{'model':model,'count':max(0,per_model[model]-sum(state['model']==model for state in current.values()))} for model in models]
     waiting=[item for item in waiting if item['count']]
     return {'labels':{sid:{'model':state['model'],'round':state.get('generation',0)+1,'condition':state.get('condition','initial'),'replicate':state.get('replicate',0)} for sid,state in states.items()}, 'running':running,'job_status':(job or {}).get('status'),'job_note':(job or {}).get('note'),
             'round':generation+1,'rounds':config.get('generations',1),'participants':len(models),

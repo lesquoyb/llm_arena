@@ -63,3 +63,17 @@ class ReferenceCacheTests(unittest.TestCase):
             self.assertEqual(read_json(root / 'first/outcome.json'), {'winner': -1})
             self.assertEqual(submission(root / 'cached/strategies/1', 'main.leek'), infos[0])
             self.assertEqual(file_hash(root / 'cached/outcome.json'), cached['outcome_sha256'])
+
+    def test_simultaneous_identical_requests_compute_once(self):
+        from concurrent.futures import ThreadPoolExecutor
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary)
+            source=root/'source';source.mkdir()
+            (source/'main.leek').write_text('var v = 1;')
+            infos=[submission(source,'main.leek')]*2
+            scenario=read_json(ROOT/'configs/offline-complete.json')['scenario']
+            engine=FixtureEngine(root)
+            with ThreadPoolExecutor(max_workers=4) as pool:
+                results=list(pool.map(lambda index:fight(engine,[source,source],infos,scenario,101,root/str(index)),range(4)))
+            self.assertEqual(engine.calls,1)
+            self.assertEqual(sum(result['reference_cache']['hit'] for result in results),3)

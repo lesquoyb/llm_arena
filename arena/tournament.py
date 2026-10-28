@@ -51,12 +51,12 @@ def verify_record(root: Path, record: dict):
             raise ArenaError("Stored match source was modified")
 
 
-def run_tournament(engine: Engine, manifest: dict, out: Path, resume: bool = False, *, allow_extend=False, priority_ids=None, reference_ids=None) -> dict:
+def run_tournament(engine: Engine, manifest: dict, out: Path, resume: bool = False, *, allow_extend=False, priority_ids=None, reference_ids=None, parallel_fights=1) -> dict:
     with file_lock(out.parent / ("." + out.name + ".lock")):
-        return _run_tournament(engine, manifest, out, resume, allow_extend=allow_extend, priority_ids=priority_ids, reference_ids=reference_ids)
+        return _run_tournament(engine, manifest, out, resume, allow_extend=allow_extend, priority_ids=priority_ids, reference_ids=reference_ids, parallel_fights=parallel_fights)
 
 
-def _run_tournament(engine: Engine, manifest: dict, out: Path, resume: bool = False, *, allow_extend=False, priority_ids=None, reference_ids=None) -> dict:
+def _run_tournament(engine: Engine, manifest: dict, out: Path, resume: bool = False, *, allow_extend=False, priority_ids=None, reference_ids=None, parallel_fights=1) -> dict:
     matches = schedule(manifest)
     # Absolute source locations are metadata, not part of the experiment identity.
     frozen = {**manifest, "strategies": [{k: v for k, v in s.items() if k != "path"} for s in manifest["strategies"]]}
@@ -111,37 +111,42 @@ def _run_tournament(engine: Engine, manifest: dict, out: Path, resume: bool = Fa
     priority_ids=set(priority_ids or [])
     reference_ids=set(reference_ids or [])
     execution=sorted(matches,key=lambda match:-sum(side in priority_ids for side in match['sides']))
-    for index, match in enumerate(execution, 1):
-        record_path = out / "records" / f"{match['id']}.json"
-        if record_path.exists():
-            record = read_json(record_path)
-            if record["match"] != match:
-                raise ArenaError("Stored match metadata mismatch")
-            if record["result"]["status"] == "completed":
-                verify_record(out, record)
-                if all(side in reference_ids for side in match['sides']):
-                    from .reference_cache import seed as seed_reference
-                    seed_reference(engine,[strategies[side]['submission'] for side in match['sides']],manifest['scenario'],match['seed'],out/record['directory'])
-                print(f"[{index}/{len(matches)}] cached {match['sides']}, seed {match['seed']}", flush=True)
+    def jobs():
+        for index, match in enumerate(execution, 1):
+            record_path = out / "records" / f"{match['id']}.json"
+            if record_path.exists():
+                record = read_json(record_path)
+                if record["match"] != match:
+                    raise ArenaError("Stored match metadata mismatch")
+                if record["result"]["status"] == "completed":
+                    verify_record(out, record)
+                    if all(side in reference_ids for side in match['sides']):
+                        from .reference_cache import seed as seed_reference
+                        seed_reference(engine,[strategies[side]['submission'] for side in match['sides']],manifest['scenario'],match['seed'],out/record['directory'])
+                    print(f"[{index}/{len(matches)}] cached {match['sides']}, seed {match['seed']}", flush=True)
+                    continue
+            if any(side in excluded for side in match['sides']):
                 continue
-        if any(side in excluded for side in match['sides']):
-            continue
-        base = out / "matches" / match["id"]
-        attempt = 1
-        while (base / f"attempt-{attempt}").exists():
-            attempt += 1
-        work = base / f"attempt-{attempt}"
-        sides = match["sides"]
-        print(f"[{index}/{len(matches)}] {sides[0]} vs {sides[1]}, seed {match['seed']}", flush=True)
-        from .activity import operation
-        with operation(out.parent,'tournament_fight',participants=sides,
-                       generation=max(strategies[s].get('generation',0) for s in sides),seed=match['seed']):
-            from .reference_cache import fight as cached_reference_fight
-            fight=cached_reference_fight if all(side in reference_ids for side in sides) else lambda engine,*args:engine.fight(*args)
-            result = fight(engine,[out / "submissions" / s for s in sides],
-                                  [strategies[s]["submission"] for s in sides], manifest["scenario"], match["seed"], work)
-        write_json(record_path, {"match": match, "directory": work.relative_to(out).as_posix(), "result": result})
+            base = out / "matches" / match["id"]
+            attempt = 1
+            while (base / f"attempt-{attempt}").exists():
+                attempt += 1
+            work = base / f"attempt-{attempt}"
+            sides = match["sides"]
+            print(f"[{index}/{len(matches)}] {sides[0]} vs {sides[1]}, seed {match['seed']}", flush=True)
+            yield {'match':match,'work':work,'record_path':record_path,'participants':sides,'seed':match['seed']}
+    def execute(job):
+        from .reference_cache import fight as cached_reference_fight
+        sides=job['participants']
+        fight=cached_reference_fight if all(side in reference_ids for side in sides) else lambda engine,*args:engine.fight(*args)
+        return fight(engine,[out/'submissions'/side for side in sides],
+                     [strategies[side]['submission'] for side in sides],manifest['scenario'],job['seed'],job['work'])
+    def save(job,result):
+        write_json(job['record_path'],{'match':job['match'],'directory':job['work'].relative_to(out).as_posix(),'result':result})
         report(out)
+    from .fight_pool import run as run_fights
+    run_fights(jobs(),execute,save,limit=parallel_fights,out=out.parent,kind='tournament_fight',
+               generation=max((s.get('generation',0) for s in strategies.values()),default=0))
     return report(out)
 
 

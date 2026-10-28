@@ -20,53 +20,62 @@ def references(engine, config, out, journal, entrants, label, panel, *, incremen
         if source.get('model') in models:return models[source['model']].get('provider')=='mock'
         return source['id'] in {'fixed-rush','fixed-single-shot','fixed-passive'}
     results = read_json(root / 'results.json') if incremental and (root / 'results.json').exists() else {}
-    for entrant in entrants:
-        for opponent in panel:
-            for seed in config["final_seeds"]:
-                for side in (0, 1):
-                    sources = [entrant, opponent] if side == 0 else [opponent, entrant]
-                    reference_only=all(fixed(source) for source in sources)
-                    key = digest({"entrant": entrant["id"], "opponent": opponent["id"], "seed": seed, "side": side})[:24]
-                    cached = root / "records" / (key + ".json")
-                    if cached.exists():
-                        record = read_json(cached)
-                        work = out / record["artifact_dir"]
-                        from .core import file_hash
-                        if record["result"]["status"] == "completed":
-                            if file_hash(work / "outcome.json") != record["result"]["outcome_sha256"]:
-                                raise ArenaError("Reference outcome changed")
-                            if read_json(work / "result.json") != record["result"]:
-                                raise ArenaError("Reference result changed")
-                            scenario = make_scenario(config["scenario"], [s["submission"]["entrypoint"] for s in sources], seed, [s["submission"].get("team") for s in sources])
-                            provenance = read_json(work / "provenance.json")
-                            from .recovery import engine_compatible
-                            accepted_engine = provenance['engine'] == engine.identity or (
-                                getattr(engine, 'allow_updated_runner', False) and engine_compatible(provenance['engine'], engine.identity))
-                            if (read_json(work / "scenario.json") != scenario or not accepted_engine
-                                    or provenance["submissions"] != [s["submission"] for s in sources]):
-                                raise ArenaError("Reference provenance changed")
-                            for index, source in enumerate(sources, 1):
-                                if submission(work / "strategies" / str(index), source["submission"]["entrypoint"]) != source["submission"]:
-                                    raise ArenaError("Reference source changed")
-                            if reference_only:
-                                from .reference_cache import seed as seed_reference
-                                seed_reference(engine,[source['submission'] for source in sources],config['scenario'],seed,work)
-                        else:
-                            cached = None
-                    if not cached or not cached.exists():
-                        work = Preparation._attempt(root / "matches" / key)
-                        from .activity import operation
-                        with operation(out,'previous_round_fight' if label.endswith('-previous') else 'reference_fight',participants=[s['id'] for s in sources],
-                                       generation=entrant.get('generation',0),seed=seed):
-                            from .reference_cache import fight as cached_reference_fight
-                            fight=cached_reference_fight if reference_only else lambda engine,*args:engine.fight(*args)
-                            result = fight(engine,[Path(s["path"]) for s in sources], [s["submission"] for s in sources],
-                                                  config["scenario"], seed, work)
-                        record = {"session": entrant["id"], "opponent": opponent["id"], "seed": seed,
-                                  "side": side, "result": result, "artifact_dir": work.relative_to(out).as_posix()}
-                        write_json(root / "records" / (key + ".json"), record)
-                        journal.save(entrant["id"], journal.state(entrant["id"]), "progression_match" if label.endswith('-previous') else "reference_match", record)
-                    results[key] = record
+    def jobs():
+        for entrant in entrants:
+            for opponent in panel:
+                for seed in config["final_seeds"]:
+                    for side in (0, 1):
+                        sources = [entrant, opponent] if side == 0 else [opponent, entrant]
+                        reference_only=all(fixed(source) for source in sources)
+                        key = digest({"entrant": entrant["id"], "opponent": opponent["id"], "seed": seed, "side": side})[:24]
+                        cached = root / "records" / (key + ".json")
+                        if cached.exists():
+                            record = read_json(cached)
+                            work = out / record["artifact_dir"]
+                            from .core import file_hash
+                            if record["result"]["status"] == "completed":
+                                if file_hash(work / "outcome.json") != record["result"]["outcome_sha256"]:
+                                    raise ArenaError("Reference outcome changed")
+                                if read_json(work / "result.json") != record["result"]:
+                                    raise ArenaError("Reference result changed")
+                                scenario = make_scenario(config["scenario"], [s["submission"]["entrypoint"] for s in sources], seed, [s["submission"].get("team") for s in sources])
+                                provenance = read_json(work / "provenance.json")
+                                from .recovery import engine_compatible
+                                accepted_engine = provenance['engine'] == engine.identity or (
+                                    getattr(engine, 'allow_updated_runner', False) and engine_compatible(provenance['engine'], engine.identity))
+                                if (read_json(work / "scenario.json") != scenario or not accepted_engine
+                                        or provenance["submissions"] != [s["submission"] for s in sources]):
+                                    raise ArenaError("Reference provenance changed")
+                                for index, source in enumerate(sources, 1):
+                                    if submission(work / "strategies" / str(index), source["submission"]["entrypoint"]) != source["submission"]:
+                                        raise ArenaError("Reference source changed")
+                                if reference_only:
+                                    from .reference_cache import seed as seed_reference
+                                    seed_reference(engine,[source['submission'] for source in sources],config['scenario'],seed,work)
+                            else:
+                                cached = None
+                        if cached and cached.exists():
+                            results[key]=record
+                            continue
+                        work=Preparation._attempt(root/'matches'/key)
+                        yield {'entrant':entrant,'opponent':opponent,'sources':sources,'reference_only':reference_only,
+                               'key':key,'work':work,'side':side,'seed':seed,'participants':[source['id'] for source in sources]}
+    def execute(job):
+        from .reference_cache import fight as cached_reference_fight
+        fight=cached_reference_fight if job['reference_only'] else lambda engine,*args:engine.fight(*args)
+        return fight(engine,[Path(source['path']) for source in job['sources']],
+                     [source['submission'] for source in job['sources']],config['scenario'],job['seed'],job['work'])
+    def save(job,result):
+        record={'session':job['entrant']['id'],'opponent':job['opponent']['id'],'seed':job['seed'],
+                'side':job['side'],'result':result,'artifact_dir':job['work'].relative_to(out).as_posix()}
+        write_json(root/'records'/(job['key']+'.json'),record)
+        journal.save(job['entrant']['id'],journal.state(job['entrant']['id']),
+                     'progression_match' if label.endswith('-previous') else 'reference_match',record)
+        results[job['key']]=record
+    from .fight_pool import run as run_fights
+    run_fights(jobs(),execute,save,limit=config.get('_parallel_fights',config.get('parallel_fights',1)),out=out,
+               kind='previous_round_fight' if label.endswith('-previous') else 'reference_fight',
+               generation=max((entrant.get('generation',0) for entrant in entrants),default=0))
     write_json(root / "results.json", results)
     return results
 

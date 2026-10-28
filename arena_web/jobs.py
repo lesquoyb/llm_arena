@@ -95,9 +95,11 @@ class Jobs:
                 raise ArenaError('Choose a specific failed conversation to change reasoning effort')
             requested_models = [m for m in config['models'] if draft_id is not None or m['id'] not in withdrawn]
             if draft_id is None and retry_session is None:
+                from arena.reference_strategies import repetitions
+                sampled={**config,'_fixed_reference_repetitions':metadata.get('fixed_reference_repetitions',config['replicates'])}
                 requested_models = [model for model in requested_models if not (
                     set(frozen_tracks.get(model['id'],[])) >= {'control','feedback'} and
-                    all((states.get(f"{model['id']}-r{replicate}") or {}).get('submission') for replicate in range(config['replicates'])))]
+                    all((states.get(f"{model['id']}-r{replicate}") or {}).get('submission') for replicate in range(repetitions(sampled,model))))]
             if retry_session is not None:
                 if draft_id is not None or not isinstance(retry_session, str):
                     raise ArenaError('Retry requires an existing conversation')
@@ -181,7 +183,7 @@ class Jobs:
             self.watcher.start()
             return row
 
-    def participants(self, run_id, selected, frozen_tracks=None, compare_previous_round=None):
+    def participants(self, run_id, selected, frozen_tracks=None, compare_previous_round=None, parallel_fights=None):
         from contextlib import closing
         from arena.experiment import Journal, experiment_lock
         from arena.roster import update
@@ -196,7 +198,7 @@ class Jobs:
                 journal = Journal(root)
                 with closing(journal.db):
                     journal.verify()
-                    change = update(root, journal, metadata['config'], self.store.catalog(), selected, frozen_tracks, compare_previous_round)
+                    change = update(root, journal, metadata['config'], self.store.catalog(), selected, frozen_tracks, compare_previous_round, parallel_fights)
             return change
 
     def reconcile(self, run_id, sid, cost, note):

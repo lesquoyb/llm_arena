@@ -60,3 +60,10 @@ def for_scenario(model, scenario):
     result['strategy']['origin']={**copy.deepcopy(origin),
         'adapted_from_scenario_sha256':value['scenario_sha256']}
     return result
+
+
+def repetitions(config, model):
+    """Fixed saved code has one sample; generated strategies keep independent samples."""
+    if model.get('provider')=='mock' and model.get('profile')=='saved-strategy':
+        return config.get('_fixed_reference_repetitions',1)
+    return config['replicates']

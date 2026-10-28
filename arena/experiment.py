@@ -38,11 +38,12 @@ def load_config(path: Path) -> dict:
 def validate_config(value: dict) -> dict:
     required = {"schema_version", "name", "models", "replicates", "budget_per_session",
                 "spending", "seeds", "scenario", "include_mirrors"}
-    optional = {"generations", "improvement_conditions", "prompt_language", "final_seeds", "parallel_requests", "compare_previous_round"}
+    optional = {"generations", "improvement_conditions", "prompt_language", "final_seeds", "parallel_requests", "parallel_fights", "compare_previous_round"}
     if (not isinstance(value, dict) or not required <= set(value) or set(value) - required - optional or
             type(value["schema_version"]) is not int or value["schema_version"] not in (1, 2)):
         raise ArenaError("Unsupported offline experiment schema")
     integer(value.get('parallel_requests',1),1,20,'parallel_requests')
+    integer(value.get('parallel_fights',1),1,16,'parallel_fights')
     if type(value.get('compare_previous_round',False)) is not bool:raise ArenaError('compare_previous_round must be boolean')
     spending = value["spending"]
     if not isinstance(spending, dict) or "allow_paid_calls" not in spending or set(spending) - {"allow_paid_calls", "max_total_usd"}:
@@ -164,12 +165,13 @@ def validate_config(value: dict) -> dict:
 
 
 def plan(config: dict) -> dict:
-    n = len(config["models"]) * config["replicates"]
+    from .reference_strategies import repetitions
+    n = sum(repetitions(config,model) for model in config["models"])
     evolved = config.get("generations", 1) != 1
     paid = [m for m in config["models"] if m["provider"] != "mock"]
     learned=sum(model['provider']!='mock' for model in config['models'])*config['replicates']
     previous_matches=(None if config.get('generations',1) is None else 8*learned*learned*max(0,config.get('generations',1)-2)*len(config.get('final_seeds',[]))) if config.get('compare_previous_round') and learned else 0
-    return {"previous_comparison_matches":previous_matches, "parallel_requests":config.get("parallel_requests",1), "sessions": None if config.get("generations", 1) is None else n * (2 * config.get("generations", 1) - 1), "generation": None if config.get("generations", 1) is None else config.get("generations", 1) - 1,
+    return {"previous_comparison_matches":previous_matches, "parallel_requests":config.get("parallel_requests",1), "parallel_fights":config.get("_parallel_fights",config.get("parallel_fights",1)), "sessions": None if config.get("generations", 1) is None else n * (2 * config.get("generations", 1) - 1), "generation": None if config.get("generations", 1) is None else config.get("generations", 1) - 1,
             "provider": "mixed" if paid else "mock", "simulated": not paid,
             "ranked_matches_if_all_submit": n * (n - 1) * len(config["seeds"]),
             "mirrors_if_all_submit": n * len(config["seeds"]) if config["include_mirrors"] else 0,
@@ -789,6 +791,10 @@ def run(config: dict, out: Path, resume=False, interrupt=None, prepare_only=Fals
                 "prompts_sha256": tree_hash(ROOT / "prompts"),
                 "provider_fixtures": {name: file_hash(ROOT / "examples/strategies" / name / "main.leek")
                                       for name in ("rush", "single-shot", "passive")}}
+    # Keep older frozen studies reproducible; new studies sample fixed code once.
+    prior=read_json(out/'experiment.json') if resume and (out/'experiment.json').exists() else {}
+    if not resume or 'fixed_reference_repetitions' in prior:
+        identity['fixed_reference_repetitions']=1
     if resume:
         if not out.is_dir():
             raise ArenaError("Experiment does not exist")
@@ -823,8 +829,11 @@ def run(config: dict, out: Path, resume=False, interrupt=None, prepare_only=Fals
                     journal.verify()
             from .roster import effective, snapshot, active
             config = effective(out, config)
+            config['_fixed_reference_repetitions']=identity.get('fixed_reference_repetitions',config['replicates'])
+            from .reference_strategies import repetitions
             roster = snapshot(out)
             config['_withdrawn_models'] = roster['withdrawn'] if roster else []
+            config['_parallel_fights']=(roster or {}).get('parallel_fights',config.get('parallel_fights',1))
             config['_frozen_tracks'] = (roster or {}).get('frozen_tracks', {})
             config['_roster_revision'] = (roster or {}).get('revision',0)
             config['_compare_previous_round'] = (roster or {}).get('compare_previous_round',config.get('compare_previous_round',False))
@@ -855,7 +864,7 @@ def run(config: dict, out: Path, resume=False, interrupt=None, prepare_only=Fals
             allow_extend = any(s.get('retry_count') for s in journal.states().values())
             if prepare_only:
                 for model in config["models"]:
-                    for replicate in range(config["replicates"]):
+                    for replicate in range(repetitions(config,model)):
                         sid = f"{model['id']}-r{replicate}"
                         directory = out / "sessions" / sid
                         directory.mkdir(parents=True, exist_ok=True)
@@ -865,7 +874,7 @@ def run(config: dict, out: Path, resume=False, interrupt=None, prepare_only=Fals
             evaluate_ready(engine, config, out, journal)
             from .parallel import prepare
             tasks=[(f"{model['id']}-r{replicate}",model) for model in config['models']
-                   for replicate in range(config['replicates']) if active(config,model) and (not retry_session or f"{model['id']}-r{replicate}"==retry_session)]
+                   for replicate in range(repetitions(config,model)) if active(config,model) and (not retry_session or f"{model['id']}-r{replicate}"==retry_session)]
             prepare(tasks,config,out,journal,engine,interrupt,lambda:evaluate_ready(engine,config,out,journal))
             states = {sid: state for sid, state in journal.states().items() if state.get("generation", 0) == 0 and active(config,state)}
             assessments = {}
@@ -911,7 +920,7 @@ def run(config: dict, out: Path, resume=False, interrupt=None, prepare_only=Fals
                        "cost_status": "simulation" if simulated else "calculated_or_reserved",
                        **token_totals(config, {sid:s for sid,s in journal.states().items() if s.get("generation",0)==0}),
                        "tournament": tournament,
-                       "incomplete": len(states) < sum(active(config,m) for m in config["models"])*config["replicates"] or any("submission" not in s for s in states.values()),
+                       "incomplete": len(states) < sum(repetitions(config,m) for m in config["models"] if active(config,m)) or any("submission" not in s for s in states.values()),
                        "unresolved_sessions": [sid for sid,s in states.items() if active(config,s) and s["status"] == "needs_reconciliation"]}
             initial_resources = [state for state in journal.states().values() if state.get('generation',0)==0]
             for key, field in [('model_calls','completed_calls'), ('tool_calls','steps'), ('preparation_matches_reserved','test_matches')]:

@@ -847,7 +847,7 @@ Legacy scripted mock fixtures can select predefined code for a track; this is
 scripted test behavior, not model learning.
 
 Enable **Compare every round with the previous round** in the competition
-editor, or stop an existing competition and use **More > Metric collection**.
+editor, or stop an existing competition and use **More > Execution & metrics**.
 This is optional data collection for learning-progress metrics, rather than a
 scoring rule. Save and resume to run missing comparisons without regenerating submitted code.
 Round 2 reuses its existing Round 1 reference fights. From Round 3 onward, extra
@@ -931,14 +931,14 @@ against fixed opponents.
 
 Historical reference results supply the initial-version comparisons and Round 2's
 previous pool. From Round 3, the previous-round option supplies additional fights.
-Missing data shows an availability message and **More > Metric collection**;
+Missing data shows an availability message and **More > Execution & metrics**;
 opening a chart never launches model calls or changes standings/feedback.
 
 The competition editor groups this option under **Learning-progress metrics**. It
 adds engine work for two specific charts from Round 3 onward: comparisons against
 the own previous version and against the previous LLM pool. The own-initial and
 global-score-change charts use data collected anyway. A stopped competition has a
-dedicated **More > Metric collection** dialog; changing participants preserves the
+dedicated **More > Execution & metrics** dialog; changing participants preserves the
 collection setting. Disabling it retains already generated diagnostic results.
 
 If the backend restarts while a page stays open, the next modifying request can
@@ -993,3 +993,24 @@ The competition activity panel lists preparations for the displayed round under
 Click a session to open its conversation directly. Finished preparation means a
 strategy has been frozen; tournament fight progress is shown separately. Repeated
 runs and feedback tracks have distinct links. These lists refresh with live mode.
+
+**Simultaneous fights** controls independent engine workers (1–16), separately from
+parallel model requests. New competition forms start at 2; configurations without
+this field retain sequential execution. Ranked, fixed-baseline and previous-round
+fights use the setting. Preparation tool calls remain coordinated. Each worker
+allows 512 MB of Java heap plus process overhead, so start with 2–4 workers.
+The activity panel lists every active fight, seed and participant conversation.
+Results and SQLite events are published by the coordinator as workers finish;
+completed peers are preserved if another worker fails. Resume skips completed fights.
+
+For an existing competition, stop it, choose **More > Execution & metrics**, change
+**Simultaneous fights**, save and resume. This is an audited execution setting:
+frozen submissions and completed fights are retained.
+
+In new competitions, **Repetitions per generated participant** applies to generated
+strategies. Fixed saved strategies, including built-in references and imported
+frozen submissions, have one repetition per track. Six repetitions with two LLMs
+and one fixed reference therefore create 13 initial entrants, not 18. LLM samples
+remain distinct even if they happen to produce identical code. Earlier competitions
+retain their frozen repetition counts and historical schedules; clone their
+configuration to use the new reference sampling policy.
