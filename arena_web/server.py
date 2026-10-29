@@ -216,7 +216,7 @@ class Application:
                 withdrawn=set(roster.get('withdrawn',[]))
                 validate_effective(config,withdrawn)
                 selected={**config,'compare_previous_round':roster.get('compare_previous_round',config.get('compare_previous_round',False)),'models':[model for model in config['models'] if model['id'] not in withdrawn]}
-                planned={**selected,'_parallel_fights':store.json(root/'execution-control.json',{}).get('parallel_fights',roster.get('parallel_fights',config.get('parallel_fights',1))),
+                planned={**selected,'_parallel_fights':self.store.json(root/'execution-control.json',{}).get('parallel_fights',roster.get('parallel_fights',config.get('parallel_fights',1))),
                          '_request_order':roster.get('request_order',config.get('request_order','models')),
                          '_parallel_requests':roster.get('parallel_requests',config.get('parallel_requests',1)),
                          '_fixed_reference_repetitions':read_json(root/'experiment.json').get('fixed_reference_repetitions',config['replicates'])}
