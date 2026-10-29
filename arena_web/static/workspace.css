@@ -453,3 +453,30 @@ body[data-run-tab=conversation] .conversation-panel:fullscreen #conversation-scr
 body[data-run-tab=conversation] #conversation-scroll { height:var(--conversation-height,clamp(320px,calc(100dvh - 370px),1500px)); }
 .workspace-chart { margin-top:24px; }
 .comparison-chart:fullscreen > .chart-filterable .chart { min-height:55dvh; width:100%; }
+/* Keep navigation and status compact enough for a usable conversation reader. */
+body[data-view=run] main { padding-top:20px; }
+#run-chrome { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:6px 10px; }
+#run-chrome > .back-link { display:none; }
+#run-chrome > .page-head { grid-column:1 / -1; margin:0; }
+#run-chrome .page-head h1 { font-size:21px; }
+#run-chrome .action-menu,.session-toolbar .action-menu { margin:0; }
+#run-chrome > .run-toolbar { grid-column:2; grid-row:2; margin:0; font-size:11px; }
+#run-chrome > .activity-inline { grid-column:1; grid-row:2; padding:3px 8px; gap:8px; min-width:0; }
+#run-chrome .button,.session-toolbar .button { min-height:30px; padding:5px 9px; }
+#run-chrome > .tabs { grid-column:1 / -1; grid-row:3; margin:2px 0 10px; }
+#run-chrome .tab { padding:8px 2px; }
+#run-chrome .live-toggle { padding:3px 6px; }
+#run-chrome .run-toolbar > .badge:not(:first-child) { display:none; }
+body[data-run-tab=activity] #run-chrome > .run-toolbar { grid-column:1 / -1; }
+.run-filters { padding:8px 12px; }
+.run-filters small { display:none; }
+body[data-run-tab=activity] .run-filters small,body[data-run-tab=config] .run-filters small { display:block; }
+.conversation-navigation .button { min-height:28px; }
+@media(max-width:1000px) {
+  #run-chrome { display:block; }
+  #run-chrome > .run-toolbar { margin:6px 0; }
+  #run-chrome > .tabs { margin-top:8px; }
+  #run-chrome > .activity-inline { flex-wrap:wrap; }
+}
+.action-menu[open] { z-index:40; }
+.overview-matrix abbr { display:block; white-space:normal; overflow-wrap:anywhere; text-decoration:none; font-size:11px; }

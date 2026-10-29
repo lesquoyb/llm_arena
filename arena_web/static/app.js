@@ -2492,7 +2492,7 @@ function overviewMatrix(data) {
     return '<div class="overview-empty">Head-to-head results appear after opponents meet.</div>';
   const names = [...new Set(data.matrix.map((r) => r.other))].sort();
   const rows = [...new Set(data.matrix.map(r=>r.who))].sort();
-  const short = (name) => (name.length > 18 ? name.slice(0, 16) + "…" : name);
+  const short = (name) => name;
   const label = (name) => {
     if (data.scope.matrix === "versions" && (S.detail.sessions.some(s=>s.id===name) || S.detail.metadata.manifest?.strategies?.some(s=>s.id===name && s.origin))) {
       const identity=overviewIdentity(name);
@@ -3329,7 +3329,7 @@ function matchesPage() {
       ["all", "All fights"],
     ],
     f.kind || "competition",
-  )}<div id="match-origin-scope">${f.stage ? notice('Stage selected from overview: '+e(stageText(f.stage))) : ''}${f.entrant || f.opponent ? notice(`Exact versions selected from the matrix: ${e(strategyName(f.entrant||'Any participant'))} vs ${e(strategyName(f.opponent||'Any opponent'))}. Changing the filters below selects models across versions.`) : ''}</div><div class="match-filters">${field("Search", "match-search", f.search || "", "search", "", 'id="match-search"')}${selectField('Opponent model','match-opponent-model',[['','All opponents'],...participants.map(model=>[model,model])],f.opponent_model||'')}${selectField(
+  )}<div id="match-origin-scope">${f.stage ? notice('Stage selected from overview: '+e(stageText(f.stage))) : ''}${f.entrant || f.opponent ? notice(`Exact versions selected from the matrix: ${e(strategyName(f.entrant||'Any participant'))} vs ${e(strategyName(f.opponent||'Any opponent'))}. Changing the shared filters selects models across versions.`) : ''}</div><div class="match-filters">${field("Search", "match-search", f.search || "", "search", "", 'id="match-search"')}${selectField('Opponent model','match-opponent-model',[['','All opponents'],...participants.map(model=>[model,model])],f.opponent_model||'')}${selectField(
     f.kind==='selfplay'?"Outcome for blue side":"Outcome for selected participant (otherwise blue side)",
     "match-outcome",
     [
@@ -3341,7 +3341,7 @@ function matchesPage() {
       ["completed", "Completed"],
     ],
     f.outcome || "",
-  )}<div class="actions">${btn("Clear filters", "clear-match-filters")}<span id="match-filter-count" class="muted">${rows.length} / ${categoryTotal} matches in this category</span></div></div>${S.matches.length ? `<div class="match-layout"><div id="match-list" class="match-list">${matchButtons(rows)}</div><section class="panel" id="match-detail" data-live-preserve>${rows.length ? "Loading match..." : !categoryTotal && f.kind==='selfplay'?empty("No self-play diagnostics", "No optional A-vs-A diagnostics were recorded for this competition.") : !categoryTotal && (!f.kind || f.kind === "competition") ? empty("No competition matches yet", "Models may still be preparing their strategies.", btn("View preparation tests", "show-training")) : empty("No matches found", "Change or clear the filters.")}</section></div>` : empty("No competition matches yet", "Models may still be preparing their strategies.", btn("View preparation tests", "show-training"))}`;
+  )}<div class="actions">${btn("Reset fight options", "clear-match-filters")}<span id="match-filter-count" class="muted">${rows.length} / ${categoryTotal} matches in this category</span></div></div>${S.matches.length ? `<div class="match-layout"><div id="match-list" class="match-list">${matchButtons(rows)}</div><section class="panel" id="match-detail" data-live-preserve>${rows.length ? "Loading match..." : !categoryTotal && f.kind==='selfplay'?empty("No self-play diagnostics", "No optional A-vs-A diagnostics were recorded for this competition.") : !categoryTotal && (!f.kind || f.kind === "competition") ? empty("No competition matches yet", "Models may still be preparing their strategies.", btn("View preparation tests", "show-training")) : empty("No matches found", "Change or clear the filters.")}</section></div>` : empty("No competition matches yet", "Models may still be preparing their strategies.", btn("View preparation tests", "show-training"))}`;
 }
 function matchButtons(rows) {
   return (
