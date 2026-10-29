@@ -2170,3 +2170,6 @@ svg rect[data-chart-model]:focus-visible,svg rect.chart-selected { outline:none;
 @keyframes workspace-pulse { to { opacity: .4; } }
 @media (prefers-reduced-motion: reduce) { .skeleton-block { animation: none; } }
 @media (max-width: 600px) { .skeleton-metrics { grid-template-columns: repeat(2,minmax(0,1fr)); } }
+
+/* Separate outcome counts from the following fight-volume line. */
+.overview-rank-body > small { display: block; margin-top: 4px; }

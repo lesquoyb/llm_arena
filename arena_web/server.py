@@ -120,7 +120,7 @@ class Application:
         if route == "/api/statistics":
             return store.statistics(run)
         if route == "/api/matches":
-            return store.matches(run)
+            return store.matches(run,compact=value("compact")=="1")
         if route == "/api/match":
             from .replay import describe
             result = store.match(run, value("path"))

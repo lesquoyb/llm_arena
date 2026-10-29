@@ -19,6 +19,8 @@ def references(engine, config, out, journal, entrants, label, panel, *, incremen
     def fixed(source):
         if source.get('model') in models:return models[source['model']].get('provider')=='mock'
         return source['id'] in {'fixed-rush','fixed-single-shot','fixed-passive'}
+    if not hasattr(journal,'_verified_reference_records'):journal._verified_reference_records={}
+    verified=journal._verified_reference_records
     results = read_json(root / 'results.json') if incremental and (root / 'results.json').exists() else {}
     def jobs():
         for entrant in entrants:
@@ -36,6 +38,9 @@ def references(engine, config, out, journal, entrants, label, panel, *, incremen
                             record = read_json(cached)
                             work = out / record["artifact_dir"]
                             from .core import file_hash
+                            if record["result"]["status"] == "completed" and verified.get(str(cached))==digest(record):
+                                results[key]=record
+                                continue
                             if record["result"]["status"] == "completed":
                                 if file_hash(work / "outcome.json") != record["result"]["outcome_sha256"]:
                                     raise ArenaError("Reference outcome changed")
@@ -58,6 +63,7 @@ def references(engine, config, out, journal, entrants, label, panel, *, incremen
                             else:
                                 cached = None
                         if cached and cached.exists():
+                            verified[str(cached)]=digest(record)
                             results[key]=record
                             continue
                         work=Preparation._attempt(root/'matches'/key)
@@ -79,7 +85,9 @@ def references(engine, config, out, journal, entrants, label, panel, *, incremen
         record={'session':job['entrant']['id'],'opponent':job['opponent']['id'],'seed':job['seed'],
                 'side':job['side'],'result':result,'artifact_dir':job['work'].relative_to(out).as_posix(),
                 'retry_attempt':job.get('_retry',0),'retry_pending':result.get('status') in {'timeout','engine_error'} and job.get('_retry',0)<2}
-        write_json(root/'records'/(job['key']+'.json'),record)
+        record_path=root/'records'/(job['key']+'.json')
+        write_json(record_path,record)
+        if result['status']=='completed':verified[str(record_path)]=digest(record)
         journal.save(job['entrant']['id'],journal.state(job['entrant']['id']),
                      'progression_match' if label.endswith('-previous') else 'reference_match',record)
         results[job['key']]=record
@@ -116,14 +124,14 @@ def run_generation(config, out, journal, engine, initial, interrupt=None, retry_
     evaluated = set()
     panel.sort(key=lambda source:not source['id'].startswith('fixed-'))
     def evaluate_available():
+        evaluate_ready(engine, config, out, journal, generation)
         for entrant in ready_entrants(journal, out, generation):
             if not active(config,entrant): continue
             if entrant['id'] not in evaluated:
                 collected=references(engine, config, out, journal, [entrant], f'g{generation}-panel', panel, incremental=True)
                 expected=len(panel)*len(config['final_seeds'])*2
-                if sum(record['session']==entrant['id'] for record in collected.values())>=expected:
+                if sum(record['session']==entrant['id'] and record['result']['status']=='completed' for record in collected.values())>=expected:
                     evaluated.add(entrant['id'])
-        evaluate_ready(engine, config, out, journal, generation)
     tasks=[];candidates=[]
     for parent in initial:
         parent_state = initial_states[parent["id"]]
@@ -244,7 +252,7 @@ def run_generation(config, out, journal, engine, initial, interrupt=None, retry_
                                calls=0, completed_calls=0, steps=0, test_matches=0, cost_spent="0", money_reserved="0",
                                input_tokens=0, output_tokens=0, token_usage_known=False, missing_usage_calls=0, diagnostic_calls=0, diagnostic_cost_usd="0")
                 journal.save(sid, skipped, "branch_unavailable", {"reason": "No G0 submission"})
-    contemporaries = evaluate_ready(engine, config, out, journal, generation)
+    contemporaries = evaluate_ready(engine, config, out, journal, generation, final=True)
     evolved = references(engine, config, out, journal, branches, f"g{generation}-panel", panel)
     if config.get('_compare_previous_round',config.get('compare_previous_round',False)) and generation>=2:
         learned=[source for source in initial if models[journal.state(source['id'])['model']]['provider']!='mock']
@@ -297,7 +305,7 @@ def run_evolution(config, out, journal, engine, initial, interrupt=None, retry_s
         # exclude it from all future rounds or spin forever with an empty panel.
         if (not current or len(current) != 2*len(initial)
                 or any(active(config,s) and s.get('generation',0)<=generation and 'submission' not in s for s in states.values())
-                or any(r['failed'] for r in result['rows'])):
+                or result.get('incomplete')):
             break
         previous = current
     return result

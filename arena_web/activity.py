@@ -2,6 +2,7 @@
 import re
 import time
 from arena.roster import effective, snapshot
+from arena.fight_throughput import rate
 
 
 def status(store, identifier, job=None):
@@ -50,7 +51,7 @@ def status(store, identifier, job=None):
                 activity.append({'session':sid,'model':state['model'],'kind':'model_request'})
             elif state.get('status')=='running' and state.get('reserved'):
                 activity.append({'session':sid,'model':state['model'],'kind':'tool',**(state.get('current_tool') or {})})
-    errors=sum(state.get('status') in {'provider_unavailable','generation_failed','no_submission','needs_reconciliation'} and not state.get('submission') for state in current.values())
+    errors=sum(state.get('status') in {'provider_unavailable','generation_failed','no_submission','needs_reconciliation'} and not state.get('submission') for state in states.values())
     tournament=root/('tournament' if generation==0 else f'g{generation}-tournament')
     report=store.json(tournament/'report.json',{})
     finished=report.get('completed',0)+report.get('failed',0)
@@ -104,7 +105,7 @@ def status(store, identifier, job=None):
     preparations=[]
     for sid,state in current.items():
         phase=('ready' if state.get('submission') else 'attention' if state.get('status') in
-               {'provider_unavailable','generation_failed','no_submission','needs_reconciliation','budget_exhausted'}
+               {'provider_unavailable','generation_failed','no_submission','needs_reconciliation'}
                else 'active' if sid in active_ids or sid in preparing_ids else 'waiting')
         preparations.append({'session':sid,'model':state['model'],'phase':phase})
     waiting=[{'model':model,'count':max(0,per_model[model]-sum(state['model']==model for state in current.values()))} for model in models]
@@ -115,10 +116,11 @@ def status(store, identifier, job=None):
             'withdrawn':len(withdrawn),'ready_participants':ready_models,'strategies_ready':ready,
             'strategies_expected':expected,'strategies_validated':assessed,'strategies_checked':assessed,
             'strategies_valid':valid,'strategies_invalid':invalid,'strategies_awaiting_check':ready-assessed,
+            'throughput':rate(store.json(root/'fight-throughput.json',{})),
             'submission_breakdown':breakdown,'failed_preparations':errors,
             'tournament_completed':report.get('completed',0),'tournament_failed':report.get('failed',0),
             'tournament_total':max(finished+report.get('pending',0),possible),
-            'tournament_pending_available':unrecorded+unscheduled,'tournament_waiting_submissions':max(0,possible-available),
+            'tournament_pending_available':unrecorded+unscheduled+report.get('failed',0),'tournament_waiting_submissions':max(0,possible-available),
             'tournament_scheduled':len(planned),'tournament_unscheduled_available':unscheduled,
             'tournament_planned_submissions':sum(model not in withdrawn for model in planned_models.values()),
             'preparations':preparations,'waiting_preparations':waiting,'operation':operation if running else {},'active':activity,'last_event':last_event,'observed_at':time.time()}

@@ -299,7 +299,9 @@ class Jobs:
                 if row['status']!='stopped':row['status']='completed' if code==0 else 'failed'
                 row['note']='Engine fight recovery finished; model conversations were not resumed.'
             if row['status'] == 'blocked' and row.get('mode')!='retry_fights':
-                row['note'] = 'Waiting for failed conversations to be recovered. Saved submissions and fights are retained.'
+                row['note'] = ('Engine fights remain incomplete. Retry failed fights, then resume to continue the next round.'
+                               if not report.get('blocked_sessions') and ((report.get('tournament') or {}).get('failed') or ((report.get('evolution') or {}).get('contemporaries') or {}).get('failed'))
+                               else 'Waiting for failed conversations to be recovered. Saved submissions and fights are retained.')
             self._save()
             root=self.store.runs/row['run']
             if self.process is process and row['status']!='stopped' and code==0 and any((root/'recovery-commands').glob('*.json')):

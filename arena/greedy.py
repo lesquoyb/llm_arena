@@ -10,7 +10,7 @@ def entrants(journal, out, generation):
             if state.get('generation',0) == generation and 'submission' in state]
 
 
-def evaluate(engine, config, out, journal, generation=0):
+def evaluate(engine, config, out, journal, generation=0, *, final=False):
     from .execution_control import poll
     poll(out,config.get('_parallel_fights',config.get('parallel_fights',1)))
     retry_epoch=getattr(journal,'_fight_retry_epoch',0)
@@ -29,6 +29,8 @@ def evaluate(engine, config, out, journal, generation=0):
     signature=digest({'manifest':manifest,'withdrawn':config.get('_withdrawn_models',[])})
     cached=getattr(journal,'_ready_evaluations',{}).get(generation)
     expected=len(ready)*(len(ready)-1)*len(manifest['seeds'])+(len(ready)*len(manifest['seeds']) if manifest['include_mirrors'] else 0)
+    if final and cached and cached[1].get('failed'):
+        journal._ready_evaluations.pop(generation,None);cached=None
     if cached and cached[0]==signature and sum(cached[1].get(key,0) for key in ('completed','failed','pending','cancelled'))==expected:
         return cached[1]
     if not hasattr(journal,'_verified_tournament_records'):journal._verified_tournament_records={}

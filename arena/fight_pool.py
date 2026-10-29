@@ -5,13 +5,15 @@ import time
 import threading
 
 from .activity import operation, poll_provider_failures, provider_work_ready
-from .core import write_json
+from .core import read_json, write_json
 from .execution_control import poll
 
 
 def run(jobs, execute, save, *, limit=1, out, kind, generation=0, retry=None):
     jobs=iter(jobs);retries=deque();pools=[];pending={};exhausted=False;error=None
     limit=poll(out,limit);pool=ThreadPoolExecutor(max_workers=limit,thread_name_prefix='arena-fight');pools.append(pool)
+    throughput_path=out/'fight-throughput.json'
+    throughput=read_json(throughput_path) if throughput_path.exists() else {}
     last_progress=0;publishing_seconds=0;phase_seconds={};finished_workers=0
     guard=threading.RLock();stop_heartbeat=threading.Event();publication={}
     def snapshot(force=False):
@@ -26,6 +28,7 @@ def run(jobs, execute, save, *, limit=1, out, kind, generation=0, retry=None):
             'publishing_seconds':publishing_seconds,'retrying_fights':len(retries),
             'phase_seconds':phase_seconds,'finished_workers':finished_workers,'publication':publication,
             'fights':fights,'participants':list(dict.fromkeys(sid for item in fights for sid in item['participants']))})
+        if throughput:write_json(throughput_path,throughput)
         if pending or finished_workers:
             write_json(out/'fight-performance.json',{'generation':generation,'kind':kind,'parallel_fights':limit,
                 'finished_workers':finished_workers,'publication_seconds':publishing_seconds,'phase_seconds':phase_seconds,
@@ -70,6 +73,11 @@ def run(jobs, execute, save, *, limit=1, out, kind, generation=0, retry=None):
                     started=time.time();future=pool.submit(execute,job)
                     def finished(future,job=job):
                         job.update(finished_at=time.time(),phase='ready_to_save',phase_started_at=time.time())
+                        if not future.cancelled() and future.exception() is None:
+                            result=future.result()
+                            if isinstance(result,dict) and result.get('status'):
+                                from .fight_throughput import add
+                                with guard:add(throughput,result,job['finished_at'])
                     future.add_done_callback(finished)
                     with guard:pending[future]=(job,started)
                 progress()

@@ -1255,3 +1255,31 @@ static data are no longer duplicated in new reference replay caches. Sources,
 scenarios, replay outputs, logs and their integrity checks remain archived.
 Each fight still runs in an isolated JVM; process reuse would require separate
 validation of state reset and determinism.
+
+### Summary scale, counts and engine recovery
+
+Summary uses a compact match index, cached until the journal or result artifacts
+change. It does not load replay actions or per-turn metrics. Chart colors and
+participant identities are computed once per dataset rather than scanning all
+fights for every chart mark. The error panel loads separately.
+
+A normal preparation budget stop is not a conversation recovery alert. Submitted
+strategies with invalid code remain visible in validation and error statistics;
+they do not request a provider retry. Conversation alerts are for unfinished
+provider/generation failures or unresolved billing receipts.
+
+Fight totals are scheduled appearances, including cache hits. Fixed reference
+strategies normally have one sample, whereas generated models have one per
+repetition and track. Different appearance counts therefore do not by themselves
+indicate missing results. The ranking shows submitted version counts and marks
+cached results. Cache reuse does not remove a scheduled appearance from scores.
+
+The activity panel reports physical engine completions over the last 60 seconds,
+with cache hits counted separately. This rolling count starts at zero and decays
+to zero during inactivity; it is not a prediction from the worker setting.
+
+Available current-round tournament fights run before baseline-panel evaluations.
+The end-of-preparation pass retries exhausted tournament failures again. Persistent
+engine failures leave the round incomplete and prevent advancing to the next
+round. **Retry failed fights** repairs archived fixtures without repeating LLM
+calls; **Resume** then continues the competition from its saved round boundary.

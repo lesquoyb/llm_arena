@@ -917,7 +917,7 @@ def run(config: dict, out: Path, resume=False, interrupt=None, prepare_only=Fals
             prepare(tasks,config,out,journal,engine,interrupt,lambda:evaluate_ready(engine,config,out,journal))
             # Drain every fixture supported by frozen submissions before slower
             # final compiler assessments, even if another participant failed.
-            tournament = evaluate_ready(engine, config, out, journal)
+            tournament = evaluate_ready(engine, config, out, journal, final=True)
             states = {sid: state for sid, state in journal.states().items() if state.get("generation", 0) == 0 and active(config,state)}
             assessments = {}
             for sid, state in states.items():
@@ -961,7 +961,7 @@ def run(config: dict, out: Path, resume=False, interrupt=None, prepare_only=Fals
                        "cost_status": "simulation" if simulated else "calculated_or_reserved",
                        **token_totals(config, {sid:s for sid,s in journal.states().items() if s.get("generation",0)==0}),
                        "tournament": tournament,
-                       "incomplete": len(states) < sum(repetitions(config,m) for m in config["models"] if active(config,m)) or any("submission" not in s for s in states.values()),
+                       "incomplete": bool(tournament and (tournament.get("failed") or tournament.get("pending"))) or len(states) < sum(repetitions(config,m) for m in config["models"] if active(config,m)) or any("submission" not in s for s in states.values()),
                        "unresolved_sessions": [sid for sid,s in states.items() if active(config,s) and s["status"] == "needs_reconciliation"]}
             initial_resources = [state for state in journal.states().values() if state.get('generation',0)==0]
             for key, field in [('model_calls','completed_calls'), ('tool_calls','steps'), ('preparation_matches_reserved','test_matches')]:

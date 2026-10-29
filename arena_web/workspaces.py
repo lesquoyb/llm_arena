@@ -112,11 +112,15 @@ class Workspaces:
             saved=getattr(self,'_workspace_artifacts',{}).get(key)
             if saved and saved[0]==stamp:return copy.deepcopy(saved[1])
         value=read_json(path)
+        metrics=value.get('result',value).get('team_metrics',{}) if kind!='provenance' else {}
         if kind=='provenance':value={'submissions':[{'sha256':item.get('sha256')} for item in value.get('submissions',[])]}
-        elif kind=='result':value={key:value[key] for key in ('status','winner_side') if key in value}
+        elif kind=='result':value={key:value[key] for key in ('status','winner_side','reference_cache') if key in value}
         else:
             value={key:value[key] for key in ('match','directory','session','opponent','seed','side','artifact_dir','result') if key in value}
-            value['result']={key:value['result'][key] for key in ('status','winner_side') if key in value['result']}
+            value['result']={key:value['result'][key] for key in ('status','winner_side','reference_cache') if key in value['result']}
+        if metrics:
+            result=value if kind=='result' else value['result']
+            result['team_metrics']={side:{key:row.get(key,0) for key in ('errors','operation_limit_hits')} for side,row in metrics.items()}
         with self.lock:
             if not hasattr(self,'_workspace_artifacts'):self._workspace_artifacts={}
             self._workspace_artifacts[key]=(stamp,value)
@@ -169,7 +173,7 @@ class Workspaces:
                 totals['sessions']+=1
                 totals['submitted']+=bool(state.get('submission'))
                 totals['invalid']+=state.get('validation_status')=='invalid'
-                totals['attention']+=not state.get('withdrawn') and state.get('status') in {'provider_unavailable','needs_reconciliation','generation_failed','no_submission'}
+                totals['attention']+=not state.get('withdrawn') and not state.get('submission') and state.get('status') in {'provider_unavailable','needs_reconciliation','generation_failed','no_submission'}
                 key=digest(descriptor(sid))[:16]
                 resource=resources.setdefault(key,{'id':key,'name':state['model'],'model':models.get(state['model'],{}).get('model'),
                     'model_size_billion':model_size(sid),

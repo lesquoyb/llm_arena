@@ -865,6 +865,11 @@ class Store(Workspaces):
 
     def matches(self, identifier, *, compact=False):
         root = self.run_path(identifier)
+        revision=self.revision(root) if compact else None
+        if compact:
+            with self.lock:
+                cached=getattr(self,'_match_index_cache',{}).get(identifier)
+                if cached and cached[0]==revision:return copy.deepcopy(cached[1])
         rows = []
         for base in (root, root/'tournament', *sorted(root.glob('g*-tournament')), *sorted((root/'evaluations').glob('g*-panel')), *sorted((root/'evaluations').glob('g*-previous'))):
             for path in sorted((base / "records").glob("*.json")):
@@ -904,7 +909,13 @@ class Store(Workspaces):
             row['previous_round_comparison']=row['kind']=='progression' or (row['kind']=='evaluation' and candidate.get('generation')==1 and opponent.get('generation')==0 and models.get(candidate.get('model'),{}).get('provider') not in {None,'mock'} and models.get(opponent.get('model'),{}).get('provider') not in {None,'mock'})
             row['counts_toward_standings'] = row['kind'] == 'competition' and not row.get('mirror')
         from .progression import summarize
-        return {"matches": rows,"progression":[] if compact else summarize(states,models,rows)}
+        result={"matches": rows,"progression":summarize(states,models,rows)}
+        if compact:
+            with self.lock:
+                if not hasattr(self,'_match_index_cache'):self._match_index_cache={}
+                self._match_index_cache[identifier]=(revision,copy.deepcopy(result))
+                while len(self._match_index_cache)>4:self._match_index_cache.pop(next(iter(self._match_index_cache)))
+        return result
 
     def match(self, identifier, name):
         root = self.run_path(identifier)

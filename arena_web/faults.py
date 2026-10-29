@@ -61,7 +61,7 @@ def report(store, identifier):
         if name=='validate_team' and value.get('valid') is False:
             row['invalid_teams']+=1
             incidents.append({**incident,'category':'team_validation','tool':name,'message':'\n'.join(map(str,value.get('errors',[])))})
-    for fight in store.matches(identifier)['matches']:
+    for fight in store.matches(identifier,compact=True)['matches']:
         for side,sid in enumerate(fight['sides']):
             if sid not in rows or (fight['kind'] in {'evaluation','progression'} and fight.get('candidate')!=sid):continue
             metrics=fight['result'].get('team_metrics',{}).get(str(side),{})
