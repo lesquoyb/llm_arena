@@ -188,11 +188,13 @@ def run_generation(config, out, journal, engine, initial, interrupt=None, retry_
                 state.update(generation=generation, condition=condition, parent=parent["id"], lineage_root=root, participant_revision=config.get('_roster_revision',0),
                              parent_checkpoint_sha256=digest(parent_state), status="running",
                              calls=0, completed_calls=0, steps=0, test_matches=0, wall_seconds=0, pending=None, cursor=0,
+                             discarded_attempt_cost_usd="0", attempt=0,
                              in_flight=False, money_reserved="0", reservation_unbounded=False, cost_spent="0", input_tokens=0, output_tokens=0, diagnostic_calls=0, diagnostic_cost_usd="0")
                 state['history'] = initial_state(sid, models[parent_state['model']], config)['history']
                 state['message_times'] = []
                 state['history_policy'] = 'fresh-round'
                 state.pop('request_history_start', None)
+                state.pop('attempt_started_at',None)
                 state.pop('context_recoveries', None)
                 state["token_usage_known"] = False
                 state["missing_usage_calls"] = 0
@@ -286,6 +288,7 @@ def run_generation(config, out, journal, engine, initial, interrupt=None, retry_
                 skipped = copy.deepcopy(parent_state)
                 skipped.update(parent=parent_sid, generation=generation, lineage_root=root, condition=condition, status="no_submission",
                                calls=0, completed_calls=0, steps=0, test_matches=0, cost_spent="0", money_reserved="0",
+                               discarded_attempt_cost_usd="0",attempt=0,
                                input_tokens=0, output_tokens=0, token_usage_known=False, missing_usage_calls=0, diagnostic_calls=0, diagnostic_cost_usd="0")
                 journal.save(sid, skipped, "branch_unavailable", {"reason": "No G0 submission"})
     contemporaries = evaluate_ready(engine, config, out, journal, generation, final=True)

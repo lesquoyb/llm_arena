@@ -3933,7 +3933,7 @@ document.addEventListener("click", async (event) => {
     else if (a === "reconcile-session") reconciliationDialog(node.dataset.session);
     else if (a === 'recover-conversation' || a === 'restart-conversation') {
       if (a==='restart-conversation') {
-        openDialog('Restart preparation',strategyName(node.dataset.session),`<p>Start a fresh conversation with an empty workspace for this round. Previous exchanges and files are archived. Recorded usage and remaining limits are preserved. Other participants and completed fights are kept.</p><form data-form="restart-conversation" data-session="${e(node.dataset.session)}"><div class="form-footer">${btn('Cancel','close-dialog')}<button type="submit" class="button primary">Restart preparation</button></div></form>`);
+        openDialog('Restart preparation',strategyName(node.dataset.session),`<p>Start a fresh conversation with an empty workspace for this round. Previous exchanges and files are archived. Active preparation statistics and session limits start afresh. Previous attempts remain archived; their API charges still count toward the shared spending limit. Other participants and completed competition fights are kept.</p><form data-form="restart-conversation" data-session="${e(node.dataset.session)}"><div class="form-footer">${btn('Cancel','close-dialog')}<button type="submit" class="button primary">Restart preparation</button></div></form>`);
       } else {
         await api('/api/conversation/recover',{run:S.run,session:node.dataset.session,action:'continue'},true);
         toast(node.textContent.includes('Finalize')?'Finalization queued. No further request will be sent for this preparation.':'Continuation queued. Other conversations keep running.');await refreshBoot();

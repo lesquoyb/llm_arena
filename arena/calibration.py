@@ -781,13 +781,13 @@ def study_spending(journal):
     from .usage import amount
     root = next((p for p in journal.out.parents if (p/'study.json').is_file()), None)
     if root is None:
-        return sum(amount(s.get('cost_spent','0'))+amount(s.get('money_reserved','0')) for s in journal.states().values())
+        return sum(amount(s.get('cost_spent','0'))+amount(s.get('discarded_attempt_cost_usd','0'))+amount(s.get('money_reserved','0')) for s in journal.states().values())
     total = amount('0')
     for path in sorted(root.glob('**/journal.sqlite')):
         db = sqlite3.connect(path.as_uri()+'?mode=ro',uri=True)
         try:
-            for spent,reserved in db.execute("SELECT coalesce(json_extract(state,'$.cost_spent'),'0'),coalesce(json_extract(state,'$.money_reserved'),'0') FROM sessions"):
-                total += amount(spent)+amount(reserved)
+            for spent,reserved,discarded in db.execute("SELECT coalesce(json_extract(state,'$.cost_spent'),'0'),coalesce(json_extract(state,'$.money_reserved'),'0'),coalesce(json_extract(state,'$.discarded_attempt_cost_usd'),'0') FROM sessions"):
+                total += amount(spent)+amount(reserved)+amount(discarded)
         finally: db.close()
     return total
 

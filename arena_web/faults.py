@@ -25,7 +25,7 @@ def report(store, identifier):
     path=root/'journal.sqlite'
     if not path.exists():return {'sessions':list(rows.values()),'incidents':[]}
     with closing(sqlite3.connect(path.as_uri()+'?mode=ro',uri=True)) as db:
-        events=db.execute("SELECT id,session,kind,payload FROM events WHERE kind IN ('tool_reserved','tool_result','provider_failure','malformed_provider_response') ORDER BY id").fetchall()
+        events=db.execute("WITH restarts AS (SELECT session,max(id) AS cutoff FROM events WHERE kind='conversation_restarted' GROUP BY session) SELECT e.id,e.session,e.kind,e.payload FROM events e LEFT JOIN restarts r ON r.session=e.session WHERE e.id > coalesce(r.cutoff,0) AND e.kind IN ('tool_reserved','tool_result','provider_failure','malformed_provider_response') ORDER BY e.id").fetchall()
     for event,sid,kind,reference in events:
         if sid not in rows:continue
         reference=json.loads(reference);path=safe_path(root,reference['artifact'])

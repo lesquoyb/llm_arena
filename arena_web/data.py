@@ -435,7 +435,7 @@ class Store(Workspaces):
         if not path.is_file():
             return {}
         with closing(sqlite3.connect(path.as_uri() + '?mode=ro', uri=True, timeout=2)) as connection:
-            rows = connection.execute("SELECT session,payload FROM events WHERE kind IN ('model_response','provider_probe_result') ORDER BY id").fetchall()
+            rows = connection.execute("WITH restarts AS (SELECT session,max(id) AS cutoff FROM events WHERE kind='conversation_restarted' GROUP BY session) SELECT e.session,e.payload FROM events e LEFT JOIN restarts r ON r.session=e.session WHERE e.id > coalesce(r.cutoff,0) AND e.kind IN ('model_response','provider_probe_result') ORDER BY e.id").fetchall()
         grouped = {}
         from arena.usage import normalize, cost, effective_pricing
         from decimal import Decimal
@@ -870,6 +870,7 @@ class Store(Workspaces):
             with self.lock:
                 cached=getattr(self,'_match_index_cache',{}).get(identifier)
                 if cached and cached[0]==revision:return copy.deepcopy(cached[1])
+        states=self.states(root,('model','generation','condition','replicate','parent','attempt_started_at'))
         rows = []
         bases=(root, root/'tournament', *sorted(root.glob('g*-tournament')), *sorted((root/'evaluations').glob('g*-panel')), *sorted((root/'evaluations').glob('g*-previous')))
         record_paths={base:sorted((base/'records').glob('*.json')) for base in bases}
@@ -896,6 +897,8 @@ class Store(Workspaces):
                              "sides": sides, "candidate": record.get("session"), "candidate_side": record.get("side"), "seed": match.get("seed", record.get("seed")),
                              "mirror": match.get("mirror", False), "result": record["result"], "timings":record.get("timings",{})})
         for path in sorted((root / "sessions").glob("*/tools/**/result.json")):
+            sid=path.relative_to(root).parts[1]
+            if path.stat().st_mtime < states.get(sid,{}).get("attempt_started_at",0):continue
             if (path.parent / "scenario.json").is_file():
                 info = {} if compact else self.json(path.parent / "provenance.json", {})
                 scenario = {} if compact else self.json(path.parent / "scenario.json", {})
@@ -906,7 +909,6 @@ class Store(Workspaces):
                                        else [path.relative_to(root).parts[1], opponent]),
                              "seed": scenario.get("random_seed"), "mirror": False,
                              "result": self.workspace_artifact(path,'result') if compact else self.json(path), "provenance": info})
-        states=self.states(root,('model','generation','condition','replicate','parent'))
         metadata=self.json(root/'experiment.json',{})
         from arena.roster import effective
         models={model['id']:model for model in effective(root,metadata['config']).get('models',[])} if 'config' in metadata else {}

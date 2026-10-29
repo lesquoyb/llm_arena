@@ -422,7 +422,7 @@ def _build_provider_response(sid, state, model, config, journal):
             stop_budget('request',str(error),getattr(error,'admission',None))
             return None
         spent = amount(state.get("cost_spent", "0"))
-        total = sum(amount(s.get("cost_spent", "0")) + amount(s.get("money_reserved", "0"))
+        total = sum(amount(s.get("cost_spent", "0")) + amount(s.get("discarded_attempt_cost_usd", "0")) + amount(s.get("money_reserved", "0"))
                     for s in journal.metadata().values())
         if state.get("calibration"):
             from .calibration import study_spending

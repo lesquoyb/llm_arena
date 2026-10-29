@@ -21,9 +21,9 @@ def recover(sid, state, config, out, journal, *, restart=False, automatic=False,
         raise ArenaError('Only an idle conversation without a frozen submission can be recovered')
     previous_attempts=state.get('automatic_retry_attempts',0)
     from .budget_context import tool_budget_exhausted
-    if tool_budget_exhausted(state,config['budget_per_session']):
+    if not restart and tool_budget_exhausted(state,config['budget_per_session']):
         state['status']='running';journal.save(sid,state,'budget_finalization_requested',{'counters_preserved':True})
-    elif state['status']!='running':prepare_retry(journal,sid,config)
+    elif not restart and state['status']!='running':prepare_retry(journal,sid,config)
     state=journal.state(sid)
     if restart:
         # Old state remains in the journal; retain a browsable source archive too.
@@ -33,13 +33,28 @@ def recover(sid, state, config, out, journal, *, restart=False, automatic=False,
         if workspace.exists():shutil.copytree(workspace,target/'workspace');shutil.rmtree(workspace)
         state.update(history=[copy.deepcopy(state['history'][0])],message_times=[],
                      pending=None,cursor=0,reserved=None,workspace_files={})
+        from .usage import amount
+        state['discarded_attempt_cost_usd']=str(amount(state.get('discarded_attempt_cost_usd','0'))+amount(state.get('cost_spent','0')))
+        # calls is the monotonic transport sequence used in immutable tool paths.
+        # completed_calls is the active-attempt metric; never reuse artifact IDs.
+        state.update(status='running',completed_calls=0,steps=0,test_matches=0,replay_reads=0,
+                     wall_seconds=0,cost_spent='0',input_tokens=0,output_tokens=0,
+                     token_usage_known=False,missing_usage_calls=0,diagnostic_calls=0,
+                     diagnostic_cost_usd='0',money_reserved='0',in_flight=False,reservation_unbounded=False)
+        for field in ('failure','budget_stop','context_recoveries','submission_reminders','current_tool','automatic_retry_at'):
+            state.pop(field,None)
+        # Training fights of discarded attempts stay browsable under the archive,
+        # while active statistics and preparation limits start afresh.
+        state['attempt']=state.get('attempt',0)+1
+        state['attempt_started_at']=time.time()
+
         state.pop('request_history_start',None)
         state.pop('consecutive_submission_reminders',None)
     state['automatic_retry_attempts']=previous_attempts+1 if automatic else 0
     state.pop('automatic_retry_at',None)
     if command_id:state['applied_recovery_commands']=[*state.get('applied_recovery_commands',[]),command_id][-50:]
     journal.save(sid,state,'conversation_restarted' if restart else 'conversation_recovery_requested',
-                 {'automatic':automatic,'restart':restart,'counters_preserved':True})
+                 {'automatic':automatic,'restart':restart,'counters_preserved':not restart,'attempt':state.get('attempt',0),'archive':target.relative_to(out).as_posix() if restart else None})
 
 
 def commands(out, journal, config, tasks, pending=()):

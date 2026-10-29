@@ -202,7 +202,7 @@ class Jobs:
             if zero_cost_requests(model) and needs_reconciliation(state) and amount(state.get('money_reserved','0'))==0:
                 state={**state,'in_flight':False,'money_reserved':'0',
                        'status':'running' if state.get('pending') else 'provider_unavailable'}
-            reason=retry_reason(state,config['budget_per_session'],parent)
+            reason=retry_reason(state,{} if action=='restart' else config['budget_per_session'],parent)
             from arena.budget_context import tool_budget_exhausted
             if reason and (action=='restart' or not tool_budget_exhausted(state,config['budget_per_session'])):raise ArenaError(reason)
             if not active(config,state):raise ArenaError('Reactivate this participant before retrying it')
