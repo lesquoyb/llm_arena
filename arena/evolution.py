@@ -21,6 +21,45 @@ def references(engine, config, out, journal, entrants, label, panel, *, incremen
         return source['id'] in {'fixed-rush','fixed-single-shot','fixed-passive'}
     if not hasattr(journal,'_verified_reference_records'):journal._verified_reference_records={}
     verified=journal._verified_reference_records
+    from .scenario_cache import ScenarioCache
+    scenarios=ScenarioCache(config['scenario'])
+    from .core import verify_source_files
+    from .core import file_hash
+    from .verification_cache import VerificationCache
+    hashes=getattr(journal,'verification',None)
+    if not isinstance(hashes,VerificationCache):hashes=None
+    hasher=hashes.hash if hashes else file_hash
+    runtime_binding=None;validated_infos=set()
+    scenario_binding=digest(config['scenario'])
+    def validate_record(record,sources,seed):
+        nonlocal runtime_binding
+        work=out/record['artifact_dir'];infos=[source['submission'] for source in sources]
+        for index,info in enumerate(infos,1):
+            identity=digest(info)
+            if identity not in validated_infos:
+                if submission(work/'strategies'/str(index),info['entrypoint'])!=info:raise ArenaError('Reference source changed')
+                validated_infos.add(identity)
+        if runtime_binding is None:runtime_binding=digest({'engine':engine.identity,'allow_updated_runner':getattr(engine,'allow_updated_runner',False)})
+        binding=digest({'validation_version':1,'record':{key:record[key] for key in ('session','opponent','seed','side','result','artifact_dir')},
+                        'sources':[(info['entrypoint'],info['sha256']) for info in infos],'scenario_config':scenario_binding,'engine':runtime_binding})
+        if hashes and hashes.checked_receipt(work,binding):return
+        scenario,scenario_hash=scenarios.get(infos,seed)
+        directories={}
+        def track(directory):
+            from .verification_cache import fingerprint
+            directories[directory]=fingerprint(directory,directory=True)
+        if hasher(work/'outcome.json')!=record['result']['outcome_sha256']:raise ArenaError('Reference outcome changed')
+        for name in ('result.json','scenario.json','provenance.json'):hasher(work/name)
+        if read_json(work/'result.json')!=record['result']:raise ArenaError('Reference result changed')
+        provenance=read_json(work/'provenance.json')
+        from .recovery import engine_compatible
+        accepted=provenance['engine']==engine.identity or (getattr(engine,'allow_updated_runner',False) and engine_compatible(provenance['engine'],engine.identity))
+        if not accepted or provenance['submissions']!=infos or provenance.get('scenario_sha256')!=scenario_hash or read_json(work/'scenario.json')!=scenario:raise ArenaError('Reference provenance changed')
+        for index,source in enumerate(sources,1):verify_source_files(work/'strategies'/str(index),source['submission'],hasher,track)
+        if hashes:
+            files=[work/name for name in ('outcome.json','result.json','scenario.json','provenance.json')]
+            files.extend(work/'strategies'/str(index)/name for index,source in enumerate(sources,1) for name in source['submission']['files'])
+            hashes.remember_receipt(work,binding,files,directories)
     results = read_json(root / 'results.json') if incremental and (root / 'results.json').exists() else {}
     def jobs():
         for entrant in entrants:
@@ -35,28 +74,15 @@ def references(engine, config, out, journal, entrants, label, panel, *, incremen
                         record={}
                         cached = root / "records" / (key + ".json")
                         if cached.exists():
-                            record = read_json(cached)
+                            record = hashes.read_record(cached) if hashes else read_json(cached)
                             work = out / record["artifact_dir"]
-                            from .core import file_hash
+                            if (record['session'],record['opponent'],record['seed'],record['side'])!=(entrant['id'],opponent['id'],seed,side):raise ArenaError('Reference match metadata changed')
                             if record["result"]["status"] == "completed" and verified.get(str(cached))==digest(record):
                                 results[key]=record
                                 continue
                             if record["result"]["status"] == "completed":
-                                if file_hash(work / "outcome.json") != record["result"]["outcome_sha256"]:
-                                    raise ArenaError("Reference outcome changed")
-                                if read_json(work / "result.json") != record["result"]:
-                                    raise ArenaError("Reference result changed")
-                                scenario = make_scenario(config["scenario"], [s["submission"]["entrypoint"] for s in sources], seed, [s["submission"].get("team") for s in sources])
-                                provenance = read_json(work / "provenance.json")
-                                from .recovery import engine_compatible
-                                accepted_engine = provenance['engine'] == engine.identity or (
-                                    getattr(engine, 'allow_updated_runner', False) and engine_compatible(provenance['engine'], engine.identity))
-                                if (read_json(work / "scenario.json") != scenario or not accepted_engine
-                                        or provenance["submissions"] != [s["submission"] for s in sources]):
-                                    raise ArenaError("Reference provenance changed")
-                                for index, source in enumerate(sources, 1):
-                                    if submission(work / "strategies" / str(index), source["submission"]["entrypoint"]) != source["submission"]:
-                                        raise ArenaError("Reference source changed")
+                                validate_record(record,sources,seed)
+                                if hashes:hashes.remember_record(cached,record)
                                 if reference_only:
                                     from .reference_cache import seed as seed_reference
                                     seed_reference(engine,[source['submission'] for source in sources],config['scenario'],seed,work)
@@ -78,8 +104,12 @@ def references(engine, config, out, journal, entrants, label, panel, *, incremen
         token=callback.set(update)
         try:
             fight=cached_reference_fight if job['reference_only'] else lambda engine,*args:engine.fight(*args)
-            return fight(engine,[Path(source['path']) for source in job['sources']],
+            result=fight(engine,[Path(source['path']) for source in job['sources']],
                          [source['submission'] for source in job['sources']],config['scenario'],job['seed'],job['work'])
+            if result['status']=='completed':
+                update('verifying_result')
+                validate_record({'session':job['entrant']['id'],'opponent':job['opponent']['id'],'seed':job['seed'],'side':job['side'],'result':result,'artifact_dir':job['work'].relative_to(out).as_posix()},job['sources'],job['seed'])
+            return result
         finally:callback.reset(token)
     def save(job,result):
         record={'session':job['entrant']['id'],'opponent':job['opponent']['id'],'seed':job['seed'],
@@ -87,9 +117,10 @@ def references(engine, config, out, journal, entrants, label, panel, *, incremen
                 'retry_attempt':job.get('_retry',0),'retry_pending':result.get('status') in {'timeout','engine_error'} and job.get('_retry',0)<2}
         record_path=root/'records'/(job['key']+'.json')
         write_json(record_path,record)
-        if result['status']=='completed':verified[str(record_path)]=digest(record)
-        journal.save(job['entrant']['id'],journal.state(job['entrant']['id']),
-                     'progression_match' if label.endswith('-previous') else 'reference_match',record)
+        if result['status']=='completed':
+            verified[str(record_path)]=digest(record)
+            if hashes:hashes.remember_record(record_path,record)
+        journal.record(job['entrant']['id'],'progression_match' if label.endswith('-previous') else 'reference_match',record)
         results[job['key']]=record
     def retry_job(job):
         base=job.get('_attempt_base',job['work'])
@@ -99,6 +130,9 @@ def references(engine, config, out, journal, entrants, label, panel, *, incremen
                kind='previous_round_fight' if label.endswith('-previous') else 'reference_fight',
                generation=max((entrant.get('generation',0) for entrant in entrants),default=0),retry=retry_job)
     write_json(root / "results.json", results)
+    if hashes:
+        hashes.flush()
+        if not incremental:hashes.release(root,records=False)
     return results
 
 
@@ -233,9 +267,11 @@ def run_generation(config, out, journal, engine, initial, interrupt=None, retry_
                     assessment = engine.analyze(directory / "submission", state["submission"]["entrypoint"],
                                                 Preparation._attempt(directory / "assessment"))
                 write_json(cached, assessment)
+            assessment_hash=file_hash(cached)
+            changed=state.get('validity')!=assessment['status'] or state.get('assessment_sha256')!=assessment_hash
             state["validity"] = assessment["status"]
-            state["assessment_sha256"] = file_hash(cached)
-            journal.save(sid, state, "submission_assessment", assessment)
+            state["assessment_sha256"] = assessment_hash
+            if changed:journal.save(sid, state, "submission_assessment", assessment)
             branches.append({"id": sid, "path": out / "sessions" / sid / "submission",
                              "submission": state["submission"], "model": state["model"],
                              "replicate": state["replicate"], "parent": state["parent"], "generation": generation, "condition": state["condition"]})

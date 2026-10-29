@@ -31,7 +31,7 @@ def run(directory, *, engine=None, journal=None, cooperative=False):
             failures=getattr(journal,'_manual_failures',{})
             journal._manual_recovery_done=done;journal._manual_pending_jobs=pending_jobs;journal._manual_failures=failures
             states=journal.metadata();anchor=next(iter(states),None)
-            if anchor:journal.save(anchor,journal.state(anchor),'engine_only_recovery_started',{'no_model_requests':True,'engine':engine.identity})
+            if anchor:journal.record(anchor,'engine_only_recovery_started',{'no_model_requests':True,'engine':engine.identity})
             from .tournament import run_tournament
             tournaments={}
             for root in [out/'tournament',*sorted(out.glob('g*-tournament'))]:
@@ -87,7 +87,7 @@ def run(directory, *, engine=None, journal=None, cooperative=False):
                     from .preparation import Preparation
                     pending_jobs[key]={**job,'work':Preparation._attempt(job.get('_attempt_base',job['work'])),'_retry':job.get('_retry',0)+1}
                 sid=record['session']
-                if sid in states:journal.save(sid,journal.state(sid),'engine_fixture_retried',record)
+                if sid in states:journal.record(sid,'engine_fixture_retried',record)
             def retry(job):
                 from .preparation import Preparation
                 base=job.get('_attempt_base',job['work'])
@@ -98,7 +98,7 @@ def run(directory, *, engine=None, journal=None, cooperative=False):
                 if pending_jobs or getattr(journal,'_fight_retry_epoch',0)!=initial_retry_epoch:return {'deferred':True}
                 receipt={'remaining_failed':sum(value.get('failed',0) for value in tournaments.values())+sum(failures.values()),'no_model_requests':True,'deferred':False}
                 write_json(out/'fight-retry-progress.json',receipt)
-                if anchor:journal.save(anchor,journal.state(anchor),'engine_only_recovery_finished',receipt)
+                if anchor:journal.record(anchor,'engine_only_recovery_finished',receipt)
                 return receipt
             remaining=sum(report.get('failed',0) for report in tournaments.values())
             panels={}
@@ -131,7 +131,7 @@ def run(directory, *, engine=None, journal=None, cooperative=False):
                 write_json(out/'fight-retry-requests'/(identifier+'.json'),{'id':identifier,'requested_at':time.time(),'reason':'Manual retry requested during the previous recovery batch'})
             receipt={'remaining_failed':remaining,'no_model_requests':True,'finished_at':time.time()}
             summary['fight_recovery']=receipt;write_json(out/'report.json',summary);write_json(out/'fight-retry-report.json',receipt)
-            if anchor:journal.save(anchor,journal.state(anchor),'engine_only_recovery_finished',receipt)
+            if anchor:journal.record(anchor,'engine_only_recovery_finished',receipt)
             return receipt
         finally:
             _journal.reset(token)

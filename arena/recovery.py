@@ -75,7 +75,7 @@ def zero_cost_requests(model):
 def recover_zero_cost_requests(journal, models):
     """Audit recovery of interrupted free requests; never fabricate token usage."""
     by_id={model['id']:model for model in models}
-    for sid,state in journal.states().items():
+    for sid,state in journal.metadata().items():
         model=by_id.get(state.get('model'))
         if model and zero_cost_requests(model) and needs_reconciliation(state) and amount(state.get('money_reserved','0'))==0:
             reconcile(journal,sid,'0','Automatically resolved: all configured request prices are zero; token usage of the interrupted request remains unknown.',automatic=True)

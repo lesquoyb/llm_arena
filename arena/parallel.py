@@ -101,10 +101,18 @@ def prepare(tasks, config, out, journal, engine, interrupt=None, on_progress=Non
     from .experiment import TERMINAL
     tasks=list(tasks)
     states=journal.metadata()
+    # Frozen preparations have no work to dispatch. Do not load their potentially
+    # large histories just to return immediately from run_session.
+    finished=[sid for sid,_ in tasks if states.get(sid,{}).get('submission') and states[sid].get('status') in {'submitted','budget_exhausted'}]
+    tasks=[(sid,model) for sid,model in tasks if sid not in finished]
     pending=[sid for sid,_ in tasks if states.get(sid,{}).get('status') not in TERMINAL]
     with operation(out,'scheduling_preparations',
                    generation=max((states.get(sid,{}).get('generation',0) for sid,_ in tasks),default=0),
                    conversations_to_resume=len(pending)):
+        from .core import ArenaError, submission
+        for sid in finished:
+            info=states[sid]['submission']
+            if submission(out/'sessions'/sid/'submission',info['entrypoint'])!=info:raise ArenaError('Archived session submission changed')
         return _prepare(tasks,config,out,journal,engine,interrupt,on_progress)
 
 

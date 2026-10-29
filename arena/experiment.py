@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import re
 import sqlite3
 import time
@@ -208,6 +209,8 @@ class Journal:
         self.db.execute("CREATE TABLE IF NOT EXISTS objects (id TEXT PRIMARY KEY, kind TEXT, parent TEXT, artifact TEXT, sha256 TEXT)")
         self.db.execute("PRAGMA user_version=2")
         self.db.commit()
+        from .verification_cache import VerificationCache
+        self.verification=VerificationCache(out)
 
     def state(self, sid):
         row = self.db.execute("SELECT state FROM sessions WHERE id=?", (sid,)).fetchone()
@@ -240,20 +243,25 @@ class Journal:
         else:
             write_json(artifact, payload)
         reference = {"at": time.time(), "artifact": artifact.relative_to(self.out).as_posix(),
-                     "sha256": file_hash(artifact)}
+                     "sha256": self.verification.hash(artifact)}
         from .response_archive import compact as compact_response
         if 'history' in state:
             state['history']=[compact_response(self.out,message) for message in state['history']]
         if state.get('pending'):
             state['pending']=compact_response(self.out,state['pending'])
         checkpoint = self.out / "artifacts" / (digest(state) + ".json")
-        if not checkpoint.exists():
-            write_json(checkpoint, state)
-        checkpoint_sha256=file_hash(checkpoint)
+        created=not checkpoint.exists()
+        if created:written_hash=write_json(checkpoint,state,return_sha256=True)
+        checkpoint_sha256=self.verification.hash(checkpoint)
+        if created and checkpoint_sha256!=written_hash:raise ArenaError('Journal session checkpoint was modified during publication')
         from .session_metadata import project
+        raw_state=json.dumps(state);raw_metadata=json.dumps(project(state))
+        proof=(1,checkpoint_sha256,hashlib.sha256(raw_state.encode()).hexdigest(),checkpoint_sha256,hashlib.sha256(raw_metadata.encode()).hexdigest())
+        if not created and not self.verification.checked_session(sid,proof) and read_json(checkpoint)!=state:
+            raise ArenaError('Journal session checkpoint was modified')
         with self.db:
-            self.db.execute('INSERT OR REPLACE INTO session_metadata VALUES (?,?,?)',(sid,checkpoint_sha256,json.dumps(project(state))))
-            self.db.execute("INSERT OR REPLACE INTO sessions VALUES (?,?)", (sid, json.dumps(state)))
+            self.db.execute('INSERT OR REPLACE INTO session_metadata VALUES (?,?,?)',(sid,checkpoint_sha256,raw_metadata))
+            self.db.execute("INSERT OR REPLACE INTO sessions VALUES (?,?)", (sid,raw_state))
             self.db.execute("INSERT INTO events(session,kind,payload) VALUES (?,?,?)",
                             (sid, kind, json.dumps(reference)))
             event_id = self.db.execute("SELECT last_insert_rowid()").fetchone()[0]
@@ -270,22 +278,62 @@ class Journal:
                 self.db.execute("INSERT OR REPLACE INTO objects VALUES (?,?,?,?,?)",
                                 (identifier, category, sid, reference["artifact"], reference["sha256"]))
 
-    def verify(self):
-        for artifact, expected in self.db.execute("SELECT artifact,sha256 FROM objects"):
-            if file_hash(self.out / artifact) != expected:
-                raise ArenaError("Journal artifact was modified")
-        for sid, raw in self.db.execute("SELECT id,state FROM sessions"):
-            row = self.db.execute("SELECT artifact,sha256 FROM objects WHERE id=? AND kind='Session'", (sid,)).fetchone()
-            state=json.loads(raw)
-            if row and read_json(self.out / row[0]) != state:
-                raise ArenaError("Journal session checkpoint was modified")
+        self.verification.remember_session(sid,proof)
+        if time.monotonic()-self.verification.last_flush>2:self.verification.flush()
+
+    def record(self, sid, kind, payload):
+        """Append immutable evidence without rewriting an unchanged conversation."""
+        artifact=self.out/'artifacts'/(digest(payload)+'.json')
+        if artifact.exists():
+            if read_json(artifact)!=payload:raise ArenaError('Journal artifact changed')
+        else:write_json(artifact,payload)
+        reference={'at':time.time(),'artifact':artifact.relative_to(self.out).as_posix(),'sha256':self.verification.hash(artifact)}
+        with self.db:
+            cursor=self.db.execute('INSERT INTO events(session,kind,payload) VALUES (?,?,?)',(sid,kind,json.dumps(reference)))
+            event=cursor.lastrowid;name=f'{sid or "@competition"}/{kind}/{event}'
+            self.db.execute('INSERT INTO objects VALUES (?,?,?,?,?)',(name,kind,sid,reference['artifact'],reference['sha256']))
+            if kind in {'reference_match','progression_match'}:
+                self.db.execute('INSERT INTO objects VALUES (?,?,?,?,?)',(f'{sid}/Match/{event}','Match',sid,reference['artifact'],reference['sha256']))
+        if time.monotonic()-self.verification.last_flush>2:self.verification.flush()
+
+    def verify(self, progress=None):
+        # Several event/object rows can reference identical immutable bytes.
+        # Hash each unique artifact once, retaining every expected digest check.
+        expected={}
+        for artifact,sha in self.db.execute('SELECT DISTINCT artifact,sha256 FROM objects'):
+            expected.setdefault(artifact,set()).add(sha)
+        from .audit_pool import scan
+        checked=0
+        session_count=self.db.execute('SELECT count(*) FROM sessions').fetchone()[0]
+        def check(item):
+            artifact,digests=item
+            if self.verification.hash(self.out/artifact) not in digests or len(digests)!=1:
+                raise ArenaError('Journal artifact was modified')
+            return artifact
+        def accept(artifact):
+            nonlocal checked
+            checked+=1
+            if progress:progress(checked,len(expected)+session_count)
+        scan(expected.items(),check,accept)
+        self.verification.flush()
+        for index,(sid,raw) in enumerate(self.db.execute('SELECT id,state FROM sessions'),1):
+            row=self.db.execute("SELECT artifact,sha256 FROM objects WHERE id=? AND kind='Session'",(sid,)).fetchone()
             metadata=self.db.execute('SELECT checkpoint_sha256,metadata FROM session_metadata WHERE id=?',(sid,)).fetchone()
-            if row and metadata and metadata[0]==row[1]:
-                from .session_metadata import project
-                saved_metadata=json.loads(metadata[1])
-                expected_metadata=project(state)
-                if 'replay_reads' not in saved_metadata:expected_metadata.pop('replay_reads',None)
-                if saved_metadata!=expected_metadata:raise ArenaError('Session metadata index was modified')
+            proof=(1,row[1],hashlib.sha256(raw.encode()).hexdigest(),metadata[0] if metadata else None,
+                   hashlib.sha256(metadata[1].encode()).hexdigest() if metadata else None) if row else None
+            # The artifact digest was checked above. Pairing that digest with the
+            # exact SQLite state/index bytes avoids parsing large frozen histories.
+            if not proof or not self.verification.checked_session(sid,proof):
+                state=json.loads(raw)
+                if row and read_json(self.out/row[0])!=state:raise ArenaError('Journal session checkpoint was modified')
+                if row and metadata and metadata[0]==row[1]:
+                    from .session_metadata import project
+                    saved_metadata=json.loads(metadata[1]);expected_metadata=project(state)
+                    if 'replay_reads' not in saved_metadata:expected_metadata.pop('replay_reads',None)
+                    if saved_metadata!=expected_metadata:raise ArenaError('Session metadata index was modified')
+                if proof:self.verification.remember_session(sid,proof)
+            if progress:progress(checked+index,len(expected)+session_count)
+        self.verification.flush()
 
     def states(self):
         return {sid: json.loads(raw) for sid, raw in self.db.execute("SELECT id,state FROM sessions ORDER BY id")}
@@ -809,7 +857,9 @@ def run(config: dict, out: Path, resume=False, interrupt=None, prepare_only=Fals
     if retry_session and not resume:
         raise ArenaError("Retry requires an existing experiment")
     out = out.resolve()
-    engine = Engine()
+    resume_started=time.monotonic();engine = Engine()
+    resume_timings={'engine_initialization_seconds':time.monotonic()-resume_started}
+    identity_started=time.monotonic()
     docs = ROOT / "docs"
     corpus_files = [docs / "authoring.md", *sorted((docs / "leekscript-v1").rglob("*")),
                     *sorted((docs / "corpus").rglob("*"))]
@@ -836,6 +886,7 @@ def run(config: dict, out: Path, resume=False, interrupt=None, prepare_only=Fals
             raise ArenaError("Experiment does not exist")
     else:
         out.mkdir(parents=True, exist_ok=False)
+    resume_timings['identity_and_corpus_seconds']=time.monotonic()-identity_started
     with experiment_lock(out):
         if resume:
             previous_identity = read_json(out / "experiment.json")
@@ -864,7 +915,14 @@ def run(config: dict, out: Path, resume=False, interrupt=None, prepare_only=Fals
             if resume:
                 from .activity import operation
                 with operation(out,'checkpoint_verification'):
-                    journal.verify()
+                    verification_started=time.monotonic();last_progress=[0]
+                    def verification_progress(checked,total):
+                        if time.monotonic()-last_progress[0]>=.5 or checked==total:
+                            write_json(out/'activity.json',{'kind':'checkpoint_verification','started_at':time.time()-(time.monotonic()-verification_started),'checked_records':checked,'total_records':total})
+                            last_progress[0]=time.monotonic()
+                    journal.verify(progress=verification_progress)
+                    resume_timings.update(journal_verification_seconds=time.monotonic()-verification_started,journal_hashes=journal.verification.stats())
+                    write_json(out/'resume-performance.json',resume_timings)
             from .roster import effective, snapshot, active
             config = effective(out, config)
             config['_fixed_reference_repetitions']=identity.get('fixed_reference_repetitions',config['replicates'])
@@ -881,27 +939,33 @@ def run(config: dict, out: Path, resume=False, interrupt=None, prepare_only=Fals
                 from .recovery import needs_reconciliation, recover_zero_cost_requests
                 recover_zero_cost_requests(journal,config["models"])
                 external = {m['id'] for m in config['models'] if m['provider'] != 'mock'}
-                blocked = [sid for sid,state in journal.states().items() if active(config,state) and needs_reconciliation(state, state['model'] in external)]
+                blocked = [sid for sid,state in journal.metadata().items() if active(config,state) and needs_reconciliation(state, state['model'] in external)]
                 if blocked:
                     raise ArenaError('Resolve billing for these conversations before resuming: ' + ', '.join(blocked))
                 if previous_identity != identity:
-                    for sid,state in journal.states().items():
-                        if state.get('continuation_identity') != digest(identity):
-                            state['continuation_identity'] = digest(identity)
-                            journal.save(sid, state, 'runner_updated', {'original':previous_identity, 'current':identity,
-                                'frozen_documentation_preserved':True, 'completed_matches_preserved':True})
+                    continuation=digest(identity)
+                    prior_update=journal.db.execute("SELECT payload FROM events WHERE kind='runner_updated' AND session IS NULL ORDER BY id DESC LIMIT 1").fetchone()
+                    saved_update=read_json(out/json.loads(prior_update[0])['artifact']) if prior_update else {}
+                    evidence={'original':previous_identity,'current':identity,'continuation_identity':continuation,
+                              'frozen_documentation_preserved':True,'completed_matches_preserved':True}
+                    if saved_update.get('continuation_identity')!=continuation:journal.record(None,'runner_updated',evidence)
+                    for sid,metadata in journal.metadata().items():
+                        if not metadata.get('submission') and metadata.get('continuation_identity')!=continuation:
+                            state=journal.state(sid);state['continuation_identity']=continuation
+                            journal.save(sid,state,'runner_updated',evidence)
             if retry_session:
                 from .retries import prepare_retry
                 prepare_retry(journal, retry_session, config, retry_reasoning_effort)
             elif resume:
                 from .retries import prepare_retry, retry_reason
-                for sid,state in journal.states().items():
+                retry_states=journal.metadata()
+                for sid,state in retry_states.items():
                     from .call_counts import hydrate_calls
                     hydrate_calls(state, journal.db, sid)
-                    parent = journal.state(state['parent']) if state.get('parent') else None
+                    parent = retry_states.get(state.get('parent'))
                     if active(config,state) and retry_reason(state, config['budget_per_session'], parent) is None:
                         prepare_retry(journal, sid, config)
-            allow_extend = any(s.get('retry_count') for s in journal.states().values())
+            allow_extend = any(s.get('retry_count') for s in journal.metadata().values())
             if prepare_only:
                 for model in config["models"]:
                     for replicate in range(repetitions(config,model)):
@@ -936,9 +1000,11 @@ def run(config: dict, out: Path, resume=False, interrupt=None, prepare_only=Fals
                     with operation(out,'validation',participants=[sid],generation=0):
                         assessments[sid] = engine.analyze(directory / "submission", state["submission"]["entrypoint"], target)
                     write_json(cached, assessments[sid])
+                assessment_hash=file_hash(cached)
+                changed=state.get('validity')!=assessments[sid]['status'] or state.get('assessment_sha256')!=assessment_hash
                 state["validity"] = assessments[sid]["status"]
-                state["assessment_sha256"] = file_hash(cached)
-                journal.save(sid, state, "submission_assessment", assessments[sid])
+                state["assessment_sha256"] = assessment_hash
+                if changed:journal.save(sid, state, "submission_assessment", assessments[sid])
             entrants = [{"id": sid, "model": state["model"], "replicate": state["replicate"],
                          "path": str(out / "sessions" / sid / "submission"), "submission": state["submission"]}
                         for sid, state in states.items() if "submission" in state]
@@ -959,11 +1025,11 @@ def run(config: dict, out: Path, resume=False, interrupt=None, prepare_only=Fals
                        "cost_usd": None if any(s["status"] == "needs_reconciliation" or amount(s.get("money_reserved", "0")) > 0
                                               for s in states.values()) else str(sum(amount(s.get("cost_spent", "0")) for s in states.values())),
                        "cost_status": "simulation" if simulated else "calculated_or_reserved",
-                       **token_totals(config, {sid:s for sid,s in journal.states().items() if s.get("generation",0)==0}),
+                       **token_totals(config, {sid:s for sid,s in journal.metadata().items() if s.get("generation",0)==0}),
                        "tournament": tournament,
                        "incomplete": bool(tournament and (tournament.get("failed") or tournament.get("pending"))) or len(states) < sum(repetitions(config,m) for m in config["models"] if active(config,m)) or any("submission" not in s for s in states.values()),
                        "unresolved_sessions": [sid for sid,s in states.items() if active(config,s) and s["status"] == "needs_reconciliation"]}
-            initial_resources = [state for state in journal.states().values() if state.get('generation',0)==0]
+            initial_resources = [state for state in journal.metadata().values() if state.get('generation',0)==0]
             for key, field in [('model_calls','completed_calls'), ('tool_calls','steps'), ('preparation_matches_reserved','test_matches')]:
                 summary[key] = sum(state.get(field,state.get('calls',0) if field=='completed_calls' else 0) for state in initial_resources)
             summary['known_cost_subtotal_usd'] = str(sum(amount(state.get('cost_spent','0')) for state in initial_resources))
@@ -973,10 +1039,10 @@ def run(config: dict, out: Path, resume=False, interrupt=None, prepare_only=Fals
             if config.get("generations", 1) != 1 and not summary["incomplete"] and not summary["unresolved_sessions"]:
                 from .evolution import run_evolution
                 summary["evolution"] = run_evolution(config, out, journal, engine, entrants, interrupt, retry_session=retry_session, allow_extend=allow_extend)
-                summary["generation"] = max((s.get("generation", 0) for s in journal.states().values()), default=0)
-                summary["sessions"] = len(journal.states())
+                summary["generation"] = max((s.get("generation", 0) for s in journal.metadata().values()), default=0)
+                summary["sessions"] = len(journal.metadata())
                 summary["cost_usd"] = summary["evolution"]["cost_usd"]
-                final_states = journal.states()
+                final_states = journal.metadata()
                 summary["model_calls"] = sum(s.get("completed_calls",s["calls"]) for s in final_states.values())
                 summary["tool_calls"] = sum(s["steps"] for s in final_states.values())
                 summary["preparation_matches_reserved"] = sum(s["test_matches"] for s in final_states.values())
@@ -993,12 +1059,12 @@ def run(config: dict, out: Path, resume=False, interrupt=None, prepare_only=Fals
                 summary["reserved_usd"] = summary["evolution"]["reserved_usd"]
                 summary.update(token_totals(config, final_states))
             summary['blocked_sessions'] = [{'session':sid, 'status':state['status']}
-                for sid,state in journal.states().items() if active(config,state) and ('submission' not in state or state.get('status') == 'needs_reconciliation')]
+                for sid,state in journal.metadata().items() if active(config,state) and ('submission' not in state or state.get('status') == 'needs_reconciliation')]
             summary['participant_changes'] = {key:value for key,value in roster.items() if key!='models'} if roster else None
             summary['waiting_for_recovery'] = bool(summary['blocked_sessions'])
             summary['incomplete'] = summary['incomplete'] or summary['waiting_for_recovery']
             summary["session_failures"] = [{"session": sid, "status": state["status"], **state["failure"]}
-                                            for sid, state in journal.states().items() if state.get("failure")]
+                                            for sid, state in journal.metadata().items() if state.get("failure")]
             write_json(out / "report.json", summary)
             rows = ["| Session | Status | Validity | Calls | Tools |",
                     "|---|---|---|---:|---:|"]
@@ -1021,5 +1087,6 @@ def run(config: dict, out: Path, resume=False, interrupt=None, prepare_only=Fals
         finally:
             from .execution_control import _journal
             _journal.reset(execution_token)
+            journal.verification.flush()
             if hasattr(engine,'close'):engine.close()
             journal.db.close()

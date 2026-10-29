@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import hashlib
+import copy
+from functools import lru_cache
 import json
 import re
 import shutil
@@ -88,12 +90,14 @@ def read_json(path: Path):
     return json.loads(path.read_text(encoding="utf-8-sig"))
 
 
-def write_json(path: Path, value):
+def write_json(path: Path, value, *, return_sha256=False):
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(path.suffix + ".tmp")
     # Receipts and crash recovery hash canonical UTF-8/LF bytes on every host.
-    temporary.write_text(json.dumps(value, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n")
-    replace_file(temporary, path)
+    content=json.dumps(value,ensure_ascii=False,indent=2)+'\n'
+    temporary.write_text(content,encoding='utf-8',newline='\n')
+    replace_file(temporary,path)
+    if return_sha256:return hashlib.sha256(content.encode('utf-8')).hexdigest()
 
 
 def replace_file(source: Path, target: Path, attempts: int = 50):
@@ -142,8 +146,13 @@ def source_files(source: Path) -> dict[str, bytes]:
     return files
 
 
-def submission(source: Path, entrypoint: str = "main.leek") -> dict:
-    files = source_files(source)
+@lru_cache(maxsize=256)
+def _normalized_team(content, names):
+    from .teams import validate_team
+    return validate_team(json.loads(content),files=names)
+
+
+def _submission_files(files, entrypoint):
     if entrypoint not in files or not entrypoint.endswith(".leek"):
         raise ArenaError(f"Entrypoint must name a .leek file within the submission: {entrypoint}")
     hashes = {name: hashlib.sha256(content).hexdigest() for name, content in files.items()}
@@ -153,15 +162,18 @@ def submission(source: Path, entrypoint: str = "main.leek") -> dict:
         if not isinstance(issue,dict) or not isinstance(issue.get('error'),str): raise ArenaError('Invalid automatic-submission diagnostic')
         info['configuration_error']=issue['error']
     if "team.json" in files:
-        from .teams import validate_team
-        info["team"] = validate_team(json.loads(files["team.json"]), files=files)
+        info["team"] = copy.deepcopy(_normalized_team(files['team.json'],tuple(sorted(files))))
     return info
+
+
+def submission(source: Path, entrypoint: str = "main.leek") -> dict:
+    return _submission_files(source_files(source),entrypoint)
 
 
 def copy_submission(source: Path, target: Path, expected: dict):
     files = source_files(source)
     actual = {name: hashlib.sha256(content).hexdigest() for name, content in files.items()}
-    if actual != expected["files"] or submission(source, expected["entrypoint"]) != expected:
+    if actual != expected["files"] or _submission_files(files,expected['entrypoint']) != expected:
         raise ArenaError(f"Submission changed since scheduling: {source}")
     target.mkdir(parents=True, exist_ok=True)
     for name, content in files.items():
@@ -303,3 +315,18 @@ def load_manifest(path: Path) -> dict:
         s["path"] = str((path.parent / s["path"]).absolute())
         s["submission"] = submission(Path(s["path"]), s.get("entrypoint", "main.leek"))
     return value
+
+
+def verify_source_files(source, expected, hasher=file_hash, track_directory=None):
+    """Verify an already normalized frozen submission without reinterpreting its team."""
+    if not source.is_dir() or is_link(source):raise ArenaError('Invalid frozen source directory')
+    hashes={};size=0
+    if track_directory:track_directory(source)
+    for path in sorted(source.rglob('*')):
+        if is_link(path):raise ArenaError('Links are not allowed in submissions: '+str(path))
+        if track_directory and path.is_dir():track_directory(path)
+        if path.is_file() and (path.suffix=='.leek' or path==source/'team.json' or path==source/AUTOMATIC_ERROR_FILE):
+            name=path.relative_to(source).as_posix();hashes[name]=hasher(path)
+            if name!=AUTOMATIC_ERROR_FILE:size+=path.stat().st_size
+            elif path.stat().st_size>4096:raise ArenaError('Automatic submission diagnostic exceeds its size limit')
+    if hashes!=expected['files'] or size>2_000_000:raise ArenaError('Frozen source was modified: '+str(source))

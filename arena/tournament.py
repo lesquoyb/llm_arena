@@ -32,28 +32,51 @@ def verification_context(root, experiment=None):
         if prior.get('sha256')!=digest({k:v for k,v in prior.items() if k!='sha256'}):
             raise ArenaError('Tournament history was modified')
         engines.append(prior['engine'])
-    return {'experiment':experiment,'engines':engines,
-            'strategies':{s['id']:s for s in experiment['manifest']['strategies']}}
+    strategies={s['id']:s for s in experiment['manifest']['strategies']}
+    for name,source in strategies.items():
+        if submission(root/'submissions'/name,source['submission']['entrypoint'])!=source['submission']:
+            raise ArenaError('Archived submission changed: '+name)
+    from .verification_cache import VerificationCache
+    from .scenario_cache import ScenarioCache
+    return {'experiment':experiment,'engines':engines,'strategies':strategies,'hashes':VerificationCache(root),'scenarios':ScenarioCache(experiment['manifest']['scenario']),'engine_binding':digest(engines),'scenario_binding':digest(experiment['manifest']['scenario'])}
 
 
 def verify_record(root: Path, record: dict, *, context=None):
     if record['result']['status']!='completed':return
     context=context or verification_context(root)
     work=root/record['directory']
-    if file_hash(work/'outcome.json')!=record['result']['outcome_sha256']:
+    expected=[context['strategies'][s]['submission'] for s in record['match']['sides']]
+    hashes=context.get('hashes')
+    binding=digest({'validation_version':1,'match':record['match'],'result':record['result'],'sources':[(info['entrypoint'],info['sha256']) for info in expected],
+                    'scenario_config':context.get('scenario_binding') or digest(context['experiment']['manifest']['scenario']),
+                    'engines':context.get('engine_binding') or digest(context['engines'])})
+    if hashes and hashes.checked_receipt(work,binding):return
+    if 'scenarios' in context:scenario,scenario_hash=context['scenarios'].get(expected,record['match']['seed'])
+    else:
+        scenario=make_scenario(context['experiment']['manifest']['scenario'],[s['entrypoint'] for s in expected],record['match']['seed'],[s.get('team') for s in expected])
+        scenario_hash=digest(scenario)
+    directories={}
+    def track(directory):
+        from .verification_cache import fingerprint
+        directories[directory]=fingerprint(directory,directory=True)
+    hasher=context['hashes'].hash if 'hashes' in context else file_hash
+    if hasher(work/'outcome.json')!=record['result']['outcome_sha256']:
         raise ArenaError(f'Stored outcome was modified: {work}')
+    for name in ('result.json','provenance.json','scenario.json'):hasher(work/name)
     if read_json(work/'result.json')!=record['result']:
         raise ArenaError(f'Stored result was modified: {work}')
     provenance=read_json(work/'provenance.json')
-    expected=[context['strategies'][s]['submission'] for s in record['match']['sides']]
-    scenario=make_scenario(context['experiment']['manifest']['scenario'],
-        [s['entrypoint'] for s in expected],record['match']['seed'],[s.get('team') for s in expected])
     if (provenance['engine'] not in context['engines'] or provenance['submissions']!=expected or
-            provenance['scenario_sha256']!=digest(scenario) or read_json(work/'scenario.json')!=scenario):
+            provenance['scenario_sha256']!=scenario_hash or read_json(work/'scenario.json')!=scenario):
         raise ArenaError('Stored match provenance or scenario was modified')
     for side,info in enumerate(expected,1):
-        if submission(work/'strategies'/str(side),info['entrypoint'])!=info:
-            raise ArenaError('Stored match source was modified')
+        from .core import verify_source_files
+        verify_source_files(work/'strategies'/str(side),info,hasher,track)
+
+    if hashes:
+        files=[work/name for name in ('outcome.json','result.json','provenance.json','scenario.json')]
+        files.extend(work/'strategies'/str(side)/name for side,info in enumerate(expected,1) for name in info['files'])
+        hashes.remember_receipt(work,binding,files,directories)
 
 
 def scoring_record(record):
@@ -93,10 +116,11 @@ def _run_tournament(engine: Engine, manifest: dict, out: Path, resume: bool = Fa
             if updated:
                 old_base['engine'] = new_base['engine']
             extending = allow_extend and old_rows.keys() < new_rows.keys()
+            matches_by_id={match['id']:match for match in matches}
             if ((not extending and not (updated and old_rows == new_rows)) or old_base != new_base
                     or any(new_rows[key] != row for key,row in old_rows.items())
                     or old.get('sha256') != digest({k:v for k,v in old.items() if k != 'sha256'})
-                    or any(match not in matches for match in old['schedule'])):
+                    or any(matches_by_id.get(match['id'])!=match for match in old['schedule'])):
                 raise ArenaError("Cannot resume: configuration, sources, engine or timeout changed")
             # Retain the original schedule/provenance before admitting newly
             # recovered entrants. Existing sources and completed matches stay put.
@@ -136,36 +160,42 @@ def _run_tournament(engine: Engine, manifest: dict, out: Path, resume: bool = Fa
     def deferred():
         value=read_json(out/'report.json') if (out/'report.json').exists() else {'completed':0,'failed':0,'pending':len(matches)}
         return {**value,'deferred':True}
-    audit_started=time.time();last_audit=0;last_provider_poll=0
-    with operation(out.parent,'checking_fights',generation=max((s.get('generation',0) for s in strategies.values()),default=0)):
-        for index,match in enumerate(execution,1):
-            if time.monotonic()-last_provider_poll>=.1:
-                poll_provider_failures();last_provider_poll=time.monotonic()
-            cached=verified_cache.get(match['id'])
-            if cached and cached['match']==match:
-                # Completed artifacts are immutable within this coordinator.
-                # A fresh journal on Resume performs the full audit again.
-                known[match['id']]=cached;completed.add(match['id'])
-                continue
-            if provider_work_ready():return deferred()
-            path=out/'records'/f"{match['id']}.json"
-            if path.exists():
-                record=read_json(path)
-                if record['match']!=match:raise ArenaError('Stored match metadata mismatch')
-                verify_record(out,record,context=verification)
-                known[match['id']]=scoring_record(record)
-                if record.get('retry_pending'):retry_counts[match['id']]=record.get('retry_attempt',0)+1
-                if record['result']['status']=='completed':
-                    completed.add(match['id'])
-                    verified_cache[match['id']]=known[match['id']]
-                    if all(side in reference_ids for side in match['sides']):
-                        from .reference_cache import seed as seed_reference
-                        seed_reference(engine,[strategies[side]['submission'] for side in match['sides']],manifest['scenario'],match['seed'],out/record['directory'])
-            if time.monotonic()-last_audit>=.5:
-                write_json(out.parent/'activity.json',{'kind':'checking_fights','started_at':audit_started,
-                    'generation':max((s.get('generation',0) for s in strategies.values()),default=0),
-                    'checked_records':index,'total_records':len(matches)})
-                last_audit=time.monotonic()
+    audit_started=time.time();last_audit=0;checked=0
+    paths={path.stem:path for path in (out/'records').glob('*.json')}
+    audits=[]
+    for match in execution:
+        cached=verified_cache.get(match['id'])
+        if cached and cached['match']==match:
+            known[match['id']]=cached;completed.add(match['id']);checked+=1
+        elif match['id'] in paths:audits.append((match,paths[match['id']]))
+        else:checked+=1
+    def check(item):
+        match,path=item;record=verification['hashes'].read_record(path)
+        if record['match']!=match:raise ArenaError('Stored match metadata mismatch')
+        verify_record(out,record,context=verification)
+        if record['result']['status']=='completed':verification['hashes'].remember_record(path,record)
+        if record['result']['status']=='completed' and all(side in reference_ids for side in match['sides']):
+            from .reference_cache import seed as seed_reference
+            seed_reference(engine,[strategies[side]['submission'] for side in match['sides']],manifest['scenario'],match['seed'],out/record['directory'])
+        return match,record
+    def accept(value):
+        nonlocal checked,last_audit
+        match,record=value;checked+=1
+        known[match['id']]=scoring_record(record)
+        if record.get('retry_pending'):retry_counts[match['id']]=record.get('retry_attempt',0)+1
+        if record['result']['status']=='completed':
+            completed.add(match['id']);verified_cache[match['id']]=known[match['id']]
+        if time.monotonic()-last_audit>=.5 or checked==len(matches):
+            write_json(out.parent/'activity.json',{'kind':'checking_fights','started_at':audit_started,
+                'generation':max((s.get('generation',0) for s in strategies.values()),default=0),
+                'checked_records':checked,'total_records':len(matches)})
+            last_audit=time.monotonic()
+    from .audit_pool import scan
+    with operation(out.parent,'checking_fights',generation=max((s.get('generation',0) for s in strategies.values()),default=0),checked_records=checked,total_records=len(matches)):
+        paused=scan(audits,check,accept,interrupted=lambda:(poll_provider_failures() or provider_work_ready()))
+    verification['hashes'].flush()
+    write_json(out/'verification-performance.json',{'seconds':time.time()-audit_started,**verification['hashes'].stats()})
+    if paused:return deferred()
     def jobs():
         for index,match in enumerate(execution,1):
             poll_provider_failures()
@@ -203,11 +233,13 @@ def _run_tournament(engine: Engine, manifest: dict, out: Path, resume: bool = Fa
         return {**job,'work':Preparation._attempt(base),'_attempt_base':base,'phase':'preparing','phase_started_at':time.time()}
     last_report=0
     def publish(markdown=False):
+        verification['hashes'].flush()
         return report(out,verified_records=known,experiment=verification['experiment'],markdown=markdown)
     def save(job,result):
         nonlocal last_report
         record=record_for(job,result)
         write_json(job['record_path'],record)
+        if result['status']=='completed':verification['hashes'].remember_record(job['record_path'],record)
         known[job['match']['id']]=scoring_record(record)
         if result['status']=='completed':
             verified_cache[job['match']['id']]=known[job['match']['id']]
@@ -217,7 +249,10 @@ def _run_tournament(engine: Engine, manifest: dict, out: Path, resume: bool = Fa
     from .fight_pool import run as run_fights
     run_fights(jobs(),execute,save,limit=parallel_fights,out=out.parent,kind='tournament_fight',
                generation=max((s.get('generation',0) for s in strategies.values()),default=0),retry=retry_job)
-    return publish(markdown=True)
+    result=publish(markdown=True)
+    verification['hashes'].release()
+    verification['scenarios'].values.clear()
+    return result
 
 
 def report(out: Path, *, verified_records=None, experiment=None, markdown=True) -> dict:
@@ -273,6 +308,7 @@ def report(out: Path, *, verified_records=None, experiment=None, markdown=True) 
               "withdrawn_strategies":sorted(excluded),
               "standings": standings, "matrix": matrix, "mirrors": mirrors}
     write_json(out / "report.json", result)
+    if verification:verification['hashes'].flush()
     if not markdown:return result
     lines = [f"# {experiment['manifest'].get('name', 'Tournament')}", "",
              f"Completed: {completed} · Failed: {failed} · Pending: {missing}", "",

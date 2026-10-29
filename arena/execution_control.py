@@ -16,7 +16,7 @@ def poll(out, default=1):
         if revision and revision!=getattr(journal,'_execution_revision',None):
             states=journal.metadata()
             if states:
-                sid=next(iter(states));journal.save(sid,journal.state(sid),'execution_settings_applied',value)
+                sid=next(iter(states));journal.record(sid,'execution_settings_applied',value)
                 journal._execution_revision=revision
         requests=list((out/'fight-retry-requests').glob('*.json'))
         if requests:
@@ -30,7 +30,7 @@ def poll(out, default=1):
             for request in requests:
                 command=read_json(request)
                 if states:
-                    sid=next(iter(states));journal.save(sid,journal.state(sid),'fight_retry_requested',command)
+                    sid=next(iter(states));journal.record(sid,'fight_retry_requested',command)
                 write_json(out/'fight-retry-receipts'/request.name,{**command,'status':'accepted'})
                 request.unlink()
     return limit

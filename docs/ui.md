@@ -1008,8 +1008,9 @@ Results and SQLite events are published by the coordinator as workers finish;
 completed peers are preserved if another worker fails. Resume skips completed fights.
 Each new result is fully verified on its worker before publication. Live rankings
 reuse compact verified records in memory instead of rereading every earlier replay
-after every fight. Existing records are verified once when resuming; standalone
-report generation also performs full verification. Occupied slots distinguish
+after every fight. Resume and standalone reports reuse persistent validation
+receipts after checking file identity, change stamps and input bindings. Changed
+artifacts receive full verification; `ARENA_FULL_AUDIT=1` forces content rechecks. Occupied slots distinguish
 engine computation, result verification and finished results awaiting publication.
 CPU usage can still depend on disk throughput, cached fights and engine workload.
 
@@ -1189,8 +1190,9 @@ submitted strategies from fixtures awaiting additional submissions.
 
 Completed tournament records are verified once and kept as compact scoring records
 for the lifetime of the coordinator, including across cooperative yields and pool
-extensions. Resume creates a fresh coordinator and fully verifies existing records;
-standalone reports also retain full verification. A failed fixture is retried on
+extensions. Resume creates a fresh coordinator and uses persistent validation
+receipts for unchanged artifacts; changed inputs receive full verification.
+Standalone reports follow the same rules; `ARENA_FULL_AUDIT=1` forces a fresh audit. A failed fixture is retried on
 pool extension or Resume, rather than repeatedly retried on every idle poll.
 
 Tournament outcomes count for both models. Overview totals exclude same-model
@@ -1319,3 +1321,6 @@ particular competition or host.
 The pooled JVM preset, measured tradeoffs and local benchmark command are documented
 in [JVM tuning](performance/jvm-tuning.md). Tuning changes require an application
 restart but do not require recompiling the unchanged Java bridge.
+
+Resume verification, cache invalidation, measurements and the full-audit option
+are documented in [Fast competition resume](performance/resume.md).
