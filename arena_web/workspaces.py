@@ -89,16 +89,16 @@ class Workspaces:
                 stamps.append((run['id'],run['error']));continue
             root=self.run_path(run['id'])
             path=root/'experiment.json';stat=path.stat()
-            stamps.append((run['id'],bool(run.get('archived')),run.get('error'),self.revision(root),stat.st_mtime_ns,stat.st_size))
+            stamps.append((run['id'],bool(run.get('archived')),run.get('error'),self.revision(root,include_records=section!='resources'),stat.st_mtime_ns,stat.st_size))
         signature=digest({'runs':stamps,'sizes':[(row['id'],row.get('model_size_billion')) for row in self.catalog()]})
         with self.lock:
-            saved=getattr(self,'_workspace_summary_cache',{}).get(identifier)
+            saved=getattr(self,'_workspace_summary_cache',{}).get((identifier,section))
             if saved and saved[0]==signature:return copy.deepcopy(saved[1])
         result=self._workspace_summary(identifier,runs,section=section)
-        if section=='all':
+        if section in {'all','resources'}:
             with self.lock:
                 if not hasattr(self,'_workspace_summary_cache'):self._workspace_summary_cache={}
-                self._workspace_summary_cache[identifier]=(signature,copy.deepcopy(result))
+                self._workspace_summary_cache[(identifier,section)]=(signature,copy.deepcopy(result))
                 while len(self._workspace_summary_cache)>4:
                     self._workspace_summary_cache.pop(next(iter(self._workspace_summary_cache)))
         return result
@@ -141,7 +141,7 @@ class Workspaces:
         resources={};groups={}
         for run in included:
             run_root=self.run_path(run['id'])
-            detail=self.detail(run['id']);metadata=detail['metadata']
+            detail=self.detail(run['id'],include_revision=False);metadata=detail['metadata']
             config=metadata.get('config',metadata.get('manifest',{}))
             models={m['id']:m for m in config.get('models',[])}
             frozen={s['id']:s for s in config.get('strategies',[])}

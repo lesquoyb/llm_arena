@@ -17,7 +17,7 @@ from arena.core import ArenaError, ROOT, STATE_ROOT, digest, file_hash, is_link,
 from arena.experiment import plan, validate_config
 from arena.preparation import local_path
 from .workspaces import Workspaces
-from .performance import measure, History, TimedRLock
+from .performance import measure, History, TimedRLock, request_cached
 
 
 TERMINAL = {"submitted", "budget_exhausted", "no_submission", "generation_failed",
@@ -419,18 +419,30 @@ class Store(Workspaces):
         return sorted([{**row,'workspace_id':memberships.get(row['id'])} for row in rows], key=lambda r: r.get("created_at", 0), reverse=True)
 
     @measure('revision')
-    def revision(self, root):
+    @request_cached
+    def revision(self, root, *, include_records=True):
         event_id = 0
         database = root / 'journal.sqlite'
         if database.is_file():
             with closing(sqlite3.connect(database.as_uri() + '?mode=ro', uri=True, timeout=2)) as connection:
                 if connection.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='events'").fetchone():
                     event_id = connection.execute('SELECT coalesce(max(id),0) FROM events').fetchone()[0]
-        files = [root/'report.json', root/'analysis.json']
-        for base in (root, root/'tournament', *sorted(root.glob('g*-tournament')), *sorted((root/'evaluations').glob('g*-panel')), *sorted((root/'evaluations').glob('g*-previous'))):
-            files.extend((base/'records').glob('*.json'))
-        files.extend((root/'sessions').glob('*/tools/**/result.json'))
-        stamps = [(p.relative_to(root).as_posix(), p.stat().st_mtime_ns, p.stat().st_size) for p in files if p.is_file()]
+        files = [root/'report.json', root/'analysis.json'] if include_records else [root/'experiment.json']
+        stamps=[];prefix=len(str(root))+1
+        if include_records:
+            for base in (root, root/'tournament', *sorted(root.glob('g*-tournament')), *sorted((root/'evaluations').glob('g*-panel')), *sorted((root/'evaluations').glob('g*-previous'))):
+                try:
+                    with os.scandir(base/'records') as entries:
+                        for entry in entries:
+                            if entry.name.endswith('.json') and entry.is_file(follow_symlinks=False):
+                                stat=entry.stat(follow_symlinks=False)
+                                stamps.append((entry.path[prefix:],stat.st_mtime_ns,stat.st_ctime_ns,stat.st_size))
+                except FileNotFoundError:pass
+            files.extend((root/'sessions').glob('*/tools/**/result.json'))
+        for path in files:
+            try:stat=path.stat()
+            except FileNotFoundError:continue
+            stamps.append((str(path)[prefix:],stat.st_mtime_ns,stat.st_ctime_ns,stat.st_size))
         return digest({'event_id':event_id, 'files':sorted(stamps)})
 
     @measure('usage_receipts')
@@ -484,7 +496,7 @@ class Store(Workspaces):
         return {sid: summarize(receipts) for sid, receipts in grouped.items()}
 
     @measure('detail')
-    def detail(self, identifier):
+    def detail(self, identifier, *, include_revision=True):
         root = self.run_path(identifier)
         metadata = self.json(root / "experiment.json")
         from arena.roster import effective, snapshot
@@ -531,7 +543,7 @@ class Store(Workspaces):
             if session.get('cost_spent') is not None:
                 session['cost_spent'] = str(Decimal(session['cost_spent']) + Decimal(adjustment))
         sessions.sort(key=lambda s:(s.get('model',''),s.get('replicate',0),s.get('generation',0),s.get('condition','')))
-        return {"id": identifier, "revision": self.revision(root), "metadata": metadata, "roster":{key:value for key,value in roster.items() if key!='models'} if roster else None, "report": self.json(root / "report.json", {}),
+        return {"id": identifier, "revision": self.revision(root) if include_revision else None, "metadata": metadata, "roster":{key:value for key,value in roster.items() if key!='models'} if roster else None, "report": self.json(root / "report.json", {}),
                 'model_metadata':{m['id']:{'model_size_billion':self.model_size(m)} for m in metadata.get('config',{}).get('models',[])},
                 "analysis": self.json(root / "analysis.json"), "sessions": sessions,
                 "g0": self.json(root / "tournament/report.json"),

@@ -14,7 +14,7 @@ class Profile:
     def __init__(self,route):
         self.id=uuid4().hex[:12];self.route=route;self.started=time.perf_counter()
         self.cpu_started=time.thread_time();self.at=time.time();self.metrics={};self.stack=[]
-        self.status=None;self.response_bytes=0
+        self.status=None;self.response_bytes=0;self.memo={}
 
     def add(self,name,seconds):
         value=self.metrics.setdefault(name,{'calls':0,'seconds':0})
@@ -82,3 +82,14 @@ def request(function):
 def response(status,size):
     profile=_current.get()
     if profile:profile.status=status;profile.response_bytes=size
+
+
+def request_cached(function):
+    @wraps(function)
+    def wrapped(self,*args,**kwargs):
+        profile=_current.get()
+        if profile is None:return function(self,*args,**kwargs)
+        key=(id(self),function.__name__,args,tuple(sorted(kwargs.items())))
+        if key not in profile.memo:profile.memo[key]=function(self,*args,**kwargs)
+        return profile.memo[key]
+    return wrapped
