@@ -875,7 +875,6 @@ def run(config: dict, out: Path, resume=False, interrupt=None, prepare_only=Fals
                         journal.save(sid, initial_state(sid, model, config), "session_created")
                 return {"initialized": True, "sessions": list(journal.states())}
             from .greedy import evaluate as evaluate_ready
-            evaluate_ready(engine, config, out, journal)
             from .parallel import prepare
             tasks=[(f"{model['id']}-r{replicate}",model) for model in config['models']
                    for replicate in range(repetitions(config,model)) if active(config,model) and (not retry_session or f"{model['id']}-r{replicate}"==retry_session)]

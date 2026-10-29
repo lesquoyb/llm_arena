@@ -103,7 +103,6 @@ def run_generation(config, out, journal, engine, initial, interrupt=None, retry_
     from .greedy import evaluate as evaluate_ready, entrants as ready_entrants
     evaluated = set()
     panel.sort(key=lambda source:not source['id'].startswith('fixed-'))
-    baseline = references(engine, config, out, journal, roots, "g0-panel", panel)
     def evaluate_available():
         for entrant in ready_entrants(journal, out, generation):
             if not active(config,entrant): continue
@@ -113,7 +112,6 @@ def run_generation(config, out, journal, engine, initial, interrupt=None, retry_
                 if sum(record['session']==entrant['id'] for record in collected.values())>=expected:
                     evaluated.add(entrant['id'])
         evaluate_ready(engine, config, out, journal, generation)
-    evaluate_available()
     tasks=[];candidates=[]
     for parent in initial:
         parent_state = initial_states[parent["id"]]
@@ -197,6 +195,7 @@ def run_generation(config, out, journal, engine, initial, interrupt=None, retry_
             candidates.append(sid)
     from .parallel import prepare
     prepare(tasks,config,out,journal,engine,interrupt,evaluate_available)
+    baseline = references(engine, config, out, journal, roots, "g0-panel", panel)
     for sid in candidates:
         state = journal.state(sid)
         if "submission" in state:

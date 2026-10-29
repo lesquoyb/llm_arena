@@ -68,6 +68,20 @@ class ParallelRequestsTests(TestCase):
         finally:journal.db.close()
         return peak
 
+    def test_serial_progress_yields_to_remaining_resumable_conversations(self):
+        from arena.activity import provider_work_ready, _provider_yielder
+        value=config();value['parallel_requests']=1
+        states={};observations=[]
+        journal=mock.Mock()
+        journal.metadata.side_effect=lambda sid=None:dict(states) if sid is None else ({sid:states[sid]} if sid in states else {})
+        def run_session(sid,*args):
+            states[sid]={'status':'submitted'}
+        with scratch_directory() as root, mock.patch('arena.experiment.run_session',side_effect=run_session):
+            prepare([(m['id']+'-r0',m) for m in value['models']],value,root,journal,None,
+                    on_progress=lambda:observations.append(provider_work_ready()))
+        self.assertEqual(observations,[True,False])
+        self.assertIsNone(_provider_yielder.get())
+
     def test_concurrent_remote_requests_keep_sources_and_journal_isolated(self):
         with scratch_directory() as root:self.assertEqual(self.exercise(config(),root),2)
 

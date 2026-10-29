@@ -1081,3 +1081,18 @@ every queued conversation; the recovery is journaled without changing counters.
 To lower an existing competition's request concurrency, stop it, open **More >
 Execution & metrics**, change **Parallel model requests**, save and resume.
 The effective cap is shown with the number of requests actually in flight.
+
+### Resuming conversations before fight backlogs
+
+Stop and resume restarts eligible failed/interrupted conversations before draining
+pending tournament or reference fights. In parallel mode, available fight workers
+run while model requests are pending and yield when a response or queued
+conversation needs the coordinator. Already dispatched fights finish and are saved.
+In sequential mode, remaining resumable conversations take priority over an
+intermediate fight backlog. Usage counters and saved submissions are retained.
+
+The activity heading shows **Scheduling / resuming model conversations** during
+dispatch, then the specific request, compilation or fight operation. Completed
+rounds still form a barrier: their scored fights must finish before preparing the
+next round and its feedback. Optional fixed-baseline evaluations no longer run
+before the current round's conversations are dispatched.

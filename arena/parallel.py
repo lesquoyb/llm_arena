@@ -96,15 +96,39 @@ def ordered_tasks(tasks, order='models', *, serial=False):
 
 
 def prepare(tasks, config, out, journal, engine, interrupt=None, on_progress=None):
+    """Expose dispatch/recovery before starting tools, transports or fight work."""
+    from .activity import operation
+    from .experiment import TERMINAL
+    tasks=list(tasks)
+    states=journal.metadata()
+    pending=[sid for sid,_ in tasks if states.get(sid,{}).get('status') not in TERMINAL]
+    with operation(out,'scheduling_preparations',
+                   generation=max((states.get(sid,{}).get('generation',0) for sid,_ in tasks),default=0),
+                   conversations_to_resume=len(pending)):
+        return _prepare(tasks,config,out,journal,engine,interrupt,on_progress)
+
+
+def _prepare(tasks, config, out, journal, engine, interrupt=None, on_progress=None):
     """Finish one round before its caller starts the next round's preparation."""
     from .experiment import run_session, TERMINAL, provider_response
     limit=config.get('_parallel_requests',config.get('parallel_requests',1))
     tasks=ordered_tasks(tasks,config.get('_request_order',config.get('request_order','models')),serial=limit==1)
     if limit==1:
-        for sid,model in tasks:
-            before=journal.metadata(sid).get(sid,{})
-            run_session(sid,model,config,out,journal,engine,interrupt)
-            if on_progress and before.get('status') not in TERMINAL:on_progress()
+        # A resumed fight backlog must not run before later resumable sessions.
+        # There is no asynchronous dispatcher to provide this readiness signal.
+        from .activity import _provider_yielder
+        remaining=deque(tasks)
+        token=_provider_yielder.set(lambda:any(
+            journal.metadata(sid).get(sid,{}).get('status') not in TERMINAL
+            for sid,_ in remaining))
+        try:
+            while remaining:
+                sid,model=remaining.popleft()
+                before=journal.metadata(sid).get(sid,{})
+                run_session(sid,model,config,out,journal,engine,interrupt)
+                if on_progress and before.get('status') not in TERMINAL:on_progress()
+        finally:
+            _provider_yielder.reset(token)
         return
     dispatcher=Requests(limit,tasks)
     journal.requests=dispatcher
@@ -126,6 +150,7 @@ def prepare(tasks, config, out, journal, engine, interrupt=None, on_progress=Non
     poll_token=_provider_poller.set(drain_failures)
     yield_token=_provider_yielder.set(lambda:any(dispatcher.ready(sid) for sid in dispatcher.pending) or
         any(sid not in dispatcher.pending and dispatcher.can_start(sid,model) for sid,model in queue))
+    initial_progress=True
     try:
         while queue or dispatcher.pending:
             if queue and not dispatcher.pending and not any(dispatcher.can_start(sid,model) for sid,model in queue):
@@ -153,6 +178,11 @@ def prepare(tasks, config, out, journal, engine, interrupt=None, on_progress=Non
                     if on_progress and before.get('status') not in TERMINAL:on_progress()
                 elif sid not in dispatcher.pending:
                     queue.append((sid,model))
+            # Start/restart transports before draining already-submitted fights.
+            # The readiness hook yields immediately if any conversation can advance.
+            if initial_progress and on_progress:
+                initial_progress=False
+                on_progress()
             # Responses can arrive while serialized tools or available fights run.
             queued={sid for sid,_ in queue}
             for sid in dispatcher.pending:
