@@ -87,8 +87,8 @@ class Application:
             return audit(store,run,int(value('generation')) if value('generation') is not None else None)
         if route == '/api/activity':
             from .activity import status
-            job=next((job for job in self.jobs.listing() if job['run']==run),None)
-            return status(store,run,job)
+            jobs=[job for job in self.jobs.listing() if job['run']==run]
+            return {**status(store,run,jobs[0] if jobs else None),'jobs':jobs}
         if route == '/api/faults':
             from .faults import report
             return report(store,run)

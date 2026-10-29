@@ -13,7 +13,7 @@ def run(jobs, execute, save, *, limit=1, out, kind, generation=0, retry=None):
     jobs=iter(jobs);retries=deque();pools=[];pending={};exhausted=False;error=None
     limit=poll(out,limit);pool=ThreadPoolExecutor(max_workers=limit,thread_name_prefix='arena-fight');pools.append(pool)
     from .worker_resources import host_memory, children_cpu_seconds
-    batch_started=time.monotonic();python_started=time.process_time();children_started=children_cpu_seconds()
+    batch_wall_started=time.time();batch_started=time.monotonic();python_started=time.process_time();children_started=children_cpu_seconds()
     throughput_path=out/'fight-throughput.json'
     throughput=read_json(throughput_path) if throughput_path.exists() else {}
     last_progress=0;publishing_seconds=0;phase_seconds={};finished_workers=0;jvm_starts=0;jvm_reuses=0
@@ -25,8 +25,7 @@ def run(jobs, execute, save, *, limit=1, out, kind, generation=0, retry=None):
                  'phase':'ready_to_save' if future.done() else job.get('phase','preparing'),
                  'phase_started_at':job.get('phase_started_at',started),'retry':job.get('_retry',0)}
                 for future,(job,started) in pending.items()]
-        write_json(out/'activity.json',{'kind':kind,'generation':generation,'started_at':min(
-            (item['started_at'] for item in fights),default=time.time()),'parallel_fights':limit,
+        write_json(out/'activity.json',{'kind':kind,'generation':generation,'started_at':batch_wall_started,'batch_started_at':batch_wall_started,'parallel_fights':limit,
             'publishing_seconds':publishing_seconds,'retrying_fights':len(retries),
             'phase_seconds':phase_seconds,'finished_workers':finished_workers,'jvm_starts':jvm_starts,'jvm_reuses':jvm_reuses,'publication':publication,
             'fights':fights,'participants':list(dict.fromkeys(sid for item in fights for sid in item['participants']))})
