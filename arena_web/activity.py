@@ -33,6 +33,15 @@ def status(store, identifier, job=None):
     expected=sum(per_model.values())
     ready=sum(bool(state.get('submission')) for state in current.values())
     assessed=sum(bool(state.get('submission')) and state.get('validity') in {'valid','invalid'} for state in current.values())
+    valid=sum(bool(state.get('submission')) and state.get('validity')=='valid' for state in current.values())
+    invalid=sum(bool(state.get('submission')) and state.get('validity')=='invalid' for state in current.values())
+    breakdown=[]
+    for model in config.get('models',[]):
+        if model['id'] not in models:continue
+        fixed=model.get('provider')=='mock' and model.get('profile')=='saved-strategy'
+        breakdown.append({'model':model['id'],'fixed':fixed,'repetitions':repetitions(config,model),
+                          'tracks':multiplier,'expected':per_model[model['id']],
+                          'submitted':sum(bool(state.get('submission')) for state in current.values() if state['model']==model['id'])})
     ready_models=sum(sum(bool(state.get('submission')) for state in current.values() if state['model']==model)>=per_model[model] for model in models)
     activity=[]
     if running:
@@ -96,7 +105,9 @@ def status(store, identifier, job=None):
     return {'labels':{sid:{'model':state['model'],'round':state.get('generation',0)+1,'condition':state.get('condition','initial'),'replicate':state.get('replicate',0)} for sid,state in states.items()}, 'running':running,'job_status':(job or {}).get('status'),'job_note':(job or {}).get('note'),
             'parallel_requests':roster.get('parallel_requests',config.get('parallel_requests',1)),'round':generation+1,'rounds':config.get('generations',1),'participants':len(models),
             'withdrawn':len(withdrawn),'ready_participants':ready_models,'strategies_ready':ready,
-            'strategies_expected':expected,'strategies_validated':assessed,'failed_preparations':errors,
+            'strategies_expected':expected,'strategies_validated':assessed,'strategies_checked':assessed,
+            'strategies_valid':valid,'strategies_invalid':invalid,'strategies_awaiting_check':ready-assessed,
+            'submission_breakdown':breakdown,'failed_preparations':errors,
             'tournament_completed':report.get('completed',0),'tournament_failed':report.get('failed',0),
             'tournament_total':max(finished+report.get('pending',0),possible),
             'preparations':preparations,'waiting_preparations':waiting,'operation':operation if running else {},'active':activity,'last_event':last_event,'observed_at':time.time()}

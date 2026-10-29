@@ -1118,3 +1118,29 @@ so the web server never edits a running worker's journal or workspace.
 Live page updates preserve the visible element at the moment of the DOM update.
 They do not restore a scroll position captured before a network request, which
 could otherwise move readers backwards while navigating Overview or Fights.
+
+### Submitted strategies and final checks
+
+A submitted strategy is a frozen source snapshot, including snapshots frozen at
+preparation limits. Submission does not establish that it compiles. Final checks
+are separate arena assessments run after preparation: the activity details show
+checks completed out of submitted snapshots, then valid, invalid and awaiting
+check counts. Agent-requested `analyze` calls are recorded separately under Errors.
+
+**Expected submissions** expands the count per participant, repetitions and track.
+For example, five generated participants with six repetitions plus five fixed
+references require 35 initial snapshots: 30 generated and five fixed. Participants
+ready counts model configurations whose entire expected set has been submitted.
+
+Tournament **engine failures** are incomplete process results such as timeouts,
+crashes or unreadable output, not losses or LeekScript runtime error counts. Click
+the activity failure count to inspect those fights. They are unscored; the next
+execution of that fight pool, including Resume, retries them in a new attempt
+directory while retaining old logs. Completed fights are retained.
+
+Compilation failure rate is failed compiler checks divided by checks that returned
+a compiler verdict. Multiple diagnostics in one attempt count as one failed check.
+Engine timeouts and other checks without a compiler verdict are counted separately,
+not treated as successful compilations. Errors shows percentages alongside raw
+attempts and diagnostics; its CSV includes the counts and rate. No checks means
+N/A. This rate measures observed authoring failures, not errors per source line.

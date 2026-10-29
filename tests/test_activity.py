@@ -43,6 +43,28 @@ class ActivityTests(unittest.TestCase):
                 self.assertFalse(stopped['active'])
             self.assertEqual(store.listing()[0]['models'],10)
 
+    def test_submission_breakdown_separates_repetitions_and_fixed_references(self):
+        with scratch_directory() as root:
+            store=Store(root/'runs',root/'settings');out=store.runs/'run';out.mkdir()
+            config=read_json(ROOT/'configs/offline-complete.json');config['replicates']=6
+            config['models']=[{'id':'model-'+str(i),'provider':'openai-compatible'} for i in range(5)]+[
+                {'id':'reference-'+str(i),'provider':'mock','profile':'saved-strategy'} for i in range(5)]
+            write_json(out/'experiment.json',{'config':config,'fixed_reference_repetitions':1})
+            journal=Journal(out)
+            with closing(journal.db):
+                for model in config['models']:
+                    state=initial_state(model['id']+'-r0',model,config)
+                    state.update(status='submitted',submission={'entrypoint':'main.leek'})
+                    if model['id']=='model-0':state['validity']='invalid'
+                    journal.save(model['id']+'-r0',state,'session_created')
+            value=status(store,'run')
+            self.assertEqual(value['strategies_expected'],35)
+            self.assertEqual(value['strategies_checked'],1)
+            self.assertEqual(value['strategies_valid'],0)
+            self.assertEqual(value['strategies_invalid'],1)
+            self.assertEqual(value['strategies_awaiting_check'],9)
+            self.assertEqual(sum(row['expected'] for row in value['submission_breakdown'] if row['fixed']),5)
+
     def test_transient_operation_closes_even_when_worker_raises(self):
         with scratch_directory() as root:
             with self.assertRaisesRegex(RuntimeError,'interrupted'):

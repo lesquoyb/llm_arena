@@ -19,7 +19,7 @@ def report(store, identifier):
     rows={sid:{'session':sid,'model':state['model'],'round':state.get('generation',0)+1,
                'condition':state.get('condition','initial'),'manual_frozen':bool(state.get('manual_frozen')),
                **{key:0 for key in ('tool_calls','tool_errors','unknown_tools','invalid_arguments','other_tool_errors',
-                                   'analyses','failed_analyses','compiler_errors','invalid_teams','provider_failures','malformed_responses','runtime_errors','preparation_runtime_errors','progression_runtime_errors','operation_limit_hits')}}
+                                   'analyses','completed_analyses','analysis_infrastructure_failures','failed_analyses','compiler_errors','invalid_teams','provider_failures','malformed_responses','runtime_errors','preparation_runtime_errors','progression_runtime_errors','operation_limit_hits')}}
           for sid,state in states.items()}
     incidents=[];pending={}
     path=root/'journal.sqlite'
@@ -52,6 +52,9 @@ def report(store, identifier):
             row['analyses']+=1
             from arena.compiler_diagnostics import compilation_rows
             diagnostics=[entry for entry in value.get('diagnostic_messages',compilation_rows(value)) if entry.get('severity')=='error']
+            if value.get('status') in {'valid','invalid'} or diagnostics:
+                row['completed_analyses']+=1
+            else:row['analysis_infrastructure_failures']+=1
             if value.get('status')=='invalid' or diagnostics:
                 row['failed_analyses']+=1;row['compiler_errors']+=len(diagnostics)
                 incidents.append({**incident,'category':'compilation','tool':name,'message':'\n'.join(str(entry.get('message','')) for entry in diagnostics) or 'Compilation failed; inspect the analysis receipt'})
@@ -67,7 +70,7 @@ def report(store, identifier):
             rows[sid]['operation_limit_hits']+=metrics.get('operation_limit_hits',0)
     for row in rows.values():
         row['tool_error_rate']=row['tool_errors']/row['tool_calls'] if row['tool_calls'] else None
-        row['compile_failure_rate']=row['failed_analyses']/row['analyses'] if row['analyses'] else None
+        row['compile_failure_rate']=row['failed_analyses']/row['completed_analyses'] if row['completed_analyses'] else None
     result={'sessions':list(rows.values()),'incidents_total':len(incidents),'incidents':[{**row,'message':row['message'][:2000]} for row in incidents[-200:]]}
     with store.lock:
         if not hasattr(store,'_fault_cache'):store._fault_cache={}
