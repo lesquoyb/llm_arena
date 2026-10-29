@@ -63,6 +63,10 @@ class ActivityTests(unittest.TestCase):
             self.assertEqual(value['strategies_valid'],0)
             self.assertEqual(value['strategies_invalid'],1)
             self.assertEqual(value['strategies_awaiting_check'],9)
+            available=(10*9+(10 if config['include_mirrors'] else 0))*len(config['seeds'])
+            expected=(35*34+(35 if config['include_mirrors'] else 0))*len(config['seeds'])
+            self.assertEqual(value['tournament_pending_available'],available)
+            self.assertEqual(value['tournament_waiting_submissions'],expected-available)
             self.assertEqual(sum(row['expected'] for row in value['submission_breakdown'] if row['fixed']),5)
 
     def test_transient_operation_closes_even_when_worker_raises(self):

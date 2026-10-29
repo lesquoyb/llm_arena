@@ -65,12 +65,12 @@ def scoring_record(record):
     return {'match':record['match'],'result':slim}
 
 
-def run_tournament(engine: Engine, manifest: dict, out: Path, resume: bool = False, *, allow_extend=False, priority_ids=None, reference_ids=None, parallel_fights=1) -> dict:
+def run_tournament(engine: Engine, manifest: dict, out: Path, resume: bool = False, *, allow_extend=False, priority_ids=None, reference_ids=None, parallel_fights=1, verified_cache=None) -> dict:
     with file_lock(out.parent / ("." + out.name + ".lock")):
-        return _run_tournament(engine, manifest, out, resume, allow_extend=allow_extend, priority_ids=priority_ids, reference_ids=reference_ids, parallel_fights=parallel_fights)
+        return _run_tournament(engine, manifest, out, resume, allow_extend=allow_extend, priority_ids=priority_ids, reference_ids=reference_ids, parallel_fights=parallel_fights, verified_cache=verified_cache)
 
 
-def _run_tournament(engine: Engine, manifest: dict, out: Path, resume: bool = False, *, allow_extend=False, priority_ids=None, reference_ids=None, parallel_fights=1) -> dict:
+def _run_tournament(engine: Engine, manifest: dict, out: Path, resume: bool = False, *, allow_extend=False, priority_ids=None, reference_ids=None, parallel_fights=1, verified_cache=None) -> dict:
     matches = schedule(manifest)
     # Absolute source locations are metadata, not part of the experiment identity.
     frozen = {**manifest, "strategies": [{k: v for k, v in s.items() if k != "path"} for s in manifest["strategies"]]}
@@ -128,13 +128,21 @@ def _run_tournament(engine: Engine, manifest: dict, out: Path, resume: bool = Fa
     from .activity import operation, poll_provider_failures, provider_work_ready
     verification=verification_context(out)
     known={};completed=set()
+    verified_cache=verified_cache if verified_cache is not None else {}
     def deferred():
         value=read_json(out/'report.json') if (out/'report.json').exists() else {'completed':0,'failed':0,'pending':len(matches)}
         return {**value,'deferred':True}
-    audit_started=time.time();last_audit=0
+    audit_started=time.time();last_audit=0;last_provider_poll=0
     with operation(out.parent,'checking_fights',generation=max((s.get('generation',0) for s in strategies.values()),default=0)):
         for index,match in enumerate(execution,1):
-            poll_provider_failures()
+            if time.monotonic()-last_provider_poll>=.1:
+                poll_provider_failures();last_provider_poll=time.monotonic()
+            cached=verified_cache.get(match['id'])
+            if cached and cached['match']==match:
+                # Completed artifacts are immutable within this coordinator.
+                # A fresh journal on Resume performs the full audit again.
+                known[match['id']]=cached;completed.add(match['id'])
+                continue
             if provider_work_ready():return deferred()
             path=out/'records'/f"{match['id']}.json"
             if path.exists():
@@ -144,6 +152,7 @@ def _run_tournament(engine: Engine, manifest: dict, out: Path, resume: bool = Fa
                 known[match['id']]=scoring_record(record)
                 if record['result']['status']=='completed':
                     completed.add(match['id'])
+                    verified_cache[match['id']]=known[match['id']]
                     if all(side in reference_ids for side in match['sides']):
                         from .reference_cache import seed as seed_reference
                         seed_reference(engine,[strategies[side]['submission'] for side in match['sides']],manifest['scenario'],match['seed'],out/record['directory'])
@@ -180,6 +189,8 @@ def _run_tournament(engine: Engine, manifest: dict, out: Path, resume: bool = Fa
         record=record_for(job,result)
         write_json(job['record_path'],record)
         known[job['match']['id']]=scoring_record(record)
+        if result['status']=='completed':
+            verified_cache[job['match']['id']]=known[job['match']['id']]
         if time.monotonic()-last_report>=.5:
             publish();last_report=time.monotonic()
     publish()

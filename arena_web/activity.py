@@ -56,6 +56,7 @@ def status(store, identifier, job=None):
     finished=report.get('completed',0)+report.get('failed',0)
     seeds=config.get('seeds',[]) if generation==0 else config.get('final_seeds',[])
     possible=expected*(expected-1)*len(seeds)+(expected*len(seeds) if config.get('include_mirrors') else 0)
+    available=ready*(ready-1)*len(seeds)+(ready*len(seeds) if config.get('include_mirrors') else 0)
     last_event=None
     database=root/'journal.sqlite'
     if database.exists():
@@ -110,4 +111,5 @@ def status(store, identifier, job=None):
             'submission_breakdown':breakdown,'failed_preparations':errors,
             'tournament_completed':report.get('completed',0),'tournament_failed':report.get('failed',0),
             'tournament_total':max(finished+report.get('pending',0),possible),
+            'tournament_pending_available':max(0,available-finished),'tournament_waiting_submissions':max(0,possible-available),
             'preparations':preparations,'waiting_preparations':waiting,'operation':operation if running else {},'active':activity,'last_event':last_event,'observed_at':time.time()}

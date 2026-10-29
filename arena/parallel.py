@@ -158,6 +158,7 @@ def _prepare(tasks, config, out, journal, engine, interrupt=None, on_progress=No
         any(sid not in dispatcher.pending and dispatcher.can_start(sid,model) for sid,model in queue))
     initial_progress=True
     last_retry_progress=0
+    next_idle_progress=0
     try:
         while queue or dispatcher.pending or retry_waiting:
             queue_recoveries()
@@ -192,6 +193,17 @@ def _prepare(tasks, config, out, journal, engine, interrupt=None, on_progress=No
             if initial_progress and on_progress:
                 initial_progress=False
                 on_progress()
+            # Responses can arrive while serialized tools or available fights run.
+            queued={sid for sid,_ in queue}
+            for sid in dispatcher.pending:
+                if dispatcher.ready(sid) and sid not in queued:queue.append((sid,models[sid]))
+            runnable=any(sid not in dispatcher.pending and dispatcher.can_start(sid,model) for sid,model in queue)
+            ready=any(dispatcher.ready(sid) for sid in dispatcher.pending)
+            if on_progress and not runnable and not ready and time.monotonic()>=next_idle_progress and (dispatcher.pending or retry_waiting):
+                # A yielded batch is still pending work. Refill engine workers
+                # while transports wait, rather than waiting for another submission.
+                on_progress()
+                next_idle_progress=time.monotonic()+1
             if not queue and not dispatcher.pending and retry_waiting:
                 if time.monotonic()-last_retry_progress>=1:
                     from .core import write_json
@@ -200,10 +212,6 @@ def _prepare(tasks, config, out, journal, engine, interrupt=None, on_progress=No
                         'participants':list(retry_waiting),'retry_count':len(retry_waiting)})
                     last_retry_progress=time.monotonic()
                 time.sleep(.2)
-            # Responses can arrive while serialized tools or available fights run.
-            queued={sid for sid,_ in queue}
-            for sid in dispatcher.pending:
-                if dispatcher.ready(sid) and sid not in queued:queue.append((sid,models[sid]))
             if not any(dispatcher.ready(sid) for sid in dispatcher.pending) and dispatcher.pending:
                 wait([context['future'] for context in dispatcher.pending.values()],timeout=.2,return_when=FIRST_COMPLETED)
     finally:

@@ -168,7 +168,7 @@ class ParallelRequestsTests(TestCase):
 
     def test_engine_batches_yield_to_a_ready_model_response(self):
         from arena.fight_pool import run as run_fights
-        started=threading.Event();resumed=threading.Event();saved=[];observed=[]
+        started=threading.Event();resumed=threading.Event();drained=threading.Event();saved=[];observed=[]
         value=config()
         with scratch_directory() as root:
             journal=Journal(root)
@@ -180,6 +180,8 @@ class ParallelRequestsTests(TestCase):
                     else:
                         if not resumed.is_set():observed.append(len(saved))
                         resumed.set()
+                        if seen=={'write_file'} and not drained.wait(10):
+                            raise RuntimeError('Yielded fight backlog did not resume during provider wait')
                 tool='write_file' if 'write_file' not in seen else 'analyze' if 'analyze' not in seen else 'submit'
                 args={'path':'main.leek','content':'var v = 1;'} if tool=='write_file' else {}
                 return {'role':'assistant','native':{'role':'assistant','content':''},'tool_calls':[
@@ -188,9 +190,12 @@ class ParallelRequestsTests(TestCase):
                 if not resumed.is_set():
                     started.set();journal.requests.pending['two-r0']['future'].result(timeout=10)
                 return job['seed']
+            def save(job,result):
+                saved.append(result)
+                if len(saved)==100:drained.set()
             def progress():
                 missing=[{'participants':['one-r0','one-r0'],'seed':i} for i in range(100) if i not in saved]
-                run_fights(missing,execute,lambda job,result:saved.append(result),limit=2,out=root,kind='tournament_fight')
+                run_fights(missing,execute,save,limit=2,out=root,kind='tournament_fight')
             try:
                 with mock.patch('arena.api_providers.APIProvider.respond',new=respond):
                     prepare([(m['id']+'-r0',m) for m in value['models']],value,root,journal,CoordinatorEngine(),on_progress=progress)

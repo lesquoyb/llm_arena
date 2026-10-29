@@ -1179,3 +1179,24 @@ Earlier runs incorrectly marked as **API unavailable** after reaching their tool
 limit are finalized on Resume without calling the provider. **Finalize saved
 files** also queues this action directly while the competition runs. It consumes
 no additional model or tool call budget.
+
+### Pending fights during model preparation
+
+A fight batch yields to a ready provider response, then resumes during subsequent
+provider waits. It does not wait for another model to submit before refilling the
+engine workers. Activity details separate unfinished fights between already
+submitted strategies from fixtures awaiting additional submissions.
+
+Completed tournament records are verified once and kept as compact scoring records
+for the lifetime of the coordinator, including across cooperative yields and pool
+extensions. Resume creates a fresh coordinator and fully verifies existing records;
+standalone reports also retain full verification. A failed fixture is retried on
+pool extension or Resume, rather than repeatedly retried on every idle poll.
+
+Tournament outcomes count for both models. Overview totals exclude same-model
+fights and self-play. Fixed references have one sample; generated participants
+have the configured repetitions, so raw model fight totals need not be equal.
+Each ranking row shows its number of submitted strategies. With five models × six
+samples, five fixed references, six combat seeds and self-play enabled, the full
+schedule has 7,350 fights. There are 6,240 cross-model ranked fights, counted as
+12,480 side appearances: 2,088 per generated model and 408 per fixed reference.
