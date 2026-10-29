@@ -126,9 +126,13 @@ def _run_tournament(engine: Engine, manifest: dict, out: Path, resume: bool = Fa
     reference_ids=set(reference_ids or [])
     execution=sorted(matches,key=lambda match:-sum(side in priority_ids for side in match['sides']))
     from .activity import operation, poll_provider_failures, provider_work_ready
-    verification=verification_context(out)
-    known={};completed=set()
     verified_cache=verified_cache if verified_cache is not None else {}
+    context=verified_cache.get('__context__')
+    if context and context['identity']==identity:verification=context['verification']
+    else:
+        verification=verification_context(out)
+        verified_cache['__context__']={'identity':identity,'verification':verification}
+    known={};completed=set()
     def deferred():
         value=read_json(out/'report.json') if (out/'report.json').exists() else {'completed':0,'failed':0,'pending':len(matches)}
         return {**value,'deferred':True}

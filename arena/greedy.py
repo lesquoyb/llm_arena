@@ -25,7 +25,9 @@ def evaluate(engine, config, out, journal, generation=0):
     from .core import digest
     signature=digest({'manifest':manifest,'withdrawn':config.get('_withdrawn_models',[])})
     cached=getattr(journal,'_ready_evaluations',{}).get(generation)
-    if cached and cached[0]==signature:return cached[1]
+    expected=len(ready)*(len(ready)-1)*len(manifest['seeds'])+(len(ready)*len(manifest['seeds']) if manifest['include_mirrors'] else 0)
+    if cached and cached[0]==signature and sum(cached[1].get(key,0) for key in ('completed','failed','pending','cancelled'))==expected:
+        return cached[1]
     if not hasattr(journal,'_verified_tournament_records'):journal._verified_tournament_records={}
     verified_cache=journal._verified_tournament_records.setdefault(str(root),{})
     from .activity import operation

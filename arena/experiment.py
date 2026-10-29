@@ -43,7 +43,7 @@ def validate_config(value: dict) -> dict:
             type(value["schema_version"]) is not int or value["schema_version"] not in (1, 2)):
         raise ArenaError("Unsupported offline experiment schema")
     integer(value.get('parallel_requests',1),1,20,'parallel_requests')
-    integer(value.get('parallel_fights',1),1,16,'parallel_fights')
+    integer(value.get('parallel_fights',1),1,None,'parallel_fights')
     if value.get('request_order','models') not in ('models','repetitions'):raise ArenaError('Request order must be models or repetitions')
     if type(value.get('compare_previous_round',False)) is not bool:raise ArenaError('compare_previous_round must be boolean')
     spending = value["spending"]
@@ -913,6 +913,9 @@ def run(config: dict, out: Path, resume=False, interrupt=None, prepare_only=Fals
             tasks=[(f"{model['id']}-r{replicate}",model) for model in config['models']
                    for replicate in range(repetitions(config,model)) if active(config,model) and (not retry_session or f"{model['id']}-r{replicate}"==retry_session)]
             prepare(tasks,config,out,journal,engine,interrupt,lambda:evaluate_ready(engine,config,out,journal))
+            # Drain every fixture supported by frozen submissions before slower
+            # final compiler assessments, even if another participant failed.
+            tournament = evaluate_ready(engine, config, out, journal)
             states = {sid: state for sid, state in journal.states().items() if state.get("generation", 0) == 0 and active(config,state)}
             assessments = {}
             for sid, state in states.items():
@@ -937,7 +940,6 @@ def run(config: dict, out: Path, resume=False, interrupt=None, prepare_only=Fals
             entrants = [{"id": sid, "model": state["model"], "replicate": state["replicate"],
                          "path": str(out / "sessions" / sid / "submission"), "submission": state["submission"]}
                         for sid, state in states.items() if "submission" in state]
-            tournament = evaluate_ready(engine, config, out, journal)
             simulated = all(m["provider"] == "mock" for m in config["models"])
             summary = {"simulated": simulated, "generation": 0, "sessions": len(states),
                        "with_submission": len(entrants),

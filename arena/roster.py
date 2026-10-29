@@ -80,7 +80,7 @@ def update(out, journal, original, catalog, selected, frozen_tracks=None, compar
     if type(compare_previous_round) is not bool:raise ArenaError('Previous-round comparison must be boolean')
     if parallel_fights is None:parallel_fights=(previous or {}).get('parallel_fights',original.get('parallel_fights',1))
     from .core import integer
-    integer(parallel_fights,1,16,'parallel_fights')
+    integer(parallel_fights,1,None,'parallel_fights')
     if request_order is None:request_order=(previous or {}).get('request_order',original.get('request_order','models'))
     if request_order not in ('models','repetitions'):raise ArenaError('Request order must be models or repetitions')
     if parallel_requests is None:parallel_requests=(previous or {}).get('parallel_requests',original.get('parallel_requests',1))

@@ -8,6 +8,16 @@ from arena.reference_strategies import repetitions
 
 
 class FightPoolTests(unittest.TestCase):
+    def test_fight_concurrency_has_no_arbitrary_upper_bound(self):
+        from arena.core import ROOT, ArenaError, read_json
+        from arena.experiment import validate_config
+        value=read_json(ROOT/'configs/offline-complete.json')
+        for workers in (17,50,256):
+            value['parallel_fights']=workers;validate_config(value)
+        for workers in (0,-1,True,1.5,'50'):
+            value['parallel_fights']=workers
+            with self.assertRaises(ArenaError):validate_config(value)
+
     def test_workers_overlap_and_save_on_coordinator(self):
         barrier=threading.Barrier(3)
         coordinator=threading.get_ident()

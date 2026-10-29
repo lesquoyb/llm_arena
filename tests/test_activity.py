@@ -69,6 +69,26 @@ class ActivityTests(unittest.TestCase):
             self.assertEqual(value['tournament_waiting_submissions'],expected-available)
             self.assertEqual(sum(row['expected'] for row in value['submission_breakdown'] if row['fixed']),5)
 
+    def test_missing_records_are_pending_even_when_saved_report_says_zero(self):
+        from arena.tournament import schedule
+        with scratch_directory() as root:
+            store=Store(root/'runs',root/'settings');out=store.runs/'run';out.mkdir()
+            config=read_json(ROOT/'configs/offline-complete.json')
+            write_json(out/'experiment.json',{'config':config})
+            journal=Journal(out);sources=[]
+            with closing(journal.db):
+                for model in config['models']:
+                    sid=model['id']+'-r0';state=initial_state(sid,model,config)
+                    state.update(status='submitted',submission={'entrypoint':'main.leek'})
+                    sources.append({'id':sid,'model':model['id']});journal.save(sid,state,'fixture')
+            planned=schedule({'strategies':sources,'seeds':config['seeds'],'include_mirrors':config['include_mirrors']})
+            write_json(out/'tournament/experiment.json',{'manifest':{'strategies':sources},'schedule':planned})
+            write_json(out/'tournament/records'/(planned[0]['id']+'.json'),{'match':planned[0],'result':{'status':'completed'}})
+            write_json(out/'tournament/report.json',{'completed':1,'failed':0,'pending':0})
+            value=status(store,'run')
+            self.assertEqual(value['tournament_pending_available'],len(planned)-1)
+            self.assertEqual(value['tournament_unscheduled_available'],0)
+
     def test_transient_operation_closes_even_when_worker_raises(self):
         with scratch_directory() as root:
             with self.assertRaisesRegex(RuntimeError,'interrupted'):

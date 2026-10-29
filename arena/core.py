@@ -170,9 +170,10 @@ def copy_submission(source: Path, target: Path, expected: dict):
         dest.write_bytes(content)
 
 
-def integer(value, low: int, high: int, label: str):
-    if type(value) is not int or not low <= value <= high:
-        raise ArenaError(f"{label} must be an integer in [{low}, {high}]")
+def integer(value, low: int, high: int | None, label: str):
+    if type(value) is not int or value < low or (high is not None and value > high):
+        bounds=f"in [{low}, {high}]" if high is not None else f"at least {low}"
+        raise ArenaError(f"{label} must be an integer {bounds}")
 
 
 def validate_scenario(config: dict):

@@ -57,6 +57,12 @@ def status(store, identifier, job=None):
     seeds=config.get('seeds',[]) if generation==0 else config.get('final_seeds',[])
     possible=expected*(expected-1)*len(seeds)+(expected*len(seeds) if config.get('include_mirrors') else 0)
     available=ready*(ready-1)*len(seeds)+(ready*len(seeds) if config.get('include_mirrors') else 0)
+    planning=store.json(tournament/'experiment.json',{})
+    planned_models={source['id']:source.get('model',source['id']) for source in planning.get('manifest',{}).get('strategies',[])}
+    planned=[match for match in planning.get('schedule',[]) if not any(planned_models.get(side) in withdrawn for side in match['sides'])]
+    recorded={path.stem for path in (tournament/'records').glob('*.json')}
+    unrecorded=sum(match['id'] not in recorded for match in planned)
+    unscheduled=max(0,available-len(planned))
     last_event=None
     database=root/'journal.sqlite'
     if database.exists():
@@ -111,5 +117,7 @@ def status(store, identifier, job=None):
             'submission_breakdown':breakdown,'failed_preparations':errors,
             'tournament_completed':report.get('completed',0),'tournament_failed':report.get('failed',0),
             'tournament_total':max(finished+report.get('pending',0),possible),
-            'tournament_pending_available':max(0,available-finished),'tournament_waiting_submissions':max(0,possible-available),
+            'tournament_pending_available':unrecorded+unscheduled,'tournament_waiting_submissions':max(0,possible-available),
+            'tournament_scheduled':len(planned),'tournament_unscheduled_available':unscheduled,
+            'tournament_planned_submissions':sum(model not in withdrawn for model in planned_models.values()),
             'preparations':preparations,'waiting_preparations':waiting,'operation':operation if running else {},'active':activity,'last_event':last_event,'observed_at':time.time()}

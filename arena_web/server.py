@@ -82,6 +82,9 @@ class Application:
             return store.match_source(run,value('path'),int(value('side','0')),value('file'))
         if route == '/api/match/sources':
             return {'sources':store.match_sources(run,value('path'))}
+        if route == '/api/schedule-audit':
+            from .schedule_audit import audit
+            return audit(store,run,int(value('generation')) if value('generation') is not None else None)
         if route == '/api/activity':
             from .activity import status
             job=next((job for job in self.jobs.listing() if job['run']==run),None)

@@ -998,7 +998,7 @@ Click a session to open its conversation directly. Finished preparation means a
 strategy has been frozen; tournament fight progress is shown separately. Repeated
 runs and feedback tracks have distinct links. These lists refresh with live mode.
 
-**Simultaneous fights** controls independent engine workers (1–16), separately from
+**Simultaneous fights** controls independent engine workers (any positive integer), separately from
 parallel model requests. New competition forms start at 2; configurations without
 this field retain sequential execution. Ranked, fixed-baseline and previous-round
 fights use the setting. Preparation tool calls remain coordinated. Each worker
@@ -1200,3 +1200,22 @@ Each ranking row shows its number of submitted strategies. With five models × s
 samples, five fixed references, six combat seeds and self-play enabled, the full
 schedule has 7,350 fights. There are 6,240 cross-model ranked fights, counted as
 12,480 side appearances: 2,088 per generated model and 408 per fixed reference.
+
+### Schedule reconciliation
+
+The number of unfinished available fights is computed from the frozen schedule
+and result files, including available fixtures not yet registered in the schedule.
+It does not rely on an earlier report's `pending` counter. The last scored fight
+batch runs before final submission compiler assessments, including when another
+conversation failed. All frozen submissions enter the pool regardless of whether
+they were submitted explicitly or frozen automatically after reaching limits.
+
+**More > Copy scheduling diagnostics** compares submitted snapshots, scheduled
+fixtures and saved result records for the displayed round. It includes actual
+result statuses, missing fixture counts, per-model ranked appearances and the
+unfinished conversations. It contains no API keys, prompts or generated source.
+This distinguishes missing scheduling from missing results and stale counters.
+
+**Simultaneous fights** has no arbitrary upper cap. Set any positive integer in
+competition creation or **More > Execution & metrics**. The default is unchanged;
+workers are created as work becomes available, up to the selected concurrency.
