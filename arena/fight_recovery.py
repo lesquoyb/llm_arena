@@ -71,6 +71,7 @@ def run(directory, *, engine=None, journal=None, cooperative=False):
                     from .preparation import Preparation
                     target=Preparation._attempt(work)
                     pending_jobs[str(path)]={'record':record,'record_path':path,'infos':infos,'source':work,'work':target,
+                                 'generation':states.get(sid,{}).get('generation',int(root.name.split('-')[0][1:])),
                                  'seed':record['seed'],'participants':[sid,record['opponent']]}
             jobs=list(pending_jobs.values())
             def execute(job):
@@ -96,7 +97,10 @@ def run(directory, *, engine=None, journal=None, cooperative=False):
                 base=job.get('_attempt_base',job['work'])
                 return {**job,'work':Preparation._attempt(base),'_attempt_base':base}
             from .fight_pool import run as run_fights
-            run_fights(jobs,execute,save,limit=parallel_fights,out=out,kind='reference_fight',retry=retry)
+            for generation in sorted({job['generation'] for job in jobs}):
+                run_fights([job for job in jobs if job['generation']==generation],execute,save,
+                           limit=parallel_fights,out=out,kind='reference_fight',generation=generation,retry=retry)
+                if provider_work_ready():break
             if provider_work_ready():return {'deferred':True,'no_model_requests':True,'remaining_failed':0}
             if cooperative:
                 if pending_jobs or getattr(journal,'_fight_retry_epoch',0)!=initial_retry_epoch:return {'deferred':True}

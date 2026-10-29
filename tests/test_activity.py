@@ -11,6 +11,24 @@ from arena_web.activity import status
 
 
 class ActivityTests(unittest.TestCase):
+    def test_historical_fights_do_not_reset_competition_round(self):
+        with scratch_directory() as root:
+            store=Store(root/'runs',root/'settings');out=store.runs/'run';out.mkdir()
+            config=read_json(ROOT/'configs/offline-complete.json')
+            write_json(out/'experiment.json',{'config':config})
+            journal=Journal(out)
+            with closing(journal.db):
+                model=config['models'][0]
+                sid=model['id']+'-r0-g1-feedback'
+                state=initial_state(sid,model,config)
+                state.update(generation=1,condition='feedback',status='submitted',submission={'entrypoint':'main.leek'})
+                journal.save(sid,state,'fixture')
+            with operation(out,'reference_fight',generation=0):
+                value=status(store,'run',{'status':'running','started_at':0})
+                self.assertEqual(value['round'],2)
+                self.assertEqual(value['work_round'],1)
+                self.assertEqual(value['strategies_ready'],1)
+
     def test_withdrawn_unsubmitted_models_do_not_inflate_round_progress(self):
         with scratch_directory() as root:
             store=Store(root/'runs',root/'settings');out=store.runs/'run';out.mkdir()

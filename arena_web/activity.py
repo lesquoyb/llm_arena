@@ -1,5 +1,4 @@
 """Bounded live progress reads: no conversations or replay bodies are loaded."""
-import re
 import time
 from arena.roster import effective, snapshot
 from arena.fight_throughput import rate
@@ -33,13 +32,9 @@ def status(store, identifier, job=None):
     if operation.get('started_at',0)<(job or {}).get('started_at',0):operation={}
     busy=operation.get('kind') not in {None,'idle','starting'}
     generation=max((state.get('generation',0) for state in states.values()),default=0)
-    # A coordinator may still evaluate the preceding round while later branch
-    # checkpoints already exist. Prefer its explicit work item in that case.
-    if busy:
-        if 'generation' in operation:generation=operation['generation']
-        elif operation.get('participants'):
-            match=re.search(r'-g(\d+)-(?:control|feedback)$',operation['participants'][0])
-            generation=int(match[1]) if match else 0
+    # Competition progress follows saved sessions; historical engine work has
+    # its own round and must not move the progress counters backwards.
+    work_generation=operation.get('generation') if busy else None
     current={sid:state for sid,state in states.items() if state.get('generation',0)==generation}
     multiplier=len(config.get('improvement_conditions',['control','feedback'])) if generation else 1
     from arena.reference_strategies import repetitions
@@ -125,7 +120,7 @@ def status(store, identifier, job=None):
     waiting=[item for item in waiting if item['count']]
     return {'labels':{sid:{'model':state['model'],'round':state.get('generation',0)+1,'condition':state.get('condition','initial'),'replicate':state.get('replicate',0)} for sid,state in states.items()}, 'running':running,'job_status':(job or {}).get('status'),'job_note':(job or {}).get('note'),
             'requested_parallel_fights':store.json(root/'execution-control.json',{}).get('parallel_fights',roster.get('parallel_fights',config.get('parallel_fights',1))),
-            'parallel_requests':roster.get('parallel_requests',config.get('parallel_requests',1)),'round':generation+1,'rounds':config.get('generations',1),'participants':len(models),
+            'parallel_requests':roster.get('parallel_requests',config.get('parallel_requests',1)),'round':generation+1,'work_round':work_generation+1 if work_generation is not None else None,'rounds':config.get('generations',1),'participants':len(models),
             'withdrawn':len(withdrawn),'ready_participants':ready_models,'strategies_ready':ready,
             'strategies_expected':expected,'strategies_validated':assessed,'strategies_checked':assessed,
             'strategies_valid':valid,'strategies_invalid':invalid,'strategies_awaiting_check':ready-assessed,
