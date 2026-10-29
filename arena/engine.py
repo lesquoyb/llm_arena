@@ -174,13 +174,6 @@ class Engine:
         self.identity["build_rules_sha256"] = digest({name: file_hash(ROOT / 'docs/corpus' / name)
             for name in ('stat-rules.json', 'component-rules.json')})
         self.identity["platform"] = platform.platform()
-        profile = os.environ.get("ARENA_JVM_PROFILE", "startup")
-        if profile not in {"startup", "full"}:
-            raise ArenaError("ARENA_JVM_PROFILE must be startup or full")
-        self.worker_options = ["-Xmx512m", "-Dfile.encoding=UTF-8"]
-        if profile == "startup":
-            self.worker_options.append("-XX:TieredStopAtLevel=1")
-        self.identity["worker_jvm_profile"] = profile
         self.backend = os.environ.get("ARENA_WORKER_BACKEND", "process")
         self.worker_image = os.environ.get("ARENA_WORKER_IMAGE")
         if self.backend not in {"process", "docker"}:
@@ -194,13 +187,17 @@ class Engine:
         available=(Path(self.metadata['classes'])/'arena/bridge/ArenaWorker.class').is_file()
         self._jvm_pool=None
         self.identity['worker_execution']='pooled-classloader' if mode=='pooled' and available and self.backend=='process' else 'isolated'
+        from .jvm_options import settings
+        profile,self.worker_options,recycle=settings(self.identity['worker_execution']=='pooled-classloader')
+        self.identity.update(worker_jvm_profile=profile,worker_jvm_options=self.worker_options,
+                             worker_jvm_recycle_matches=recycle if self.identity['worker_execution']=='pooled-classloader' else None)
         if self.identity['worker_execution']=='pooled-classloader':
             from .jvm_pool import Pool
-            self._jvm_pool=Pool(self)
+            self._jvm_pool=Pool(self,recycle=recycle)
         self.scientific_identity = {k: v for k, v in self.identity.items()
-                                    if k not in {"java_version", "python_version", "platform", "jar_sha256", "bridge_sha256", "worker_execution", "worker_transport_sha256"}}
+                                    if k not in {"java_version", "python_version", "platform", "jar_sha256", "bridge_sha256", "worker_execution", "worker_transport_sha256", "worker_jvm_profile", "worker_jvm_options", "worker_jvm_recycle_matches"}}
         self.artifact_provenance = {k: self.identity[k] for k in ("jar_sha256", "bridge_sha256")}
-        self.runtime_provenance = {k: self.identity[k] for k in ("java_version", "python_version", "platform")}
+        self.runtime_provenance = {k: self.identity[k] for k in ("java_version", "python_version", "platform", "worker_jvm_profile", "worker_jvm_options", "worker_jvm_recycle_matches", "worker_execution")}
 
     def close(self):
         if getattr(self,'_jvm_pool',None):self._jvm_pool.close()

@@ -54,8 +54,11 @@ class Worker:
 
     def wait(self, expected, deadline, work, timeout):
         from .engine import OUTPUT_LIMIT, WorkerOutputLimit
+        def oversized(path):
+            try:return path.stat().st_size>OUTPUT_LIMIT
+            except FileNotFoundError:return False  # The next request removes the previous outcome.
         while True:
-            if any(path.is_file() and path.stat().st_size>OUTPUT_LIMIT for path in (work/'stdout.log',work/'stderr.log',self.root/'outcome.json')):
+            if any(oversized(path) for path in (work/'stdout.log',work/'stderr.log',self.root/'outcome.json')):
                 raise WorkerOutputLimit('Worker output exceeded 8 MB per file')
             remaining=deadline-time.monotonic()
             if remaining<=0:raise subprocess.TimeoutExpired('pooled JVM fight',timeout)

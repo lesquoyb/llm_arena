@@ -81,9 +81,13 @@ runtime and the match work directory. Backend and image identity are recorded;
 do not switch them when resuming. Docker image construction is a Linux tool.
 Rebuild the image if it is absent in a new environment.
 
-Workers use a shared JVM startup profile (tier 1 compilation) for short processes.
-`ARENA_JVM_PROFILE=full` restores full HotSpot compilation. The profile is recorded
-and cannot change on resume; timings from different profiles are not merged.
+Native pooled workers use the measured `throughput` preset (Serial GC, 32 MiB
+initial heap, C1 JIT). Isolated workers keep the previous `startup` preset.
+`ARENA_JVM_PROFILE=optimizing` enables full JIT with bounded compiler threads;
+`full` uses the previous full HotSpot defaults. `ARENA_JVM_RECYCLE_MATCHES` sets the
+positive request count before recycling a pooled JVM (default 32). Actual options
+are recorded as runtime provenance; tuning can change on resume without replacing
+the game engine. See [JVM measurements and reproduction](performance/jvm-tuning.md).
 
 ## Installation paths
 

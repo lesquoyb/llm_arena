@@ -5,7 +5,8 @@ from .usage import amount
 
 def engine_compatible(previous, current):
     # Application updates and host runtime changes do not replace the game engine.
-    ignored = {'runner_sha256', 'java_version', 'python_version', 'platform', 'worker_execution', 'worker_transport_sha256'}
+    ignored = {'runner_sha256', 'java_version', 'python_version', 'platform', 'worker_execution', 'worker_transport_sha256',
+               'worker_jvm_profile', 'worker_jvm_options', 'worker_jvm_recycle_matches'}
     # An added JVM transport changes the bridge directory hash, while the game
     # adapter, pinned jar and build overlay remain byte-for-byte unchanged.
     if (previous.get('adapter_sha256') and previous.get('adapter_sha256')==current.get('adapter_sha256')

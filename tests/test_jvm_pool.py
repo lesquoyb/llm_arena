@@ -7,6 +7,11 @@ from arena.core import ROOT
 from arena.engine import Engine
 from arena.jvm_pool import Pool
 import subprocess
+import queue
+import time
+from types import SimpleNamespace
+from unittest.mock import patch
+from arena.jvm_pool import Worker
 
 
 @unittest.skipUnless(shutil.which('java') and shutil.which('javac'),'JDK required')
@@ -63,3 +68,13 @@ public class ArenaMain {
         self.assertEqual(stopped['status'],'timeout')
         self.assertEqual(recovered['status'],'completed')
         self.assertFalse(recovered['timings']['jvm_reused'])
+
+
+class JVMMonitorTests(unittest.TestCase):
+    def test_previous_outcome_can_disappear_between_monitor_checks(self):
+        worker=object.__new__(Worker);worker.root=Path('/unused-slot')
+        worker.messages=queue.Queue();worker.messages.put('DONE')
+        worker.process=SimpleNamespace(poll=lambda:None)
+        # Simulate Java removing the previous request's outcome while polling.
+        with patch('pathlib.Path.is_file',return_value=True),patch('pathlib.Path.stat',side_effect=FileNotFoundError):
+            self.assertTrue(worker.wait('DONE',time.monotonic()+1,Path('/unused-job'),1))

@@ -1,0 +1,474 @@
+{
+  "engine_commit": "b99a174dd938260d9e47b2e65a208cb32230e26e",
+  "leekscript_commit": "8152f399faf7b418bbc5b2216d755c3822cda23b",
+  "java": "Oracle HotSpot 25.0.5.0.3",
+  "host": "Linux x86-64, 5 visible logical CPUs, cgroup CPU quota 4 cores",
+  "notes": "Direct real engine execution; no replay-cache hits. Every profile produced the same replays and deterministic team metrics for each seed. RSS is the total retained JVM resident memory after the last fight, not a sampled peak. Timings include cold starts.",
+  "results": [
+    {
+      "case": "short",
+      "profile": "startup",
+      "flags": [
+        "-Xmx512m",
+        "-Dfile.encoding=UTF-8",
+        "-XX:TieredStopAtLevel=1"
+      ],
+      "workers": 1,
+      "recycle": 256,
+      "matches": 12,
+      "wall_seconds": 10.393313877983019,
+      "matches_per_minute": 69.27530607203474,
+      "first_seconds": 2.4359405279974453,
+      "last_half_mean_seconds": 0.7545948758343002,
+      "python_cpu_seconds": 0.16331359,
+      "java_cpu_seconds": 13.56,
+      "worker_rss_bytes": 347201536,
+      "turns": [
+        8,
+        8,
+        8
+      ],
+      "replays_match": true
+    },
+    {
+      "case": "short",
+      "profile": "full",
+      "flags": [
+        "-Xmx512m",
+        "-Dfile.encoding=UTF-8"
+      ],
+      "workers": 1,
+      "recycle": 256,
+      "matches": 12,
+      "wall_seconds": 9.691996009001741,
+      "matches_per_minute": 74.28810322778483,
+      "first_seconds": 2.252346597990254,
+      "last_half_mean_seconds": 0.5086594273307128,
+      "python_cpu_seconds": 0.16106063699999995,
+      "java_cpu_seconds": 23.39,
+      "worker_rss_bytes": 416129024,
+      "turns": [
+        8,
+        8,
+        8
+      ],
+      "replays_match": true
+    },
+    {
+      "case": "short",
+      "profile": "serial",
+      "flags": [
+        "-Xmx512m",
+        "-Dfile.encoding=UTF-8",
+        "-XX:+UseSerialGC",
+        "-XX:CICompilerCount=2"
+      ],
+      "workers": 1,
+      "recycle": 256,
+      "matches": 12,
+      "wall_seconds": 8.676608123991173,
+      "matches_per_minute": 82.98173545595206,
+      "first_seconds": 1.6018982180103194,
+      "last_half_mean_seconds": 0.5826743763318518,
+      "python_cpu_seconds": 0.18429937799999996,
+      "java_cpu_seconds": 17.59,
+      "worker_rss_bytes": 493301760,
+      "turns": [
+        8,
+        8,
+        8
+      ],
+      "replays_match": true
+    },
+    {
+      "case": "short",
+      "profile": "parallel",
+      "flags": [
+        "-Xmx512m",
+        "-Dfile.encoding=UTF-8",
+        "-XX:+UseParallelGC",
+        "-XX:ParallelGCThreads=1",
+        "-XX:CICompilerCount=2"
+      ],
+      "workers": 1,
+      "recycle": 256,
+      "matches": 12,
+      "wall_seconds": 7.641920900001423,
+      "matches_per_minute": 94.21714898931575,
+      "first_seconds": 1.5816763199982233,
+      "last_half_mean_seconds": 0.5081161954973746,
+      "python_cpu_seconds": 0.18032257299999999,
+      "java_cpu_seconds": 15.89,
+      "worker_rss_bytes": 485552128,
+      "turns": [
+        8,
+        8,
+        8
+      ],
+      "replays_match": true
+    },
+    {
+      "case": "short",
+      "profile": "c1-serial",
+      "flags": [
+        "-Xmx512m",
+        "-Dfile.encoding=UTF-8",
+        "-XX:TieredStopAtLevel=1",
+        "-XX:+UseSerialGC"
+      ],
+      "workers": 1,
+      "recycle": 256,
+      "matches": 12,
+      "wall_seconds": 7.405028191016754,
+      "matches_per_minute": 97.23123010840824,
+      "first_seconds": 1.2375742889998946,
+      "last_half_mean_seconds": 0.5358685728327449,
+      "python_cpu_seconds": 0.15817008100000007,
+      "java_cpu_seconds": 9.26,
+      "worker_rss_bytes": 471257088,
+      "turns": [
+        8,
+        8,
+        8
+      ],
+      "replays_match": true
+    },
+    {
+      "case": "long",
+      "profile": "startup",
+      "flags": [
+        "-Xmx512m",
+        "-Dfile.encoding=UTF-8",
+        "-XX:TieredStopAtLevel=1"
+      ],
+      "workers": 1,
+      "recycle": 256,
+      "matches": 12,
+      "wall_seconds": 6.177718418999575,
+      "matches_per_minute": 116.54788243271817,
+      "first_seconds": 1.0681079239875544,
+      "last_half_mean_seconds": 0.46057152465800755,
+      "python_cpu_seconds": 0.2940483640000001,
+      "java_cpu_seconds": 8.19,
+      "worker_rss_bytes": 444669952,
+      "turns": [
+        1000,
+        1000,
+        1000
+      ],
+      "replays_match": true
+    },
+    {
+      "case": "long",
+      "profile": "full",
+      "flags": [
+        "-Xmx512m",
+        "-Dfile.encoding=UTF-8"
+      ],
+      "workers": 1,
+      "recycle": 256,
+      "matches": 12,
+      "wall_seconds": 7.481069256988121,
+      "matches_per_minute": 96.24292668156264,
+      "first_seconds": 1.4012573419895489,
+      "last_half_mean_seconds": 0.464289709329023,
+      "python_cpu_seconds": 0.3198911419999999,
+      "java_cpu_seconds": 18.68,
+      "worker_rss_bytes": 412262400,
+      "turns": [
+        1000,
+        1000,
+        1000
+      ],
+      "replays_match": true
+    },
+    {
+      "case": "long",
+      "profile": "serial",
+      "flags": [
+        "-Xmx512m",
+        "-Dfile.encoding=UTF-8",
+        "-XX:+UseSerialGC",
+        "-XX:CICompilerCount=2"
+      ],
+      "workers": 1,
+      "recycle": 256,
+      "matches": 12,
+      "wall_seconds": 7.444939500011969,
+      "matches_per_minute": 96.70998669617697,
+      "first_seconds": 1.5270539780030958,
+      "last_half_mean_seconds": 0.4754490964987781,
+      "python_cpu_seconds": 0.4154475510000002,
+      "java_cpu_seconds": 14.87,
+      "worker_rss_bytes": 446181376,
+      "turns": [
+        1000,
+        1000,
+        1000
+      ],
+      "replays_match": true
+    },
+    {
+      "case": "long",
+      "profile": "parallel",
+      "flags": [
+        "-Xmx512m",
+        "-Dfile.encoding=UTF-8",
+        "-XX:+UseParallelGC",
+        "-XX:ParallelGCThreads=1",
+        "-XX:CICompilerCount=2"
+      ],
+      "workers": 1,
+      "recycle": 256,
+      "matches": 12,
+      "wall_seconds": 6.95148688001791,
+      "matches_per_minute": 103.57496351890474,
+      "first_seconds": 1.3160717620048672,
+      "last_half_mean_seconds": 0.4894130590109853,
+      "python_cpu_seconds": 0.35705827899999987,
+      "java_cpu_seconds": 13.89,
+      "worker_rss_bytes": 437301248,
+      "turns": [
+        1000,
+        1000,
+        1000
+      ],
+      "replays_match": true
+    },
+    {
+      "case": "long",
+      "profile": "c1-serial",
+      "flags": [
+        "-Xmx512m",
+        "-Dfile.encoding=UTF-8",
+        "-XX:TieredStopAtLevel=1",
+        "-XX:+UseSerialGC"
+      ],
+      "workers": 1,
+      "recycle": 256,
+      "matches": 12,
+      "wall_seconds": 5.967574069014518,
+      "matches_per_minute": 120.652042467049,
+      "first_seconds": 1.0673883150157053,
+      "last_half_mean_seconds": 0.40712852649933967,
+      "python_cpu_seconds": 0.2798288760000003,
+      "java_cpu_seconds": 7.65,
+      "worker_rss_bytes": 403963904,
+      "turns": [
+        1000,
+        1000,
+        1000
+      ],
+      "replays_match": true
+    },
+    {
+      "case": "compute",
+      "profile": "startup",
+      "flags": [
+        "-Xmx512m",
+        "-Dfile.encoding=UTF-8",
+        "-XX:TieredStopAtLevel=1"
+      ],
+      "workers": 4,
+      "recycle": 256,
+      "matches": 48,
+      "wall_seconds": 12.380005664977944,
+      "matches_per_minute": 232.63317303216525,
+      "first_seconds": 3.05846059898613,
+      "last_half_mean_seconds": 0.7606039477517091,
+      "python_cpu_seconds": 0.770999211,
+      "java_cpu_seconds": 47.57,
+      "worker_rss_bytes": 1541922816,
+      "turns": [
+        6,
+        6,
+        7
+      ],
+      "replays_match": true
+    },
+    {
+      "case": "compute",
+      "profile": "full",
+      "flags": [
+        "-Xmx512m",
+        "-Dfile.encoding=UTF-8"
+      ],
+      "workers": 4,
+      "recycle": 256,
+      "matches": 48,
+      "wall_seconds": 25.285613540007034,
+      "matches_per_minute": 113.89875889083127,
+      "first_seconds": 4.903994890017202,
+      "last_half_mean_seconds": 1.8159595257517747,
+      "python_cpu_seconds": 1.2037133260000004,
+      "java_cpu_seconds": 99.12,
+      "worker_rss_bytes": 2235109376,
+      "turns": [
+        6,
+        6,
+        7
+      ],
+      "replays_match": true
+    },
+    {
+      "case": "compute",
+      "profile": "serial-xms",
+      "flags": [
+        "-Xmx512m",
+        "-Dfile.encoding=UTF-8",
+        "-Xms32m",
+        "-XX:+UseSerialGC",
+        "-XX:CICompilerCount=2"
+      ],
+      "workers": 4,
+      "recycle": 256,
+      "matches": 48,
+      "wall_seconds": 20.495703458000207,
+      "matches_per_minute": 140.5172555263446,
+      "first_seconds": 4.185357976995874,
+      "last_half_mean_seconds": 1.281363823164914,
+      "python_cpu_seconds": 1.46352195,
+      "java_cpu_seconds": 79.32,
+      "worker_rss_bytes": 1368899584,
+      "turns": [
+        6,
+        6,
+        7
+      ],
+      "replays_match": true
+    },
+    {
+      "case": "compute",
+      "profile": "c1-serial",
+      "flags": [
+        "-Xmx512m",
+        "-Dfile.encoding=UTF-8",
+        "-XX:TieredStopAtLevel=1",
+        "-XX:+UseSerialGC"
+      ],
+      "workers": 4,
+      "recycle": 256,
+      "matches": 48,
+      "wall_seconds": 10.484788761998061,
+      "matches_per_minute": 274.68364555311894,
+      "first_seconds": 2.4338744540000334,
+      "last_half_mean_seconds": 0.6858621042059289,
+      "python_cpu_seconds": 0.8645316710000004,
+      "java_cpu_seconds": 39.64,
+      "worker_rss_bytes": 1656168448,
+      "turns": [
+        6,
+        6,
+        7
+      ],
+      "replays_match": true
+    },
+    {
+      "case": "compute",
+      "profile": "c1-serial-xms",
+      "flags": [
+        "-Xmx512m",
+        "-Dfile.encoding=UTF-8",
+        "-Xms32m",
+        "-XX:TieredStopAtLevel=1",
+        "-XX:+UseSerialGC"
+      ],
+      "workers": 4,
+      "recycle": 256,
+      "matches": 48,
+      "wall_seconds": 10.873129121988313,
+      "matches_per_minute": 264.8731535962252,
+      "first_seconds": 2.4799665789760184,
+      "last_half_mean_seconds": 0.6674054268733016,
+      "python_cpu_seconds": 1.038853327,
+      "java_cpu_seconds": 41.370000000000005,
+      "worker_rss_bytes": 1242193920,
+      "turns": [
+        6,
+        6,
+        7
+      ],
+      "replays_match": true
+    }
+  ],
+  "recycle_comparison": {
+    "32": {
+      "matches_per_profile": 40,
+      "workers": 1,
+      "recycle_matches": 32,
+      "workload": "mixed",
+      "cpu_count": 5,
+      "profiles": [
+        {
+          "profile": "throughput",
+          "flags": [
+            "-Xmx512m",
+            "-Dfile.encoding=UTF-8",
+            "-Xms32m",
+            "-XX:+UseSerialGC",
+            "-XX:TieredStopAtLevel=1"
+          ],
+          "matches": 40,
+          "wall_seconds": 24.74018706899369,
+          "matches_per_minute": 97.00815896448354,
+          "mean_fight_seconds": 0.6071513948016218,
+          "python_cpu_seconds": 0.703804475,
+          "java_cpu_seconds": 29.73,
+          "sampled_peak_rss_bytes": 600842240,
+          "jvm_starts": 2,
+          "replays_match": true,
+          "java_version": "java version \"25.0.5.0.3\" 2026-10-25 LTS\nJava(TM) SE Runtime Environment (build 25.0.5.0.3+1-LTS-2)\nJava HotSpot(TM) 64-Bit Server VM (build 25.0.5.0.3+1-LTS-2, mixed mode, sharing)"
+        },
+        {
+          "profile": "startup",
+          "flags": [
+            "-Xmx512m",
+            "-Dfile.encoding=UTF-8",
+            "-XX:TieredStopAtLevel=1"
+          ],
+          "matches": 40,
+          "wall_seconds": 27.43950109902653,
+          "matches_per_minute": 87.4651471008394,
+          "mean_fight_seconds": 0.6743366228554806,
+          "python_cpu_seconds": 0.9545411349999999,
+          "java_cpu_seconds": 34.49,
+          "sampled_peak_rss_bytes": 665464832,
+          "jvm_starts": 2,
+          "replays_match": true,
+          "java_version": "java version \"25.0.5.0.3\" 2026-10-25 LTS\nJava(TM) SE Runtime Environment (build 25.0.5.0.3+1-LTS-2)\nJava HotSpot(TM) 64-Bit Server VM (build 25.0.5.0.3+1-LTS-2, mixed mode, sharing)"
+        }
+      ],
+      "notes": "Engine only. Direct execution bypasses the reference replay cache. Cold starts are included. Peak RSS is sampled after completed fights."
+    },
+    "256": {
+      "matches_per_profile": 40,
+      "workers": 1,
+      "recycle_matches": 256,
+      "workload": "mixed",
+      "cpu_count": 5,
+      "profiles": [
+        {
+          "profile": "throughput",
+          "flags": [
+            "-Xmx512m",
+            "-Dfile.encoding=UTF-8",
+            "-Xms32m",
+            "-XX:+UseSerialGC",
+            "-XX:TieredStopAtLevel=1"
+          ],
+          "matches": 40,
+          "wall_seconds": 26.73921960601001,
+          "matches_per_minute": 89.75579823805205,
+          "mean_fight_seconds": 0.6575088080709974,
+          "python_cpu_seconds": 0.668959101,
+          "java_cpu_seconds": 30.939999999999998,
+          "sampled_peak_rss_bytes": 774721536,
+          "jvm_starts": 1,
+          "replays_match": true,
+          "java_version": "java version \"25.0.5.0.3\" 2026-10-25 LTS\nJava(TM) SE Runtime Environment (build 25.0.5.0.3+1-LTS-2)\nJava HotSpot(TM) 64-Bit Server VM (build 25.0.5.0.3+1-LTS-2, mixed mode, sharing)"
+        }
+      ],
+      "notes": "Engine only. Direct execution bypasses the reference replay cache. Cold starts are included. Peak RSS is sampled after completed fights."
+    }
+  }
+}

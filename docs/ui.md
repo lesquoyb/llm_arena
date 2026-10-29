@@ -1296,7 +1296,7 @@ previous implementation for comparisons.
 
 Every request has fresh game/compiler classes, source directories, metrics and
 registers. Pinned static data are copied once per JVM. Slots recycle after 32
-requests and close after 30 seconds idle. A timeout destroys the affected slot;
+requests by default (`ARENA_JVM_RECYCLE_MATCHES` can override this) and close after 30 seconds idle. A timeout destroys the affected slot;
 the next request starts a new JVM. Experiment shutdown closes retained workers.
 This preserves per-match source isolation rather than relying on mutable engine
 statics being reset by convention. Runtime compilation resolves its AI base
@@ -1315,3 +1315,7 @@ processes and 4.53 seconds with one reusable slot. Replay digests and determinis
 team metrics matched, including parallel runs and alternating strategy files.
 These timings are an implementation check, not a performance forecast for a
 particular competition or host.
+
+The pooled JVM preset, measured tradeoffs and local benchmark command are documented
+in [JVM tuning](performance/jvm-tuning.md). Tuning changes require an application
+restart but do not require recompiling the unchanged Java bridge.
