@@ -20,7 +20,7 @@ TOOLS = [
     {"name": "list_files", "description": "List your .leek source files.", "input_schema": schema()},
     {"name": "read_file", "description": "Read your own source file, using character offsets (not line numbers). Default 16000 characters, maximum 16000 per call. If truncated=true, follow the returned continuation arguments until next_offset=null to finish reading.",
      "input_schema": schema({"path": TEXT, **PAGE}, ["path"])},
-    {"name": "write_file", "description": "Write your own .leek file (128 files, 2 MB total).",
+    {"name": "write_file", "description": "Save your own .leek file (128 files, 2 MB total). A successful save returns success=true; created/updated distinguish a new file from overwriting an existing file. This does not compile, validate or submit the strategy.",
      "input_schema": schema({"path": TEXT, "content": TEXT}, ["path", "content"])},
     {"name": "read_docs", "description": "Read the frozen shared documentation. For syntax, start with corpus/language/cheatsheet.md; corpus/language/index.md lists short topic tutorials. Game API signatures are in leekscript-v1/api.md. Paths start at authoring.md, corpus/ or leekscript-v1/. Default 16000 characters, maximum 16000 per call. offset counts characters, not lines. A partial read returns truncated=true and an exact continuation call. To read the complete document, repeat with that continuation until next_offset=null; a returned page is not the whole file.",
      "input_schema": schema({"path": TEXT, **PAGE}, ["path"])},

@@ -129,7 +129,7 @@ class Preparation:
             tmp.write_bytes(encoded)
             replace_file(tmp, path)
             return {"path": arguments["path"], "characters": len(content), "bytes": len(encoded),
-                    "created": created, "sha256": file_hash(path)}
+                    "success": True, "created": created, "updated": not created, "sha256": file_hash(path)}
         if name == "preview_build":
             from .teams import build_preview
             self._fields(arguments, {"capital", "member_index", "components", "level"})
