@@ -7,7 +7,7 @@ import difflib
 import hashlib
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 import sqlite3
 import threading
 import time
@@ -26,10 +26,8 @@ TERMINAL = {"submitted", "budget_exhausted", "no_submission", "generation_failed
 
 @measure('safe_path')
 def safe_path(root: Path, name: str) -> Path:
-    path = local_path(root, name)
-    if not path.resolve().is_relative_to(root.resolve()):
-        raise ArenaError("Path outside the allowed directory")
-    return path
+    # local_path already rejects traversal, links and resolved escapes.
+    return local_path(root, name)
 
 
 def history_writes(history):
@@ -895,7 +893,7 @@ class Store(Workspaces):
                 if not hasattr(self,'_persistent_match_index'):self._persistent_match_index=MatchIndex(self.state)
             for base,paths in record_paths.items():
                 if paths:safe_path(root,paths[0].parent.relative_to(root).as_posix())
-            projections=self._persistent_match_index.read(root,[path for paths in record_paths.values() for path in paths],self.workspace_artifact)
+            projections=self._persistent_match_index.read(root,[path for paths in record_paths.values() for path in paths],lambda path,kind:self.workspace_artifact(path,kind,validated_parent=True))
         for base in bases:
             for path in record_paths[base]:
                 record = projections[path] if compact else self.json(path)
@@ -906,9 +904,17 @@ class Store(Workspaces):
                     sides = [record.get("session"), record.get("opponent")]
                     if record.get("side") == 1:
                         sides.reverse()
-                work = base / record["directory"] if "directory" in record else safe_path(root, record["artifact_dir"])
-                if not compact:safe_path(root, work.relative_to(root).as_posix())
-                rows.append({"path": work.relative_to(root).as_posix(), "stage": relative,
+                if compact:
+                    # Overview returns an artifact identifier, without opening it.
+                    # Full path/link validation happens when the replay is read.
+                    work_name=(base/record['directory']).relative_to(root).as_posix() if 'directory' in record else record['artifact_dir']
+                    parts=PureWindowsPath(work_name)
+                    if parts.anchor or '..' in parts.parts or ':' in work_name:raise ArenaError('Invalid fight artifact path')
+                else:
+                    work = base / record["directory"] if "directory" in record else safe_path(root, record["artifact_dir"])
+                    safe_path(root, work.relative_to(root).as_posix())
+                    work_name=work.relative_to(root).as_posix()
+                rows.append({"path": work_name, "stage": relative,
                              "sides": sides, "candidate": record.get("session"), "candidate_side": record.get("side"), "seed": match.get("seed", record.get("seed")),
                              "mirror": match.get("mirror", False), "result": record["result"], "timings":record.get("timings",{})})
         for path in sorted((root / "sessions").glob("*/tools/**/result.json")):

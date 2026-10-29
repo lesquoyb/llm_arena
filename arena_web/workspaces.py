@@ -104,11 +104,11 @@ class Workspaces:
         return result
 
     @measure('workspace_artifact')
-    def workspace_artifact(self, path, kind):
+    def workspace_artifact(self, path, kind, *, validated_parent=False):
         """Bounded compact projections; never cache per-turn arrays for aggregation."""
         from .data import safe_path
         from arena.core import read_json
-        safe_path(self.runs,path.relative_to(self.runs).as_posix())
+        if not validated_parent:safe_path(self.runs,path.relative_to(self.runs).as_posix())
         stat=path.stat();stamp=(stat.st_mtime_ns,stat.st_ctime_ns,stat.st_size)
         key=(path,kind)
         with self.lock:
@@ -140,6 +140,7 @@ class Workspaces:
                 'known_cost_usd':Decimal(0),'reserved_usd':Decimal(0),'unresolved_sessions':0}
         resources={};groups={}
         for run in included:
+            run_root=self.run_path(run['id'])
             detail=self.detail(run['id']);metadata=detail['metadata']
             config=metadata.get('config',metadata.get('manifest',{}))
             models={m['id']:m for m in config.get('models',[])}
@@ -212,7 +213,7 @@ class Workspaces:
             for match in matches:
                 if match['kind']!='training':pools[match['stage']].update(match['sides'])
                 if match['kind'] not in {'evaluation','progression'}:continue
-                provenance=self.run_path(run['id'])/match['path']/'provenance.json'
+                provenance=run_root/match['path']/'provenance.json'
                 sources=self.workspace_artifact(provenance,'provenance').get('submissions',[]) if provenance.is_file() else []
                 side=match.get('candidate_side')
                 opponent=sources[1-side].get('sha256') if side in (0,1) and len(sources)==2 else None
