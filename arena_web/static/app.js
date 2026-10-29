@@ -2299,20 +2299,20 @@ async function toggleChartFullScreen(node) {
   const chart=node.closest('.resource-chart,.overview-card,.comparison-chart,.workspace-chart,.conversation-panel');
   if(document.fullscreenElement){await document.exitFullscreen();return;}
   if(!chart)return;
-  if(chart.classList.contains('chart-expanded')){chart.classList.remove('chart-expanded');document.body.classList.remove('chart-focus-open');return;}
+  if(chart.classList.contains('chart-expanded')){chart.classList.remove('chart-expanded');document.body.classList.remove('chart-focus-open');node.textContent='Full screen';return;}
   try {if(chart.requestFullscreen){await chart.requestFullscreen();return;}} catch(error) { /* Use in-page focus when fullscreen is unavailable. */ }
-  chart.classList.add('chart-expanded');document.body.classList.add('chart-focus-open');
+  chart.classList.add('chart-expanded');document.body.classList.add('chart-focus-open');node.textContent='Exit full screen';
 }
 document.addEventListener('fullscreenchange',()=>{
   for(const button of $$('[data-action="expand-chart"]'))button.textContent=document.fullscreenElement?'Exit full screen':'Full screen';
 });
 document.addEventListener('keydown',event=>{
-  if(event.key==='Escape'){for(const chart of $$('.chart-expanded'))chart.classList.remove('chart-expanded');document.body.classList.remove('chart-focus-open');}
+  if(event.key==='Escape'){for(const chart of $$('.chart-expanded'))chart.classList.remove('chart-expanded');document.body.classList.remove('chart-focus-open');if(!document.fullscreenElement)for(const button of $$('[data-action="expand-chart"]'))button.textContent='Full screen';}
 });
 function overviewRanking(data) {
   if (!data.models.length)
     return '<div class="overview-empty">No scored matches in this selection.</div>';
-  const resultLink=(row,outcome,value)=>`<a href="#${query({view:'run',run:S.run,tab:'matches',kind:data.scope.source,entrant_model:row.model,round:data.scope.round,outcome,scored:'1',exclude_same_model:data.scope.source==='progression'?undefined:'1'})}">${value}</a>`;
+  const resultLink=(row,outcome,value)=>`<a href="#${query({view:'run',run:S.run,tab:'matches',...scopeURL(),kind:data.scope.source,entrant_model:row.model,round:data.scope.round,outcome,scored:'1',exclude_same_model:data.scope.source==='progression'?undefined:'1'})}">${value}</a>`;
   return `<p class="muted">${data.scope.source==='progression'?'Against previous-round versions, including the same model.':'Against other models only.'} Click a result to inspect its fights. Counts are appearances across selected submitted versions: fixed references have fewer repetitions. Cache reuse counts as a completed scheduled fight.</p><ol class="overview-ranking">${data.models.map((r, i) => `<li><span class="overview-rank">${i + 1}</span><div class="overview-rank-body"><div><strong>${e(r.model)}</strong><span>${pct(r.score)}</span></div><div class="overview-bar"><span style="width:${100 * (r.score || 0)}%;background:${overviewColor(r.model)}"></span></div><small>${resultLink(r,"win",r.wins+"W")} · ${resultLink(r,"draw",r.draws+"D")} · ${resultLink(r,"loss",r.losses+"L")}${r.failures ? ` · ${r.failures} failed` : ""}</small> <small title="Tournament fights count for both sides. Same-model fights are excluded. Fixed references have one sample; generated participants include repetitions. Cache reuse still counts every scheduled fight.">${fmt(r.completed)} fights · ${data.sessions.filter(session=>session.model===r.model&&session.submission).length} submitted strategies${data.selected.some(v=>v.entries.some(item=>item.model===r.model)&&v.match.result.reference_cache?.hit)?" · includes cached fights":""}</small></div></li>`).join("")}</ol>`;
 }
 let overviewPalette={};
@@ -2477,7 +2477,7 @@ function overviewMatchLink(data, who, other, outcome, value, description) {
     query({
       view: "run",
       run: S.run,
-      tab: "matches",
+      tab: "matches",...scopeURL(),
       kind: data.scope.source,
       entrant_model: who,
       opponent_model: other,
@@ -5000,7 +5000,7 @@ function matrixLink(stage, entrant, opponent, outcome, value, description, categ
     query({
       view: "run",
       run: S.run,
-      tab: "matches",
+      tab: "matches",...scopeURL(),
       stage,
       kind: category || (stage.endsWith("-previous") ? "progression" : stage.startsWith("evaluations/") ? "evaluation" : "competition"),
       entrant,
