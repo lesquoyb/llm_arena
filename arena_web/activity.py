@@ -133,7 +133,7 @@ def status(store, identifier, job=None):
             'submission_breakdown':breakdown,'failed_preparations':errors,
             'tournament_completed':report.get('completed',0),'tournament_failed':report.get('failed',0),
             'tournament_total':max(finished+report.get('pending',0),possible),
-            'tournament_pending_available':unrecorded+unscheduled+report.get('failed',0),'tournament_waiting_submissions':max(0,possible-available),
+            'tournament_scheduled_pending':unrecorded+report.get('failed',0),'tournament_pending_available':unrecorded+unscheduled+report.get('failed',0),'tournament_waiting_submissions':max(0,possible-available),
             'tournament_scheduled':planned_count,'tournament_unscheduled_available':unscheduled,
             'tournament_planned_submissions':sum(model not in withdrawn for model in planned_models.values()),
             'preparations':preparations,'waiting_preparations':waiting,'operation':operation if running else {},'active':activity,'last_event':last_event,'observed_at':time.time()}
