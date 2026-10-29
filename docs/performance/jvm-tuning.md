@@ -93,3 +93,42 @@ resuming can change tuning without discarding prior fights or treating it as a
 new game engine. Earlier and later artifacts retain their actual JVM settings.
 
 Set `ARENA_JVM_RECYCLE_MATCHES=0` before starting the web server to disable periodic JVM replacement. Slots are then reused until shutdown, idle eviction or an engine failure; garbage collection continues normally. The default remains 32 because the measured longer lifetime increased peak retained memory. Recycling replaces a JVM process; it is not a garbage collection cycle. Compare throughput and memory on your workload before choosing a longer lifetime.
+
+## Throughput plateaus
+
+**Activity → Engine performance** (also in **More**) reads small telemetry files,
+without auditing all fights. Copy the report after a slow and a fast interval.
+Samples are appended every five seconds and retained in
+`fight-performance-history.jsonl` with an 8 MB rotation limit.
+
+The coordinator dispatches jobs to real Python OS threads. Each fight runs in a
+separate JVM process, independently of Python's GIL. Completed results move into
+a bounded publication queue, freeing compute slots before their result is saved.
+The coordinator alone updates the journal and standings.
+
+Useful distinctions in the copied data:
+
+- `computing_workers` versus `publication_queue`: unfinished tasks versus completed
+  results awaiting publication. A configured worker count is not CPU utilization.
+- `python_cpu_cores` versus `coordinator_cpu_cores`: process and coordinator CPU
+  seconds divided by sample wall time. 1.0 means one fully occupied logical core,
+  not 100% of the whole machine. Python workers may also spend time in native code.
+- `verification_seconds`, `verification_cache_flush_seconds`,
+  `standings_report_seconds` and `journal_publication_seconds`: result checks,
+  cached proofs, reporting and journal publication.
+- `java_process_seconds` and `java_cpu_seconds`: JVM elapsed versus CPU time for
+  completed requests. `script_execution_seconds` is time reported for AI turns;
+  it excludes other engine work and cannot isolate compilation by subtraction.
+- `jvm_output_check_seconds`: time checking output file sizes while waiting for
+  the JVM. The existing output size limit and polling frequency are unchanged.
+- `io_delta`: JSON reads/parsing/writes, hash reads/computation and Windows atomic
+  replace backoffs. These measure this worker process, not physical disk traffic.
+- `cpu_capacity`: GIL status and process affinity. Windows affinity refers to the
+  processor mask exposed by GetProcessAffinityMask.
+
+Phase and I/O durations sum overlapping work across threads and completed jobs.
+They must not be added together as wall-time percentages. Samples can span JVM
+startup, recycling and different opponents, so compare their phase breakdown as
+well as fight/turn/operation rates. Low MB/s does not rule out metadata latency,
+sharing violations, paging or antivirus activity; these are hypotheses until
+supported by measurements. No antivirus exclusions or OS priorities are changed.

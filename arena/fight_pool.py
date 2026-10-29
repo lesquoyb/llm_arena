@@ -12,14 +12,18 @@ from .execution_control import poll
 def run(jobs, execute, save, *, limit=1, out, kind, generation=0, retry=None):
     jobs=iter(jobs);retries=deque();pools=[];pending={};ready=deque();exhausted=False;error=None
     limit=poll(out,limit);pool=ThreadPoolExecutor(max_workers=limit,thread_name_prefix='arena-fight');pools.append(pool)
-    from .worker_resources import host_memory, children_cpu_seconds
+    from .worker_resources import host_memory, children_cpu_seconds, thread_cpu_seconds, cpu_capacity
+    from . import io_metrics
+    from .fight_history import History
     batch_wall_started=time.time();batch_started=time.monotonic();python_started=time.process_time();children_started=children_cpu_seconds()
+    coordinator_ident=threading.get_ident();coordinator_native=threading.get_native_id();coordinator_started=time.thread_time();capacity=cpu_capacity()
+    history=History(out,str(batch_wall_started));io_baseline={};last_performance=None
     throughput_path=out/'fight-throughput.json'
     throughput=read_json(throughput_path) if throughput_path.exists() else {}
     last_progress=0;publishing_seconds=0;phase_seconds={};finished_workers=0;jvm_starts=0;jvm_reuses=0
     guard=threading.RLock();stop_heartbeat=threading.Event();publication={}
     def snapshot(force=False):
-        nonlocal last_progress
+        nonlocal last_progress,last_performance
         if not force and time.monotonic()-last_progress<.2:return
         fights=[{'participants':job['participants'],'seed':job['seed'],'started_at':started,
                  'phase':'ready_to_save' if future.done() else job.get('phase','preparing'),
@@ -30,13 +34,19 @@ def run(jobs, execute, save, *, limit=1, out, kind, generation=0, retry=None):
             'phase_seconds':phase_seconds,'finished_workers':finished_workers,'jvm_starts':jvm_starts,'jvm_reuses':jvm_reuses,'publication':publication,
             'fights':fights,'participants':list(dict.fromkeys(sid for item in fights for sid in item['participants']))})
         if throughput:write_json(throughput_path,throughput)
-        if pending or finished_workers:
-            write_json(out/'fight-performance.json',{'generation':generation,'kind':kind,'parallel_fights':limit,
+        if pending or ready or finished_workers:
+            coordinator_cpu=thread_cpu_seconds(coordinator_ident,coordinator_native)
+            last_performance={'generation':generation,'kind':kind,'parallel_fights':limit,
                 'finished_workers':finished_workers,'jvm_starts':jvm_starts,'jvm_reuses':jvm_reuses,'publication_seconds':publishing_seconds,'phase_seconds':phase_seconds,
                 'wall_seconds':time.monotonic()-batch_started,'python_cpu_seconds':time.process_time()-python_started,
                 'children_cpu_seconds':None if children_started is None else children_cpu_seconds()-children_started,
                 'host_memory':host_memory(),'occupied_phases':{name:sum(item['phase']==name for item in fights) for name in {item['phase'] for item in fights}},
-                'observed_at':time.time(),'scope':'Latest engine batch; phase durations are summed worker time, not wall-clock duration.'})
+                'observed_at':time.time(),'scope':'Latest engine batch; phase durations are summed worker time, not wall-clock duration.',
+                'computing_workers':sum(not future.done() for future in pending),'publication_queue':len(ready)+sum(future.done() for future in pending),
+                'coordinator_cpu_seconds':None if coordinator_cpu is None else max(0,coordinator_cpu-coordinator_started),
+                'cpu_capacity':capacity,'io':io_metrics.snapshot(io_baseline)}
+            write_json(out/'fight-performance.json',last_performance)
+            history.observe(last_performance,throughput)
         last_progress=time.monotonic()
     def progress(force=False):
         with guard:snapshot(force)
@@ -65,7 +75,7 @@ def run(jobs, execute, save, *, limit=1, out, kind, generation=0, retry=None):
             replacement=retry(job)
             replacement['_retry']=job.get('_retry',0)+1
             retries.append(replacement)
-    with operation(out,kind,generation=generation,parallel_fights=limit):
+    with operation(out,kind,generation=generation,parallel_fights=limit),io_metrics.capture() as io_baseline:
         ticker.start()
         try:
             while pending or ready or not exhausted or retries:
@@ -114,4 +124,5 @@ def run(jobs, execute, save, *, limit=1, out, kind, generation=0, retry=None):
             for executor in pools:executor.shutdown(wait=True)
             stop_heartbeat.set();ticker.join()
             progress(True)
+            if last_performance:history.observe(last_performance,throughput,force=True)
         if error is not None:raise error

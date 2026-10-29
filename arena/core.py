@@ -12,6 +12,7 @@ import uuid
 import os
 from contextlib import contextmanager
 from pathlib import Path
+from . import io_metrics
 
 ROOT = Path(os.environ.get("ARENA_PROJECT_ROOT", Path(__file__).resolve().parent.parent)).resolve()
 STATE_ROOT = Path(os.environ.get("ARENA_STATE_ROOT", ROOT / ".arena")).resolve()
@@ -87,16 +88,23 @@ def scratch_directory():
 
 
 def read_json(path: Path):
-    return json.loads(path.read_text(encoding="utf-8-sig"))
+    if not io_metrics.enabled:return json.loads(path.read_text(encoding="utf-8-sig"))
+    started=time.monotonic();raw=path.read_text(encoding="utf-8-sig")
+    io_metrics.add('json_read',time.monotonic()-started)
+    started=time.monotonic();result=json.loads(raw)
+    io_metrics.add('json_parse',time.monotonic()-started)
+    return result
 
 
 def write_json(path: Path, value, *, return_sha256=False):
+    measured=io_metrics.enabled;started=time.monotonic() if measured else 0
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(path.suffix + ".tmp")
     # Receipts and crash recovery hash canonical UTF-8/LF bytes on every host.
     content=json.dumps(value,ensure_ascii=False,indent=2)+'\n'
     temporary.write_text(content,encoding='utf-8',newline='\n')
     replace_file(temporary,path)
+    if measured:io_metrics.add('json_write',time.monotonic()-started)
     if return_sha256:return hashlib.sha256(content.encode('utf-8')).hexdigest()
 
 
@@ -114,7 +122,9 @@ def replace_file(source: Path, target: Path, attempts: int = 50):
         except PermissionError:
             if os.name != "nt" or attempt == attempts - 1:
                 raise
+            started=time.monotonic()
             time.sleep(min(0.01 * 2 ** attempt, 0.25))
+            io_metrics.add('windows_replace_backoff',time.monotonic()-started)
 
 
 def digest(value) -> str:
@@ -122,7 +132,12 @@ def digest(value) -> str:
 
 
 def file_hash(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+    if not io_metrics.enabled:return hashlib.sha256(path.read_bytes()).hexdigest()
+    started=time.monotonic();raw=path.read_bytes()
+    io_metrics.add('hash_read',time.monotonic()-started)
+    started=time.monotonic();result=hashlib.sha256(raw).hexdigest()
+    io_metrics.add('hash_compute',time.monotonic()-started)
+    return result
 
 
 def tree_hash(path: Path) -> str:

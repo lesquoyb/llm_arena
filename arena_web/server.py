@@ -76,6 +76,11 @@ class Application:
             return {"strategies":CATALOG}
         if route == '/api/performance':
             return store.performance.snapshot()
+        if route == '/api/fight-performance':
+            from arena.fight_history import read
+            root=store.run_path(run)
+            return {'latest':store.json(root/'fight-performance.json',{}),'samples':read(root),
+                    'units':'CPU cores = CPU seconds / wall seconds. Phase and I/O times sum concurrent work and overlap; do not add them as percentages. Throughput is the last 60 seconds.'}
         if route == "/api/runs":
             return {"runs": store.listing(), "jobs": self.jobs.listing()}
         if route == '/api/workspace':

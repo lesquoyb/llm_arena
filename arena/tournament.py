@@ -209,7 +209,7 @@ def _run_tournament(engine: Engine, manifest: dict, out: Path, resume: bool = Fa
         return {'match':job['match'],'directory':job['work'].relative_to(out).as_posix(),'result':result,
                 'retry_attempt':job.get('_retry',0),
                 'retry_pending':result.get('status') in {'timeout','engine_error'} and job.get('_retry',0)<2,
-                **({'timings':job['timings']} if job.get('timings') else {})}
+                **({'timings':dict(job['timings'])} if job.get('timings') else {})}
     def execute(job):
         from .reference_cache import fight as cached_reference_fight
         from .fight_phases import callback, phase
@@ -232,19 +232,24 @@ def _run_tournament(engine: Engine, manifest: dict, out: Path, resume: bool = Fa
         base=job.get('_attempt_base',job['work'])
         return {**job,'work':Preparation._attempt(base),'_attempt_base':base,'phase':'preparing','phase_started_at':time.time()}
     last_report=0
-    def publish(markdown=False):
-        verification['hashes'].flush()
-        return report(out,verified_records=known,experiment=verification['experiment'],markdown=markdown)
+    def publish(markdown=False,timing=None):
+        started=time.monotonic();verification['hashes'].flush()
+        if timing is not None:timing['verification_cache_flush_seconds']=time.monotonic()-started
+        started=time.monotonic();value=report(out,verified_records=known,experiment=verification['experiment'],markdown=markdown)
+        if timing is not None:timing['standings_report_seconds']=time.monotonic()-started
+        return value
     def save(job,result):
         nonlocal last_report
         record=record_for(job,result)
-        write_json(job['record_path'],record)
+        started=time.monotonic();write_json(job['record_path'],record)
+        job.setdefault('timings',{})['record_write_seconds']=time.monotonic()-started
         if result['status']=='completed':verification['hashes'].remember_record(job['record_path'],record)
         known[job['match']['id']]=scoring_record(record)
         if result['status']=='completed':
             verified_cache[job['match']['id']]=known[job['match']['id']]
         if time.monotonic()-last_report>=.5:
-            publish();last_report=time.monotonic()
+            started=time.monotonic();publish(timing=job['timings']);last_report=time.monotonic()
+            job['timings']['report_publication_seconds']=last_report-started
     publish()
     from .fight_pool import run as run_fights
     run_fights(jobs(),execute,save,limit=parallel_fights,out=out.parent,kind='tournament_fight',

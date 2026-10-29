@@ -52,14 +52,18 @@ class Worker:
         except BaseException:
             self.close();raise
 
-    def wait(self, expected, deadline, work, timeout):
+    def wait(self, expected, deadline, work, timeout, timings=None):
         from .engine import OUTPUT_LIMIT, WorkerOutputLimit
         def oversized(path):
             try:return path.stat().st_size>OUTPUT_LIMIT
             except FileNotFoundError:return False  # The next request removes the previous outcome.
         while True:
-            if any(oversized(path) for path in (work/'stdout.log',work/'stderr.log',self.root/'outcome.json')):
-                raise WorkerOutputLimit('Worker output exceeded 8 MB per file')
+            checking=time.monotonic()
+            exceeded=any(oversized(path) for path in (work/'stdout.log',work/'stderr.log',self.root/'outcome.json'))
+            if timings is not None:
+                timings['jvm_output_check_seconds']=timings.get('jvm_output_check_seconds',0)+time.monotonic()-checking
+                timings['jvm_output_checks']=timings.get('jvm_output_checks',0)+1
+            if exceeded:raise WorkerOutputLimit('Worker output exceeded 8 MB per file')
             remaining=deadline-time.monotonic()
             if remaining<=0:raise subprocess.TimeoutExpired('pooled JVM fight',timeout)
             try:message=self.messages.get(timeout=min(.05,remaining))
@@ -121,7 +125,7 @@ class Pool:
             if worker is None:
                 phase('starting_jvm');worker=Worker(self.engine)
                 with self.lock:self.all.add(worker)
-                if not worker.wait('READY',deadline,work,self.engine.timeout):
+                if not worker.wait('READY',deadline,work,self.engine.timeout,timings):
                     from .worker_resources import log_tail
                     raise OSError('Persistent JVM exited during startup: '+log_tail(worker.root/'worker-startup.log'))
             timings['jvm_reused']=reuse;timings['jvm_pid']=worker.process.pid
@@ -129,7 +133,7 @@ class Pool:
             before=process_cpu_seconds(worker.process)
             phase('engine');command=[mode,argument,str(work.resolve())]
             worker.process.stdin.write(('\t'.join(base64.b64encode(value.encode()).decode() for value in command)+'\n').encode());worker.process.stdin.flush()
-            completed=worker.wait('DONE',deadline,work,self.engine.timeout)
+            completed=worker.wait('DONE',deadline,work,self.engine.timeout,timings)
             if not completed:
                 worker.process.wait()
                 if (worker.root/'outcome.json').is_file():shutil.copyfile(worker.root/'outcome.json',work/'outcome.json')

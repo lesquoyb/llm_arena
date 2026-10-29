@@ -1,6 +1,7 @@
 """Paired G1 branches and shared reference evaluation; opponents stay private."""
 from __future__ import annotations
 import copy
+import time
 from pathlib import Path
 from .core import ROOT, ArenaError, copy_submission, digest, make_scenario, read_json, submission, write_json
 from .preparation import Preparation
@@ -120,7 +121,9 @@ def references(engine, config, out, journal, entrants, label, panel, *, incremen
         if result['status']=='completed':
             verified[str(record_path)]=digest(record)
             if hashes:hashes.remember_record(record_path,record)
+        published=time.monotonic()
         journal.record(job['entrant']['id'],'progression_match' if label.endswith('-previous') else 'reference_match',record)
+        job.setdefault('timings',{})['journal_publication_seconds']=time.monotonic()-published
         results[job['key']]=record
     def retry_job(job):
         base=job.get('_attempt_base',job['work'])
