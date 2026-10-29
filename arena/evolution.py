@@ -206,6 +206,7 @@ def run_generation(config, out, journal, engine, initial, interrupt=None, retry_
                 state.pop("retry_parent_refresh", None)
                 state.pop("retry_count", None)
                 state.pop('manual_frozen', None)
+                state.pop('automatic_retries_paused',None)
                 state.pop("submission_reminders", None)
                 prompt_path = ROOT / "prompts" / ("feedback.md" if condition == "feedback" else "control.md")
                 message = state['history'][0]

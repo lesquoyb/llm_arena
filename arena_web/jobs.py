@@ -218,6 +218,32 @@ class Jobs:
                     raise
             return {'id':identifier,'status':'queued','session':sid}
 
+    def provider_limits(self, run_id, limits=None):
+        from arena.provider_limits import endpoint, configured, limit, validate
+        root=self.store.run_path(run_id)
+        metadata=read_json(root/'experiment.json')
+        if 'config' not in metadata:raise ArenaError('Only model competitions have provider limits')
+        models=metadata['config']['models']
+        known={endpoint(model) for model in models if model['provider']!='mock'}
+        if limits is not None:
+            if (root/'export.json').exists():raise ArenaError('Exported archives are read-only')
+            validate(limits)
+            if set(limits)-known:raise ArenaError('Unknown provider endpoint')
+            write_json(root/'provider-control.json',{'endpoint_limits':limits,'requested_at':time.time()})
+        saved=configured(root)
+        return {'endpoints':[{'endpoint':key,'limit':limit(next(model for model in models if endpoint(model)==key),saved),
+                              'models':[model['id'] for model in models if endpoint(model)==key]} for key in sorted(known)]}
+
+    def retry_policy(self, run_id, sid, paused):
+        if not isinstance(paused,bool):raise ArenaError('Expected a retry pause switch')
+        root=self.store.run_path(run_id)
+        if (root/'export.json').exists():raise ArenaError('Exported archives are read-only')
+        state=self.store.session(run_id,sid)
+        if state.get('submission'):raise ArenaError('This conversation already has a frozen submission')
+        policy={'paused':paused,'requested_at':time.time()}
+        write_json(root/'retry-policies'/(sid+'.json'),policy)
+        return {'session':sid,**policy}
+
     def execution_control(self, run_id, parallel_fights):
         from arena.core import integer
         integer(parallel_fights,1,None,'parallel_fights')

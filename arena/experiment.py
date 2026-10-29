@@ -953,6 +953,8 @@ def run(config: dict, out: Path, resume=False, interrupt=None, prepare_only=Fals
                         if not metadata.get('submission') and metadata.get('continuation_identity')!=continuation:
                             state=journal.state(sid);state['continuation_identity']=continuation
                             journal.save(sid,state,'runner_updated',evidence)
+            from .retry_policy import apply as apply_retry_policies
+            apply_retry_policies(out,journal)
             if retry_session:
                 from .retries import prepare_retry
                 prepare_retry(journal, retry_session, config, retry_reasoning_effort)
@@ -963,7 +965,7 @@ def run(config: dict, out: Path, resume=False, interrupt=None, prepare_only=Fals
                     from .call_counts import hydrate_calls
                     hydrate_calls(state, journal.db, sid)
                     parent = retry_states.get(state.get('parent'))
-                    if active(config,state) and retry_reason(state, config['budget_per_session'], parent) is None:
+                    if active(config,state) and not state.get('automatic_retries_paused') and retry_reason(state, config['budget_per_session'], parent) is None:
                         prepare_retry(journal, sid, config)
             allow_extend = any(s.get('retry_count') for s in journal.metadata().values())
             if prepare_only:

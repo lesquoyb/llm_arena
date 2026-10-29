@@ -9,7 +9,7 @@ from .retries import prepare_retry, retry_reason
 
 def automatic_due(state, config, parent=None):
     failure=state.get('failure') or {}
-    if (state.get('status')!='provider_unavailable' or not failure.get('retryable')
+    if (state.get('automatic_retries_paused') or state.get('status')!='provider_unavailable' or not failure.get('retryable')
             or retry_reason(state,config['budget_per_session'],parent) is not None):return None
     attempts=state.get('automatic_retry_attempts',0)
     if attempts>=3:return None

@@ -92,6 +92,8 @@ class Application:
         if route == '/api/faults':
             from .faults import report
             return report(store,run)
+        if route == '/api/run/provider-limits':
+            return self.jobs.provider_limits(run)
         if route == "/api/run":
             return store.detail(run)
         if route == "/api/provider-diagnostics":
@@ -225,6 +227,10 @@ class Application:
             return {**plan(validate_config(config)), 'config':config, 'config_sha256':digest(config)}
         if route == '/api/run/participants':
             return self.jobs.participants(data['run'], data.get('participants'), data.get('frozen_tracks'), data.get('compare_previous_round'), data.get('parallel_fights'), data.get('request_order'), data.get('parallel_requests'))
+        if route == '/api/run/provider-limits':
+            return self.jobs.provider_limits(data['run'],data['endpoint_limits'])
+        if route == '/api/conversation/retry-policy':
+            return self.jobs.retry_policy(data['run'],data['session'],data['paused'])
         if route == '/api/conversation/recover':
             return self.jobs.recover_conversation(data['run'],data['session'],data.get('action','continue'))
         if route == '/api/run/execution':

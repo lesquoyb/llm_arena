@@ -8,8 +8,9 @@ from .endpoints import is_loopback
 
 
 class Requests:
-    def __init__(self, limit, tasks=()):
+    def __init__(self, limit, tasks=(), out=None):
         self.limit=limit
+        self.out=out;self.endpoint_limits={};self.limits_checked=0
         self.pool=ThreadPoolExecutor(max_workers=limit,thread_name_prefix='arena-provider')
         self.pending={}
         self.deferred=set()
@@ -35,6 +36,12 @@ class Requests:
         return (model.get('provider'),endpoint,model.get('model',model['id']))
 
     def can_start(self, sid, model):
+        from .provider_limits import endpoint, configured, limit
+        if self.out is not None and time.monotonic()-self.limits_checked>=.5:
+            self.endpoint_limits=configured(self.out);self.limits_checked=time.monotonic()
+        cap=limit(model,self.endpoint_limits)
+        busy=sum(endpoint(context['model'])==endpoint(model) and not context['future'].done() for context in self.pending.values())
+        if cap is not None and busy>=cap:return False
         key=self.local_key(model)
         return len(self.pending)<self.limit and (key is None or self.local_owners.get(key,self.model_key(model))==self.model_key(model))
 
@@ -139,13 +146,18 @@ def _prepare(tasks, config, out, journal, engine, interrupt=None, on_progress=No
             if not result.get('deferred'):journal._manual_fight_retry_pending=False
         if regular_progress:regular_progress()
     on_progress=progress
-    dispatcher=Requests(limit,tasks)
+    dispatcher=Requests(limit,tasks,out=out)
     journal.requests=dispatcher
     queue=deque(tasks);models=dict(tasks)
     coordinator=threading.get_ident()
     from .conversation_recovery import automatic_due, recover, commands
     retry_waiting={}
     def queue_recoveries():
+        from .retry_policy import apply
+        for sid,paused in apply(out,journal):
+            if not paused and sid in models:schedule_retry(sid,models[sid])
+        for sid in list(retry_waiting):
+            if journal.metadata(sid).get(sid,{}).get('automatic_retries_paused'):retry_waiting.pop(sid,None)
         # A manual command can target a failed conversation from a later round.
         # Admit its saved task now instead of waiting for old fight queues to drain.
         from .core import read_json
