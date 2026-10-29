@@ -145,7 +145,7 @@ class Pool:
                         (work/'stderr.log').write_text(log_tail(worker.root/'worker-startup.log'),encoding='utf-8')
                 after=process_cpu_seconds(worker.process)
                 if after is not None and 'before' in locals() and before is not None:timings['java_cpu_seconds']=max(0,after-before)
-                if worker.jobs>=self.recycle or worker.process.poll() is not None:
+                if (self.recycle and worker.jobs>=self.recycle) or worker.process.poll() is not None:
                     with self.lock:self.all.discard(worker)
                     worker.close()
                 else:

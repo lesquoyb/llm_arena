@@ -91,3 +91,5 @@ Set `ARENA_JVM_PROFILE` to `startup`, `throughput`, `optimizing` or `full` befor
 starting the app. JVM options and recycling limits are runtime provenance:
 resuming can change tuning without discarding prior fights or treating it as a
 new game engine. Earlier and later artifacts retain their actual JVM settings.
+
+Set `ARENA_JVM_RECYCLE_MATCHES=0` before starting the web server to disable periodic JVM replacement. Slots are then reused until shutdown, idle eviction or an engine failure; garbage collection continues normally. The default remains 32 because the measured longer lifetime increased peak retained memory. Recycling replaces a JVM process; it is not a garbage collection cycle. Compare throughput and memory on your workload before choosing a longer lifetime.
