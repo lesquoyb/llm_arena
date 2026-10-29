@@ -17,12 +17,14 @@ from arena.core import ArenaError, ROOT, STATE_ROOT, digest, file_hash, is_link,
 from arena.experiment import plan, validate_config
 from arena.preparation import local_path
 from .workspaces import Workspaces
+from .performance import measure, History, TimedRLock
 
 
 TERMINAL = {"submitted", "budget_exhausted", "no_submission", "generation_failed",
             "provider_unavailable", "needs_reconciliation"}
 
 
+@measure('safe_path')
 def safe_path(root: Path, name: str) -> Path:
     path = local_path(root, name)
     if not path.resolve().is_relative_to(root.resolve()):
@@ -65,7 +67,8 @@ class Store(Workspaces):
         self.state = (state or STATE_ROOT / "ui").resolve()
         self.runs.mkdir(parents=True, exist_ok=True)
         self.state.mkdir(parents=True, exist_ok=True)
-        self.lock = threading.RLock()
+        self.lock = TimedRLock()
+        self.performance=History()
         self.secrets = {}
         self._cache = {}
         self._usage_cache = {}
@@ -73,6 +76,7 @@ class Store(Workspaces):
         self._session_metadata_cache = OrderedDict()
         self._session_cache=OrderedDict()
 
+    @measure('json')
     def json(self, path, default=None):
         if any(is_link(p) for p in [path, *path.parents]):
             raise ArenaError("Links cannot be browsed")
@@ -319,6 +323,7 @@ class Store(Workspaces):
                 yield directory
                 dirs[:] = []
 
+    @measure('states')
     def states(self, root, fields=None):
         path = root / "journal.sqlite"
         if not path.is_file() or is_link(path):
@@ -384,6 +389,7 @@ class Store(Workspaces):
         # Callers can annotate their view without changing a cached checkpoint.
         return copy.deepcopy(cached)
 
+    @measure('listing')
     def listing(self):
         rows = []
         for path in self.run_paths():
@@ -414,6 +420,7 @@ class Store(Workspaces):
         memberships=self.workspace_index()['runs']
         return sorted([{**row,'workspace_id':memberships.get(row['id'])} for row in rows], key=lambda r: r.get("created_at", 0), reverse=True)
 
+    @measure('revision')
     def revision(self, root):
         event_id = 0
         database = root / 'journal.sqlite'
@@ -428,6 +435,7 @@ class Store(Workspaces):
         stamps = [(p.relative_to(root).as_posix(), p.stat().st_mtime_ns, p.stat().st_size) for p in files if p.is_file()]
         return digest({'event_id':event_id, 'files':sorted(stamps)})
 
+    @measure('usage_receipts')
     def usage_receipts(self, root):
         """Each response is counted once; usage_event repeats model_response."""
         from .accounting import summarize
@@ -477,6 +485,7 @@ class Store(Workspaces):
             grouped.setdefault(sid, []).append(receipt)
         return {sid: summarize(receipts) for sid, receipts in grouped.items()}
 
+    @measure('detail')
     def detail(self, identifier):
         root = self.run_path(identifier)
         metadata = self.json(root / "experiment.json")
@@ -868,6 +877,7 @@ class Store(Workspaces):
                     return {"files": result, "truncated": True}
         return {"files": sorted(result, key=lambda f: f["path"]), "truncated": False}
 
+    @measure('matches')
     def matches(self, identifier, *, compact=False):
         root = self.run_path(identifier)
         revision=self.revision(root) if compact else None

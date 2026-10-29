@@ -5,6 +5,7 @@ import sqlite3
 import threading
 
 from arena.core import ArenaError, is_link
+from .performance import measure
 
 
 class MatchIndex:
@@ -12,6 +13,7 @@ class MatchIndex:
         self.path=state/'match-index.sqlite'
         self.lock=threading.Lock()
 
+    @measure('match_index')
     def read(self, root, paths, project):
         # This lock only serializes projection builders. Activity and journal
         # readers never acquire it; the authoritative artifacts are untouched.

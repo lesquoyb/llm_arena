@@ -344,7 +344,17 @@ async function refreshSessionToken() {
   })().finally(()=>{sessionTokenRefresh=null;});
   return sessionTokenRefresh;
 }
-async function api(path, args = {}, post = false) {
+const loadTimings=[];
+async function api(path,args={},post=false) {
+  const start=performance.now();
+  try{return await requestApi(path,args,post);}
+  finally{loadTimings.unshift({route:path,milliseconds:performance.now()-start});if(loadTimings.length>80)loadTimings.pop();}
+}
+function timedRender(name,render) {
+  const start=performance.now();
+  try{return render();}finally{loadTimings.unshift({route:name,milliseconds:performance.now()-start});if(loadTimings.length>80)loadTimings.pop();}
+}
+async function requestApi(path, args = {}, post = false) {
   const url=path+(post?'':Object.keys(args).length?'?'+query(args):'');
   const body=post?JSON.stringify(args):null;
   const initialToken=S.boot?.token;
@@ -823,7 +833,7 @@ function workspacesPage() {
     }).join('')}</div>`+
     `<section class="panel"><h2>Unassigned</h2><p>${S.boot.runs.filter(r=>!r.workspace_id).length} competitions have no workspace.</p>${btn('Organize existing competitions','open-workspace','data-id="unassigned"')}</section>`;
   const data=S.workspaceSummary,t=data?.totals;
-  const actions=btn('New competition','new-competition','',true)+(current?btn('Add existing competitions','workspace-members',`data-id="${e(id)}"`)+btn('Edit workspace','edit-workspace',`data-id="${e(id)}"`):'')+btn('New workspace','new-workspace');
+  const actions=btn('New competition','new-competition','',true)+(current?btn('Add existing competitions','workspace-members',`data-id="${e(id)}"`)+btn('Edit workspace','edit-workspace',`data-id="${e(id)}"`):'')+btn('New workspace','new-workspace')+btn('Load diagnostics','load-diagnostics');
   const title=head(current?.name||'Unassigned',current?.description||'Competition results in this workspace.',actions);
   const drafts=scoped(S.boot.drafts);
   const draftPanel=drafts.length?`<section class="panel"><h2>Ready to launch</h2>${drafts.map(d=>`<div class="workspace-draft"><div><strong>${e(d.config.name)}</strong><small>${d.config.models.length} participants</small></div><div class="actions">${btn('Edit','edit-draft',`data-id="${e(d.id)}"`)}${btn('Launch','launch',`data-id="${e(d.id)}"`,true)}</div></div>`).join('')}</section>`:'';
@@ -1785,7 +1795,7 @@ function runHeader(d) {
     experiment = !!d.metadata.config;
   const problems = d.sessions.filter(s=>conversationNeedsAttention(s,active));
   const recovery = problems.length ? `<details class="recovery-panel" data-recovery-run="${e(S.run)}" ${S.recoveryOpen?.[S.run] ? "open" : ""}><summary><span class="recovery-count">${problems.length}</span><strong>Conversations need attention</strong><span>Review & recover</span></summary><div>${problems.map(s=>`<div class="recovery-row"><div><strong>${e(s.model)}</strong><small>${e(sessionLabel(s))}</small>${s.failure?.message ? `<small class="provider-error">${e(s.failure.message)}</small>` : `<small>${e(text(s.status))}</small>`}${!s.retry_allowed && !s.reconciliation_required && !active ? `<small>${e(s.retry_reason || "Retry unavailable")}</small>` : ""}</div><div class="actions">${btn("Open conversation","session-conversation",`data-session="${e(s.id)}"`)}${retryButton(s)}</div></div>`).join("")}</div></details>` : "";
-  return `<a class="back-link" href="#view=competitions">← Competitions</a>` + head(config.name, "", `${active ? btn("■ Stop", "stop-job", `data-id="${e(job.id)}"`) : experiment && !d.archived ? btn("Resume", "resume", "", true) : ""}<details class="action-menu"><summary class="button">More <span aria-hidden="true">⌄</span></summary><div>${experiment && !d.archived ? btn("Edit participants","edit-run-participants")+btn("Execution & metrics","run-metric-collection") : ""}${experiment?btn('Copy scheduling diagnostics','copy-scheduling-diagnostics'):''}${btn("Move to workspace","move-workspace",`data-run="${e(S.run)}"`)}<a class="button" href="/api/results.csv?${query({run:S.run})}" download>Download results CSV</a><a class="button" href="/api/results.csv?${query({run:S.run,table:"fights"})}" download>Download match results CSV</a><a class="button" href="/api/results.csv?${query({run:S.run,table:"sessions"})}" download>Download sessions CSV</a>${experiment ? btn("Clone configuration", "clone-run") + btn("Export competition", "export-run") : ""}</div></details>`) +
+  return `<a class="back-link" href="#view=competitions">← Competitions</a>` + head(config.name, "", `${active ? btn("■ Stop", "stop-job", `data-id="${e(job.id)}"`) : experiment && !d.archived ? btn("Resume", "resume", "", true) : ""}<details class="action-menu"><summary class="button">More <span aria-hidden="true">⌄</span></summary><div>${experiment && !d.archived ? btn("Edit participants","edit-run-participants")+btn("Execution & metrics","run-metric-collection") : ""}${btn('Load diagnostics','load-diagnostics')}${experiment?btn('Copy scheduling diagnostics','copy-scheduling-diagnostics'):''}${btn("Move to workspace","move-workspace",`data-run="${e(S.run)}"`)}<a class="button" href="/api/results.csv?${query({run:S.run})}" download>Download results CSV</a><a class="button" href="/api/results.csv?${query({run:S.run,table:"fights"})}" download>Download match results CSV</a><a class="button" href="/api/results.csv?${query({run:S.run,table:"sessions"})}" download>Download sessions CSV</a>${experiment ? btn("Clone configuration", "clone-run") + btn("Export competition", "export-run") : ""}</div></details>`) +
     `<div class="toolbar run-toolbar">${job ? status(job.status === "failed" && d.report?.incomplete ? "incomplete" : job.status) : ""}${job?.mode==='retry_fights'?badge('Engine recovery · no model calls'):''}${config.models ? badge(config.models.every(m=>m.provider==="mock") ? "Built-in strategies" : "Model competition") : badge("Provided strategies")}${d.archived ? badge("Exported copy", "orange") : ""}<span class="run-id mono" title="Competition ID">${e(S.run)}</span><span class="spacer"></span><label class="check live-toggle"><input id="follow-live" type="checkbox" ${S.follow ? "checked" : ""}>Live</label>${job ? btn("Run log", "job-log", `data-id="${e(job.id)}"`) : ""}</div>` + competitionActivity() + recovery +
     (d.roster ? `<details class="quiet-details"><summary>Recorded competition changes · revision ${d.roster.revision}</summary><p>${d.roster.active.length} active · ${d.roster.withdrawn.length} withdrawn · ${Object.values(d.roster.frozen_tracks||{}).reduce((sum,tracks)=>sum+tracks.length,0)} frozen tracks. Completed fights and earlier submissions are retained. Scores cover the opponents actually faced.</p><p>Withdrawn: ${e(d.roster.withdrawn.join(", ") || "None")}</p>${btn("Edit participants","edit-run-participants")}</details>` : "") +
     (d.sessions.some(s=>s.continuation_identity) ? `<details class="quiet-details"><summary>Continued after an application update</summary><p>Version changes are recorded in the journal.</p></details>` : "") +
@@ -1885,7 +1895,7 @@ async function renderRun(epoch, liveUpdate=false) {
       };
     }
     S.statistics = statistics;
-    body = summary(d, statistics);
+    body = timedRender('Summary charts',()=>summary(d,statistics));
   } else if (S.tab === "config")
     body = configurationView(d);
   else if (S.tab === "conversation" || S.tab === "code") {
@@ -3970,6 +3980,14 @@ document.addEventListener("click", async (event) => {
     else if (a === "test-provider") {
       openDialog("Test provider API", "One billed request; returned tools are never executed.",
         `<form data-form="provider-probe" data-session="${e(node.dataset.session)}"><label>Request<select name="mode"><option value="minimal">Minimal prompt + one simple tool</option><option value="current">Current prompt + full arena tool set</option></select></label><p>Stop the competition first if it is running. Uses this conversation's saved model and reasoning settings. Output is capped at 1,024 tokens. Usage and charges count toward the existing limits; files, history and submitted strategies are preserved.</p><label class="check"><input type="checkbox" name="confirm_paid" required>I authorize this billed API diagnostic.</label><div class="form-footer">${btn("Cancel", "close-dialog")}<button class="button primary" type="submit">Run API test</button></div></form>`);
+    }
+    else if(a==='load-diagnostics') {
+      const server=await api('/api/performance');
+      S.loadDiagnostics={server,browser:[...loadTimings],note:'Stage times are inclusive and can overlap. Thread CPU measures only the request thread; wall time includes waiting. No prompts or credentials are included.'};
+      openDialog('Load diagnostics','Recent server requests and browser work',`<p>Stage times include nested work. A large wall time with little thread CPU indicates waiting; store_lock_wait identifies time waiting for the shared data lock.</p>${table(['Request','Elapsed','Thread CPU','Response size','Slowest stages'],[...server.active,...server.recent].slice(0,30).map(row=>`<tr><td>${e(row.route)}${row.finished?'':'<small>In progress: '+e(row.active_stage||'request')+'</small>'}</td><td>${fmt(row.seconds,3)} s</td><td>${row.thread_cpu_seconds==null?'In progress':fmt(row.thread_cpu_seconds,3)+' s'}</td><td>${fmt(row.response_bytes/1024,1)} KB</td><td>${Object.entries(row.stages).sort((a,b)=>b[1].seconds-a[1].seconds).slice(0,5).map(([name,value])=>e(name)+': '+fmt(value.seconds,3)+' s ('+value.calls+')').join('<br>')}</td></tr>`))}${btn('Copy diagnostics','copy-load-diagnostics')}`);
+    }
+    else if(a==='copy-load-diagnostics') {
+      await navigator.clipboard.writeText(pretty(S.loadDiagnostics));toast('Load diagnostics copied.');
     }
     else if (a === 'copy-scheduling-diagnostics') {
       const data=await api('/api/schedule-audit',{run:S.run,generation:S.activity?.round?S.activity.round-1:undefined});

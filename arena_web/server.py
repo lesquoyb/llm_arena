@@ -74,6 +74,8 @@ class Application:
         if route == "/api/reference-strategies":
             from arena.reference_strategies import CATALOG
             return {"strategies":CATALOG}
+        if route == '/api/performance':
+            return store.performance.snapshot()
         if route == "/api/runs":
             return {"runs": store.listing(), "jobs": self.jobs.listing()}
         if route == '/api/workspace':
@@ -271,6 +273,9 @@ class Application:
         raise ArenaError("Route not found")
 
 
+from .performance import request as measure_request, stage as performance_stage, response as performance_response
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "LLMArena/1"
 
@@ -291,10 +296,13 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def json_response(self, status, value):
-        body = json.dumps(value, ensure_ascii=False).encode("utf-8")
+        with performance_stage('json_serialization'):
+            body = json.dumps(value, ensure_ascii=False).encode("utf-8")
+        performance_response(status,len(body))
         try:
             self.headers_for(status, "application/json; charset=utf-8", len(body))
-            self.wfile.write(body)
+            with performance_stage('socket_write'):
+                self.wfile.write(body)
         except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
             self.close_connection=True
 
@@ -309,6 +317,7 @@ class Handler(BaseHTTPRequestHandler):
         if self.headers.get("Sec-Fetch-Site") == "cross-site":
             raise ArenaError("Origin not allowed")
 
+    @measure_request
     def do_GET(self):
         try:
             self.check_origin()
@@ -369,12 +378,14 @@ class Handler(BaseHTTPRequestHandler):
                 body = path.read_bytes()
                 mime = {".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".png": "image/png"}[path.suffix]
                 self.headers_for(200, mime if path.suffix == ".png" else mime + "; charset=utf-8", len(body))
-                self.wfile.write(body)
+                with performance_stage('socket_write'):
+                    self.wfile.write(body)
         except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
             self.close_connection=True
         except (ArenaError, ValueError, KeyError, TypeError, OSError, sqlite3.Error) as error:
             self.json_response(400, {"error": str(error)})
 
+    @measure_request
     def do_POST(self):
         try:
             self.check_origin()

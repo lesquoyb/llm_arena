@@ -7,6 +7,7 @@ import time
 from uuid import uuid4
 
 from arena.core import ArenaError, digest, write_json
+from .performance import measure
 
 
 class Workspaces:
@@ -78,6 +79,7 @@ class Workspaces:
         return [row for row in self.listing() if not identifier or
                 (row.get('workspace_id') is None if identifier=='unassigned' else row.get('workspace_id')==identifier)]
 
+    @measure('workspace_summary')
     def workspace_summary(self, identifier, *, section='all'):
         if section not in {'all','resources'}:raise ArenaError('Unknown workspace section')
         runs=self.workspace_runs(identifier)
@@ -101,6 +103,7 @@ class Workspaces:
                     self._workspace_summary_cache.pop(next(iter(self._workspace_summary_cache)))
         return result
 
+    @measure('workspace_artifact')
     def workspace_artifact(self, path, kind):
         """Bounded compact projections; never cache per-turn arrays for aggregation."""
         from .data import safe_path
@@ -127,6 +130,7 @@ class Workspaces:
             while len(self._workspace_artifacts)>50000:self._workspace_artifacts.pop(next(iter(self._workspace_artifacts)))
         return copy.deepcopy(value)
 
+    @measure('_workspace_summary')
     def _workspace_summary(self, identifier, runs, *, section='all'):
         included=[r for r in runs if not r.get('archived') and not r.get('error')]
         excluded=[{'run':r['id'],'reason':'Exported copy' if r.get('archived') else r.get('error')} for r in runs if r not in included]
