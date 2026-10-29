@@ -391,7 +391,7 @@ function toast(message, error = false) {
   toastTimer = setTimeout(() => (node.style.display = "none"), 8000);
 }
 function navigate(view, values = {}) {
-  location.hash = query({ view, ...values });
+  location.hash = query({view,...(view==='run'&&values.run===S.run?scopeURL():{}),...values});
 }
 function route() {
   pageRequests.abort();
@@ -401,6 +401,7 @@ function route() {
   const q = new URLSearchParams(location.hash.slice(1));
   S.view = q.get("view") || "dashboard";
   S.run = q.get("run");
+  if(S.view==='run')for(const key of ['model','round','track','replicate'])if(q.has('filter_'+key))runScope()[key]=q.get('filter_'+key);
   S.tab = q.get("tab") || "summary";
   S.session = q.get("session");
   S.modelFilter = q.get("model");
@@ -429,7 +430,7 @@ function route() {
   S.matchPath = null;
   const nextPage = `${S.view}/${S.run}/${S.tab}`;
   if (S.view==='run' && S.detail?.id===S.run)
-    $('#main').innerHTML='<div id="run-chrome">'+runHeader(S.detail)+'</div><section id="run-content" class="panel" aria-busy="true">Loading…</section>';
+    $('#main').innerHTML='<div id="run-chrome">'+runHeader(S.detail)+'</div>'+runFilters(S.detail)+'<section id="run-content" class="panel" aria-busy="true">Loading…</section>';
   renderRoute().then(() => {
     if (nextPage !== previousPage && nextPage === `${S.view}/${S.run}/${S.tab}`)
       window.scrollTo({top:0, behavior:"instant"});
@@ -463,7 +464,7 @@ function competitionActivity(activity=S.activity) {
   const labels={retry_backoff:'Waiting for automatic provider retry',starting:'Starting / resuming',checkpoint_verification:'Checking saved history and source integrity',scheduling_preparations:'Scheduling / resuming model conversations',checking_fights:'Checking completed fights and scheduling missing fights',request_preparation:'Preparing provider request',tournament_fight:'Tournament fight',reference_fight:'Reference evaluation',previous_round_fight:'Previous-round comparison (unscored)',validation:'Validating a submitted strategy',preparation_analysis:'Compiling a preparation script',preparation_fight:'Preparation test (unscored)'};
   if(S.tab!=='activity') {
     if(!activity||S.activityRun!==S.run)return `<section id="competition-activity" class="activity-inline"><span>Loading activity…</span>${btn('Activity','tab','data-tab="activity"')}</section>`;
-    const title=activity.operation?.kind&&activity.operation.kind!=='idle'?(labels[activity.operation.kind]||text(activity.operation.kind)):activity.running?'Scheduling next work':'Stopped';
+    const title=activity.operation?.kind&&activity.operation.kind!=='idle'?(labels[activity.operation.kind]||text(activity.operation.kind)):activity.running?'Scheduling next work':text(activity.job_status||'Stopped');
     return `<section id="competition-activity" class="activity-inline"><strong>${e(title)}</strong><span>Round ${activity.round}${activity.rounds==null?'':` / ${activity.rounds}`}</span><span>${activity.strategies_ready} / ${activity.strategies_expected} prepared</span><span>${fmt(activity.tournament_completed)} / ${fmt(activity.tournament_total)} fights</span>${activity.failed_preparations?`<span class="badge orange">${activity.failed_preparations} need attention</span>`:''}${btn('Activity','tab','data-tab="activity"')}</section>`;
   }
 
@@ -938,7 +939,7 @@ function toolCallTotals(points) {
 
 function workspacePerformance(group) {
   if(!group)return '<p class="muted">No evaluation results yet.</p>';
-  return resourcePanel(group.models.map(m=>({model:m.name,reference:m.is_reference,toolTotal:m.total_tool_calls,tools:m.mean_tool_calls,tests:m.mean_test_matches,replays:m.mean_replay_reads,label:`${m.name} · ${m.round ? "R"+m.round : "Frozen"} · ${text(m.condition)}`,score:m.score,size:m.model_size_billion,cost:m.mean_cost_usd,time:m.mean_wall_seconds==null?null:m.mean_wall_seconds/60})),"workspace")+`<div class="workspace-bars">${group.models.map(m=>`<div class="workspace-bar"><div><strong>${e(m.name)}</strong><small>${m.round ? `Round ${m.round}` : 'Frozen strategy'} · ${e(text(m.condition))}</small></div><div class="workspace-bar-track"><span style="width:${Math.max(0,Math.min(100,(m.score||0)*100))}%"></span></div><strong>${pct(m.score)}</strong></div>`).join('')}</div>`+
+  return resourcePanel(group.models.map(m=>({model:m.name,reference:m.is_reference,toolTotal:m.total_tool_calls,tools:m.mean_tool_calls,tests:m.mean_test_matches,replays:m.mean_replay_reads,label:`${m.name} · ${m.round ? "R"+m.round : "Frozen"} · ${text(m.condition)}`,score:m.score,size:m.model_size_billion,cost:m.mean_cost_usd,time:m.mean_wall_seconds==null?null:m.mean_wall_seconds/60})),"workspace")+`<section class="workspace-chart"><div class="overview-section-head"><h3>Model scores</h3>${chartFullScreenButton()}</div><div class="workspace-bars">${group.models.map(m=>`<div class="workspace-bar"><div><strong>${e(m.name)}</strong><small>${m.round ? `Round ${m.round}` : 'Frozen strategy'} · ${e(text(m.condition))}</small></div><div class="workspace-bar-track"><span style="width:${Math.max(0,Math.min(100,(m.score||0)*100))}%"></span></div><strong>${pct(m.score)}</strong></div>`).join('')}</div></section>`+
     table(['Participant','Size (B)','Score / B','Round / track','Win / draw / loss','Failed fights','Strategies'],group.models.map(m=>`<tr><td>${e(m.name)}</td><td>${fmt(m.model_size_billion,3)}</td><td>${fmt(m.score_per_billion,4)}</td><td>${m.round??'Frozen'} · ${e(text(m.condition))}</td><td>${m.wins} / ${m.draws} / ${m.losses}</td><td>${m.failed}</td><td>${m.conversations}</td></tr>`))+
     `<p class="muted">Mean score per conversation: win 1, draw 0.5, loss 0. ${group.internal_matches} same-model fights excluded. ${group.runs.length} competitions in this group.</p><details class="quiet-details"><summary>Included competitions & scenario</summary><div class="actions">${group.runs.map(id=>btn(e(S.boot.runs.find(r=>r.id===id)?.name||id),'open-run',`data-run="${e(id)}"`)).join('')}</div>${raw(group.scenario,'Scenario settings')}</details>`;
 }
@@ -1796,6 +1797,25 @@ const TABS = [
   ["events", "Journal"],
   ["config", "Configuration"],
 ];
+function runScope() {
+  S.runScopes ||= {};
+  return S.runScopes[S.run] ||= {model:'',round:'',track:'',replicate:''};
+}
+function scopeActive() {return Object.values(runScope()).some(Boolean);}
+function scopeAccept(item) {
+  const scope=runScope();
+  return (!scope.model||item.model===scope.model)&&(!scope.round||Number(item.generation||0)+1===Number(scope.round))&&
+    (!scope.track||(item.condition||'initial')===scope.track)&&(!scope.replicate||Number(item.replicate||0)+1===Number(scope.replicate));
+}
+function scopeSessions(d=S.detail) {return d.sessions.filter(scopeAccept);}
+function scopeURL() {return Object.fromEntries(Object.entries(runScope()).filter(([,value])=>value).map(([key,value])=>['filter_'+key,value]));}
+function scopeEventArgs() {const scope=runScope();return {scope_round:scope.round||undefined,scope_track:scope.track||undefined,scope_replicate:scope.replicate||undefined};}
+function runFilters(d) {
+  const scope=runScope(),rounds=[...new Set(d.sessions.map(row=>Number(row.generation||0)+1))].sort((a,b)=>a-b);
+  const repetitions=Math.max(1,d.metadata.config?.replicates||0,...d.sessions.map(row=>Number(row.replicate||0)+1));
+  const control=(label,key,options)=>`<label>${label}<select data-run-filter="${key}" aria-label="Competition ${label.toLowerCase()}">${options.map(([value,text])=>`<option value="${e(value)}" ${scope[key]===String(value)?'selected':''}>${e(text)}</option>`).join('')}</select></label>`;
+  return `<section id="run-filters" class="run-filters" aria-label="Competition filters">${control('Model','model',[['','All models'],...runModels(d).map(model=>[model.id,model.id])])}${control('Round','round',[['','All rounds'],...(rounds.length?rounds:[1]).map(round=>[String(round),'Round '+round])])}${control('Track','track',[['','All tracks'],['initial','Initial'],['control','No feedback'],['feedback','With feedback']])}${control('Repetition','replicate',[['','All repetitions'],...Array.from({length:repetitions},(_,i)=>[String(i+1),'Repetition '+(i+1)])])}${scopeActive()?btn('Reset','reset-run-filters'):''}<small>${S.tab==='activity'||S.tab==='config'?'Competition totals; exploration filters are kept.':'Shared across statistics, conversations, code, matches and journal.'}</small></section>`;
+}
 function competitionRecovery(d) {
   const active=activeJobs().some(job=>job.run===S.run);
   const problems = d.sessions.filter(s=>conversationNeedsAttention(s,active));
@@ -1871,22 +1891,18 @@ function canProbeProvider(d, sid) {
     (model.model.toLowerCase().startsWith("gpt-6") && parameters.reasoning_effort !== "none");
 }
 function sessionChooser(d) {
-  const selected = d.sessions.find((s) => s.id === S.session);
-  const models = runModels(d);
-  if (selected) S.modelFilter = selected.model;
-  if (!models.some((m) => m.id === S.modelFilter))
-    S.modelFilter = selected?.model || models[0]?.id || null;
-  const sessions = d.sessions.filter((s) => s.model === S.modelFilter);
-  if (!sessions.some((s) => s.id === S.session)) {
-    S.session = sessions[0]?.id || null;
-    S.offset = 0;
-  }
-  return `<div id="session-toolbar" class="toolbar">${modelPicker(d)}<label for="session-choice">Conversation</label><select id="session-choice" ${sessions.length ? "" : "disabled"}>${sessions.map((s) => `<option value="${e(s.id)}" ${s.id === S.session ? "selected" : ""}>${e(sessionLabel(s))}</option>`).join("") || "<option>No conversations yet</option>"}</select>${S.session ? btn("Conversation journal", "conversation-journal") + btn("Copy provider diagnostics", "copy-provider-diagnostics", `data-session="${e(S.session)}"`) + (canProbeProvider(d, S.session) ? btn("Test API", "test-provider", `data-session="${e(S.session)}"`) : "") : ""}${retryButton(d.sessions.find((s) => s.id === S.session))}${d.sessions.find(s=>s.id===S.session)?.submission ? btn("Save as participant","save-strategy",`data-session="${e(S.session)}"`) : ""}<span class="spacer"></span></div>`;
+  const sessions=scopeSessions(d);
+  if(!sessions.some(row=>row.id===S.session)){S.session=sessions[0]?.id||null;S.offset=0;}
+  const selected=sessions.find(row=>row.id===S.session);S.modelFilter=selected?.model||null;
+  const actions=selected?btn('Conversation journal','conversation-journal')+btn('Copy provider diagnostics','copy-provider-diagnostics',`data-session="${e(selected.id)}"`)+(canProbeProvider(d,selected.id)?btn('Test API','test-provider',`data-session="${e(selected.id)}"`):'')+retryButton(selected)+(selected.submission?btn('Save as participant','save-strategy',`data-session="${e(selected.id)}"`):''):'';
+  return `<div id="session-toolbar" class="toolbar session-toolbar"><label for="session-choice">Conversation</label><select id="session-choice" ${sessions.length?'':'disabled'}>${sessions.map(row=>`<option value="${e(row.id)}" ${row.id===S.session?'selected':''}>${e(row.model)} · ${e(sessionLabel(row))}</option>`).join('')||'<option>No conversations match these filters</option>'}</select>${selected?status(selected.status):''}${actions?`<details class="action-menu"><summary class="button">Conversation actions</summary><div>${actions}</div></details>`:''}</div>`;
 }
 async function renderRun(epoch, liveUpdate=false) {
   document.body.dataset.runTab=S.tab;
   const d = S.detail;
-  if(!$("#run-chrome"))$("#main").innerHTML='<div id="run-chrome">'+runHeader(d)+'</div><section id="run-content" class="panel" aria-busy="true">Loading…</section>';
+  const explicit=d.sessions.find(row=>row.id===S.session);
+  if(explicit&&!scopeAccept(explicit))Object.assign(runScope(),{model:explicit.model,round:String(Number(explicit.generation||0)+1),track:explicit.condition||'initial',replicate:String(Number(explicit.replicate||0)+1)});
+  if(!$("#run-chrome"))$("#main").innerHTML='<div id="run-chrome">'+runHeader(d)+'</div>'+runFilters(d)+'<section id="run-content" class="panel" aria-busy="true">Loading…</section>';
   if(S.activityRun!==S.run) {
     await refreshCompetitionActivity(epoch);
     if(epoch!==S.epoch)return;
@@ -1925,8 +1941,8 @@ async function renderRun(epoch, liveUpdate=false) {
       body =
         chooser +
         empty(
-          "No conversations for this model",
-          "Conversations appear when this participant starts.",
+          "No conversations match these filters",
+          "Choose another round, model or repetition, or reset the filters.",
         );
     else if (!d.sessions.length && S.tab === "code") {
       S.files = (await runResource("/api/files", { run: S.run })).files.filter((f) =>
@@ -1964,7 +1980,7 @@ async function renderRun(epoch, liveUpdate=false) {
       // Keep the selected conversation stable across reloads.
       const conversationURL = new URL(location.href);
       conversationURL.hash = query({view: "run", run: S.run, tab: "conversation",
-        session: S.session, model: S.modelFilter,
+        session: S.session, model: S.modelFilter,...scopeURL(),
         ...(S.explicitOffset ? {offset: S.offset} : {})});
       history.replaceState(null, "", conversationURL);
       S.liveConversation = {
@@ -2005,28 +2021,26 @@ async function renderRun(epoch, liveUpdate=false) {
     S.faults=data;
     body=faultsPage();
   } else if (S.tab === "files") {
-    S.files = (await runResource("/api/files", { run: S.run })).files;
+    S.files = (await runResource("/api/files", { run: S.run })).files.filter(file=>{
+      const match=file.path.match(/^sessions\/([^/]+)\//);return !match||scopeAccept(overviewIdentity(match[1]));
+    });
     body = filesPage();
   } else if (S.tab === "events") {
-    const chosen = d.sessions.find((s) => s.id === S.session);
-    if (chosen && !S.modelFilter) S.modelFilter = chosen.model;
-    if (chosen && S.modelFilter && chosen.model !== S.modelFilter) {
-      S.session = null;
-      S.offset = 0;
-    }
+    if(S.session&&!scopeSessions(d).some(row=>row.id===S.session))S.session=null;
     S.events = await api("/api/events", {
       run: S.run,
       session: S.session || undefined,
-      model: S.modelFilter || undefined,
+      model: runScope().model||undefined,...scopeEventArgs(),
       offset: S.offset,
     });
     body = eventsPage(S.events);
   }
   if (epoch !== S.epoch) return;
-  const html='<div id="run-chrome">' + runHeader(d) + '</div><div id="run-content">' + body + '</div>';
+  const html='<div id="run-chrome">'+runHeader(d)+'</div>'+runFilters(d)+'<div id="run-content">'+body+'</div>';
   if(liveUpdate) LiveDOM.update($('#main'),html);
   else $('#main').innerHTML=html;
   if(deferredErrors)deferredErrors();
+  if(S.tab==='conversation')requestAnimationFrame(fitConversationPane);
   if(S.tab==='conversation')refreshConversationDiagnostics(epoch);
   if (S.tab === "conversation" && S.follow && !S.explicitOffset)
     animateConversationTail();
@@ -2043,6 +2057,12 @@ async function renderRun(epoch, liveUpdate=false) {
         S.files[0].path, liveUpdate,
     );
 }
+function fitConversationPane() {
+  const pane=$('#conversation-scroll');if(!pane)return;
+  const height=Math.max(280,innerHeight-Math.max(0,pane.getBoundingClientRect().top)-52);
+  pane.style.setProperty('--conversation-height',height+'px');
+}
+window.addEventListener('resize',()=>{if(S.tab==='conversation')fitConversationPane();});
 function measuredUsage(session) {
   const receipt = session.usage_receipts;
   if (receipt?.responses) return {
@@ -2070,13 +2090,13 @@ function overviewErrors(d,data) {
 }
 function faultsPage() {
   const data=S.faults || {sessions:[],incidents:[]};
-  const rows=data.sessions.filter(row=>(!S.faultModel||row.model===S.faultModel)&&(!S.faultRound||String(row.round)===S.faultRound)&&(!S.faultCondition||row.condition===S.faultCondition));
+  const rows=data.sessions.filter(row=>scopeAccept(overviewIdentity(row.session)));
   const selected=new Set(rows.map(row=>row.session));
   const total=key=>rows.reduce((sum,row)=>sum+(row[key]||0),0);
   const rateMetric=S.faultMetric||'tools';
   const bars=faultRateBars(rows,rateMetric);
   const incidents=[...data.incidents].reverse().filter(row=>selected.has(row.session));
-  return `<section id="faults-content"><div class="collection-toolbar">${selectField('Model','fault_model', [['','All models'],...[...new Set(data.sessions.map(row=>row.model))].map(model=>[model,model])],S.faultModel||'')}${selectField('Round','fault_round',[['','All rounds'],...[...new Set(data.sessions.map(row=>row.round))].sort((a,b)=>a-b).map(round=>[String(round),'Round '+round])],S.faultRound||'')}${selectField('Track','fault_condition',[['','All tracks'],['initial','Initial'],['control','No feedback'],['feedback','With feedback']],S.faultCondition||'')}<a class="button" href="/api/results.csv?${query({run:S.run,table:'errors'})}" download>Download errors CSV</a></div><div class="metrics">${metric('Tool errors',`${total('tool_errors')} / ${total('tool_calls')}`,total('tool_calls')?pct(total('tool_errors')/total('tool_calls')):'No executed tools')}${metric('Compilation failure rate',total('completed_analyses')?pct(total('failed_analyses')/total('completed_analyses')):'N/A',`${total('failed_analyses')} failed / ${total('completed_analyses')} completed checks · ${total('compiler_errors')} diagnostics · ${total('analysis_infrastructure_failures')} technical failures`)}${metric('Runtime errors',fmt(total('runtime_errors')),`${total('preparation_runtime_errors')} in preparation tests`)}${metric('Provider failures',fmt(total('provider_failures')),'Reported separately from authoring errors')}</div><section class="panel">${selectField('Failure rate','fault_metric',[['tools','Tool calls'],['compilation','Compilation checks']],rateMetric)}<div class="workspace-bars">${bars||'<p>No observations yet.</p>'}</div></section><section class="panel"><h2>By round and track</h2>${table(['Participant','Round / track','Tool errors','Unknown tools','Bad arguments','Failed compilation checks','Invalid teams','Runtime errors'],rows.map(row=>`<tr><td>${e(row.model)}${row.manual_frozen?'<small>Manually frozen</small>':''}</td><td>R${row.round} · ${e(text(row.condition))}</td><td>${row.tool_errors} / ${row.tool_calls}</td><td>${row.unknown_tools}</td><td>${row.invalid_arguments}</td><td>${row.completed_analyses?pct(row.failed_analyses/row.completed_analyses):'N/A'}<small>${row.failed_analyses} / ${row.completed_analyses??0} completed checks · ${row.compiler_errors} diagnostics</small></td><td>${row.invalid_teams}</td><td>${row.runtime_errors}</td></tr>`))}<p class="muted">Observed errors, not a hallucination score. Tool failures include unavailable files and other operational errors. Compiler warnings are excluded. Compilation failure rate divides failed checks by completed checks; engine timeouts are excluded from that denominator. Repeated attempts count separately. Runtime errors count recorded execution events across scored and reference fights; preparation is separate.</p></section><section class="panel"><h2>Recent incidents</h2><p>${data.incidents_total??data.incidents.length} recorded incidents; the most recent 200 are available here. Full receipts remain in the Journal.</p>${incidents.map(row=>`<details class="quiet-details" data-fault-event="${row.event}" data-fault-run="${e(S.run)}" ${S.faultOpen?.[S.run+'/'+row.event]?'open':''}><summary>${e(row.model)} · R${row.round} · ${e(text(row.category))}${row.tool?' · '+e(row.tool):''}</summary><p>${date(row.at)} · ${e(text(row.condition))} · Journal event ${row.event}</p><pre>${e(row.message)}</pre>${btn('Open conversation','session-conversation',`data-session="${e(row.session)}"`)}</details>`).join('')||'<p>No incidents in this selection.</p>'}</section></section>`;
+  return `<section id="faults-content"><div class="collection-toolbar"><a class="button" href="/api/results.csv?${query({run:S.run,table:'errors'})}" download>Download errors CSV</a></div><div class="metrics">${metric('Tool errors',`${total('tool_errors')} / ${total('tool_calls')}`,total('tool_calls')?pct(total('tool_errors')/total('tool_calls')):'No executed tools')}${metric('Compilation failure rate',total('completed_analyses')?pct(total('failed_analyses')/total('completed_analyses')):'N/A',`${total('failed_analyses')} failed / ${total('completed_analyses')} completed checks · ${total('compiler_errors')} diagnostics · ${total('analysis_infrastructure_failures')} technical failures`)}${metric('Runtime errors',fmt(total('runtime_errors')),`${total('preparation_runtime_errors')} in preparation tests`)}${metric('Provider failures',fmt(total('provider_failures')),'Reported separately from authoring errors')}</div><section class="panel">${selectField('Failure rate','fault_metric',[['tools','Tool calls'],['compilation','Compilation checks']],rateMetric)}<div class="workspace-bars">${bars||'<p>No observations yet.</p>'}</div></section><section class="panel"><h2>By round and track</h2>${table(['Participant','Round / track','Tool errors','Unknown tools','Bad arguments','Failed compilation checks','Invalid teams','Runtime errors'],rows.map(row=>`<tr><td>${e(row.model)}${row.manual_frozen?'<small>Manually frozen</small>':''}</td><td>R${row.round} · ${e(text(row.condition))}</td><td>${row.tool_errors} / ${row.tool_calls}</td><td>${row.unknown_tools}</td><td>${row.invalid_arguments}</td><td>${row.completed_analyses?pct(row.failed_analyses/row.completed_analyses):'N/A'}<small>${row.failed_analyses} / ${row.completed_analyses??0} completed checks · ${row.compiler_errors} diagnostics</small></td><td>${row.invalid_teams}</td><td>${row.runtime_errors}</td></tr>`))}<p class="muted">Observed errors, not a hallucination score. Tool failures include unavailable files and other operational errors. Compiler warnings are excluded. Compilation failure rate divides failed checks by completed checks; engine timeouts are excluded from that denominator. Repeated attempts count separately. Runtime errors count recorded execution events across scored and reference fights; preparation is separate.</p></section><section class="panel"><h2>Recent incidents</h2><p>${data.incidents_total??data.incidents.length} recorded incidents; the most recent 200 are available here. Full receipts remain in the Journal.</p>${incidents.map(row=>`<details class="quiet-details" data-fault-event="${row.event}" data-fault-run="${e(S.run)}" ${S.faultOpen?.[S.run+'/'+row.event]?'open':''}><summary>${e(row.model)} · R${row.round} · ${e(text(row.category))}${row.tool?' · '+e(row.tool):''}</summary><p>${date(row.at)} · ${e(text(row.condition))} · Journal event ${row.event}</p><pre>${e(row.message)}</pre>${btn('Open conversation','session-conversation',`data-session="${e(row.session)}"`)}</details>`).join('')||'<p>No incidents in this selection.</p>'}</section></section>`;
 }
 function usageAccounting(d) {
   const models = d.metadata.config?.models || [];
@@ -2174,7 +2194,7 @@ function overviewEntries(match) {
     );
 }
 function overviewAccept(item, scope) {
-  return (
+  return scopeAccept(item) && (
     (!scope.model || item.model === scope.model) &&
     (scope.round === "all" ||
       scope.round?.startsWith("stage:") ||
@@ -2270,59 +2290,9 @@ function overviewData(d, scope=overviewSettings()) {
     history: [...history.values()].map(finish),
   };
 }
-function overviewFilters(d, data) {
-  const options = (values, value) =>
-    values
-      .map(
-        ([id, label]) =>
-          `<option value="${e(id)}" ${id === value ? "selected" : ""}>${e(label)}</option>`,
-      )
-      .join("");
-  const models = d.sessions.length
-    ? runModels(d).map((m) => m.id)
-    : [
-        ...new Set(
-          (S.overviewMatches || []).flatMap((m) =>
-            m.sides.map((id) => overviewIdentity(id).model),
-          ),
-        ),
-      ];
-  const sourceVersions = [...d.sessions.map(s=>overviewIdentity(s.id)), ...(d.metadata.manifest?.strategies || []).filter(s=>s.origin).map(s=>overviewIdentity(s.id))];
-  const hasImprovement =
-    sourceVersions.some((s) => s.generation > 0) ||
-    (S.overviewMatches || []).some((m) => m.stage.includes("g1"));
-  return `<div class="overview-filters" role="group" aria-label="Overview filters"><label>Round<select data-overview-filter="round" aria-label="Overview round">${options(
-    [
-      ["all", "All rounds"],
-      ["initial", "Round 1 · Initial"],
-      ...(!d.sessions.length
-        ? [...new Set((S.overviewMatches || []).map((m) => m.stage))].map(
-            (stage) => ["stage:" + stage, stageText(stage)],
-          )
-        : []),
-      ...[
-        ...new Set(
-          sourceVersions
-            .filter((v) => v.generation > 0)
-            .map(overviewRoundKey),
-        ),
-      ]
-        .sort(
-          (a, b) =>
-            (a.includes(":") ? Number(a.split(":")[0]) : 1) -
-            (b.includes(":") ? Number(b.split(":")[0]) : 1),
-        )
-        .map((key) => [key, overviewRound(key).replace(/^R/, "Round ")]),
-    ],
-    data.scope.round,
-  )}</select></label><label>Model<select data-overview-filter="model" aria-label="Overview model">${options([["", "All models"], ...models.map((m) => [m, m])], data.scope.model)}</select></label><label>Matches<select data-overview-filter="source" aria-label="Overview matches">${options(
-    [
-      ["competition", "Tournament"],
-      ["evaluation", "Fixed baseline (unscored)"],
-      ["progression", "Previous-round comparisons (unscored)"],
-    ],
-    data.scope.source,
-  )}</select></label><label>Matrix grouping<select data-overview-filter="matrix" aria-label="Matrix grouping">${options([["models","By model"],["versions","By strategy version"]],data.scope.matrix || "models")}</select></label><span class="overview-scope">${data.selected.length} fights · ${data.models.length} models</span></div>`;
+function overviewFilters(d,data) {
+  const options=(rows,value)=>rows.map(([id,label])=>`<option value="${e(id)}" ${id===value?'selected':''}>${e(label)}</option>`).join('');
+  return `<div class="overview-filters" role="group" aria-label="Chart options"><label>Matches<select data-overview-filter="source" aria-label="Overview matches">${options([['competition','Tournament'],['evaluation','Fixed baseline (unscored)'],['progression','Previous-round comparisons (unscored)']],data.scope.source)}</select></label><label>Matrix grouping<select data-overview-filter="matrix" aria-label="Matrix grouping">${options([['models','By model'],['versions','By strategy version']],data.scope.matrix||'models')}</select></label><span class="overview-scope">${data.selected.length} fights · ${data.models.length} models</span></div>`;
 }
 function chartFullScreenButton() {return btn(document.fullscreenElement||$('.chart-expanded')?'Exit full screen':'Full screen','expand-chart');}
 async function toggleChartFullScreen(node) {
@@ -3224,8 +3194,8 @@ async function loadFile(path, liveUpdate=false) {
   );
 }
 function eventsPage(data) {
-  return `<section class="panel"><h2>Event log</h2><p class="muted">Calls, responses, reservations, tools and evaluations. Opening an event checks its artifact hash.</p><div class="toolbar">${modelPicker(S.detail, true)}<label for="event-session">Conversation</label><select id="event-session"><option value="">All conversations</option>${S.detail.sessions
-    .filter((s) => !S.modelFilter || s.model === S.modelFilter)
+  return `<section class="panel"><h2>Event log</h2><p class="muted">Calls, responses, reservations, tools and evaluations. Opening an event checks its artifact hash.</p><div class="toolbar"><label for="event-session">Conversation</label><select id="event-session"><option value="">All conversations</option>${S.detail.sessions
+    .filter(scopeAccept)
     .map(
       (s) =>
         `<option value="${e(s.id)}" ${S.session === s.id ? "selected" : ""}>${e(s.model)} · ${e(sessionLabel(s))}</option>`,
@@ -3282,9 +3252,9 @@ function matchSubset() {
     if (f.scored && m.mirror) return false;
     if (f.exclude_same_model && overviewIdentity(m.sides[0]).model===overviewIdentity(m.sides[1]).model) return false;
     let scopedSide = null;
-    if (f.entrant_model || f.opponent_model || f.round || f.track) {
+    if (scopeActive() || f.entrant_model || f.opponent_model || f.round || f.track) {
       const candidates = overviewEntries(m).filter(
-        (item) =>
+        (item) => scopeAccept(item) &&
           (!f.entrant_model || item.model===f.entrant_model) &&
           (!f.round || f.round==='all' || item.generation+1===Number(f.round)) &&
           (!f.track || item.condition===f.track) &&
@@ -3359,7 +3329,7 @@ function matchesPage() {
       ["all", "All fights"],
     ],
     f.kind || "competition",
-  )}<div id="match-origin-scope">${f.stage ? notice('Stage selected from overview: '+e(stageText(f.stage))) : ''}${f.entrant || f.opponent ? notice(`Exact versions selected from the matrix: ${e(strategyName(f.entrant||'Any participant'))} vs ${e(strategyName(f.opponent||'Any opponent'))}. Changing the filters below selects models across versions.`) : ''}</div><div class="match-filters">${field("Search", "match-search", f.search || "", "search", "", 'id="match-search"')}${selectField('Model','match-model',[['','All models'],...participants.map(model=>[model,model])],f.entrant_model||'')}${selectField('Opponent model','match-opponent-model',[['','All opponents'],...participants.map(model=>[model,model])],f.opponent_model||'')}${selectField('Round','match-round',[['all','All rounds'],...(rounds.length?rounds:[1]).map(round=>[String(round),'Round '+round])],f.round||'all')}${selectField('Track','match-track',[['','All tracks'],['initial','Initial'],['control','No feedback'],['feedback','With feedback']],f.track||'')}${selectField(
+  )}<div id="match-origin-scope">${f.stage ? notice('Stage selected from overview: '+e(stageText(f.stage))) : ''}${f.entrant || f.opponent ? notice(`Exact versions selected from the matrix: ${e(strategyName(f.entrant||'Any participant'))} vs ${e(strategyName(f.opponent||'Any opponent'))}. Changing the filters below selects models across versions.`) : ''}</div><div class="match-filters">${field("Search", "match-search", f.search || "", "search", "", 'id="match-search"')}${selectField('Opponent model','match-opponent-model',[['','All opponents'],...participants.map(model=>[model,model])],f.opponent_model||'')}${selectField(
     f.kind==='selfplay'?"Outcome for blue side":"Outcome for selected participant (otherwise blue side)",
     "match-outcome",
     [
@@ -3666,7 +3636,7 @@ function comparisonResult(data) {
     data.groups
       .map(
         (g, i) =>
-          `<section class="panel"><div class="panel-title"><div><h2>Comparison group ${i + 1}</h2><small>${g.runs.length} competitions; same rules, seeds and fixed opponents</small></div>${badge(g.protocol.simulated ? "Simulation" : "Real API calls", g.protocol.simulated ? "blue" : "orange")}</div>${lineChart(g)}<div style="margin-top:22px">${table(
+          `<section class="panel comparison-chart"><div class="panel-title"><div><h2>Comparison group ${i + 1}</h2><small>${g.runs.length} competitions; same rules, seeds and fixed opponents</small></div>${chartFullScreenButton()}${badge(g.protocol.simulated ? "Simulation" : "Real API calls", g.protocol.simulated ? "blue" : "orange")}</div>${lineChart(g)}<div style="margin-top:22px">${table(
             [
               "Model / condition",
               "Size (B)",
@@ -3938,6 +3908,10 @@ document.addEventListener("click", async (event) => {
       S.editDraft = d.id;
       S.editConfig = structuredClone(d.config);
       navigate("editor");
+    } else if(a==='reset-run-filters') {
+      Object.assign(runScope(),{model:'',round:'',track:'',replicate:''});S.session=null;S.offset=0;
+      overviewSettings().round='all';overviewSettings().model='';
+      navigate('run',{run:S.run,tab:S.tab});
     } else if(a==='expand-chart') {await toggleChartFullScreen(node);
     } else if (a === 'expand-activity') {
       const details=$('#competition-activity-details');
@@ -4511,6 +4485,16 @@ document.addEventListener("change", async (event) => {
         model: S.modelFilter,
         session: n.value,
       });
+    else if(n.matches('[data-run-filter]')) {
+      runScope()[n.dataset.runFilter]=n.value;S.session=null;S.offset=0;S.version=null;S.file=null;S.matchPath=null;S.liveConversation=null;S.explicitOffset=false;
+      if($('#match-detail'))$('#match-detail').liveLoaded=false;
+      overviewSettings().round='all';overviewSettings().model='';
+      S.matchFilters={...S.matchFilters,round:'',track:'',entrant_model:'',entrant:null,opponent:null,stage:null};
+      const hash=new URLSearchParams(location.hash.slice(1));
+      for(const key of ['model','round','track','replicate']){hash.delete('filter_'+key);if(runScope()[key])hash.set('filter_'+key,runScope()[key]);}
+      for(const key of ['session','offset','entrant','entrant_model','round','track','stage','opponent'])hash.delete(key);history.replaceState(null,'','#'+hash);
+      await renderRun(++S.epoch,true);
+    }
     else if (n.matches("[data-overview-filter]")) {
       overviewSettings()[n.dataset.overviewFilter] = n.value;
       LiveDOM.update($("#run-content"),summary(S.detail, S.statistics));
@@ -4720,7 +4704,7 @@ setInterval(async () => {
           const events = await api("/api/events", {
             run: S.run,
             session: S.session || undefined,
-            model: S.modelFilter || undefined,
+            model: runScope().model||undefined,...scopeEventArgs(),
             limit: 1,
           });
           S.offset = Math.floor(Math.max(0, events.total - 1) / 100) * 100;
@@ -4971,10 +4955,10 @@ async function filterMatches(clear = false) {
       search: $("#match-search").value,
       kind: $("[name=match-kind]")?.value || "competition",
       stage:undefined,entrant:undefined,opponent:undefined,
-      entrant_model: $("[name=match-model]", form).value,
+      entrant_model: $("[name=match-model]", form)?.value||'',
       opponent_model: $("[name=match-opponent-model]", form).value,
-      round: $("[name=match-round]", form).value,
-      track: $("[name=match-track]", form).value,
+      round: $("[name=match-round]", form)?.value||'',
+      track: $("[name=match-track]", form)?.value||'',
       outcome: $("[name=match-outcome]", form).value,
     };
   $('#match-origin-scope')?.remove();
@@ -4984,7 +4968,7 @@ async function filterMatches(clear = false) {
   history.replaceState(
     null,
     "",
-    "#" + query({ view: "run", run: S.run, tab: "matches", ...filters }),
+    "#" + query({view:"run",run:S.run,tab:"matches",...scopeURL(),...filters}),
   );
   const rows = matchSubset();
   $("#match-filter-count").textContent =

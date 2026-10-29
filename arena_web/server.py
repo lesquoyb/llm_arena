@@ -111,7 +111,8 @@ class Application:
         if route == "/api/message":
             return store.message(run, sid, number("index", 0))
         if route == "/api/events":
-            return store.events(run, sid, number("offset", 0), min(number("limit", 100), 500), value("model"))
+            return store.events(run, sid, number("offset", 0), min(number("limit", 100), 500), value("model"),
+                                {"round":value("scope_round"),"track":value("scope_track"),"replicate":value("scope_replicate")})
         if route == "/api/event":
             return store.event(run, number("id", 0))
         if route == "/api/versions":

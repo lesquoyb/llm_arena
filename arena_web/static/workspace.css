@@ -429,3 +429,27 @@ body[data-run-tab=conversation] .conversation-navigation .button { padding:5px 1
   .activity-inline > strong { flex-basis:100%; }
   .overview-card:fullscreen,.chart-expanded { padding:12px; }
 }
+
+.run-filters { position:sticky; top:0; z-index:20; display:flex; flex-wrap:wrap; align-items:end; gap:8px 12px; padding:10px 14px; margin:0 0 16px; border:1px solid var(--border); border-radius:9px; background:var(--paper); box-shadow:0 3px 10px #1726380a; }
+.run-filters label { display:grid; gap:3px; font-size:11px; font-weight:600; min-width:115px; flex:1; }
+.run-filters label:first-child { flex:2; min-width:150px; }
+.run-filters select { min-width:0; width:100%; max-width:100%; padding:6px 8px; font-weight:400; font-size:12px; }
+.run-filters small { font-size:10px; flex-basis:100%; }
+.run-filters > .button { padding:6px 10px; }
+.session-toolbar { display:flex; align-items:center; gap:8px; margin-bottom:8px; }
+.session-toolbar #session-choice { flex:1; min-width:120px; width:0; max-width:100%; }
+.session-toolbar label { font-size:12px; }
+.session-toolbar .action-menu { margin-left:auto; }
+body[data-run-tab=conversation] #run-filters { margin-bottom:8px; }
+body[data-run-tab=conversation] #conversation-scroll { height:clamp(320px,calc(100dvh - 370px),1500px); }
+body[data-run-tab=conversation] .conversation-panel:fullscreen #conversation-scroll,body[data-run-tab=conversation] .conversation-panel.chart-expanded #conversation-scroll { height:calc(100dvh - 130px); }
+@media(max-width:760px) {
+  .run-filters { gap:6px; padding:8px; }
+  .run-filters label,.run-filters label:first-child { min-width:calc(50% - 12px); }
+  .run-filters small { display:none; }
+  .session-toolbar { flex-wrap:wrap; }
+  .session-toolbar #session-choice { min-width:calc(100% - 100px); }
+}
+body[data-run-tab=conversation] #conversation-scroll { height:var(--conversation-height,clamp(320px,calc(100dvh - 370px),1500px)); }
+.workspace-chart { margin-top:24px; }
+.comparison-chart:fullscreen > .chart-filterable .chart { min-height:55dvh; width:100%; }

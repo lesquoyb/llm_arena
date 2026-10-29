@@ -766,7 +766,7 @@ class Store(Workspaces):
                 "generation": state.get("generation", 0), "condition": state.get("condition", "initial"),
                 "failure_event": failure_event, "diagnostics": self.session_diagnostics(identifier, sid) if include_diagnostics else None}
 
-    def events(self, identifier, sid=None, offset=0, limit=100, model=None):
+    def events(self, identifier, sid=None, offset=0, limit=100, model=None, scope=None):
         root = self.run_path(identifier)
         path = root / "journal.sqlite"
         if not path.exists():
@@ -778,9 +778,16 @@ class Store(Workspaces):
             if sid:
                 conditions.append("session=?")
                 args.append(sid)
-            if model:
-                conditions.append("session IN (SELECT id FROM sessions WHERE json_extract(state,'$.model')=?)")
-                args.append(model)
+            if model or (scope and any(scope.values())):
+                scope=scope or {}
+                states=self.states(root,('model','generation','condition','replicate'))
+                selected=[name for name,state in states.items() if
+                    (not model or state.get('model')==model) and
+                    (not scope.get('round') or int(state.get('generation',0))+1==int(scope['round'])) and
+                    (not scope.get('track') or state.get('condition','initial')==scope['track']) and
+                    (not scope.get('replicate') or int(state.get('replicate',0))+1==int(scope['replicate']))]
+                conditions.append("session IN (SELECT value FROM json_each(?))")
+                args.append(json.dumps(selected))
             clause = " WHERE " + " AND ".join(conditions) if conditions else ""
             total = connection.execute("SELECT count(*) FROM events" + clause, args).fetchone()[0]
             rows = connection.execute("SELECT id,session,kind,payload FROM events" + clause +
