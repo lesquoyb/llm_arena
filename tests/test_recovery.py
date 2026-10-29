@@ -15,6 +15,14 @@ class RecoveryTests(unittest.TestCase):
         self.assertFalse(resume_compatible(before, {**after, 'config':{'scenario':2}}))
         self.assertFalse(engine_compatible(before['engine'], {**after['engine'], 'lock':'game-v2'}))
 
+    def test_added_worker_transport_preserves_compatibility_only_for_same_adapter(self):
+        before={'lock':'pinned','adapter_sha256':'adapter','jar_sha256':'jar',
+                'build_script_sha256':'overlay','bridge_sha256':'old'}
+        after={**before,'bridge_sha256':'with-worker','worker_execution':'pooled-classloader'}
+        self.assertTrue(engine_compatible(before,after))
+        for key in ('adapter_sha256','jar_sha256','build_script_sha256','lock'):
+            self.assertFalse(engine_compatible(before,{**after,key:'changed'}))
+
     def test_reconciliation_preserves_received_response_and_is_not_charged_twice(self):
         with scratch_directory() as tmp:
             journal = Journal(tmp)

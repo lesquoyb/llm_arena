@@ -76,11 +76,22 @@ def fight(engine, sources, infos, config, seed_value, work):
         if lock is None:
             lock=threading.Lock()
             _locks[key]=lock
-    with lock:
-        return _fight(engine,sources,infos,config,seed_value,work)
+    from .fight_phases import phase
+    phase('waiting_reference_cache');started=time.monotonic();held=True
+    lock.acquire()
+    waited=time.monotonic()-started
+    def release():
+        nonlocal held
+        if held:held=False;lock.release()
+    try:
+        result=_fight(engine,sources,infos,config,seed_value,work,release=release)
+        result.setdefault('timings',{})['cache_lock_wait_seconds']=waited
+        write_json(work/'result.json',result)
+        return result
+    finally:release()
 
 
-def _fight(engine, sources, infos, config, seed_value, work):
+def _fight(engine, sources, infos, config, seed_value, work, *, release=None):
     """Use the full replay only when both fixed-reference inputs match exactly."""
     from .fight_phases import phase
     phase('reference_cache');lookup_started=time.monotonic()
@@ -89,6 +100,9 @@ def _fight(engine, sources, infos, config, seed_value, work):
         if submission(Path(source),info['entrypoint'])!=info:raise ArenaError('Fixed reference source changed')
     manifest=_read(entry,request) if (entry/'cache.json').is_file() else None
     if manifest:
+        # Published cache entries are immutable. Keep miss creation serialized,
+        # but independent replay copies no longer occupy the per-key lock.
+        if release:release()
         phase('materializing_cache');started=time.monotonic();shutil.copytree(entry/'files',work,ignore=lambda directory,names:['data'] if Path(directory)==entry/'files' and 'data' in names else [])
         # Validate the materialized snapshot too; every competition stays portable.
         if any(file_hash(work/name)!=expected for name,expected in manifest['files'].items() if not name.startswith('data/')):

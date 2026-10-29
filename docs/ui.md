@@ -1253,8 +1253,8 @@ Pinned engine data are staged with hardlinks where supported, with a byte-copy
 fallback across filesystems. Temporary data are removed when the process finishes;
 static data are no longer duplicated in new reference replay caches. Sources,
 scenarios, replay outputs, logs and their integrity checks remain archived.
-Each fight still runs in an isolated JVM; process reuse would require separate
-validation of state reset and determinism.
+After rebuilding the bridge, native fights use reusable JVM slots with a fresh
+game/compiler classloader and clean source workspace for each request. See below.
 
 ### Summary scale, counts and engine recovery
 
@@ -1283,3 +1283,35 @@ The end-of-preparation pass retries exhausted tournament failures again. Persist
 engine failures leave the round incomplete and prevent advancing to the next
 round. **Retry failed fights** repairs archived fixtures without repeating LLM
 calls; **Resume** then continues the competition from its saved round boundary.
+
+
+### Reusable JVM workers
+
+Run `python -m arena setup` once after updating to compile `ArenaWorker`, then
+restart the application. Native fight workers keep their JVM alive across fights;
+the concurrency control still chooses the number of simultaneous fight slots.
+Without the rebuilt transport, existing installations retain isolated execution.
+Docker workers remain isolated. `ARENA_JVM_MODE=isolated` explicitly selects the
+previous implementation for comparisons.
+
+Every request has fresh game/compiler classes, source directories, metrics and
+registers. Pinned static data are copied once per JVM. Slots recycle after 32
+requests and close after 30 seconds idle. A timeout destroys the affected slot;
+the next request starts a new JVM. Experiment shutdown closes retained workers.
+This preserves per-match source isolation rather than relying on mutable engine
+statics being reset by convention. Runtime compilation resolves its AI base
+classes through the current request's classloader.
+
+Execution details record the process ID, whether its JVM was reused, and measured
+Java CPU seconds where available. The activity details show new/reused JVM counts.
+Scheduling diagnostics now also include memory availability, batch Python CPU
+and wall time, occupied phases, grouped engine errors and bounded log excerpts.
+Existing failed records can be diagnosed without rerunning fights. CPU and wall
+time are different: a process waiting on memory or storage accumulates elapsed
+time while consuming little CPU. Batch phase totals overlap and must not be added.
+
+A local JDK 25 check of six short seeded fights took 8.94 seconds with isolated
+processes and 4.53 seconds with one reusable slot. Replay digests and deterministic
+team metrics matched, including parallel runs and alternating strategy files.
+These timings are an implementation check, not a performance forecast for a
+particular competition or host.

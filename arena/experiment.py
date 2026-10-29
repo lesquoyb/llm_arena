@@ -1021,4 +1021,5 @@ def run(config: dict, out: Path, resume=False, interrupt=None, prepare_only=Fals
         finally:
             from .execution_control import _journal
             _journal.reset(execution_token)
+            if hasattr(engine,'close'):engine.close()
             journal.db.close()

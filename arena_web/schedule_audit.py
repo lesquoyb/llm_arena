@@ -23,12 +23,24 @@ def audit(store, identifier, generation=None):
     tournament=root/('tournament' if generation==0 else f'g{generation}-tournament')
     frozen=store.json(tournament/'experiment.json',{})
     planned_ids={match['id'] for match in frozen.get('schedule',[])}
-    recorded={};invalid=[]
+    recorded={};invalid=[];failure_groups=Counter();failure_samples=[]
     for path in sorted((tournament/'records').glob('*.json')):
         try:
             value=store.workspace_artifact(path,'record');match=value['match']
             key=match.get('id') or digest({'sides':match['sides'],'seed':match['seed'],'mirror':match.get('mirror',False)})[:20]
             recorded[key]=value
+            if value['result'].get('status')!='completed':
+                full=store.json(path);result=full['result']
+                signature=(result.get('status','unknown'),str(result.get('error','No recorded engine error')))
+                failure_groups[signature]+=1
+                if len(failure_samples)<8 and not any((sample['status'],sample['error'])==signature for sample in failure_samples):
+                    from .data import safe_path
+                    from arena.worker_resources import log_tail
+                    work=safe_path(root,(tournament/full['directory']).relative_to(root).as_posix())
+                    failure_samples.append({'record':path.relative_to(root).as_posix(),'status':signature[0],'error':signature[1],
+                        'failure_details':result.get('failure_details'), 'timings':result.get('timings',{}),
+                        'stderr_tail':log_tail(safe_path(root,(work/'stderr.log').relative_to(root).as_posix())),
+                        'stdout_tail':log_tail(safe_path(root,(work/'stdout.log').relative_to(root).as_posix()))})
         except (ArenaError,OSError,ValueError,KeyError,TypeError) as error:
             invalid.append({'record':path.name,'error':str(error)})
     config['_fixed_reference_repetitions']=metadata.get('fixed_reference_repetitions',config.get('replicates',1))
@@ -54,6 +66,8 @@ def audit(store, identifier, generation=None):
         'available_fixtures':len(expected),'planned_fixtures':len(planned_ids),
         'missing_from_plan':len(expected_ids-planned_ids),'missing_result_records':len(missing),
         'actual_result_statuses':dict(statuses),'invalid_records':invalid[:20],
+        'engine_failure_groups':[{'status':key[0],'error':key[1],'count':count} for key,count in failure_groups.most_common()],
+        'engine_failure_samples':failure_samples,
         'reported_counts':{key:reported.get(key) for key in ('completed','failed','pending','cancelled')},
         'models':list(models.values()),'unfinished_sessions':[{'session':sid,'model':state['model'],'status':state['status'],
             'tool_calls':state.get('steps',0),'finalization_due':tool_budget_exhausted(state,config.get('budget_per_session',{}))}

@@ -128,13 +128,14 @@ def setup(gradle: str | None = None):
     classes = state / "bridge"
     classes.mkdir(parents=True, exist_ok=True)
     jar = vendor / "generator.jar"
-    command([home / "bin" / ("javac.exe" if os.name == "nt" else "javac"), "-encoding", "UTF-8", "-cp", jar, "-d", classes, ROOT / "engine/ArenaMain.java"])
+    command([home / "bin" / ("javac.exe" if os.name == "nt" else "javac"), "-encoding", "UTF-8", "-cp", jar, "-d", classes, ROOT / "engine/ArenaMain.java", ROOT / "engine/ArenaWorker.java"])
     metadata = {
         "lock": lock, "java": str(home / "bin" / ("java.exe" if os.name == "nt" else "java")),
         "java_version": command([home / "bin" / ("java.exe" if os.name == "nt" else "java"), "-version"], capture_output=True, text=True).stderr.strip(),
         "jar": str(jar), "classes": str(classes), "data": str(vendor / "data"),
         "jar_sha256": file_hash(jar), "bridge_sha256": tree_hash(classes),
         "data_sha256": tree_hash(vendor / "data"), "adapter_sha256": file_hash(ROOT / "engine/ArenaMain.java"),
+        "worker_transport_sha256": file_hash(ROOT / "engine/ArenaWorker.java"),
         "build_script_sha256": file_hash(ROOT / "engine/leekscript.init.gradle"),
     }
     write_json(state / "engine.json", metadata)
@@ -158,6 +159,7 @@ class Engine:
             "data_sha256": tree_hash(Path(m["data"])), "adapter_sha256": file_hash(ROOT / "engine/ArenaMain.java"),
             "build_script_sha256": file_hash(ROOT / "engine/leekscript.init.gradle"),
         }
+        if 'worker_transport_sha256' in m:checks['worker_transport_sha256']=file_hash(ROOT/'engine/ArenaWorker.java')
         if any(m[k] != v for k, v in checks.items()):
             raise ArenaError("Engine artifacts changed; rerun setup before starting a new experiment")
         actual_java = command([m["java"], "-version"], capture_output=True, text=True).stderr.strip()
@@ -187,10 +189,21 @@ class Engine:
                 not re.fullmatch(r"(?:[^\s]+@)?sha256:[a-f0-9]{64}", self.worker_image)):
             raise ArenaError("Docker worker requires a pinned ARENA_WORKER_IMAGE digest")
         self.identity["worker_backend"] = {"name": self.backend, "image": self.worker_image if self.backend == "docker" else None}
+        mode=os.environ.get('ARENA_JVM_MODE','pooled')
+        if mode not in {'pooled','isolated'}:raise ArenaError('ARENA_JVM_MODE must be pooled or isolated')
+        available=(Path(self.metadata['classes'])/'arena/bridge/ArenaWorker.class').is_file()
+        self._jvm_pool=None
+        self.identity['worker_execution']='pooled-classloader' if mode=='pooled' and available and self.backend=='process' else 'isolated'
+        if self.identity['worker_execution']=='pooled-classloader':
+            from .jvm_pool import Pool
+            self._jvm_pool=Pool(self)
         self.scientific_identity = {k: v for k, v in self.identity.items()
-                                    if k not in {"java_version", "python_version", "platform", "jar_sha256", "bridge_sha256"}}
+                                    if k not in {"java_version", "python_version", "platform", "jar_sha256", "bridge_sha256", "worker_execution", "worker_transport_sha256"}}
         self.artifact_provenance = {k: self.identity[k] for k in ("jar_sha256", "bridge_sha256")}
         self.runtime_provenance = {k: self.identity[k] for k in ("java_version", "python_version", "platform")}
+
+    def close(self):
+        if getattr(self,'_jvm_pool',None):self._jvm_pool.close()
 
     def invoke(self, work: Path, mode: str, argument: str) -> dict:
         from .fight_phases import phase
@@ -208,6 +221,16 @@ class Engine:
 
     def _invoke(self, work: Path, mode: str, argument: str, timings: dict) -> dict:
         from .fight_phases import phase
+        if mode=='fight' and getattr(self,'_jvm_pool',None):
+            started=time.monotonic()
+            try:
+                code=self._jvm_pool.run(work,mode,argument,timings)
+            except (OSError,subprocess.TimeoutExpired,WorkerOutputLimit) as error:
+                from .worker_resources import host_memory,log_tail
+                return {'status':'timeout' if isinstance(error,subprocess.TimeoutExpired) else 'engine_error',
+                    'elapsed_seconds':time.monotonic()-started,'error':str(error),
+                    'failure_details':{'phase':'pooled_jvm','host_memory':host_memory(),'stderr_tail':log_tail(work/'stderr.log')}}
+            return self._read_outcome(work,mode,time.monotonic()-started,code,timings)
         phase('staging_data');staging=time.monotonic()
         timings.update(data_hardlinked_files=0,data_copied_files=0,data_copied_bytes=0)
         def link_or_copy(source,target):
@@ -245,8 +268,14 @@ class Engine:
                 options = {"start_new_session": True} if os.name == "posix" else {}
                 if os.name=='posix':
                     args=[sys.executable,str(Path(__file__).with_name('worker_limits.py')),*args]
-                process = subprocess.Popen(args, cwd=work, stdout=stdout, stderr=stderr,
-                                           env=environment, **options)
+                try:
+                    process = subprocess.Popen(args, cwd=work, stdout=stdout, stderr=stderr,
+                                               env=environment, **options)
+                except OSError as error:
+                    from .worker_resources import host_memory
+                    return {'status':'engine_error','elapsed_seconds':time.monotonic()-start,
+                            'error':'Engine process could not start: '+str(error),
+                            'failure_details':{'phase':'process_launch','errno':error.errno,'winerror':getattr(error,'winerror',None),'host_memory':host_memory()}}
                 try:
                     wait_worker(process, work, self.timeout)
                 except BaseException:
@@ -256,19 +285,32 @@ class Engine:
                 return {"status": "engine_error", "elapsed_seconds": time.monotonic() - start,
                         "error": str(error)}
             except subprocess.TimeoutExpired:
+                from .worker_resources import host_memory, log_tail
                 return {"status": "timeout", "elapsed_seconds": time.monotonic() - start,
-                        "error": "Whole-match process deadline exceeded; not attributed to either strategy"}
+                        "error": "Whole-match process deadline exceeded; not attributed to either strategy",
+                        'failure_details':{'phase':'process_timeout','deadline_seconds':self.timeout,'host_memory':host_memory(),
+                                           'stderr_tail':log_tail(work/'stderr.log'),'stdout_tail':log_tail(work/'stdout.log')}}
             finally:
                 timings['java_process_seconds']=time.monotonic()-start
+                if 'process' in locals():
+                    from .worker_resources import process_cpu_seconds
+                    cpu=process_cpu_seconds(process)
+                    if cpu is not None:timings['java_cpu_seconds']=cpu
                 if container:
                     subprocess.run(["docker", "rm", "-f", container], env=environment,
                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=20)
-        elapsed = time.monotonic() - start
+        return self._read_outcome(work,mode,time.monotonic()-start,process.returncode,timings)
+
+    def _read_outcome(self, work, mode, elapsed, returncode, timings):
+        from .fight_phases import phase
         phase('reading_result');reading=time.monotonic()
         output = work / "outcome.json"
-        if process.returncode or not output.exists():
+        if returncode or not output.exists():
+            from .worker_resources import host_memory, log_tail
             return {"status": "engine_error", "elapsed_seconds": elapsed,
-                    "error": f"Engine exited {process.returncode}; see stderr.log and outcome.json"}
+                    "error": f"Engine exited {returncode}; see stderr.log and outcome.json",
+                    'failure_details':{'phase':'process_exit','exit_code':returncode,'host_memory':host_memory(),
+                                       'stderr_tail':log_tail(work/'stderr.log'),'stdout_tail':log_tail(work/'stdout.log')}}
         try:
             outcome_bytes=output.read_bytes()
             outcome=json.loads(outcome_bytes)
