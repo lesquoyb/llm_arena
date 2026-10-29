@@ -325,14 +325,27 @@ let toastTimer, replayTimer, R;
 let pageRequests = new AbortController();
 const runReadCache=new Map();
 async function runResource(path,args) {
-  const key=JSON.stringify([path,args,path==='/api/match'?'immutable':S.detail?.revision]);
-  if(runReadCache.has(key))return runReadCache.get(key).value;
-  const value=await api(path,args);
-  runReadCache.set(key,{path,value});
-  const replays=[...runReadCache].filter(([,entry])=>entry.path==='/api/match');
+  const immutable=path==='/api/match',key=JSON.stringify([path,args]),revision=immutable?'immutable':S.detail?.revision;
+  let entry=runReadCache.get(key);
+  if(entry?.pending)return 'value' in entry?entry.value:entry.pending;
+  if(entry&&((entry.revision===revision&&Date.now()-entry.checkedAt<15000)||immutable||Date.now()-entry.checkedAt<3000))return entry.value;
+  const hadValue=entry&&'value' in entry;
+  if(!entry){entry={path,args};runReadCache.set(key,entry);}
+  entry.checkedAt=Date.now();entry.error=null;
+  const pending=api(path,args,false,{persistent:true}).then(value=>{
+    entry.value=value;entry.revision=revision;entry.pending=null;entry.checkedAt=Date.now();
+    if(hadValue&&S.view==='run'&&args.run===S.run) {
+      if(path==='/api/faults') {S.overviewFaults=value;S.overviewFaultTime=Date.now();}
+      const tabs={'/api/matches':['summary','matches'],'/api/files':['files'],'/api/versions':['code'],'/api/faults':['faults','summary']};
+      if(tabs[path]?.includes(S.tab)){const epoch=S.epoch;requestAnimationFrame(()=>{if(epoch===S.epoch)renderRun(epoch,true).catch(error=>{if(error.name!=='AbortError')toast(error.message,true);});});}
+    }
+    return value;
+  }).catch(error=>{entry.pending=null;entry.error=error.message;if(!hadValue){runReadCache.delete(key);throw error;}return entry.value;});
+  entry.pending=pending;
+  const replays=[...runReadCache].filter(([,row])=>row.path==='/api/match');
   for(const [old] of replays.slice(0,Math.max(0,replays.length-2)))runReadCache.delete(old);
-  while(runReadCache.size>16)runReadCache.delete(runReadCache.keys().next().value);
-  return value;
+  while(runReadCache.size>24)runReadCache.delete(runReadCache.keys().next().value);
+  return hadValue?entry.value:pending;
 }
 let sessionTokenRefresh=null;
 async function refreshSessionToken() {
@@ -346,20 +359,20 @@ async function refreshSessionToken() {
   return sessionTokenRefresh;
 }
 const loadTimings=[];
-async function api(path,args={},post=false) {
+async function api(path,args={},post=false,options={}) {
   const start=performance.now();
-  try{return await requestApi(path,args,post);}
+  try{return await requestApi(path,args,post,options);}
   finally{loadTimings.unshift({route:path,milliseconds:performance.now()-start});if(loadTimings.length>80)loadTimings.pop();}
 }
 function timedRender(name,render) {
   const start=performance.now();
   try{return render();}finally{loadTimings.unshift({route:name,milliseconds:performance.now()-start});if(loadTimings.length>80)loadTimings.pop();}
 }
-async function requestApi(path, args = {}, post = false) {
+async function requestApi(path, args = {}, post = false, options = {}) {
   const url=path+(post?'':Object.keys(args).length?'?'+query(args):'');
   const body=post?JSON.stringify(args):null;
   const initialToken=S.boot?.token;
-  const send=(token=S.boot?.token)=>fetch(url,post?{method:'POST',headers:{'Content-Type':'application/json','X-Arena-Token':token},body}:{signal:pageRequests.signal});
+  const send=(token=S.boot?.token)=>fetch(url,post?{method:'POST',headers:{'Content-Type':'application/json','X-Arena-Token':token},body}:{signal:options.persistent?undefined:pageRequests.signal});
   let response=await send(initialToken),value=await response.json();
   if(post&&response.status===403&&(value.code==='stale_arena_token'||value.error==='Reload the page before continuing')) {
     // The server rejected the token before dispatching the action. Retry exactly once.
@@ -367,7 +380,7 @@ async function requestApi(path, args = {}, post = false) {
     response=await send();value=await response.json();
   }
   if(!response.ok)throw new Error(value.error||`HTTP error ${response.status}`);
-  if(post) {runReadCache.clear();S.detailFetchedAt=0;}
+  if(post) {for(const entry of runReadCache.values())if(entry.path!=='/api/match'){entry.revision=null;entry.checkedAt=0;}S.detailFetchedAt=0;}
   if(path==='/api/run') {S.detailFetchedAt=Date.now();S.detailFetchedRun=args.run;}
   return value;
 }
@@ -1929,7 +1942,7 @@ async function renderRun(epoch, liveUpdate=false) {
       if(S.overviewFaultRun!==run)S.overviewFaults={sessions:[],loading:true};
       deferredErrors=async()=>{
         try {
-          const faults=await api('/api/faults',{run});
+          const faults=await runResource('/api/faults',{run});
           if(epoch!==S.epoch||run!==S.run)return;
           S.overviewFaults=faults;S.overviewFaultRun=run;S.overviewFaultTime=Date.now();
           const chart=$('#overview-errors');if(chart)LiveDOM.replace(chart,overviewErrors(S.detail,overviewData(S.detail)));
@@ -1952,7 +1965,7 @@ async function renderRun(epoch, liveUpdate=false) {
           "Choose another round, model or repetition, or reset the filters.",
         );
     else if (!d.sessions.length && S.tab === "code") {
-      S.files = (await runResource("/api/files", { run: S.run })).files.filter((f) =>
+      S.files = (await runResource("/api/files", {run:S.run,artifacts:S.showRawFiles?'1':'0'})).files.filter((f) =>
         f.path.endsWith(".leek"),
       );
       body =
@@ -2020,15 +2033,15 @@ async function renderRun(epoch, liveUpdate=false) {
       sourceChanged=previousVersion!==S.version;
     }
   } else if (S.tab === "matches") {
-    S.matches = (await runResource("/api/matches", { run: S.run })).matches;
+    S.matches = (await runResource("/api/matches", {run:S.run,compact:'1'})).matches;
     body = matchesPage();
   } else if (S.tab === 'faults') {
-    const data=await api('/api/faults',{run:S.run});
+    const data=await runResource('/api/faults',{run:S.run});
     if(epoch!==S.epoch)return;
     S.faults=data;
     body=faultsPage();
   } else if (S.tab === "files") {
-    S.files = (await runResource("/api/files", { run: S.run })).files.filter(file=>{
+    S.files = (await runResource("/api/files", {run:S.run,artifacts:S.showRawFiles?'1':'0'})).files.filter(file=>{
       const match=file.path.match(/^sessions\/([^/]+)\//);return !match||scopeAccept(overviewIdentity(match[1]));
     });
     body = filesPage();
@@ -3172,7 +3185,7 @@ async function loadSource(liveUpdate=false) {
 }
 function filesPage() {
   const filter=$('#file-search')?.value?.toLowerCase()||'';
-  return `<div class="files-grid"><section class="panel"><h3>Experiment files</h3><input id="file-search" type="search" placeholder="Filter paths..." aria-label="Filter files" style="width:100%;margin-bottom:12px"><label class="check"><input id="engine-files" type="checkbox">Include static engine data</label><small>${fmt(S.files.length)} available files</small><div id="file-list" class="file-list">${fileButtons(S.files.filter(file=>file.path.toLowerCase().includes(filter)))}</div></section><section class="panel"><div id="file-title" data-live-preserve class="panel-title"></div><div id="file-content" data-live-preserve>Select a file.</div></section></div>`;
+  return `<div class="files-grid"><section class="panel"><h3>Sources and reports</h3><label class="check"><input id="raw-files" type="checkbox" ${S.showRawFiles?'checked':''}>Include raw fight, tool and provider artifacts (large)</label><input id="file-search" type="search" placeholder="Filter paths..." aria-label="Filter files" style="width:100%;margin-bottom:12px"><label class="check"><input id="engine-files" type="checkbox">Include static engine data</label><small>${fmt(S.files.length)} available files</small><div id="file-list" class="file-list">${fileButtons(S.files.filter(file=>file.path.toLowerCase().includes(filter)))}</div></section><section class="panel"><div id="file-title" data-live-preserve class="panel-title"></div><div id="file-content" data-live-preserve>Select a file.</div></section></div>`;
 }
 function fileButtons(files) {
   if (!$("#engine-files")?.checked) files = files.filter((f) => !f.engine_data);
@@ -4495,6 +4508,7 @@ document.addEventListener("change", async (event) => {
         $(".combat-statistics").outerHTML = combatStatistics(
           S.combatStatistics,
         );
+    } else if(n.id==='raw-files') {S.showRawFiles=n.checked;S.file=null;toast(n.checked?'Loading raw artifacts…':'Loading sources and reports…');await renderRun(++S.epoch,true);
     } else if (n.id === "engine-files") {
       $("#file-list").innerHTML = fileButtons(S.files);
     } else if (n.id === "conversation-model")
@@ -4675,7 +4689,7 @@ setInterval(async () => {
     }
     if(S.view==='run' && S.tab==='summary' && S.follow && !$('#dialog').open && Date.now()-(S.overviewFaultTime||0)>10000) {
       const epoch=S.epoch,run=S.run;
-      const faults=await api('/api/faults',{run});
+      const faults=await runResource('/api/faults',{run});
       if(epoch!==S.epoch||run!==S.run)return;
       S.overviewFaults=faults;S.overviewFaultRun=run;S.overviewFaultTime=Date.now();
       const chart=$('#overview-errors');if(chart)LiveDOM.replace(chart,overviewErrors(S.detail,overviewData(S.detail)));

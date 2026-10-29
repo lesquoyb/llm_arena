@@ -18,3 +18,18 @@ Read the match matrix from the **row model's perspective** against the **column
 opponent**. W/D/L counts are wins, draws and losses for the row model. Green
 favors the row, red favors the column. Click a score or an outcome count to inspect
 the corresponding fights. The diagonal has no comparative results.
+
+Messages are collapsed as single compact rows. Open a row to inspect its content,
+reasoning, tool arguments, file diffs or raw record. **Expand messages** and
+**Collapse messages** control these outer rows independently of their inner data.
+
+Files initially lists sources and reports. Enable **Include raw fight, tool and
+provider artifacts** for the full artifact tree. Match lists load compact results;
+the selected replay and its full statistics are fetched separately. Cached tab
+contents stay visible while a refresh runs, and navigating away does not discard
+an in-progress cached read.
+
+If Load diagnostics reports that the route is unavailable, the running server
+lacks that API even though it may be serving newer static interface files. Stop
+the competition, restart the updated arena server, then resume the saved run.
+Browser timings remain copyable in that dialog.

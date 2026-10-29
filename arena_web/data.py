@@ -7,6 +7,7 @@ import difflib
 import hashlib
 import json
 import os
+import re
 from pathlib import Path, PureWindowsPath
 import sqlite3
 import threading
@@ -876,9 +877,12 @@ class Store(Workspaces):
         for base, dirs, names in os.walk(root, followlinks=False):
             folder = Path(base)
             relative=folder.relative_to(root).parts
-            dirs[:] = [d for d in dirs if not is_link(folder / d) and (include_artifacts or not (
-                (not relative and d in {'artifacts','controls','.jvm-pool'}) or
-                d in {'matches','records','tools','submissions','history','restarts'}))]
+            def raw_directory(name):
+                if not relative:return name in {'artifacts','controls','.jvm-pool','matches','records','history'}
+                if len(relative)==2 and relative[0]=='sessions':return name in {'tools','history','restarts'}
+                phase=relative[-1]=='tournament' or re.fullmatch(r'g[0-9]+-tournament',relative[-1]) or (len(relative)==2 and relative[0]=='evaluations')
+                return bool(phase and name in {'matches','records','history'})
+            dirs[:] = [d for d in dirs if not is_link(folder / d) and (include_artifacts or not raw_directory(d))]
             for name in names:
                 path = folder / name
                 if is_link(path) or name in {".lock", "journal.sqlite", "journal.sqlite-wal", "journal.sqlite-shm"}:

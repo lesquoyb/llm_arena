@@ -108,7 +108,7 @@ def receipt(store,root,event,kind,reference):
     if kind=='tool_reserved':value={'name':value.get('name','unknown')}
     else:
         from arena.compiler_diagnostics import compilation_rows
-        value={**{field:value[field] for field in ('error','valid','status','error_type') if field in value},
+        value={**{field:value[field] for field in ('error','errors','valid','status','error_type') if field in value},
                'diagnostic_messages':value.get('diagnostic_messages',compilation_rows(value))}
     with store.lock:
         if not hasattr(store,'_fault_receipts'):store._fault_receipts={}
