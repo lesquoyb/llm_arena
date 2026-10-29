@@ -10,7 +10,7 @@ from .execution_control import poll
 
 
 def run(jobs, execute, save, *, limit=1, out, kind, generation=0, retry=None):
-    jobs=iter(jobs);retries=deque();pools=[];pending={};exhausted=False;error=None
+    jobs=iter(jobs);retries=deque();pools=[];pending={};ready=deque();exhausted=False;error=None
     limit=poll(out,limit);pool=ThreadPoolExecutor(max_workers=limit,thread_name_prefix='arena-fight');pools.append(pool)
     from .worker_resources import host_memory, children_cpu_seconds
     batch_wall_started=time.time();batch_started=time.monotonic();python_started=time.process_time();children_started=children_cpu_seconds()
@@ -24,9 +24,9 @@ def run(jobs, execute, save, *, limit=1, out, kind, generation=0, retry=None):
         fights=[{'participants':job['participants'],'seed':job['seed'],'started_at':started,
                  'phase':'ready_to_save' if future.done() else job.get('phase','preparing'),
                  'phase_started_at':job.get('phase_started_at',started),'retry':job.get('_retry',0)}
-                for future,(job,started) in pending.items()]
+                for future,(job,started) in [*pending.items(),*ready]]
         write_json(out/'activity.json',{'kind':kind,'generation':generation,'started_at':batch_wall_started,'batch_started_at':batch_wall_started,'parallel_fights':limit,
-            'publishing_seconds':publishing_seconds,'retrying_fights':len(retries),
+            'publishing_seconds':publishing_seconds,'retrying_fights':len(retries),'computing_workers':sum(not future.done() for future in pending),'publication_queue':len(ready)+sum(future.done() for future in pending),
             'phase_seconds':phase_seconds,'finished_workers':finished_workers,'jvm_starts':jvm_starts,'jvm_reuses':jvm_reuses,'publication':publication,
             'fights':fights,'participants':list(dict.fromkeys(sid for item in fights for sid in item['participants']))})
         if throughput:write_json(throughput_path,throughput)
@@ -68,12 +68,17 @@ def run(jobs, execute, save, *, limit=1, out, kind, generation=0, retry=None):
     with operation(out,kind,generation=generation,parallel_fights=limit):
         ticker.start()
         try:
-            while pending or not exhausted or retries:
+            while pending or ready or not exhausted or retries:
                 updated=poll(out,limit)
                 if updated!=limit:
                     pool.shutdown(wait=False)
                     limit=updated;pool=ThreadPoolExecutor(max_workers=limit,thread_name_prefix='arena-fight');pools.append(pool)
-                while len(pending)<limit and (not exhausted or retries):
+                # Finished jobs free compute slots immediately. Keep a bounded
+                # publication queue so slow persistence cannot grow RAM without limit.
+                for future in list(pending):
+                    if future.done():
+                        with guard:ready.append((future,pending.pop(future)))
+                while len(pending)<limit and len(ready)+len(pending)<2*limit and (not exhausted or retries):
                     if provider_work_ready():exhausted=True;retries.clear();break
                     job=retries.popleft() if retries else next(jobs,None)
                     if job is None:exhausted=True;break
@@ -89,22 +94,23 @@ def run(jobs, execute, save, *, limit=1, out, kind, generation=0, retry=None):
                     future.add_done_callback(finished)
                     with guard:pending[future]=(job,started)
                 progress()
-                if not pending:break
-                done,_=wait(pending,timeout=.2,return_when=FIRST_COMPLETED)
                 poll_provider_failures()
-                for future in done:
-                    with guard:job,_=pending.pop(future)
+                if ready:
+                    with guard:future,(job,_)=ready.popleft()
                     publish(job,future.result())
+                elif pending:
+                    wait(pending,timeout=.2,return_when=FIRST_COMPLETED)
+                else:break
                 progress()
         except BaseException as failure:error=failure
         finally:
             # Finish already dispatched work even on stop/failure; retries not
             # dispatched remain failed records for the next attempt or Resume.
-            for future,(job,_) in list(pending.items()):
+            for future,(job,_) in [*ready,*list(pending.items())]:
                 try:publish(job,future.result())
                 except BaseException as failure:
                     if error is None:error=failure
-            with guard:pending.clear()
+            with guard:pending.clear();ready.clear()
             for executor in pools:executor.shutdown(wait=True)
             stop_heartbeat.set();ticker.join()
             progress(True)
