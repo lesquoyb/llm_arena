@@ -101,6 +101,16 @@ def prepare(tasks, config, out, journal, engine, interrupt=None, on_progress=Non
     from .experiment import TERMINAL
     tasks=list(tasks)
     states=journal.metadata()
+    # Resume existing later-round transports before auditing/draining old rounds.
+    # Their preparation context is already frozen in their own checkpoint.
+    models={model['id']:model for model in config['models']}
+    scheduled={sid for sid,_ in tasks}
+    from .roster import active
+    for sid,state in states.items():
+        if (sid not in scheduled and state.get('status')=='running' and not state.get('submission')
+                and state.get('parent') and states.get(state['parent'],{}).get('submission')
+                and state.get('model') in models and active(config,state)):
+            tasks.append((sid,models[state['model']]));scheduled.add(sid)
     # Frozen preparations have no work to dispatch. Do not load their potentially
     # large histories just to return immediately from run_session.
     finished=[sid for sid,_ in tasks if states.get(sid,{}).get('submission') and states[sid].get('status') in {'submitted','budget_exhausted'}]
@@ -136,6 +146,18 @@ def _prepare(tasks, config, out, journal, engine, interrupt=None, on_progress=No
     from .conversation_recovery import automatic_due, recover, commands
     retry_waiting={}
     def queue_recoveries():
+        # A manual command can target a failed conversation from a later round.
+        # Admit its saved task now instead of waiting for old fight queues to drain.
+        from .core import read_json
+        from .roster import active
+        catalog={model['id']:model for model in config['models']}
+        for path in (out/'recovery-commands').glob('*.json'):
+            sid=read_json(path).get('session')
+            if sid in models:continue
+            state=journal.metadata(sid).get(sid,{})
+            if state.get('model') in catalog and active(config,state):
+                model=catalog[state['model']];tasks.append((sid,model))
+                models[sid]=model;dispatcher.models[sid]=model
         for sid,model in commands(out,journal,config,tasks,dispatcher.pending):
             retry_waiting.pop(sid,None);dispatcher.finished.discard(sid)
             if sid not in {item[0] for item in queue}:queue.append((sid,model))
