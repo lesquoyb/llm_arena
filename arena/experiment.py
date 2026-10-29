@@ -318,6 +318,12 @@ def _finish(sid, state, tools, journal, reason):
         journal.save(sid,state,'automatic_submission_failed',state['failure'])
     state["pending"] = None
     state["workspace_files"]=workspace_files(tools.workspace)
+    # This is an Arena receipt for the reader, not another provider request.
+    stop=(state.get('budget_stop') or {}).get('message') or ('The preparation budget was reached.' if reason=='budget_exhausted' else 'Arena ended preparation.')
+    if state.get('submission'):
+        outcome=f"Arena automatically froze the latest saved files as the submitted strategy ({state['submission']['entrypoint']})."
+    else:outcome='No strategy was submitted: saved sources could not be frozen. See the recorded error.'
+    state['history'].append({'role':'user','arena_finalization':True,'content':stop+' '+outcome+' This preparation session is closed.'})
     journal.save(sid, state, "finished", reason)
 
 
@@ -622,7 +628,8 @@ def verify_workspace(state, tools):
 
 def run_session(sid, model, config, out, journal, engine, interrupt=None):
     brief=journal.metadata(sid).get(sid)
-    if brief and brief['status'] in TERMINAL and (brief['status']!='budget_exhausted' or brief.get('submission')):
+    from .budget_context import tool_budget_exhausted
+    if brief and brief['status'] in TERMINAL and (brief['status']!='budget_exhausted' or brief.get('submission')) and not tool_budget_exhausted(brief,config['budget_per_session']):
         if 'submission' in brief and submission(out/'sessions'/sid/'submission',brief['submission']['entrypoint'])!=brief['submission']:
             raise ArenaError('Archived session submission changed')
         return
@@ -645,6 +652,10 @@ def run_session(sid, model, config, out, journal, engine, interrupt=None):
     from .submitted_versions import OwnSubmissions
     tools = Preparation(directory, out / "corpus", engine, config["scenario"], feedback=access_for(out, state),
                         allowed_tools=state.get("calibration", {}).get("tools"), versions=OwnSubmissions(out,state))
+    if tool_budget_exhausted(state,config['budget_per_session']):
+        verify_workspace(state,tools)
+        state['budget_stop']={'scope':'session','message':f"Tool call limit reached ({state['steps']} / {config['budget_per_session']['max_agent_steps']})."}
+        _finish(sid,state,tools,journal,'budget_exhausted')
     if state['status']=='budget_exhausted' and state.get('pending') and not state.get('submission'):
         verify_workspace(state,tools)
         _finish(sid,state,tools,journal,'budget_exhausted')
@@ -667,6 +678,10 @@ def run_session(sid, model, config, out, journal, engine, interrupt=None):
             state["wall_seconds"] = previous + time.monotonic() - started
             if state["wall_seconds"] >= budget.get("max_wall_seconds", float("inf")):
                 _finish(sid, state, tools, journal, "budget_exhausted")
+                break
+            if tool_budget_exhausted(state,budget):
+                state['budget_stop']={'scope':'session','message':f"Tool call limit reached ({state['steps']} / {budget['max_agent_steps']})."}
+                _finish(sid,state,tools,journal,'budget_exhausted')
                 break
             if state["pending"] is None:
                 if state["completed_calls"] >= budget.get("max_calls", float("inf")):
@@ -699,6 +714,9 @@ def run_session(sid, model, config, out, journal, engine, interrupt=None):
                 execute_tool(sid, state, tools, journal, call, call_id, budget)
                 if interrupt:
                     interrupt("tool", sid)
+            if state['status']=='running' and tool_budget_exhausted(state,budget):
+                state['budget_stop']={'scope':'session','message':f"Tool call limit reached ({state['steps']} / {budget['max_agent_steps']})."}
+                _finish(sid,state,tools,journal,'budget_exhausted')
             if state["status"] != "running" and state.get("pending"):
                 for index in range(state["cursor"], len(calls)):
                     call = calls[index]
@@ -709,6 +727,20 @@ def run_session(sid, model, config, out, journal, engine, interrupt=None):
                 state["cursor"] = len(calls)
                 journal.save(sid, state, "cancelled_remaining_tools")
             if state["status"] == "running":
+                from .submission_stops import output_limited, continue_output
+                if output_limited(state['pending']):
+                    from .budget_context import progress
+                    remaining=progress(state,budget) or {}
+                    exhausted=next(((name,item) for name,item in remaining.get('limits',{}).items()
+                        if name!='test_matches' and item.get('remaining') is not None and amount(str(item['remaining']))<=0),None)
+                    if exhausted:
+                        name,item=exhausted
+                        state['budget_stop']={'scope':'session','message':f"Preparation {name} limit reached ({item['used']} / {item['limit']})."}
+                        _finish(sid,state,tools,journal,'budget_exhausted')
+                    else:
+                        details=continue_output(state,state['pending'])
+                        journal.save(sid,state,'output_continuation_requested',details)
+                    continue
                 if not calls:
                     from .submission_stops import completed_turn, interrupted_response
                     pending=state['pending']

@@ -488,8 +488,9 @@ class Store(Workspaces):
         sessions = []
         keys = ("model", "participant_revision", "replicate", "generation", "condition", "parent", "parent_checkpoint_sha256",
                 "status", "validity", "automatic_retry_at", "automatic_retry_attempts", "calls", "completed_calls", "failure", "context_recoveries", "manual_frozen", "steps", "test_matches", "replay_reads", "wall_seconds", "cost_spent",
-                "money_reserved", "token_usage_known", "input_tokens", "output_tokens", "submission", "in_flight", "retry_count", "continuation_identity", "provider_parameter_overrides")
+                "money_reserved", "token_usage_known", "input_tokens", "output_tokens", "submission", "in_flight", "reserved", "retry_count", "continuation_identity", "provider_parameter_overrides")
         from arena.retries import retry_reason
+        from arena.budget_context import tool_budget_exhausted
         from arena.recovery import needs_reconciliation, zero_cost_requests
         free={m["id"] for m in metadata.get("config",{}).get("models",[]) if zero_cost_requests(m)}
         external = {m['id'] for m in metadata.get('config', {}).get('models', []) if m['provider'] != 'mock'}
@@ -509,7 +510,7 @@ class Store(Workspaces):
             from arena.context_recovery import context_overflow
             state['context_recovery_required'] = context_overflow(state)
             sessions.append({"withdrawn":state["model"] in withdrawn, "planned_frozen":state.get("condition") in (roster or {}).get("frozen_tracks",{}).get(state["model"],[]), "context_recovery_required":state['context_recovery_required'], "validation_status": validation or ('pending' if state.get('submission') or state['status'] == 'submitted' else 'not_submitted'), "id": sid, **{k: state[k] for k in keys if k in state},
-                             "usage_receipts": receipts.get(sid), "messages": state["messages"], "retry_allowed": reason is None, "retry_reason": reason,
+                             "usage_receipts": receipts.get(sid), "messages": state["messages"], "retry_allowed": reason is None, "finalize_allowed": tool_budget_exhausted(state,metadata.get("config",{}).get("budget_per_session",{})), "retry_reason": reason,
                              "reconciliation_required": needs_reconciliation(state, state.get("model") in external)})
         from decimal import Decimal
         for session in sessions:

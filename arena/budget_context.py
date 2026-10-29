@@ -24,3 +24,11 @@ def progress(state, budget):
         result['cost_usd'] = {'limit':str(budget['max_cost_usd']), 'used':str(used),
                               'remaining':str(max(amount('0'),amount(budget['max_cost_usd'])-used))}
     return {'limits':result, 'on_exhaustion':'Latest saved files are frozen automatically; invalid code still fails evaluation.'} if result else None
+
+
+def tool_budget_exhausted(state, budget):
+    """No further preparation is possible, including for old paused sessions."""
+    return bool(state and not state.get('submission') and not state.get('in_flight')
+                and not state.get('reserved') and (state.get('failure') or {}).get('phase')!='automatic submission'
+                and 'max_agent_steps' in budget
+                and state.get('steps',0)>=budget['max_agent_steps'])

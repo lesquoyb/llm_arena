@@ -3,7 +3,7 @@ from contextlib import closing
 from unittest import TestCase,mock
 from arena.api_providers import ProviderFailure
 from arena.core import ROOT,read_json,scratch_directory
-from arena.experiment import Journal,run_session
+from arena.experiment import Journal,run_session,initial_state,workspace_files
 from arena.providers import MockProvider
 from arena.retries import prepare_retry
 from arena.submission_stops import completed_turn
@@ -51,7 +51,7 @@ class SubmissionStopTransportTests(TestCase):
                 journal.verify()
 
     def test_incomplete_response_does_not_freeze_saved_files(self):
-        for reason in (None,'length','max_tokens'):
+        for reason in (None,):
             with self.subTest(reason=reason),scratch_directory() as out:
                 config=read_json(ROOT/'configs/offline-demo.json');config['budget_per_session']={}
                 journal=Journal(out)
@@ -66,6 +66,66 @@ class SubmissionStopTransportTests(TestCase):
                     self.assertNotIn('submission',state)
                     self.assertEqual(state['completed_calls'],2)
                     journal.verify()
+
+    def test_output_limit_continues_immediately_without_provider_failure(self):
+        for reason in ('length','max_tokens','max_output_tokens','MAX_TOKENS'):
+            with self.subTest(reason=reason),scratch_directory() as out:
+                config=read_json(ROOT/'configs/offline-demo.json');config['budget_per_session']={}
+                journal=Journal(out)
+                with closing(journal.db):
+                    responses=[{'role':'assistant','tool_calls':[{'name':'write_file','arguments':{'path':'main.leek','content':'// saved'}}]},
+                               {'role':'assistant','native':{'role':'assistant','content':'Partial answer'},'tool_calls':[],'stop_reason':reason},
+                               {'role':'assistant','tool_calls':[{'name':'submit','arguments':{}}]}]
+                    with mock.patch.object(MockProvider,'respond',side_effect=responses):
+                        run_session('stop-r0',{'id':'stop','provider':'mock','profile':'empty'},config,out,journal,None)
+                    state=journal.state('stop-r0')
+                    self.assertEqual(state['status'],'submitted')
+                    self.assertEqual(state['completed_calls'],3)
+                    self.assertEqual(state.get('submission_reminders',0),0)
+                    continuations=[message for message in state['history'] if message.get('output_continuation')]
+                    self.assertEqual(len(continuations),1)
+                    self.assertIn('output token limit',continuations[0]['content'])
+                    self.assertEqual(journal.db.execute("SELECT count(*) FROM events WHERE kind='provider_failure'").fetchone()[0],0)
+                    journal.verify()
+
+    def test_last_tool_freezes_files_before_any_extra_response(self):
+        with scratch_directory() as out:
+            config=read_json(ROOT/'configs/offline-demo.json');config['budget_per_session']={'max_agent_steps':1}
+            journal=Journal(out);model={'id':'stop','provider':'mock','profile':'empty'}
+            with closing(journal.db):
+                response={'role':'assistant','stop_reason':'length','tool_calls':[
+                    {'name':'write_file','arguments':{'path':'main.leek','content':'// saved'}}]}
+                with mock.patch.object(MockProvider,'respond',side_effect=[response,AssertionError('Extra model call')]) as provider:
+                    run_session('stop-r0',model,config,out,journal,None)
+                state=journal.state('stop-r0')
+                self.assertEqual(provider.call_count,1)
+                self.assertEqual(state['status'],'budget_exhausted')
+                self.assertTrue(state['automatic_submission'])
+                self.assertEqual(state['steps'],1)
+                self.assertTrue(state['history'][-1]['arena_finalization'])
+                self.assertFalse(any(message.get('output_continuation') for message in state['history']))
+                journal.verify()
+
+    def test_old_failed_output_at_tool_limit_is_finalized_without_retry(self):
+        with scratch_directory() as out:
+            config=read_json(ROOT/'configs/offline-demo.json');config['budget_per_session']={'max_agent_steps':1}
+            journal=Journal(out);model={'id':'stop','provider':'mock','profile':'empty'}
+            with closing(journal.db):
+                state=initial_state('stop-r0',model,config)
+                source=out/'sessions/stop-r0/workspace';source.mkdir(parents=True)
+                (source/'main.leek').write_text('// saved',encoding='utf-8')
+                state.update(status='provider_unavailable',steps=1,calls=2,completed_calls=2,
+                             workspace_files=workspace_files(source),failure={'stop_reason':'length','retryable':True})
+                journal.save('stop-r0',state,'fixture')
+                with mock.patch.object(MockProvider,'respond',side_effect=AssertionError('Should finalize without model')):
+                    run_session('stop-r0',model,config,out,journal,None)
+                state=journal.state('stop-r0')
+                self.assertEqual((state['calls'],state['completed_calls'],state['steps']),(2,2,1))
+                self.assertEqual(state['status'],'budget_exhausted')
+                self.assertIn('submission',state)
+                self.assertNotIn('failure',state)
+                self.assertTrue(state['history'][-1]['arena_finalization'])
+                journal.verify()
 
     def test_previous_reset_marker_restores_saved_streak_without_changing_other_counts(self):
         from arena.submission_stops import restore_interrupted_streak

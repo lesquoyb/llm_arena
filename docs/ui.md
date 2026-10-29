@@ -1158,3 +1158,24 @@ are bounded and refreshed when their files change. Complete summaries are cached
 for up to four workspaces and invalidated by changes to membership, configuration,
 model-size metadata, journal events or fight records. Reopening an unchanged
 workspace can reuse its complete result without aggregating all fights again.
+
+### Output continuation and exhausted preparation
+
+A provider finish reason of `length`, `max_tokens` or `max_output_tokens` means
+that response reached its output limit. While preparation budgets allow it, Arena
+immediately requests continuation in the same conversation, retaining the partial
+output, saved files and usage. This is not a provider outage, a new round or a
+completed turn without submission. It does not increment submission reminders.
+An incomplete tool call must be regenerated with complete arguments.
+
+The last permitted tool call closes preparation immediately. Arena freezes the
+latest saved files without requesting another model response, preserves all usage
+counters and appends an **Arena · Preparation closed** receipt to the conversation.
+The strategy is shown with its budget-exhausted status and saved submission;
+compilation and fight results remain separate. Other participants continue.
+If no source can be frozen, the receipt explains that no submission was produced.
+
+Earlier runs incorrectly marked as **API unavailable** after reaching their tool
+limit are finalized on Resume without calling the provider. **Finalize saved
+files** also queues this action directly while the competition runs. It consumes
+no additional model or tool call budget.

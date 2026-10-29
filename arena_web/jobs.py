@@ -78,7 +78,8 @@ class Jobs:
                                 hydrate_calls(state, db, sid)
                     reasons = {sid: retry_reason(state, config['budget_per_session'], states.get(state.get('parent')))
                                for sid, state in failed.items()}
-                    if failed and all(reasons.values()) and not any(state.get('status') == 'running' for state in states.values()):
+                    from arena.budget_context import tool_budget_exhausted
+                    if failed and all(reasons.values()) and not any(state.get('status') == 'running' or tool_budget_exhausted(state,config['budget_per_session']) for state in states.values()):
                         raise ArenaError('No failed conversation can resume: ' + '; '.join(sid + ': ' + reason for sid, reason in reasons.items()))
             else:
                 config = self.store.draft(draft_id)["config"]
@@ -195,7 +196,8 @@ class Jobs:
             config=effective(root,metadata['config'])
             parent=self.store.session(run_id,state['parent']) if state.get('parent') else None
             reason=retry_reason(state,config['budget_per_session'],parent)
-            if reason:raise ArenaError(reason)
+            from arena.budget_context import tool_budget_exhausted
+            if reason and (action=='restart' or not tool_budget_exhausted(state,config['budget_per_session'])):raise ArenaError(reason)
             if not active(config,state):raise ArenaError('Reactivate this participant before retrying it')
             running=self.process and self.process.poll() is None
             if running and (self.current['run']!=run_id or self.current['status']!='running'):

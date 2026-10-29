@@ -27,3 +27,20 @@ def interrupted_response(state, response):
         'phase':'provider response','retryable':True,'uncertain':False,
         'incomplete_response':True,'stop_reason':reason}
     return {'error':state['failure']['message'],'retryable':True,'uncertain':False,'stop_reason':reason}
+
+
+def output_limited(response):
+    reason=str(response.get('stop_reason') or response.get('finish_reason') or '').lower()
+    return reason in {'length','max_tokens','max_output_tokens'}
+
+
+def continue_output(state, response):
+    """Continue a received, charged output in the same history, without a failure."""
+    reason=response.get('stop_reason') or response.get('finish_reason')
+    state.update(status='running',pending=None,cursor=0)
+    state['history'].append({'role':'user','output_continuation':True,'completion_reason':reason,
+        'content':'Your previous response reached its output token limit. Continue from where it was cut off, using the preceding response and the current workspace. '
+                  'Continue preparation and use the available tools when ready. Reissue any tool call rejected for incomplete arguments with complete arguments. '
+                  'Saved files, recorded usage and remaining preparation budgets are preserved.'})
+    return {'stop_reason':reason,'history_preserved':True,'usage_counters_preserved':True,
+            'submission_streak_preserved':True}

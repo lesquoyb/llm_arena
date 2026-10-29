@@ -57,7 +57,12 @@ def prepare_retry(journal, sid, config, reasoning_effort=None):
     state.pop('failure', None)
     # An API rejection has no response to repair; resend the same history. If the
     # model stopped without submitting, explicitly ask it to continue that work.
-    if (original.get('failure') or {}).get('incomplete_response') or (previous_stop_streak and original['status']!='no_submission'):
+    from .submission_stops import output_limited, continue_output
+    if output_limited(original.get('failure') or {}):
+        # Older runners saved output limits as provider failures. Resume their
+        # existing history with the same continuation used by current sessions.
+        continue_output(state,original['failure'])
+    elif (original.get('failure') or {}).get('incomplete_response') or (previous_stop_streak and original['status']!='no_submission'):
         state['history'].append({'role':'user','provider_recovery':True,'content':
             'The previous provider request failed or its response was incomplete. Continue the same preparation session from your current workspace. '
             'Saved files, tool access, recorded usage and remaining budgets are unchanged. '

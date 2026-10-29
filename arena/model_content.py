@@ -3,7 +3,7 @@ import copy
 import json
 import re
 
-MESSAGE_METADATA={'submission_reminder','trigger_model_call','completion_reason','provider_recovery'}
+MESSAGE_METADATA={'arena_finalization','output_continuation','submission_reminder','trigger_model_call','completion_reason','provider_recovery'}
 
 METADATA = {'sha256', 'commit', 'source_commit', 'generator_commit', 'engine_commit',
             'source_url', 'source_urls', 'sources', 'url', 'fetched_at', 'master_version',

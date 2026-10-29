@@ -20,7 +20,10 @@ def recover(sid, state, config, out, journal, *, restart=False, automatic=False,
     if state.get('submission') or state.get('in_flight'):
         raise ArenaError('Only an idle conversation without a frozen submission can be recovered')
     previous_attempts=state.get('automatic_retry_attempts',0)
-    if state['status']!='running':prepare_retry(journal,sid,config)
+    from .budget_context import tool_budget_exhausted
+    if tool_budget_exhausted(state,config['budget_per_session']):
+        state['status']='running';journal.save(sid,state,'budget_finalization_requested',{'counters_preserved':True})
+    elif state['status']!='running':prepare_retry(journal,sid,config)
     state=journal.state(sid)
     if restart:
         # Old state remains in the journal; retain a browsable source archive too.
