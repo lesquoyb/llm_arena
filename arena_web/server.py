@@ -121,7 +121,7 @@ class Application:
             return store.source(run, sid, number("version", 0), value("file"),
                                 int(value("previous")) if value("previous") is not None else None)
         if route == "/api/files":
-            return store.files(run)
+            return store.files(run,include_artifacts=value("artifacts","1")=="1")
         if route == "/api/statistics":
             return store.statistics(run)
         if route == "/api/matches":

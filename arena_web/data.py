@@ -420,14 +420,14 @@ class Store(Workspaces):
 
     @measure('revision')
     @request_cached
-    def revision(self, root, *, include_records=True):
+    def revision(self, root, *, include_records=True, include_events=True, include_reports=True):
         event_id = 0
         database = root / 'journal.sqlite'
         if database.is_file():
             with closing(sqlite3.connect(database.as_uri() + '?mode=ro', uri=True, timeout=2)) as connection:
                 if connection.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='events'").fetchone():
-                    event_id = connection.execute('SELECT coalesce(max(id),0) FROM events').fetchone()[0]
-        files = [root/'report.json', root/'analysis.json'] if include_records else [root/'experiment.json']
+                    event_id = connection.execute('SELECT coalesce(max(id),0) FROM events'+('' if include_events else " WHERE kind='participants_updated'")).fetchone()[0]
+        files = [root/'report.json', root/'analysis.json'] if include_records and include_reports else [root/'experiment.json']
         stamps=[];prefix=len(str(root))+1
         if include_records:
             for base in (root, root/'tournament', *sorted(root.glob('g*-tournament')), *sorted((root/'evaluations').glob('g*-panel')), *sorted((root/'evaluations').glob('g*-previous'))):
@@ -868,13 +868,17 @@ class Store(Workspaces):
         return {"path": filename, "before": old, "after": new, "diff": delta,
                 "sha256": hashlib.sha256(new.encode("utf-8")).hexdigest()}
 
-    def files(self, identifier):
+    @measure('files')
+    def files(self, identifier, *, include_artifacts=True):
         root = self.run_path(identifier)
         result = []
         engine_folders = {}
         for base, dirs, names in os.walk(root, followlinks=False):
             folder = Path(base)
-            dirs[:] = [d for d in dirs if not is_link(folder / d)]
+            relative=folder.relative_to(root).parts
+            dirs[:] = [d for d in dirs if not is_link(folder / d) and (include_artifacts or not (
+                (not relative and d in {'artifacts','controls','.jvm-pool'}) or
+                d in {'matches','records','tools','submissions','history','restarts'}))]
             for name in names:
                 path = folder / name
                 if is_link(path) or name in {".lock", "journal.sqlite", "journal.sqlite-wal", "journal.sqlite-shm"}:
@@ -897,12 +901,12 @@ class Store(Workspaces):
     @measure('matches')
     def matches(self, identifier, *, compact=False):
         root = self.run_path(identifier)
-        revision=self.revision(root) if compact else None
-        if compact:
-            with self.lock:
-                cached=getattr(self,'_match_index_cache',{}).get(identifier)
-                if cached and cached[0]==revision:return copy.deepcopy(cached[1])
         states=self.states(root,('model','generation','condition','replicate','parent','attempt_started_at'))
+        revision=digest({'files':self.revision(root,include_events=False,include_reports=False),
+                         'versions':{sid:{key:value for key,value in row.items() if key!='messages'} for sid,row in states.items()}}) if compact else None
+        if compact:
+            with self.lock:cached=getattr(self,'_match_index_cache',{}).get(identifier)
+            if cached and cached[0]==revision:return copy.deepcopy(cached[1])
         rows = []
         bases=(root, root/'tournament', *sorted(root.glob('g*-tournament')), *sorted((root/'evaluations').glob('g*-panel')), *sorted((root/'evaluations').glob('g*-previous')))
         record_paths={base:sorted((base/'records').glob('*.json')) for base in bases}
