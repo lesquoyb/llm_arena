@@ -48,7 +48,8 @@ def audit(store, identifier, generation=None):
     statuses=Counter(recorded[key]['result'].get('status','unknown') for key in expected_ids&recorded.keys())
     missing=expected_ids-recorded.keys()
     reported=store.json(tournament/'report.json',{})
-    return {'run':identifier,'round':generation+1,'combat_seeds':len(seeds),
+    return {'run':identifier,'round':generation+1,'execution_control':store.json(root/'execution-control.json',{}),
+        'latest_fight_performance':store.json(root/'fight-performance.json',{}),'combat_seeds':len(seeds),
         'submitted':len(ready),'expected_submissions':sum(row['expected_submissions'] for row in models.values()),
         'available_fixtures':len(expected),'planned_fixtures':len(planned_ids),
         'missing_from_plan':len(expected_ids-planned_ids),'missing_result_records':len(missing),

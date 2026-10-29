@@ -216,7 +216,7 @@ class Application:
                 withdrawn=set(roster.get('withdrawn',[]))
                 validate_effective(config,withdrawn)
                 selected={**config,'compare_previous_round':roster.get('compare_previous_round',config.get('compare_previous_round',False)),'models':[model for model in config['models'] if model['id'] not in withdrawn]}
-                planned={**selected,'_parallel_fights':roster.get('parallel_fights',config.get('parallel_fights',1)),
+                planned={**selected,'_parallel_fights':store.json(root/'execution-control.json',{}).get('parallel_fights',roster.get('parallel_fights',config.get('parallel_fights',1))),
                          '_request_order':roster.get('request_order',config.get('request_order','models')),
                          '_parallel_requests':roster.get('parallel_requests',config.get('parallel_requests',1)),
                          '_fixed_reference_repetitions':read_json(root/'experiment.json').get('fixed_reference_repetitions',config['replicates'])}
@@ -227,6 +227,10 @@ class Application:
             return self.jobs.participants(data['run'], data.get('participants'), data.get('frozen_tracks'), data.get('compare_previous_round'), data.get('parallel_fights'), data.get('request_order'), data.get('parallel_requests'))
         if route == '/api/conversation/recover':
             return self.jobs.recover_conversation(data['run'],data['session'],data.get('action','continue'))
+        if route == '/api/run/execution':
+            return self.jobs.execution_control(data['run'],data['parallel_fights'])
+        if route == '/api/run/retry-fights':
+            return self.jobs.retry_fights(data['run'])
         if route == "/api/launch":
             return self.jobs.launch(draft_id=data.get("draft_id"), run_id=data.get("run"),
                                     confirm_paid=data.get("confirm_paid", False), ceiling=data.get("ceiling"), retry_session=data.get("retry_session"), expected_config_sha256=data.get("expected_config_sha256"), allow_updated_runner=data.get("allow_updated_runner") is True, retry_reasoning_effort=data.get("retry_reasoning_effort"))

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+import json
+import hashlib
 import platform
 import signal
 import shutil
@@ -191,7 +193,33 @@ class Engine:
         self.runtime_provenance = {k: self.identity[k] for k in ("java_version", "python_version", "platform")}
 
     def invoke(self, work: Path, mode: str, argument: str) -> dict:
-        shutil.copytree(self.metadata["data"], work / "data")
+        from .fight_phases import phase
+        started=time.monotonic();timings={}
+        try:result=self._invoke(work,mode,argument,timings)
+        finally:
+            phase('cleanup_data');cleanup=time.monotonic()
+            try:shutil.rmtree(work/'data')
+            except FileNotFoundError:pass
+            except OSError:timings['data_cleanup_failed']=True  # Retain a still-open temporary input for inspection.
+            timings['data_cleanup_seconds']=time.monotonic()-cleanup
+        timings['invocation_seconds']=time.monotonic()-started
+        if mode!='api':result['timings']=timings
+        return result
+
+    def _invoke(self, work: Path, mode: str, argument: str, timings: dict) -> dict:
+        from .fight_phases import phase
+        phase('staging_data');staging=time.monotonic()
+        timings.update(data_hardlinked_files=0,data_copied_files=0,data_copied_bytes=0)
+        def link_or_copy(source,target):
+            # Pinned engine data are read-only inputs. Hardlinks avoid copying
+            # their bytes for every JVM; other volumes/filesystems fall back.
+            try:
+                os.link(source,target);timings['data_hardlinked_files']+=1;return target
+            except OSError:
+                timings['data_copied_files']+=1;timings['data_copied_bytes']+=Path(source).stat().st_size
+                return shutil.copy2(source,target)
+        shutil.copytree(self.metadata["data"], work / "data",copy_function=link_or_copy)
+        timings['data_staging_seconds']=time.monotonic()-staging
         classpath = os.pathsep.join([self.metadata["classes"], self.metadata["jar"]])
         args = [self.metadata["java"], *self.worker_options, "-cp", classpath,
                 "arena.bridge.ArenaMain", mode, argument, "outcome.json"]
@@ -208,7 +236,7 @@ class Engine:
                     "--mount", f"type=bind,src={self.metadata['classes']},dst=/engine/bridge,readonly",
                     self.worker_image, *self.worker_options, "-cp",
                     "/engine/bridge:/engine/generator.jar", "arena.bridge.ArenaMain", mode, argument, "outcome.json"]
-        start = time.monotonic()
+        phase('engine');start = time.monotonic()
         with (work / "stdout.log").open("wb") as stdout, (work / "stderr.log").open("wb") as stderr:
             try:
                 allowed = {"PATH", "JAVA_HOME", "SystemRoot", "WINDIR", "TEMP", "TMP",
@@ -231,16 +259,20 @@ class Engine:
                 return {"status": "timeout", "elapsed_seconds": time.monotonic() - start,
                         "error": "Whole-match process deadline exceeded; not attributed to either strategy"}
             finally:
+                timings['java_process_seconds']=time.monotonic()-start
                 if container:
                     subprocess.run(["docker", "rm", "-f", container], env=environment,
                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=20)
         elapsed = time.monotonic() - start
+        phase('reading_result');reading=time.monotonic()
         output = work / "outcome.json"
         if process.returncode or not output.exists():
             return {"status": "engine_error", "elapsed_seconds": elapsed,
                     "error": f"Engine exited {process.returncode}; see stderr.log and outcome.json"}
         try:
-            outcome = read_json(output)
+            outcome_bytes=output.read_bytes()
+            outcome=json.loads(outcome_bytes)
+            outcome_hash=hashlib.sha256(outcome_bytes).hexdigest()
         except (ValueError, OSError) as e:
             return {"status": "engine_error", "elapsed_seconds": elapsed, "error": str(e)}
         if "infrastructure_error" in outcome:
@@ -253,12 +285,14 @@ class Engine:
             return {"status": "engine_error", "elapsed_seconds": elapsed, "error": "Invalid outcome schema"}
         # Timings and debug messages can vary; hash the replay, operations and result.
         replay = {k: outcome[k] for k in ("fight", "winner", "duration")}
-        return {
+        result = {
             "status": "completed", "winner_side": outcome["winner"], "turns": outcome["duration"],
             "team_metrics": outcome["team_metrics"], "elapsed_seconds": elapsed,
             "replay_sha256": digest(replay),
-            "outcome_sha256": file_hash(output),
+            "outcome_sha256": outcome_hash,
         }
+        timings['result_read_seconds']=time.monotonic()-reading
+        return result
 
     def analyze(self, source: Path, entrypoint: str, out: Path) -> dict:
         info = submission(source, entrypoint)
@@ -291,6 +325,8 @@ class Engine:
         return result
 
     def fight(self, sources: list[Path], infos: list[dict], config: dict, seed: int, out: Path) -> dict:
+        from .fight_phases import phase
+        phase('preparing');started=time.monotonic()
         scenario = make_scenario(config, [s["entrypoint"] for s in infos], seed, [s.get("team") for s in infos])
         from .teams import validate_team
         for info in infos:
@@ -312,6 +348,7 @@ class Engine:
         write_json(out / "scenario.json", scenario)
         write_json(out / "provenance.json", {"engine": self.identity, "submissions": infos,
                    "scenario_sha256": digest(scenario), "timeout_seconds": self.timeout})
+        snapshot_seconds=time.monotonic()-started
         missing_team=[side for side,info in enumerate(infos) if info.get('configuration_error')]
         if missing_team:
             winner=-1 if len(missing_team)==2 else 1-missing_team[0]
@@ -324,6 +361,9 @@ class Engine:
                     'replay_sha256':digest({k:outcome[k] for k in ('fight','winner','duration')}),'outcome_sha256':file_hash(out/'outcome.json')}
         else:
             result = self.invoke(out, "fight", "scenario.json")
+        phase('archiving_result')
+        result['timings']={**result.get('timings',{}),'scenario_and_sources_seconds':snapshot_seconds,
+                           'fight_wall_seconds':time.monotonic()-started}
         write_json(out / "result.json", result)
         return result
 

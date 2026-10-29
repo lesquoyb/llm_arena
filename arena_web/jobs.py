@@ -211,6 +211,45 @@ class Jobs:
                     raise
             return {'id':identifier,'status':'queued','session':sid}
 
+    def execution_control(self, run_id, parallel_fights):
+        from arena.core import integer
+        integer(parallel_fights,1,None,'parallel_fights')
+        with self.lock:
+            root=self.store.run_path(run_id)
+            if (root/'export.json').exists():raise ArenaError('Exported archives are read-only')
+            if 'config' not in read_json(root/'experiment.json'):raise ArenaError('Only managed model competitions support this action')
+            command={'id':uuid4().hex,'parallel_fights':parallel_fights,'requested_at':time.time()}
+            write_json(root/'execution-requests'/(command['id']+'.json'),command)
+            write_json(root/'execution-control.json',command)
+            return {**command,'status':'requested'}
+
+    def retry_fights(self, run_id):
+        with self.lock:
+            root=self.store.run_path(run_id)
+            if (root/'export.json').exists():raise ArenaError('Exported archives are read-only')
+            if 'config' not in read_json(root/'experiment.json'):raise ArenaError('Only managed model competitions support this action')
+            if self.process and self.process.poll() is None:
+                if not self.current or self.current['run']!=run_id or self.current['status']!='running':
+                    raise ArenaError('Another competition is running or this one is stopping')
+                command={'id':uuid4().hex,'requested_at':time.time()}
+                write_json(root/'fight-retry-requests'/(command['id']+'.json'),command)
+                return {'status':'queued','no_model_requests':True}
+            from arena.engine import Engine
+            from arena.recovery import engine_compatible
+            engine=Engine();metadata=read_json(root/'experiment.json')
+            if not engine_compatible(metadata['engine'],engine.identity):raise ArenaError('Restore the original game engine before retrying fights')
+            identifier=uuid4().hex[:12];logs=self.store.state/'jobs';logs.mkdir(exist_ok=True)
+            env=dict(os.environ);env.update(PYTHONUTF8='1',ARENA_PROJECT_ROOT=str(ROOT),ARENA_STATE_ROOT=str(Path(engine.metadata['classes']).parent))
+            options={'start_new_session':True} if os.name=='posix' else {'creationflags':subprocess.CREATE_NEW_PROCESS_GROUP}
+            row={'id':identifier,'run':run_id,'name':metadata.get('config',{}).get('name',run_id),'started_at':time.time(),
+                 'status':'running','mode':'retry_fights','log':identifier+'.log'}
+            with (logs/row['log']).open('wb') as log:
+                self.process=subprocess.Popen([sys.executable,'-m','arena_web.worker','experiment','retry-fights',str(root)],
+                    cwd=ROOT,env=env,stdin=subprocess.DEVNULL,stdout=log,stderr=subprocess.STDOUT,**options)
+            self.current=row;self.rows.append(row);self._save()
+            self.watcher=threading.Thread(target=self._watch,args=(self.process,row),daemon=True);self.watcher.start()
+            return row
+
     def participants(self, run_id, selected, frozen_tracks=None, compare_previous_round=None, parallel_fights=None, request_order=None, parallel_requests=None):
         from contextlib import closing
         from arena.experiment import Journal, experiment_lock
@@ -227,6 +266,7 @@ class Jobs:
                 with closing(journal.db):
                     journal.verify()
                     change = update(root, journal, metadata['config'], self.store.catalog(), selected, frozen_tracks, compare_previous_round, parallel_fights, request_order, parallel_requests)
+            if parallel_fights is not None:self.execution_control(run_id,parallel_fights)
             return change
 
     def reconcile(self, run_id, sid, cost, note):
@@ -255,12 +295,17 @@ class Jobs:
             blocked = report.get('waiting_for_recovery') or report.get('incomplete')
             row.update(status="stopped" if row["status"] == "stopping" else "blocked" if code == 0 and blocked else "completed" if code == 0 else "failed",
                        returncode=code, finished_at=time.time())
-            if row['status'] == 'blocked':
+            if row.get('mode')=='retry_fights':
+                if row['status']!='stopped':row['status']='completed' if code==0 else 'failed'
+                row['note']='Engine fight recovery finished; model conversations were not resumed.'
+            if row['status'] == 'blocked' and row.get('mode')!='retry_fights':
                 row['note'] = 'Waiting for failed conversations to be recovered. Saved submissions and fights are retained.'
             self._save()
             root=self.store.runs/row['run']
             if self.process is process and row['status']!='stopped' and code==0 and any((root/'recovery-commands').glob('*.json')):
                 self.launch(run_id=row['run'],confirm_paid=True)
+            elif self.process is process and row['status']!='stopped' and any((root/'fight-retry-requests').glob('*.json')):
+                self.retry_fights(row['run'])
 
     def stop(self, identifier):
         with self.lock:

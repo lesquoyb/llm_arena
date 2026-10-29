@@ -525,7 +525,7 @@ class Store(Workspaces):
                 "g0": self.json(root / "tournament/report.json"),
                 "g1": self.json(root / "g1-tournament/report.json"),
                 "standings": self.json(root / "report.json", {}).get("standings"),
-                "archived": (root / "export.json").exists()}
+                "execution_control":self.json(root/"execution-control.json",{}), "archived": (root / "export.json").exists()}
 
     def provider_diagnostics(self, identifier, sid):
         """Public transport facts only: no credentials, prompts or source contents."""
@@ -880,7 +880,7 @@ class Store(Workspaces):
                 safe_path(root, work.relative_to(root).as_posix())
                 rows.append({"path": work.relative_to(root).as_posix(), "stage": relative,
                              "sides": sides, "candidate": record.get("session"), "candidate_side": record.get("side"), "seed": match.get("seed", record.get("seed")),
-                             "mirror": match.get("mirror", False), "result": record["result"]})
+                             "mirror": match.get("mirror", False), "result": record["result"], "timings":record.get("timings",{})})
         for path in sorted((root / "sessions").glob("*/tools/**/result.json")):
             if (path.parent / "scenario.json").is_file():
                 info = {} if compact else self.json(path.parent / "provenance.json", {})

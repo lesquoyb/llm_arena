@@ -30,6 +30,7 @@ def references(engine, config, out, journal, entrants, label, panel, *, incremen
                         sources = [entrant, opponent] if side == 0 else [opponent, entrant]
                         reference_only=all(fixed(source) for source in sources)
                         key = digest({"entrant": entrant["id"], "opponent": opponent["id"], "seed": seed, "side": side})[:24]
+                        record={}
                         cached = root / "records" / (key + ".json")
                         if cached.exists():
                             record = read_json(cached)
@@ -61,23 +62,34 @@ def references(engine, config, out, journal, entrants, label, panel, *, incremen
                             continue
                         work=Preparation._attempt(root/'matches'/key)
                         yield {'entrant':entrant,'opponent':opponent,'sources':sources,'reference_only':reference_only,
-                               'key':key,'work':work,'side':side,'seed':seed,'participants':[source['id'] for source in sources]}
+                               'key':key,'work':work,'side':side,'seed':seed,
+                               '_retry':record.get('retry_attempt',0)+1 if cached is None and record.get('retry_pending') else 0,'participants':[source['id'] for source in sources]}
     def execute(job):
         from .reference_cache import fight as cached_reference_fight
-        fight=cached_reference_fight if job['reference_only'] else lambda engine,*args:engine.fight(*args)
-        return fight(engine,[Path(source['path']) for source in job['sources']],
-                     [source['submission'] for source in job['sources']],config['scenario'],job['seed'],job['work'])
+        from .fight_phases import callback
+        import time
+        def update(name):job.update(phase=name,phase_started_at=time.time())
+        token=callback.set(update)
+        try:
+            fight=cached_reference_fight if job['reference_only'] else lambda engine,*args:engine.fight(*args)
+            return fight(engine,[Path(source['path']) for source in job['sources']],
+                         [source['submission'] for source in job['sources']],config['scenario'],job['seed'],job['work'])
+        finally:callback.reset(token)
     def save(job,result):
         record={'session':job['entrant']['id'],'opponent':job['opponent']['id'],'seed':job['seed'],
-                'side':job['side'],'result':result,'artifact_dir':job['work'].relative_to(out).as_posix()}
+                'side':job['side'],'result':result,'artifact_dir':job['work'].relative_to(out).as_posix(),
+                'retry_attempt':job.get('_retry',0),'retry_pending':result.get('status') in {'timeout','engine_error'} and job.get('_retry',0)<2}
         write_json(root/'records'/(job['key']+'.json'),record)
         journal.save(job['entrant']['id'],journal.state(job['entrant']['id']),
                      'progression_match' if label.endswith('-previous') else 'reference_match',record)
         results[job['key']]=record
+    def retry_job(job):
+        base=job.get('_attempt_base',job['work'])
+        return {**job,'work':Preparation._attempt(base),'_attempt_base':base,'phase':'preparing'}
     from .fight_pool import run as run_fights
     run_fights(jobs(),execute,save,limit=config.get('_parallel_fights',config.get('parallel_fights',1)),out=out,
                kind='previous_round_fight' if label.endswith('-previous') else 'reference_fight',
-               generation=max((entrant.get('generation',0) for entrant in entrants),default=0))
+               generation=max((entrant.get('generation',0) for entrant in entrants),default=0),retry=retry_job)
     write_json(root / "results.json", results)
     return results
 

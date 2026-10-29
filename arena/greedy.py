@@ -11,6 +11,9 @@ def entrants(journal, out, generation):
 
 
 def evaluate(engine, config, out, journal, generation=0):
+    from .execution_control import poll
+    poll(out,config.get('_parallel_fights',config.get('parallel_fights',1)))
+    retry_epoch=getattr(journal,'_fight_retry_epoch',0)
     ready = entrants(journal, out, generation)
     if len(ready) < 2 and not (ready and config['include_mirrors']):
         return None
@@ -33,7 +36,7 @@ def evaluate(engine, config, out, journal, generation=0):
     from .activity import operation
     with operation(out,'checking_fights',generation=generation,participants=[s['id'] for s in ready]):
         result=run_tournament(engine,manifest,root,root.exists(),allow_extend=True,priority_ids=priority,reference_ids=priority,parallel_fights=config.get("_parallel_fights",config.get("parallel_fights",1)),verified_cache=verified_cache)
-    if not result.get('deferred') and not result.get('pending'):
+    if not result.get('deferred') and not result.get('pending') and not result.get('retry_pending') and retry_epoch==getattr(journal,'_fight_retry_epoch',0):
         if not hasattr(journal,'_ready_evaluations'):journal._ready_evaluations={}
         journal._ready_evaluations[generation]=(signature,result)
     return result

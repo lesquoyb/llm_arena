@@ -52,7 +52,8 @@ def seed(engine, infos, config, seed_value, work):
         with file_lock(root/'locks'/(key+'.lock')):
             if (entry/'cache.json').is_file():return
             with TemporaryDirectory(prefix='reference-',dir=root) as temporary:
-                staged=Path(temporary)/'entry';shutil.copytree(work,staged/'files')
+                staged=Path(temporary)/'entry'
+                shutil.copytree(work,staged/'files',ignore=lambda directory,names:['data'] if Path(directory)==work and 'data' in names else [])
                 files={path.relative_to(staged/'files').as_posix():file_hash(path) for path in sorted((staged/'files').rglob('*')) if path.is_file()}
                 manifest={'request':request,'files':files};manifest['sha256']=digest(manifest)
                 write_json(staged/'cache.json',manifest)
@@ -81,19 +82,21 @@ def fight(engine, sources, infos, config, seed_value, work):
 
 def _fight(engine, sources, infos, config, seed_value, work):
     """Use the full replay only when both fixed-reference inputs match exactly."""
+    from .fight_phases import phase
+    phase('reference_cache');lookup_started=time.monotonic()
     request=_request(engine,infos,config,seed_value);key=digest(request);entry=_directory(engine)/key
     for source,info in zip(sources,infos):
         if submission(Path(source),info['entrypoint'])!=info:raise ArenaError('Fixed reference source changed')
     manifest=_read(entry,request) if (entry/'cache.json').is_file() else None
     if manifest:
-        started=time.monotonic();shutil.copytree(entry/'files',work)
+        phase('materializing_cache');started=time.monotonic();shutil.copytree(entry/'files',work,ignore=lambda directory,names:['data'] if Path(directory)==entry/'files' and 'data' in names else [])
         # Validate the materialized snapshot too; every competition stays portable.
-        if any(file_hash(work/name)!=expected for name,expected in manifest['files'].items()):
+        if any(file_hash(work/name)!=expected for name,expected in manifest['files'].items() if not name.startswith('data/')):
             raise ArenaError('Reference cache changed while its replay was copied')
         result=read_json(work/'result.json')
         original_elapsed=(result.get('reference_cache') or {}).get('original_elapsed_seconds',result.get('elapsed_seconds'))
-        receipt={'hit':True,'key':key,'original_elapsed_seconds':original_elapsed,'reuse_seconds':time.monotonic()-started}
-        result.update(elapsed_seconds=0,reference_cache=receipt)
+        receipt={'hit':True,'key':key,'original_elapsed_seconds':original_elapsed,'reuse_seconds':time.monotonic()-lookup_started}
+        result.update(elapsed_seconds=0,reference_cache=receipt,timings={'java_process_seconds':0,'cache_reuse_seconds':receipt['reuse_seconds'],'fight_wall_seconds':receipt['reuse_seconds']})
         provenance=read_json(work/'provenance.json');provenance['reference_cache']=receipt
         write_json(work/'provenance.json',provenance);write_json(work/'result.json',result)
         print('Reference replay cache hit: '+key[:12],flush=True)
@@ -110,5 +113,5 @@ def _fight(engine, sources, infos, config, seed_value, work):
                 if str(error)!='Another process is writing these artifacts':raise
         result={**result,'reference_cache':{'hit':False,'key':key,'original_elapsed_seconds':result.get('elapsed_seconds')}}
         write_json(work/'result.json',result)
-        seed(engine,infos,config,seed_value,work)
+        phase('publishing_cache');seed(engine,infos,config,seed_value,work)
     return result

@@ -110,6 +110,7 @@ def status(store, identifier, job=None):
     waiting=[{'model':model,'count':max(0,per_model[model]-sum(state['model']==model for state in current.values()))} for model in models]
     waiting=[item for item in waiting if item['count']]
     return {'labels':{sid:{'model':state['model'],'round':state.get('generation',0)+1,'condition':state.get('condition','initial'),'replicate':state.get('replicate',0)} for sid,state in states.items()}, 'running':running,'job_status':(job or {}).get('status'),'job_note':(job or {}).get('note'),
+            'requested_parallel_fights':store.json(root/'execution-control.json',{}).get('parallel_fights',roster.get('parallel_fights',config.get('parallel_fights',1))),
             'parallel_requests':roster.get('parallel_requests',config.get('parallel_requests',1)),'round':generation+1,'rounds':config.get('generations',1),'participants':len(models),
             'withdrawn':len(withdrawn),'ready_participants':ready_models,'strategies_ready':ready,
             'strategies_expected':expected,'strategies_validated':assessed,'strategies_checked':assessed,

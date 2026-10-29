@@ -62,7 +62,7 @@ def scoring_record(record):
     if result.get('team_metrics') is not None:
         slim['team_metrics']={side:{key:metrics[key] for key in ('operations','errors','operation_limit_hits')}
                               for side,metrics in result['team_metrics'].items()}
-    return {'match':record['match'],'result':slim}
+    return {'match':record['match'],'result':slim,'retry_pending':record.get('retry_pending',False)}
 
 
 def run_tournament(engine: Engine, manifest: dict, out: Path, resume: bool = False, *, allow_extend=False, priority_ids=None, reference_ids=None, parallel_fights=1, verified_cache=None) -> dict:
@@ -132,7 +132,7 @@ def _run_tournament(engine: Engine, manifest: dict, out: Path, resume: bool = Fa
     else:
         verification=verification_context(out)
         verified_cache['__context__']={'identity':identity,'verification':verification}
-    known={};completed=set()
+    known={};completed=set();retry_counts={}
     def deferred():
         value=read_json(out/'report.json') if (out/'report.json').exists() else {'completed':0,'failed':0,'pending':len(matches)}
         return {**value,'deferred':True}
@@ -154,6 +154,7 @@ def _run_tournament(engine: Engine, manifest: dict, out: Path, resume: bool = Fa
                 if record['match']!=match:raise ArenaError('Stored match metadata mismatch')
                 verify_record(out,record,context=verification)
                 known[match['id']]=scoring_record(record)
+                if record.get('retry_pending'):retry_counts[match['id']]=record.get('retry_attempt',0)+1
                 if record['result']['status']=='completed':
                     completed.add(match['id'])
                     verified_cache[match['id']]=known[match['id']]
@@ -173,18 +174,33 @@ def _run_tournament(engine: Engine, manifest: dict, out: Path, resume: bool = Fa
             while (base/f'attempt-{attempt}').exists():attempt+=1
             print(f"[{index}/{len(matches)}] {match['sides'][0]} vs {match['sides'][1]}, seed {match['seed']}",flush=True)
             yield {'match':match,'work':base/f'attempt-{attempt}','record_path':out/'records'/f"{match['id']}.json",
-                   'participants':match['sides'],'seed':match['seed']}
+                   'participants':match['sides'],'seed':match['seed'],'_retry':retry_counts.get(match['id'],0)}
     def record_for(job,result):
-        return {'match':job['match'],'directory':job['work'].relative_to(out).as_posix(),'result':result}
+        return {'match':job['match'],'directory':job['work'].relative_to(out).as_posix(),'result':result,
+                'retry_attempt':job.get('_retry',0),
+                'retry_pending':result.get('status') in {'timeout','engine_error'} and job.get('_retry',0)<2,
+                **({'timings':job['timings']} if job.get('timings') else {})}
     def execute(job):
         from .reference_cache import fight as cached_reference_fight
-        sides=job['participants']
-        fight=cached_reference_fight if all(side in reference_ids for side in sides) else lambda engine,*args:engine.fight(*args)
-        result=fight(engine,[out/'submissions'/side for side in sides],
-                     [strategies[side]['submission'] for side in sides],manifest['scenario'],job['seed'],job['work'])
-        job['phase']='verifying_result'
-        verify_record(out,record_for(job,result),context=verification)
-        return result
+        from .fight_phases import callback, phase
+        def update(name):job.update(phase=name,phase_started_at=time.time())
+        token=callback.set(update);started=time.monotonic()
+        try:
+            sides=job['participants']
+            fight=cached_reference_fight if all(side in reference_ids for side in sides) else lambda engine,*args:engine.fight(*args)
+            result=fight(engine,[out/'submissions'/side for side in sides],
+                         [strategies[side]['submission'] for side in sides],manifest['scenario'],job['seed'],job['work'])
+            work_seconds=time.monotonic()-started
+            phase('verifying_result');verification_started=time.monotonic()
+            verify_record(out,record_for(job,result),context=verification)
+            job['timings']={'work_seconds':work_seconds,'verification_seconds':time.monotonic()-verification_started}
+            phase('ready_to_save')
+            return result
+        finally:callback.reset(token)
+    def retry_job(job):
+        from .preparation import Preparation
+        base=job.get('_attempt_base',job['work'])
+        return {**job,'work':Preparation._attempt(base),'_attempt_base':base,'phase':'preparing','phase_started_at':time.time()}
     last_report=0
     def publish(markdown=False):
         return report(out,verified_records=known,experiment=verification['experiment'],markdown=markdown)
@@ -200,7 +216,7 @@ def _run_tournament(engine: Engine, manifest: dict, out: Path, resume: bool = Fa
     publish()
     from .fight_pool import run as run_fights
     run_fights(jobs(),execute,save,limit=parallel_fights,out=out.parent,kind='tournament_fight',
-               generation=max((s.get('generation',0) for s in strategies.values()),default=0))
+               generation=max((s.get('generation',0) for s in strategies.values()),default=0),retry=retry_job)
     return publish(markdown=True)
 
 
@@ -216,7 +232,7 @@ def report(out: Path, *, verified_records=None, experiment=None, markdown=True) 
     roster = snapshot(out.parent)
     withdrawn = set((roster or {}).get('withdrawn', []))
     excluded = {s['id'] for s in experiment['manifest']['strategies'] if s.get('model', s['id']) in withdrawn}
-    missing = failed = completed = cancelled = 0
+    missing = failed = completed = cancelled = retry_pending = 0
     for match in experiment["schedule"]:
         if verified_records is None:
             path=out/'records'/f"{match['id']}.json"
@@ -230,6 +246,7 @@ def report(out: Path, *, verified_records=None, experiment=None, markdown=True) 
         r = record["result"]
         sides = match["sides"]
         if r["status"] != "completed":
+            retry_pending+=bool(record.get('retry_pending'))
             failed += 1
             if not match["mirror"]:
                 for s in sides:
@@ -252,7 +269,7 @@ def report(out: Path, *, verified_records=None, experiment=None, markdown=True) 
     for row in rows.values():
         row["score"] = (row["wins"] + row["draws"] * 0.5) / row["played"] if row["played"] else None
     standings = sorted(rows.values(), key=lambda r: (-(r["score"] if r["score"] is not None else -1), r["id"]))
-    result = {"completed": completed, "failed": failed, "pending": missing, "cancelled":cancelled,
+    result = {"completed": completed, "failed": failed, "pending": missing, "cancelled":cancelled,"retry_pending":retry_pending,
               "withdrawn_strategies":sorted(excluded),
               "standings": standings, "matrix": matrix, "mirrors": mirrors}
     write_json(out / "report.json", result)

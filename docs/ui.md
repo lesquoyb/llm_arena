@@ -1219,3 +1219,39 @@ This distinguishes missing scheduling from missing results and stale counters.
 **Simultaneous fights** has no arbitrary upper cap. Set any positive integer in
 competition creation or **More > Execution & metrics**. The default is unchanged;
 workers are created as work becomes available, up to the selected concurrency.
+
+### Live fight controls, retries and execution time
+
+**Workers: N** in the activity panel opens a live concurrency control. **Apply now**
+changes dispatch without Stop / Resume, including growth from a single worker.
+Decreasing the value lets current work finish before starting additional jobs.
+The setting persists across restarts, has no upper cap, and is recorded separately
+from frozen experiment inputs. Application of the setting is logged by the
+coordinator; requests are retained in `execution-requests/`.
+
+Engine `timeout` and `engine_error` results receive two automatic retries in new
+attempt directories. They retain the original source snapshots, seed and scenario.
+Cooperative yields preserve the remaining attempts. A still-failing fixture remains
+unscored after three attempts. **Retry failed fights** requests another repair pass
+without restarting model conversations. While running, the coordinator handles
+ranked and reference fixtures alongside provider requests; while stopped, a separate
+engine-only job runs. Preparation tool tests remain historical evidence and are
+not silently replayed. The equivalent CLI is `python -m arena experiment retry-fights RUN`.
+
+Activity distinguishes preparing source/data files, the Java process, reading and
+hashing output, reference-cache work, artifact verification and waiting for result
+publication. A lightweight heartbeat keeps those phases current even when the
+coordinator is publishing results. Displayed total slot time includes all these
+phases; it is not the Java process lifetime.
+
+New replay details include **Execution timing**. **Copy scheduling diagnostics**
+includes the latest batch's timing totals and live execution setting. Batch phase
+times sum concurrent worker durations, so they are not a wall-clock breakdown or
+CPU utilization measurement. Timings are hidden from model-facing tool results.
+
+Pinned engine data are staged with hardlinks where supported, with a byte-copy
+fallback across filesystems. Temporary data are removed when the process finishes;
+static data are no longer duplicated in new reference replay caches. Sources,
+scenarios, replay outputs, logs and their integrity checks remain archived.
+Each fight still runs in an isolated JVM; process reuse would require separate
+validation of state reset and determinism.

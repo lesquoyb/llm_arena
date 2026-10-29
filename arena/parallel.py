@@ -113,6 +113,14 @@ def _prepare(tasks, config, out, journal, engine, interrupt=None, on_progress=No
     from .experiment import run_session, TERMINAL, provider_response
     limit=config.get('_parallel_requests',config.get('parallel_requests',1))
     tasks=ordered_tasks(tasks,config.get('_request_order',config.get('request_order','models')),serial=limit==1)
+    regular_progress=on_progress
+    def progress():
+        if getattr(journal,'_manual_fight_retry_pending',False):
+            from .fight_recovery import run as recover_fights
+            result=recover_fights(out,engine=engine,journal=journal,cooperative=True)
+            if not result.get('deferred'):journal._manual_fight_retry_pending=False
+        if regular_progress:regular_progress()
+    on_progress=progress
     dispatcher=Requests(limit,tasks)
     journal.requests=dispatcher
     queue=deque(tasks);models=dict(tasks)
@@ -162,6 +170,8 @@ def _prepare(tasks, config, out, journal, engine, interrupt=None, on_progress=No
     try:
         while queue or dispatcher.pending or retry_waiting:
             queue_recoveries()
+            from .execution_control import poll as poll_execution
+            poll_execution(out,config.get('_parallel_fights',config.get('parallel_fights',1)))
             if queue and not dispatcher.pending and not any(dispatcher.can_start(sid,model) for sid,model in queue):
                 # A stale local residency marker must never leave a fully idle
                 # scheduler spinning. No request is running, so releasing it is safe.

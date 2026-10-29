@@ -5,7 +5,7 @@ import re
 
 MESSAGE_METADATA={'arena_finalization','output_continuation','submission_reminder','trigger_model_call','completion_reason','provider_recovery'}
 
-METADATA = {'sha256', 'commit', 'source_commit', 'generator_commit', 'engine_commit',
+METADATA = {'timings', 'sha256', 'commit', 'source_commit', 'generator_commit', 'engine_commit',
             'source_url', 'source_urls', 'sources', 'url', 'fetched_at', 'master_version',
             'provenance', 'artifact_dir', 'engine_identity'}
 

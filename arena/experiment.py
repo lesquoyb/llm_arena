@@ -854,6 +854,8 @@ def run(config: dict, out: Path, resume=False, interrupt=None, prepare_only=Fals
                     shutil.copyfile(source, target)
             write_json(out / "experiment.json", identity)
         journal = Journal(out)
+        from .execution_control import _journal
+        execution_token=_journal.set(journal)
         try:
             if not resume:
                 journal.db.execute("INSERT OR REPLACE INTO objects VALUES (?,?,?,?,?)",
@@ -1017,4 +1019,6 @@ def run(config: dict, out: Path, resume=False, interrupt=None, prepare_only=Fals
                     stream.write("\n[Comparaison G0/G1 sur panel commun](analysis.md) · [HTML](analysis.html) · [CSV](analysis.csv)\n")
             return summary
         finally:
+            from .execution_control import _journal
+            _journal.reset(execution_token)
             journal.db.close()
