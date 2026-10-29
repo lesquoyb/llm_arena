@@ -195,6 +195,13 @@ class Jobs:
             from arena.roster import effective, active
             config=effective(root,metadata['config'])
             parent=self.store.session(run_id,state['parent']) if state.get('parent') else None
+            # The coordinator reconciles explicit zero-price requests on launch.
+            # Permit enqueueing them without asking the user to confirm a zero bill.
+            from arena.recovery import zero_cost_requests, needs_reconciliation
+            model=next(model for model in config['models'] if model['id']==state['model'])
+            if zero_cost_requests(model) and needs_reconciliation(state) and amount(state.get('money_reserved','0'))==0:
+                state={**state,'in_flight':False,'money_reserved':'0',
+                       'status':'running' if state.get('pending') else 'provider_unavailable'}
             reason=retry_reason(state,config['budget_per_session'],parent)
             from arena.budget_context import tool_budget_exhausted
             if reason and (action=='restart' or not tool_budget_exhausted(state,config['budget_per_session'])):raise ArenaError(reason)
@@ -205,7 +212,7 @@ class Jobs:
             identifier=uuid4().hex
             write_json(root/'recovery-commands'/(identifier+'.json'),{'id':identifier,'session':sid,'action':action,'requested_at':time.time()})
             if not running:
-                try:self.launch(run_id=run_id,confirm_paid=True)
+                try:self.launch(run_id=run_id,confirm_paid=True,allow_updated_runner=True)
                 except BaseException:
                     (root/'recovery-commands'/(identifier+'.json')).unlink(missing_ok=True)
                     raise
@@ -305,7 +312,7 @@ class Jobs:
             self._save()
             root=self.store.runs/row['run']
             if self.process is process and row['status']!='stopped' and code==0 and any((root/'recovery-commands').glob('*.json')):
-                self.launch(run_id=row['run'],confirm_paid=True)
+                self.launch(run_id=row['run'],confirm_paid=True,allow_updated_runner=True)
             elif self.process is process and row['status']!='stopped' and any((root/'fight-retry-requests').glob('*.json')):
                 self.retry_fights(row['run'])
 

@@ -19,7 +19,10 @@ def run(directory, *, engine=None, journal=None, cooperative=False):
     owns_journal=journal is None
     with experiment_lock(out) if owns_journal else nullcontext():
         journal=journal or Journal(out);token=_journal.set(journal)
+        from .activity import _provider_yielder, provider_work_ready
+        recovery_yielder=_provider_yielder.set(lambda:any((out/'recovery-commands').glob('*.json'))) if owns_journal else None
         try:
+            if owns_journal and provider_work_ready():return {'deferred':True,'no_model_requests':True,'remaining_failed':0}
             config=effective(out,metadata['config']);roster=snapshot(out) or {}
             withdrawn=set(roster.get('withdrawn',[]))
             parallel_fights=roster.get('parallel_fights',config.get('_parallel_fights',config.get('parallel_fights',1)))
@@ -44,14 +47,14 @@ def run(directory, *, engine=None, journal=None, cooperative=False):
                 journal._verified_tournament_records=caches
                 tournaments[root.name]=run_tournament(engine,manifest,root,resume=True,parallel_fights=parallel_fights,verified_cache=caches.setdefault(str(root),{}))
                 value=tournaments[root.name]
-                if cooperative and (value.get('deferred') or value.get('pending') or value.get('retry_pending')):return {'deferred':True}
+                if value.get('deferred') or (cooperative and (value.get('pending') or value.get('retry_pending'))):return {'deferred':True,'no_model_requests':True,'remaining_failed':0}
                 done.add(str(root))
             jobs=[]
             for root in sorted((out/'evaluations').glob('g*-*')):
                 for path in sorted((root/'records').glob('*.json')):
                     if cooperative and str(path) in done:continue
                     from .activity import provider_work_ready
-                    if cooperative and provider_work_ready():return {'deferred':True}
+                    if provider_work_ready():return {'deferred':True,'no_model_requests':True,'remaining_failed':0}
                     if str(path) in pending_jobs:continue
                     record=read_json(path)
                     if record['result'].get('status')=='completed':
@@ -94,6 +97,7 @@ def run(directory, *, engine=None, journal=None, cooperative=False):
                 return {**job,'work':Preparation._attempt(base),'_attempt_base':base}
             from .fight_pool import run as run_fights
             run_fights(jobs,execute,save,limit=parallel_fights,out=out,kind='reference_fight',retry=retry)
+            if provider_work_ready():return {'deferred':True,'no_model_requests':True,'remaining_failed':0}
             if cooperative:
                 if pending_jobs or getattr(journal,'_fight_retry_epoch',0)!=initial_retry_epoch:return {'deferred':True}
                 receipt={'remaining_failed':sum(value.get('failed',0) for value in tournaments.values())+sum(failures.values()),'no_model_requests':True,'deferred':False}
@@ -134,5 +138,6 @@ def run(directory, *, engine=None, journal=None, cooperative=False):
             if anchor:journal.record(anchor,'engine_only_recovery_finished',receipt)
             return receipt
         finally:
+            if recovery_yielder is not None:_provider_yielder.reset(recovery_yielder)
             _journal.reset(token)
             if owns_journal:journal.db.close()
