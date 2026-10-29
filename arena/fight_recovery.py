@@ -20,9 +20,11 @@ def run(directory, *, engine=None, journal=None, cooperative=False):
     with experiment_lock(out) if owns_journal else nullcontext():
         journal=journal or Journal(out);token=_journal.set(journal)
         try:
-            config=effective(out,metadata['config']);withdrawn=set((snapshot(out) or {}).get('withdrawn',[]))
+            config=effective(out,metadata['config']);roster=snapshot(out) or {}
+            withdrawn=set(roster.get('withdrawn',[]))
+            parallel_fights=roster.get('parallel_fights',config.get('_parallel_fights',config.get('parallel_fights',1)))
             from .execution_control import poll
-            poll(out,config.get('parallel_fights',1))
+            poll(out,parallel_fights)
             initial_retry_epoch=getattr(journal,'_fight_retry_epoch',0)
             done=getattr(journal,'_manual_recovery_done',set())
             pending_jobs=getattr(journal,'_manual_pending_jobs',{})
@@ -40,7 +42,7 @@ def run(directory, *, engine=None, journal=None, cooperative=False):
                 manifest={**manifest,'strategies':[{**source,'path':str(root/'submissions'/source['id'])} for source in manifest['strategies']]}
                 caches=getattr(journal,'_verified_tournament_records',{})
                 journal._verified_tournament_records=caches
-                tournaments[root.name]=run_tournament(engine,manifest,root,resume=True,parallel_fights=config.get('parallel_fights',1),verified_cache=caches.setdefault(str(root),{}))
+                tournaments[root.name]=run_tournament(engine,manifest,root,resume=True,parallel_fights=parallel_fights,verified_cache=caches.setdefault(str(root),{}))
                 value=tournaments[root.name]
                 if cooperative and (value.get('deferred') or value.get('pending') or value.get('retry_pending')):return {'deferred':True}
                 done.add(str(root))
@@ -91,7 +93,7 @@ def run(directory, *, engine=None, journal=None, cooperative=False):
                 base=job.get('_attempt_base',job['work'])
                 return {**job,'work':Preparation._attempt(base),'_attempt_base':base}
             from .fight_pool import run as run_fights
-            run_fights(jobs,execute,save,limit=config.get('parallel_fights',1),out=out,kind='reference_fight',retry=retry)
+            run_fights(jobs,execute,save,limit=parallel_fights,out=out,kind='reference_fight',retry=retry)
             if cooperative:
                 if pending_jobs or getattr(journal,'_fight_retry_epoch',0)!=initial_retry_epoch:return {'deferred':True}
                 receipt={'remaining_failed':sum(value.get('failed',0) for value in tournaments.values())+sum(failures.values()),'no_model_requests':True,'deferred':False}
