@@ -899,10 +899,13 @@ no-feedback strategies. The vertical score scale stays fixed at 0–100%.
 legend visibility; bar widths adapt to the available space, with scrolling
 confined to the chart for larger histories.
 
-Resource comparisons default to horizontal **Bars**, with exact resource values
-and scores on each model row, sorted by the selected resource. **Display > Points**
-keeps the scatter view available. These displays use the same observations and
-do not aggregate models into bins or change their scores. Chart marks and legend
+Resource comparisons default to horizontal **Bars**, ranked by efficiency:
+score points (0–100) divided by the selected mean resource per strategy. A score
+of 60 with 20 tool calls gives 3 points per call. Higher is better; each row
+shows the denominator and its tooltip includes the original score. Missing and
+zero denominators are excluded rather than displayed as infinite efficiency.
+**Display > Points** keeps the original score-versus-resource scatter view.
+These displays use the same observations and do not aggregate models into bins. Chart marks and legend
 items use a single custom tooltip; native browser titles are suppressed there.
 
 ### Learning progress
@@ -1003,6 +1006,12 @@ allows 512 MB of Java heap plus process overhead, so start with 2–4 workers.
 The activity panel lists every active fight, seed and participant conversation.
 Results and SQLite events are published by the coordinator as workers finish;
 completed peers are preserved if another worker fails. Resume skips completed fights.
+Each new result is fully verified on its worker before publication. Live rankings
+reuse compact verified records in memory instead of rereading every earlier replay
+after every fight. Existing records are verified once when resuming; standalone
+report generation also performs full verification. Occupied slots distinguish
+engine computation, result verification and finished results awaiting publication.
+CPU usage can still depend on disk throughput, cached fights and engine workload.
 
 For an existing competition, stop it, choose **More > Execution & metrics**, change
 **Simultaneous fights**, save and resume. This is an audited execution setting:

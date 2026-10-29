@@ -25,8 +25,9 @@ def run(jobs, execute, save, *, limit=1, out, kind, generation=0):
             exhausted=False
             error=None
             def progress():
-                fights=[{'participants':job['participants'],'seed':job['seed'],'started_at':started}
-                        for job,started in pending.values()]
+                fights=[{'participants':job['participants'],'seed':job['seed'],'started_at':started,
+                         'phase':'ready_to_save' if future.done() else job.get('phase','computing')}
+                        for future,(job,started) in pending.items()]
                 write_json(out/'activity.json',{'kind':kind,'generation':generation,'started_at':min(
                     (item['started_at'] for item in fights),default=time.time()),'parallel_fights':limit,
                     'fights':fights,'participants':list(dict.fromkeys(sid for item in fights for sid in item['participants']))})

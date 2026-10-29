@@ -29,7 +29,7 @@ def evaluate(engine, config, out, journal, generation=0):
     from .activity import operation
     with operation(out,'checking_fights',generation=generation,participants=[s['id'] for s in ready]):
         result=run_tournament(engine,manifest,root,root.exists(),allow_extend=True,priority_ids=priority,reference_ids=priority,parallel_fights=config.get("_parallel_fights",config.get("parallel_fights",1)))
-    if not result.get('failed') and not result.get('pending'):
+    if not result.get('deferred') and not result.get('failed') and not result.get('pending'):
         if not hasattr(journal,'_ready_evaluations'):journal._ready_evaluations={}
         journal._ready_evaluations[generation]=(signature,result)
     return result

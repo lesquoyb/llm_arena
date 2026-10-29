@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import itertools
+import time
 from pathlib import Path
 
 from .core import ArenaError, copy_submission, digest, file_hash, file_lock, make_scenario, read_json, submission, write_json
@@ -23,32 +24,45 @@ def schedule(manifest: dict) -> list[dict]:
     return matches
 
 
-def verify_record(root: Path, record: dict):
-    if record["result"]["status"] != "completed":
-        return
-    work = root / record["directory"]
-    if file_hash(work / "outcome.json") != record["result"]["outcome_sha256"]:
-        raise ArenaError(f"Stored outcome was modified: {work}")
-    if read_json(work / "result.json") != record["result"]:
-        raise ArenaError(f"Stored result was modified: {work}")
-    experiment = read_json(root / "experiment.json")
-    provenance = read_json(work / "provenance.json")
-    strategies = {s["id"]: s for s in experiment["manifest"]["strategies"]}
-    expected = [strategies[s]["submission"] for s in record["match"]["sides"]]
-    scenario = make_scenario(experiment["manifest"]["scenario"],
-                             [s["entrypoint"] for s in expected], record["match"]["seed"], [s.get("team") for s in expected])
-    engines = [experiment['engine']]
-    for archive in sorted((root / 'history').glob('*.json')):
-        prior = read_json(archive)
-        if prior.get('sha256') != digest({k:v for k,v in prior.items() if k != 'sha256'}):
+def verification_context(root, experiment=None):
+    experiment=experiment or read_json(root/'experiment.json')
+    engines=[experiment['engine']]
+    for archive in sorted((root/'history').glob('*.json')):
+        prior=read_json(archive)
+        if prior.get('sha256')!=digest({k:v for k,v in prior.items() if k!='sha256'}):
             raise ArenaError('Tournament history was modified')
         engines.append(prior['engine'])
-    if (provenance["engine"] not in engines or provenance["submissions"] != expected or
-            provenance["scenario_sha256"] != digest(scenario) or read_json(work / "scenario.json") != scenario):
-        raise ArenaError("Stored match provenance or scenario was modified")
-    for side, info in enumerate(expected, 1):
-        if submission(work / "strategies" / str(side), info["entrypoint"]) != info:
-            raise ArenaError("Stored match source was modified")
+    return {'experiment':experiment,'engines':engines,
+            'strategies':{s['id']:s for s in experiment['manifest']['strategies']}}
+
+
+def verify_record(root: Path, record: dict, *, context=None):
+    if record['result']['status']!='completed':return
+    context=context or verification_context(root)
+    work=root/record['directory']
+    if file_hash(work/'outcome.json')!=record['result']['outcome_sha256']:
+        raise ArenaError(f'Stored outcome was modified: {work}')
+    if read_json(work/'result.json')!=record['result']:
+        raise ArenaError(f'Stored result was modified: {work}')
+    provenance=read_json(work/'provenance.json')
+    expected=[context['strategies'][s]['submission'] for s in record['match']['sides']]
+    scenario=make_scenario(context['experiment']['manifest']['scenario'],
+        [s['entrypoint'] for s in expected],record['match']['seed'],[s.get('team') for s in expected])
+    if (provenance['engine'] not in context['engines'] or provenance['submissions']!=expected or
+            provenance['scenario_sha256']!=digest(scenario) or read_json(work/'scenario.json')!=scenario):
+        raise ArenaError('Stored match provenance or scenario was modified')
+    for side,info in enumerate(expected,1):
+        if submission(work/'strategies'/str(side),info['entrypoint'])!=info:
+            raise ArenaError('Stored match source was modified')
+
+
+def scoring_record(record):
+    result=record['result']
+    slim={key:result[key] for key in ('status','winner_side','turns') if key in result}
+    if result.get('team_metrics') is not None:
+        slim['team_metrics']={side:{key:metrics[key] for key in ('operations','errors','operation_limit_hits')}
+                              for side,metrics in result['team_metrics'].items()}
+    return {'match':record['match'],'result':slim}
 
 
 def run_tournament(engine: Engine, manifest: dict, out: Path, resume: bool = False, *, allow_extend=False, priority_ids=None, reference_ids=None, parallel_fights=1) -> dict:
@@ -111,49 +125,73 @@ def _run_tournament(engine: Engine, manifest: dict, out: Path, resume: bool = Fa
     priority_ids=set(priority_ids or [])
     reference_ids=set(reference_ids or [])
     execution=sorted(matches,key=lambda match:-sum(side in priority_ids for side in match['sides']))
-    def jobs():
-        for index, match in enumerate(execution, 1):
-            from .activity import poll_provider_failures
+    from .activity import operation, poll_provider_failures, provider_work_ready
+    verification=verification_context(out)
+    known={};completed=set()
+    def deferred():
+        value=read_json(out/'report.json') if (out/'report.json').exists() else {'completed':0,'failed':0,'pending':len(matches)}
+        return {**value,'deferred':True}
+    audit_started=time.time();last_audit=0
+    with operation(out.parent,'checking_fights',generation=max((s.get('generation',0) for s in strategies.values()),default=0)):
+        for index,match in enumerate(execution,1):
             poll_provider_failures()
-            record_path = out / "records" / f"{match['id']}.json"
-            if record_path.exists():
-                record = read_json(record_path)
-                if record["match"] != match:
-                    raise ArenaError("Stored match metadata mismatch")
-                if record["result"]["status"] == "completed":
-                    verify_record(out, record)
+            if provider_work_ready():return deferred()
+            path=out/'records'/f"{match['id']}.json"
+            if path.exists():
+                record=read_json(path)
+                if record['match']!=match:raise ArenaError('Stored match metadata mismatch')
+                verify_record(out,record,context=verification)
+                known[match['id']]=scoring_record(record)
+                if record['result']['status']=='completed':
+                    completed.add(match['id'])
                     if all(side in reference_ids for side in match['sides']):
                         from .reference_cache import seed as seed_reference
                         seed_reference(engine,[strategies[side]['submission'] for side in match['sides']],manifest['scenario'],match['seed'],out/record['directory'])
-                    print(f"[{index}/{len(matches)}] cached {match['sides']}, seed {match['seed']}", flush=True)
-                    continue
-            if any(side in excluded for side in match['sides']):
-                continue
-            base = out / "matches" / match["id"]
-            attempt = 1
-            while (base / f"attempt-{attempt}").exists():
-                attempt += 1
-            work = base / f"attempt-{attempt}"
-            sides = match["sides"]
-            print(f"[{index}/{len(matches)}] {sides[0]} vs {sides[1]}, seed {match['seed']}", flush=True)
-            yield {'match':match,'work':work,'record_path':record_path,'participants':sides,'seed':match['seed']}
+            if time.monotonic()-last_audit>=.5:
+                write_json(out.parent/'activity.json',{'kind':'checking_fights','started_at':audit_started,
+                    'generation':max((s.get('generation',0) for s in strategies.values()),default=0),
+                    'checked_records':index,'total_records':len(matches)})
+                last_audit=time.monotonic()
+    def jobs():
+        for index,match in enumerate(execution,1):
+            poll_provider_failures()
+            if match['id'] in completed or any(side in excluded for side in match['sides']):continue
+            base=out/'matches'/match['id'];attempt=1
+            while (base/f'attempt-{attempt}').exists():attempt+=1
+            print(f"[{index}/{len(matches)}] {match['sides'][0]} vs {match['sides'][1]}, seed {match['seed']}",flush=True)
+            yield {'match':match,'work':base/f'attempt-{attempt}','record_path':out/'records'/f"{match['id']}.json",
+                   'participants':match['sides'],'seed':match['seed']}
+    def record_for(job,result):
+        return {'match':job['match'],'directory':job['work'].relative_to(out).as_posix(),'result':result}
     def execute(job):
         from .reference_cache import fight as cached_reference_fight
         sides=job['participants']
         fight=cached_reference_fight if all(side in reference_ids for side in sides) else lambda engine,*args:engine.fight(*args)
-        return fight(engine,[out/'submissions'/side for side in sides],
+        result=fight(engine,[out/'submissions'/side for side in sides],
                      [strategies[side]['submission'] for side in sides],manifest['scenario'],job['seed'],job['work'])
+        job['phase']='verifying_result'
+        verify_record(out,record_for(job,result),context=verification)
+        return result
+    last_report=0
+    def publish(markdown=False):
+        return report(out,verified_records=known,experiment=verification['experiment'],markdown=markdown)
     def save(job,result):
-        write_json(job['record_path'],{'match':job['match'],'directory':job['work'].relative_to(out).as_posix(),'result':result})
-        report(out)
+        nonlocal last_report
+        record=record_for(job,result)
+        write_json(job['record_path'],record)
+        known[job['match']['id']]=scoring_record(record)
+        if time.monotonic()-last_report>=.5:
+            publish();last_report=time.monotonic()
+    publish()
     from .fight_pool import run as run_fights
     run_fights(jobs(),execute,save,limit=parallel_fights,out=out.parent,kind='tournament_fight',
                generation=max((s.get('generation',0) for s in strategies.values()),default=0))
-    return report(out)
+    return publish(markdown=True)
 
 
-def report(out: Path) -> dict:
-    experiment = read_json(out / "experiment.json")
+def report(out: Path, *, verified_records=None, experiment=None, markdown=True) -> dict:
+    experiment = experiment or read_json(out / "experiment.json")
+    verification=verification_context(out,experiment) if verified_records is None else None
     ids = [s["id"] for s in experiment["manifest"]["strategies"]]
     rows = {s: {"id": s, "played": 0, "wins": 0, "draws": 0, "losses": 0,
                 "failures": 0, "operations": 0, "errors": 0, "operation_limit_hits": 0} for s in ids}
@@ -165,17 +203,15 @@ def report(out: Path) -> dict:
     excluded = {s['id'] for s in experiment['manifest']['strategies'] if s.get('model', s['id']) in withdrawn}
     missing = failed = completed = cancelled = 0
     for match in experiment["schedule"]:
-        path = out / "records" / f"{match['id']}.json"
-        if any(side in excluded for side in match['sides']) and (not path.exists() or read_json(path)['result']['status'] != 'completed'):
-            cancelled += 1
-            continue
-        if not path.exists():
-            missing += 1
-            continue
-        record = read_json(path)
-        if record["match"] != match:
-            raise ArenaError(f"Stored match metadata mismatch: {path}")
-        verify_record(out, record)
+        if verified_records is None:
+            path=out/'records'/f"{match['id']}.json"
+            record=read_json(path) if path.exists() else None
+        else:record=verified_records.get(match['id'])
+        if any(side in excluded for side in match['sides']) and (record is None or record['result']['status']!='completed'):
+            cancelled+=1;continue
+        if record is None:missing+=1;continue
+        if record['match']!=match:raise ArenaError('Stored match metadata mismatch')
+        if verified_records is None:verify_record(out,record,context=verification)
         r = record["result"]
         sides = match["sides"]
         if r["status"] != "completed":
@@ -205,6 +241,7 @@ def report(out: Path) -> dict:
               "withdrawn_strategies":sorted(excluded),
               "standings": standings, "matrix": matrix, "mirrors": mirrors}
     write_json(out / "report.json", result)
+    if not markdown:return result
     lines = [f"# {experiment['manifest'].get('name', 'Tournament')}", "",
              f"Completed: {completed} · Failed: {failed} · Pending: {missing}", "",
              "Mirrors are excluded. Process failures are unscored; runtime AI errors retain the game result.", "",
