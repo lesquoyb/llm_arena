@@ -371,7 +371,7 @@ body[data-view=editor] main { padding-bottom:140px; }
 .replay-sources > div { display:flex; flex-wrap:wrap; align-items:center; gap:8px; padding:12px; border:1px solid var(--border); border-radius:8px; }
 .replay-sources strong { flex-basis:100%; overflow-wrap:anywhere; }
 .error-rate-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:24px; }
-.error-rate-row { display:grid; grid-template-columns:minmax(80px,1fr) minmax(60px,1fr) auto; align-items:center; gap:12px; margin:12px 0; font-size:12px; }
+.error-rate-row { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr) 112px; align-items:center; gap:12px; margin:12px 0; font-size:12px; }
 .error-rate-row strong { overflow-wrap:anywhere; }
 .error-rate-row > span { white-space:nowrap; }
 @media(max-width:800px) { .error-rate-grid,.replay-sources { grid-template-columns:minmax(0,1fr); } }
