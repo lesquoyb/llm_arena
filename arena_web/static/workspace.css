@@ -480,3 +480,47 @@ body[data-run-tab=activity] .run-filters small,body[data-run-tab=config] .run-fi
 }
 .action-menu[open] { z-index:40; }
 .overview-matrix abbr { display:block; white-space:normal; overflow-wrap:anywhere; text-decoration:none; font-size:11px; }
+/* A collapsed exchange is one compact row, not a card of collapsed subpanels. */
+body[data-run-tab=conversation] .chat-message { padding:0; margin:0 0 4px; border-radius:5px; box-shadow:none; }
+body[data-run-tab=conversation] .chat-message.tool { margin-left:8px; }
+.chat-message .message-shell { margin:0; }
+.chat-message .message-compact-head { display:flex; align-items:center; gap:8px; min-height:36px; padding:6px 9px; list-style:none; font-size:12px; cursor:pointer; }
+.chat-message .message-compact-head::before { content:'▸'; color:var(--muted); }
+.chat-message .message-shell[open] > .message-compact-head::before { content:'▾'; }
+.chat-message .message-compact-head::-webkit-details-marker { display:none; }
+.message-compact-head strong { flex:0 1 auto; max-width:42%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12px; }
+.message-compact-head .message-preview { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--muted); font-size:11px; }
+.message-compact-head time,.message-number { font-variant-numeric:tabular-nums; font-size:10px; color:var(--muted); white-space:nowrap; }
+.message-error { color:var(--red); font-size:10px; font-weight:600; }
+.message-detail { padding:10px 12px 12px; border-top:1px solid var(--border); }
+.conversation-session-info { margin:0 0 6px; font-size:11px; }
+.conversation-session-info > summary { padding:4px; color:var(--muted); }
+body[data-run-tab=conversation] .chat-message details.message-shell:not([open]) > summary { padding:6px 9px; }
+body[data-run-tab=conversation] #conversation-live-status { height:30px; min-height:30px; padding:3px 8px; font-size:11px; }
+@media(max-width:600px) { .message-compact-head time { display:none; } .message-compact-head strong { max-width:50%; } }
+.activity-workspace { padding:0; background:transparent; border:0; border-radius:0; box-shadow:none; }
+.activity-page-heading { display:flex; justify-content:space-between; align-items:start; gap:20px; margin:4px 0 20px; }
+.activity-page-heading h2 { font-size:21px; margin:0 0 5px; }
+.activity-page-heading p { margin:0; color:var(--muted); }
+.activity-scoreboard { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); margin:0 0 24px; border-top:1px solid var(--border); border-bottom:1px solid var(--border); background:var(--paper); }
+.activity-scoreboard > div { padding:18px 16px; border-right:1px solid var(--border); }
+.activity-scoreboard > div:last-child { border:0; }
+.activity-scoreboard dt { color:var(--muted); font-size:12px; }
+.activity-scoreboard dd { margin:6px 0; font-size:28px; font-weight:650; line-height:1.2; }
+.activity-scoreboard dd small { font-size:13px; font-weight:400; }
+.activity-scoreboard span { display:block; font-size:11px; color:var(--muted); }
+.activity-columns { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:28px; align-items:start; }
+.activity-section { min-width:0; margin-bottom:24px; }
+.activity-section > header { display:flex; justify-content:space-between; align-items:baseline; gap:12px; border-bottom:1px solid var(--border); padding-bottom:10px; margin-bottom:12px; }
+.activity-section > header h3 { font-size:16px; margin:0; }
+.activity-section > header span,.activity-empty { color:var(--muted); font-size:12px; }
+.activity-section .activity-roster-group { padding:10px 0; border-bottom:1px solid var(--border); }
+.activity-queue { margin:0 0 18px; }
+.activity-queue > div { display:flex; justify-content:space-between; gap:16px; padding:7px 0; }
+.activity-queue dt { color:var(--muted); }
+.activity-queue dd { margin:0; font-variant-numeric:tabular-nums; }
+.activity-workspace .activity-parallel-fights { display:block; max-height:480px; overflow:auto; }
+.activity-workspace .activity-actors { padding:10px 0; border:0; border-bottom:1px solid var(--border); background:transparent; border-radius:0; }
+.activity-check-progress { display:grid; gap:6px; margin:0 0 18px; }
+.activity-check-progress progress { width:100%; height:8px; accent-color:var(--blue); }
+@media(max-width:1100px) { .activity-columns { grid-template-columns:1fr; } .activity-scoreboard { grid-template-columns:repeat(2,minmax(0,1fr)); } .activity-page-heading { flex-wrap:wrap; } }
