@@ -533,10 +533,26 @@ async function renderRoute() {
   R = null;
   updateChrome();
   if (S.view === 'workspaces' && S.workspace) {
-    $('#main').innerHTML=empty('Loading workspace','Reading saved competition results…');
-    const summary=await api('/api/workspace',{workspace:S.workspace});
-    if(epoch!==S.epoch)return;
-    S.workspaceSummary=summary;
+    const workspace=S.workspace;
+    S.workspaceSummary=null;S.workspaceLoadError=null;
+    $('#main').innerHTML=workspacesPage();
+    try {
+      const resources=await api('/api/workspace',{workspace,section:'resources'});
+      if(epoch!==S.epoch||workspace!==S.workspace)return;
+      S.workspaceSummary=resources;
+      LiveDOM.update($('#main'),workspacesPage());
+      if(S.workspaceSummary.performance_pending) {
+        const summary=await api('/api/workspace',{workspace});
+        if(epoch!==S.epoch||workspace!==S.workspace)return;
+        S.workspaceSummary=summary;
+        LiveDOM.update($('#main'),workspacesPage());
+      }
+    } catch(error) {
+      if(error.name==='AbortError'||epoch!==S.epoch)return;
+      S.workspaceLoadError=error.message;
+      LiveDOM.update($('#main'),workspacesPage());
+    }
+    return;
   }
   if (S.view === "run") {
     syncLiveMode();
@@ -745,7 +761,7 @@ function workspaceOptions(scope=false) {
 function setWorkspace(id) {
   S.workspace=id;
   localStorage.setItem('arena-workspace',id);
-  S.comparison=null;S.compareSelection=[];S.workspaceSummary=null;
+  S.comparison=null;S.compareSelection=[];S.workspaceSummary=null;S.workspaceGroup=0;
 }
 function scoped(rows) {
   return rows.filter(row=>!S.workspace || (S.workspace==='unassigned' ? !row.workspace_id : row.workspace_id===S.workspace));
@@ -772,6 +788,10 @@ function workspaceMembers(id) {
     <p class="muted">Selected items move here. Unchecked items currently in this workspace become unassigned.</p>
     <button type="submit" class="button primary">Save selection</button></form>`);
 }
+function workspaceSkeleton(label) {
+  if(S.workspaceLoadError)return `<section class="panel"><h2>${e(label)}</h2>${notice(e(S.workspaceLoadError),'error')}${btn('Retry statistics','reload-workspace')}</section>`;
+  return `<section class="panel workspace-skeleton" aria-busy="true" aria-label="Loading ${e(label.toLowerCase())}"><h2>${e(label)}</h2><span class="muted" role="status">Loading ${e(label.toLowerCase())}…</span><div class="skeleton-metrics">${Array.from({length:4},()=>'<div class="skeleton-block"></div>').join('')}</div><div class="skeleton-block skeleton-chart"></div></section>`;
+}
 function workspacesPage() {
   const id=S.workspace,current=S.boot.workspaces.find(w=>w.id===id);
   if(!id)return head('Workspaces','Keep tests and benchmark campaigns separate.',btn('New workspace','new-workspace','',true))+
@@ -781,17 +801,19 @@ function workspacesPage() {
       return `<article class="panel workspace-card"><button class="card-title" data-action="open-workspace" data-id="${e(w.id)}">${e(w.name)}</button><p>${e(w.description||'')}</p><div class="workspace-card-meta">${runs.length} competitions · ${drafts.length} configurations</div><div class="actions">${btn('Open','open-workspace',`data-id="${e(w.id)}"`,true)}${btn('New competition','new-competition',`data-workspace="${e(w.id)}"`)}${btn('Edit','edit-workspace',`data-id="${e(w.id)}"`)}</div></article>`;
     }).join('')}</div>`+
     `<section class="panel"><h2>Unassigned</h2><p>${S.boot.runs.filter(r=>!r.workspace_id).length} competitions have no workspace.</p>${btn('Organize existing competitions','open-workspace','data-id="unassigned"')}</section>`;
-  const data=S.workspaceSummary,t=data.totals;
+  const data=S.workspaceSummary,t=data?.totals;
   const actions=btn('New competition','new-competition','',true)+(current?btn('Add existing competitions','workspace-members',`data-id="${e(id)}"`)+btn('Edit workspace','edit-workspace',`data-id="${e(id)}"`):'')+btn('New workspace','new-workspace');
   const title=head(current?.name||'Unassigned',current?.description||'Competition results in this workspace.',actions);
   const drafts=scoped(S.boot.drafts);
   const draftPanel=drafts.length?`<section class="panel"><h2>Ready to launch</h2>${drafts.map(d=>`<div class="workspace-draft"><div><strong>${e(d.config.name)}</strong><small>${d.config.models.length} participants</small></div><div class="actions">${btn('Edit','edit-draft',`data-id="${e(d.id)}"`)}${btn('Launch','launch',`data-id="${e(d.id)}"`,true)}</div></div>`).join('')}</section>`:'';
   if(!scoped(S.boot.runs).length)return title+draftPanel+empty(drafts.length?'No runs yet':'No competitions yet',drafts.length?'Launch a saved configuration above, or create another competition.':'Create a competition here, or add an existing one.');
+  if(!data)return title+draftPanel+workspaceSkeleton('Statistics')+`<section class="panel flush"><div class="panel-head"><h2>Competitions</h2></div>${runTable(scoped(S.boot.runs))}</section>`;
   return title+draftPanel+
-    `<div class="metrics">${metric('Competitions',fmt(t.competitions),'Exported copies excluded')}${metric('Strategies',`${t.submitted+t.frozen_strategies} / ${t.sessions+t.frozen_strategies}`,`${t.frozen_strategies} frozen · ${t.invalid} invalid · ${t.attention} need attention`)}${metric('Completed fights',fmt(t.completed_matches),`${t.preparation_matches} preparation · ${t.failed_matches} engine failures`)}${metric('Recorded API cost',money(t.known_cost_usd),`${money(t.reserved_usd)} reserved${t.unresolved_sessions?` · ${t.unresolved_sessions} unresolved`:''}`)}</div>
+    `<div class="metrics">${metric('Competitions',fmt(t.competitions),'Exported copies excluded')}${metric('Strategies',`${t.submitted+t.frozen_strategies} / ${t.sessions+t.frozen_strategies}`,`${t.frozen_strategies} frozen · ${t.invalid} invalid · ${t.attention} need attention`)}${metric('Completed fights',data.performance_pending?'Loading…':fmt(t.completed_matches),data.performance_pending?'Reading fight results':`${t.preparation_matches} preparation · ${t.failed_matches} engine failures`)}${metric('Recorded API cost',money(t.known_cost_usd),`${money(t.reserved_usd)} reserved${t.unresolved_sessions?` · ${t.unresolved_sessions} unresolved`:''}`)}</div>
     <section class="panel workspace-resources"><div class="panel-title"><h2>Model resources</h2><details class="action-menu"><summary class="button">Download CSV</summary><div>${['summary','fights','sessions','results'].map(table=>`<a class="button" href="/api/results.csv?${query({workspace:id,table})}">${table==='summary'?'Workspace scores':table==='fights'?'Match results':table==='sessions'?'Usage & conversations':'Raw strategy results'}</a>`).join('')}</div></details></div>
     ${data.models.length?table(['Participant','Size (B)','Submitted','Input / output tokens','Recorded cost','Tool calls','Preparation time'],data.models.map(m=>`<tr><td><strong>${e(m.name)}</strong><small>${e(m.model||'Built-in strategy')}</small>${raw(m.configuration,'Configuration')}</td><td>${fmt(m.model_size_billion,3)}</td><td>${m.submitted} / ${m.sessions}<small>${m.invalid} invalid</small></td><td>${fmt(m.input_tokens)} / ${fmt(m.output_tokens)}${m.unmeasured_sessions?`<small>${m.unmeasured_sessions} conversations with missing measurements</small>`:''}</td><td>${money(m.known_cost_usd)}${Number(m.reserved_usd)?`<small>${money(m.reserved_usd)} reserved</small>`:''}</td><td>${fmt(m.tool_calls)}</td><td>${fmt(m.wall_seconds/60,1)} min</td></tr>`)):'<p class="muted">No model conversations yet.</p>'}</section>
-    <section class="panel"><div class="panel-title"><h2>Performance</h2><label class="field">Comparison group<select id="workspace-group">${data.groups.map((g,i)=>`<option value="${i}">${g.kind==='evaluation'?'Fixed-baseline evaluation':g.kind==='progression'?'Previous-round comparison':'Tournament'} · ${workspaceStage(g.stage)} · ${e(workspaceScenario(g.scenario))} · ${g.runs.length} competition${g.runs.length===1?'':'s'} · Group ${i+1}</option>`).join('')}</select></label></div><p class="muted">Groups keep different scenarios, preparation settings and opponent pools separate. Same-model fights are excluded from tournament scores.</p><div id="workspace-performance">${workspacePerformance(data.groups[0])}</div></section>
+    ${data.performance_pending?workspaceSkeleton('Performance'):`<section class="panel"><div class="panel-title"><h2>Performance</h2><label class="field">Comparison group<select id="workspace-group">${data.groups.map((g,i)=>`<option value="${i}" ${i===(S.workspaceGroup||0)?'selected':''}>${g.kind==='evaluation'?'Fixed-baseline evaluation':g.kind==='progression'?'Previous-round comparison':'Tournament'} · ${workspaceStage(g.stage)} · ${e(workspaceScenario(g.scenario))} · ${g.runs.length} competition${g.runs.length===1?'':'s'} · Group ${i+1}</option>`).join('')}</select></label></div><p class="muted">Groups keep different scenarios, preparation settings and opponent pools separate. Same-model fights are excluded from tournament scores.</p><div id="workspace-performance">${workspacePerformance(data.groups[S.workspaceGroup||0]||data.groups[0])}</div></section>`}
+
     <section class="panel flush"><div class="panel-head"><h2>Competitions</h2>${btn('New competition','new-competition')}</div>${runTable(scoped(S.boot.runs))}</section>
     ${data.excluded.length?`<details class="panel"><summary>${data.excluded.length} competitions excluded from statistics</summary>${data.excluded.map(r=>`<p>${e(r.run)}: ${e(r.reason)}</p>`).join('')}</details>`:''}`;
 }
@@ -3686,6 +3708,7 @@ document.addEventListener("click", async (event) => {
     } else if (a === 'new-workspace') workspaceDialog();
     else if (a === 'edit-workspace') workspaceDialog(node.dataset.id);
     else if (a === 'open-workspace') await chooseWorkspace(node.dataset.id);
+    else if (a === 'reload-workspace') await renderRoute();
     else if (a === 'workspace-members') workspaceMembers(node.dataset.id);
     else if (a === 'workspace-select-visible' || a === 'workspace-clear-visible') {
       for(const row of $$('.workspace-member:not([hidden])'))$('input',row).checked=a==='workspace-select-visible';
@@ -4269,7 +4292,7 @@ document.addEventListener("change", async (event) => {
     } else if(n.id === 'workspace-picker') {
       await chooseWorkspace(n.value);
     } else if(n.id === 'workspace-group') {
-      $('#workspace-performance').innerHTML=workspacePerformance(S.workspaceSummary.groups[Number(n.value)]);
+      S.workspaceGroup=Number(n.value);$('#workspace-performance').innerHTML=workspacePerformance(S.workspaceSummary.groups[S.workspaceGroup]);
     } else if (n.name === 'saved_provider') {
       const spec=S.boot.providers.find(row=>row.spec.id===n.value)?.spec;
       participantDialog(null,spec?.provider||'mock',spec||null);

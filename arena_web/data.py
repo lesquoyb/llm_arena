@@ -862,12 +862,12 @@ class Store(Workspaces):
                     return {"files": result, "truncated": True}
         return {"files": sorted(result, key=lambda f: f["path"]), "truncated": False}
 
-    def matches(self, identifier):
+    def matches(self, identifier, *, compact=False):
         root = self.run_path(identifier)
         rows = []
         for base in (root, root/'tournament', *sorted(root.glob('g*-tournament')), *sorted((root/'evaluations').glob('g*-panel')), *sorted((root/'evaluations').glob('g*-previous'))):
             for path in sorted((base / "records").glob("*.json")):
-                record = self.json(path)
+                record = self.workspace_artifact(path,'record') if compact else self.json(path)
                 relative = base.relative_to(root).as_posix()
                 match = record.get("match", {})
                 sides = match.get("sides")
@@ -882,15 +882,15 @@ class Store(Workspaces):
                              "mirror": match.get("mirror", False), "result": record["result"]})
         for path in sorted((root / "sessions").glob("*/tools/**/result.json")):
             if (path.parent / "scenario.json").is_file():
-                info = self.json(path.parent / "provenance.json", {})
-                scenario = self.json(path.parent / "scenario.json", {})
-                cached = self.json(path.parent.parent / "cached.json", {})
+                info = {} if compact else self.json(path.parent / "provenance.json", {})
+                scenario = {} if compact else self.json(path.parent / "scenario.json", {})
+                cached = {} if compact else self.json(path.parent.parent / "cached.json", {})
                 opponent = 'Own script: '+cached['opponent_entrypoint'] if cached.get('opponent_entrypoint') else 'passive'
                 rows.append({"path": path.parent.relative_to(root).as_posix(), "stage": "training",
                              "sides": ([opponent, path.relative_to(root).parts[1]] if "side-1" in path.as_posix()
                                        else [path.relative_to(root).parts[1], opponent]),
                              "seed": scenario.get("random_seed"), "mirror": False,
-                             "result": self.json(path), "provenance": info})
+                             "result": self.workspace_artifact(path,'result') if compact else self.json(path), "provenance": info})
         states=self.states(root,('model','generation','condition','replicate','parent'))
         metadata=self.json(root/'experiment.json',{})
         from arena.roster import effective
@@ -903,7 +903,7 @@ class Store(Workspaces):
             row['previous_round_comparison']=row['kind']=='progression' or (row['kind']=='evaluation' and candidate.get('generation')==1 and opponent.get('generation')==0 and models.get(candidate.get('model'),{}).get('provider') not in {None,'mock'} and models.get(opponent.get('model'),{}).get('provider') not in {None,'mock'})
             row['counts_toward_standings'] = row['kind'] == 'competition' and not row.get('mirror')
         from .progression import summarize
-        return {"matches": rows,"progression":summarize(states,models,rows)}
+        return {"matches": rows,"progression":[] if compact else summarize(states,models,rows)}
 
     def match(self, identifier, name):
         root = self.run_path(identifier)

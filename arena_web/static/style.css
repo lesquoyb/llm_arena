@@ -2162,3 +2162,11 @@ svg rect[data-chart-model]:focus-visible,svg rect.chart-selected { outline:none;
 .fight-category-guide > p { font-size:13px; }
 @media(max-width:600px) { .fight-purpose-guide > div { grid-template-columns:minmax(0,1fr); gap:5px; } }
 .activity-roster{display:grid;gap:.65rem;margin:.8rem 0}.activity-roster-group{display:grid;grid-template-columns:175px minmax(0,1fr);gap:.6rem;align-items:start}.activity-roster-group>strong{font-size:.8rem;padding-top:.35rem}.activity-roster-group>div{display:flex;flex-wrap:wrap;gap:.35rem}.activity-roster-group button{font-size:.8rem;text-align:left;white-space:normal}@media(max-width:640px){.activity-roster-group{grid-template-columns:1fr;gap:.25rem}}
+
+.workspace-skeleton { min-height: 260px; }
+.skeleton-metrics { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 16px; margin: 20px 0; }
+.skeleton-block { height: 64px; border-radius: 8px; background: var(--border, #e1e8e5); animation: workspace-pulse 1.5s ease-in-out infinite alternate; }
+.skeleton-chart { height: 120px; }
+@keyframes workspace-pulse { to { opacity: .4; } }
+@media (prefers-reduced-motion: reduce) { .skeleton-block { animation: none; } }
+@media (max-width: 600px) { .skeleton-metrics { grid-template-columns: repeat(2,minmax(0,1fr)); } }

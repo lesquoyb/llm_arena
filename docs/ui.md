@@ -1144,3 +1144,17 @@ Engine timeouts and other checks without a compiler verdict are counted separate
 not treated as successful compilations. Errors shows percentages alongside raw
 attempts and diagnostics; its CSV includes the counts and rate. No checks means
 N/A. This rate measures observed authoring failures, not errors per source line.
+
+### Workspace loading
+
+Opening a workspace immediately displays its competition list, launch controls and
+an accessible statistics skeleton. Model usage and costs load first; performance
+groups populate afterwards. A failed statistics request leaves the page usable
+with **Retry statistics**. Reduced-motion settings disable skeleton animation.
+
+Workspace aggregation reads compact fight outcomes instead of retaining per-turn
+metrics or computing replay progression summaries. Compact artifact projections
+are bounded and refreshed when their files change. Complete summaries are cached
+for up to four workspaces and invalidated by changes to membership, configuration,
+model-size metadata, journal events or fight records. Reopening an unchanged
+workspace can reuse its complete result without aggregating all fights again.

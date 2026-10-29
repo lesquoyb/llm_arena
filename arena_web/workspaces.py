@@ -2,6 +2,7 @@
 from collections import defaultdict
 from decimal import Decimal
 from functools import cache
+import copy
 import time
 from uuid import uuid4
 
@@ -77,8 +78,52 @@ class Workspaces:
         return [row for row in self.listing() if not identifier or
                 (row.get('workspace_id') is None if identifier=='unassigned' else row.get('workspace_id')==identifier)]
 
-    def workspace_summary(self, identifier):
+    def workspace_summary(self, identifier, *, section='all'):
+        if section not in {'all','resources'}:raise ArenaError('Unknown workspace section')
         runs=self.workspace_runs(identifier)
+        stamps=[]
+        for run in runs:
+            if run.get('error'):
+                stamps.append((run['id'],run['error']));continue
+            root=self.run_path(run['id'])
+            path=root/'experiment.json';stat=path.stat()
+            stamps.append((run['id'],bool(run.get('archived')),run.get('error'),self.revision(root),stat.st_mtime_ns,stat.st_size))
+        signature=digest({'runs':stamps,'sizes':[(row['id'],row.get('model_size_billion')) for row in self.catalog()]})
+        with self.lock:
+            saved=getattr(self,'_workspace_summary_cache',{}).get(identifier)
+            if saved and saved[0]==signature:return copy.deepcopy(saved[1])
+        result=self._workspace_summary(identifier,runs,section=section)
+        if section=='all':
+            with self.lock:
+                if not hasattr(self,'_workspace_summary_cache'):self._workspace_summary_cache={}
+                self._workspace_summary_cache[identifier]=(signature,copy.deepcopy(result))
+                while len(self._workspace_summary_cache)>4:
+                    self._workspace_summary_cache.pop(next(iter(self._workspace_summary_cache)))
+        return result
+
+    def workspace_artifact(self, path, kind):
+        """Bounded compact projections; never cache per-turn arrays for aggregation."""
+        from .data import safe_path
+        from arena.core import read_json
+        safe_path(self.runs,path.relative_to(self.runs).as_posix())
+        stat=path.stat();stamp=(stat.st_mtime_ns,stat.st_ctime_ns,stat.st_size)
+        key=(path,kind)
+        with self.lock:
+            saved=getattr(self,'_workspace_artifacts',{}).get(key)
+            if saved and saved[0]==stamp:return copy.deepcopy(saved[1])
+        value=read_json(path)
+        if kind=='provenance':value={'submissions':[{'sha256':item.get('sha256')} for item in value.get('submissions',[])]}
+        elif kind=='result':value={key:value[key] for key in ('status','winner_side') if key in value}
+        else:
+            value={key:value[key] for key in ('match','directory','session','opponent','seed','side','artifact_dir','result') if key in value}
+            value['result']={key:value['result'][key] for key in ('status','winner_side') if key in value['result']}
+        with self.lock:
+            if not hasattr(self,'_workspace_artifacts'):self._workspace_artifacts={}
+            self._workspace_artifacts[key]=(stamp,value)
+            while len(self._workspace_artifacts)>50000:self._workspace_artifacts.pop(next(iter(self._workspace_artifacts)))
+        return copy.deepcopy(value)
+
+    def _workspace_summary(self, identifier, runs, *, section='all'):
         included=[r for r in runs if not r.get('archived') and not r.get('error')]
         excluded=[{'run':r['id'],'reason':'Exported copy' if r.get('archived') else r.get('error')} for r in runs if r not in included]
         totals={'competitions':len(included),'sessions':0,'submitted':0,'frozen_strategies':0,'invalid':0,'attention':0,
@@ -145,6 +190,7 @@ class Workspaces:
                     target['known_cost_usd']+=Decimal(state.get('cost_spent') or '0')
                     target['reserved_usd']+=Decimal(state.get('money_reserved') or '0')
                     target['unresolved_sessions']+=bool(state.get('reconciliation_required'))
+            if section=='resources':continue
             # Scores only combine the same scenario, preparation and configured pool.
             # Different opponent pools remain separate even inside one workspace.
             protocol={'participant_changes':{key:value for key,value in (detail.get('roster') or {}).items() if key in {'revision','active','withdrawn','frozen_tracks','at_round'}}, 'scenario':config.get('scenario'), 'engine':metadata.get('scientific_identity',metadata.get('engine')),
@@ -153,12 +199,13 @@ class Workspaces:
                 'prompts':metadata.get('prompts_sha256',metadata.get('prompt_sha256')),
                 'catalogs':metadata.get('catalogs'),
                 'continuations':sorted({digest(s['continuation_identity']) for s in sessions.values() if s.get('continuation_identity')})}
-            matches=self.matches(run['id'])['matches']
+            matches=self.matches(run['id'],compact=True)['matches']
             panels=defaultdict(set);pools=defaultdict(set)
             for match in matches:
                 if match['kind']!='training':pools[match['stage']].update(match['sides'])
                 if match['kind'] not in {'evaluation','progression'}:continue
-                sources=self.json(self.run_path(run['id'])/match['path']/'provenance.json',{}).get('submissions',[])
+                provenance=self.run_path(run['id'])/match['path']/'provenance.json'
+                sources=self.workspace_artifact(provenance,'provenance').get('submissions',[]) if provenance.is_file() else []
                 side=match.get('candidate_side')
                 opponent=sources[1-side].get('sha256') if side in (0,1) and len(sources)==2 else None
                 panels[match['stage']].add(opponent or 'unknown:'+run['id'])
@@ -225,4 +272,4 @@ class Workspaces:
             group['models']=sorted(group['models'].values(),key=lambda row:-(row['score'] if row['score'] is not None else -1))
         for row in [totals,*resources.values()]:
             for key in ('known_cost_usd','reserved_usd'):row[key]=str(row[key])
-        return {'totals':totals,'models':list(resources.values()),'groups':list(groups.values()),'excluded':excluded}
+        return {'totals':totals,'models':list(resources.values()),'groups':list(groups.values()),'excluded':excluded,'performance_pending':section=='resources'}

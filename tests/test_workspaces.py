@@ -1,6 +1,7 @@
 """Workspace metadata stays separate from immutable experiment inputs."""
 import copy
 import unittest
+from unittest import mock
 
 from arena.core import ArenaError, ROOT, read_json, scratch_directory, write_json
 from arena.experiment import Journal, initial_state
@@ -120,3 +121,29 @@ class WorkspaceTests(unittest.TestCase):
             winner=next(row for row in result['groups'][0]['models'] if row['name']=='a')
             self.assertEqual(winner['round'],2)
             self.assertEqual(winner['wins'],1)
+
+    def test_resources_load_without_scanning_fights(self):
+        with scratch_directory() as root:
+            store=Store(root/'runs',root/'state')
+            competition(store,'run')
+            with mock.patch.object(store,'matches',side_effect=AssertionError('Fight scan during resource loading')):
+                result=store.workspace_summary('',section='resources')
+            self.assertTrue(result['performance_pending'])
+            self.assertTrue(result['models'])
+            self.assertEqual(result['groups'],[])
+
+    def test_complete_summary_cache_is_isolated_and_invalidates_record_changes(self):
+        with scratch_directory() as root:
+            store=Store(root/'runs',root/'state')
+            competition(store,'run')
+            initial=store.workspace_summary('')
+            with mock.patch.object(store,'matches',side_effect=AssertionError('Cached workspace reread fights')):
+                cached=store.workspace_summary('')
+            self.assertEqual(initial,cached)
+            cached['totals']['competitions']=-1
+            self.assertEqual(store.workspace_summary('')['totals']['competitions'],1)
+            path=store.runs/'run/tournament/records/fight.json'
+            record=read_json(path);record['result']={'status':'timeout'};write_json(path,record)
+            changed=store.workspace_summary('')
+            self.assertEqual(changed['totals']['completed_matches'],0)
+            self.assertEqual(changed['totals']['failed_matches'],1)
