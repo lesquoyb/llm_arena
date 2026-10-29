@@ -871,9 +871,18 @@ class Store(Workspaces):
                 cached=getattr(self,'_match_index_cache',{}).get(identifier)
                 if cached and cached[0]==revision:return copy.deepcopy(cached[1])
         rows = []
-        for base in (root, root/'tournament', *sorted(root.glob('g*-tournament')), *sorted((root/'evaluations').glob('g*-panel')), *sorted((root/'evaluations').glob('g*-previous'))):
-            for path in sorted((base / "records").glob("*.json")):
-                record = self.workspace_artifact(path,'record') if compact else self.json(path)
+        bases=(root, root/'tournament', *sorted(root.glob('g*-tournament')), *sorted((root/'evaluations').glob('g*-panel')), *sorted((root/'evaluations').glob('g*-previous')))
+        record_paths={base:sorted((base/'records').glob('*.json')) for base in bases}
+        if compact:
+            from .match_index import MatchIndex
+            with self.lock:
+                if not hasattr(self,'_persistent_match_index'):self._persistent_match_index=MatchIndex(self.state)
+            for base,paths in record_paths.items():
+                if paths:safe_path(root,paths[0].parent.relative_to(root).as_posix())
+            projections=self._persistent_match_index.read(root,[path for paths in record_paths.values() for path in paths],self.workspace_artifact)
+        for base in bases:
+            for path in record_paths[base]:
+                record = projections[path] if compact else self.json(path)
                 relative = base.relative_to(root).as_posix()
                 match = record.get("match", {})
                 sides = match.get("sides")
@@ -882,7 +891,7 @@ class Store(Workspaces):
                     if record.get("side") == 1:
                         sides.reverse()
                 work = base / record["directory"] if "directory" in record else safe_path(root, record["artifact_dir"])
-                safe_path(root, work.relative_to(root).as_posix())
+                if not compact:safe_path(root, work.relative_to(root).as_posix())
                 rows.append({"path": work.relative_to(root).as_posix(), "stage": relative,
                              "sides": sides, "candidate": record.get("session"), "candidate_side": record.get("side"), "seed": match.get("seed", record.get("seed")),
                              "mirror": match.get("mirror", False), "result": record["result"], "timings":record.get("timings",{})})
