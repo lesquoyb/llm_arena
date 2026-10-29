@@ -108,6 +108,7 @@ def prepare(tasks, config, out, journal, engine, interrupt=None, on_progress=Non
     from .experiment import TERMINAL
     tasks=list(tasks)
     states=journal.metadata()
+    primary_generations={states.get(sid,{}).get('generation',0) for sid,_ in tasks}
     # Resume existing later-round transports before auditing/draining old rounds.
     # Their preparation context is already frozen in their own checkpoint.
     models={model['id']:model for model in config['models']}
@@ -130,10 +131,10 @@ def prepare(tasks, config, out, journal, engine, interrupt=None, on_progress=Non
         for sid in finished:
             info=states[sid]['submission']
             if submission(out/'sessions'/sid/'submission',info['entrypoint'])!=info:raise ArenaError('Archived session submission changed')
-        return _prepare(tasks,config,out,journal,engine,interrupt,on_progress)
+        return _prepare(tasks,config,out,journal,engine,interrupt,on_progress,primary_generations=primary_generations)
 
 
-def _prepare(tasks, config, out, journal, engine, interrupt=None, on_progress=None):
+def _prepare(tasks, config, out, journal, engine, interrupt=None, on_progress=None, *, primary_generations=None):
     """Finish one round before its caller starts the next round's preparation."""
     from .experiment import run_session, TERMINAL, provider_response
     limit=config.get('_parallel_requests',config.get('parallel_requests',1))
@@ -144,6 +145,13 @@ def _prepare(tasks, config, out, journal, engine, interrupt=None, on_progress=No
             from .fight_recovery import run as recover_fights
             result=recover_fights(out,engine=engine,journal=journal,cooperative=True)
             if not result.get('deferred'):journal._manual_fight_retry_pending=False
+        # Recovered later-round sessions may finish while the controller is
+        # still visiting an older round. Plan their fights immediately too.
+        if primary_generations is not None:
+            from .greedy import evaluate
+            states=journal.metadata()
+            extra={states[sid].get('generation',0) for sid,_ in tasks if sid in states}-primary_generations
+            for generation in sorted(extra,reverse=True):evaluate(engine,config,out,journal,generation)
         if regular_progress:regular_progress()
     on_progress=progress
     dispatcher=Requests(limit,tasks,out=out)
