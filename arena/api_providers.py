@@ -59,7 +59,7 @@ def open_provider_response(req, timeout):
         diagnostics={'endpoint':parse.urlunsplit((parsed.scheme,parsed.netloc,parsed.path,'','')),
                      'network_error':code,'cause_type':type(reason).__name__,
                      'request_delivery':'unknown' if uncertain else 'not_sent','redirect_followed':redirects.followed}
-        raise ProviderFailure('Provider connection failed: '+description,uncertain=uncertain,diagnostics=diagnostics) from None
+        raise ProviderFailure('Provider connection failed: '+description,uncertain=uncertain,retryable=code!='tls_certificate_verification_failed',diagnostics=diagnostics) from None
 
 
 def http_json(url, payload, headers, timeout, *, inactivity_timeout=None):
@@ -85,7 +85,7 @@ def http_json(url, payload, headers, timeout, *, inactivity_timeout=None):
     except error.HTTPError as exc:
         raise_http_error(exc,url,headers,read_timeout=idle)
     except (error.URLError, TimeoutError, OSError, ValueError) as exc:
-        raise ProviderFailure(f"Provider response could not be read ({type(exc).__name__}); the request outcome is unknown.", uncertain=True,
+        raise ProviderFailure(f"Provider response could not be read ({type(exc).__name__}); the request outcome is unknown.", uncertain=True,retryable=isinstance(exc,(OSError,error.URLError,TimeoutError)),
                               diagnostics={'network_error':'response_read_failed','cause_type':type(exc).__name__,'request_delivery':'unknown'}) from None
 
 

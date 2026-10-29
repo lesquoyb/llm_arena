@@ -449,7 +449,7 @@ function activityDuration(started) {
 }
 function competitionActivity(activity=S.activity) {
   if(!activity || S.activityRun!==S.run)return '<section id="competition-activity" class="competition-activity"><strong>Loading competition activity…</strong></section>';
-  const labels={starting:'Starting / resuming',checkpoint_verification:'Checking saved history and source integrity',scheduling_preparations:'Scheduling / resuming model conversations',checking_fights:'Checking completed fights and scheduling missing fights',request_preparation:'Preparing provider request',tournament_fight:'Tournament fight',reference_fight:'Reference evaluation',previous_round_fight:'Previous-round comparison (unscored)',validation:'Validating a submitted strategy',preparation_analysis:'Compiling a preparation script',preparation_fight:'Preparation test (unscored)'};
+  const labels={retry_backoff:'Waiting for automatic provider retry',starting:'Starting / resuming',checkpoint_verification:'Checking saved history and source integrity',scheduling_preparations:'Scheduling / resuming model conversations',checking_fights:'Checking completed fights and scheduling missing fights',request_preparation:'Preparing provider request',tournament_fight:'Tournament fight',reference_fight:'Reference evaluation',previous_round_fight:'Previous-round comparison (unscored)',validation:'Validating a submitted strategy',preparation_analysis:'Compiling a preparation script',preparation_fight:'Preparation test (unscored)'};
   const op=activity.operation||{},busy=op.kind&&op.kind!=='idle';
   const title=!activity.running ? text(activity.job_status || 'Paused') : labels[op.kind] || (activity.active.length?'Model preparation in progress':'Scheduling next work');
   const actor=sid=>{const info=activity.labels?.[sid];const label=info?`${info.model} · R${info.round}${info.condition!=='initial'?' · '+text(info.condition):''}${info.replicate?' · Repetition '+(info.replicate+1):''}`:sid;return info?btn(e(label),'session-conversation',`data-session="${e(sid)}"`):`<span>${e(label)}</span>`;};
@@ -468,7 +468,7 @@ function competitionActivity(activity=S.activity) {
   const activeSessions=[...(activity.active||[]),...(activity.preparations||[]).filter(item=>item.phase==='active')];
   const activeModels=[...activeSessions.reduce((models,item)=>{const name=item.model||activity.labels?.[item.session]?.model||item.session;if(!models.has(name))models.set(name,item);return models;},new Map()).entries()];
   const preview=activeModels.slice(0,3).map(([model,item])=>btn(e(model),'session-conversation',`data-session="${e(item.session)}" title="Open active conversation"`)).join('');
-  return `<section id="competition-activity" class="competition-activity activity-compact" aria-label="Competition activity"><div class="activity-heading"><strong>${activity.running?'<i class="activity-dot" aria-hidden="true"></i>':''}${e(title)}${activity.running&&busy&&op.started_at?` <small>· ${activityDuration(op.started_at)}</small>`:''}</strong><span>Round ${activity.round}${activity.rounds==null?'':` / ${activity.rounds}`} · ${activity.participants} participants</span></div><div class="activity-at-a-glance">${activity.running&&activity.parallel_requests?`<span><strong>${activity.active.filter(item=>item.kind==='model_request').length} / ${activity.parallel_requests}</strong> requests in flight</span>`:''}<span><strong>${activity.strategies_ready} / ${activity.strategies_expected}</strong> prepared</span><span><strong>${activity.tournament_completed} / ${activity.tournament_total}</strong> fights</span>${computingFights?`<span><strong>${computingFights}</strong> fights running</span>`:''}${verifyingFights?`<span><strong>${verifyingFights}</strong> verifying</span>`:''}${finishedFights?`<span><strong>${finishedFights}</strong> finished; saving</span>`:''}${op.total_records?`<span><strong>${op.checked_records} / ${op.total_records}</strong> scheduled records checked</span>`:''}${activity.failed_preparations?`<span class="badge orange">${activity.failed_preparations} need attention</span>`:''}</div>${activity.running&&activeModels.length?`<div class="activity-preview"><span>Preparing · ${activeModels.length}</span>${preview}${activeModels.length>3?btn('+'+(activeModels.length-3)+' more','expand-activity'):''}</div>`:''}<details id="competition-activity-details" class="activity-details"><summary>Activity details</summary><div class="activity-detail-body"><div class="activity-progress"><span><strong>${activity.ready_participants} / ${activity.participants}</strong> participants ready</span><span><strong>${activity.strategies_ready} / ${activity.strategies_expected}</strong> strategies submitted</span><span><strong>${activity.strategies_validated} / ${activity.strategies_expected}</strong> strategies validated</span><span><strong>${activity.tournament_completed} / ${activity.tournament_total}</strong> tournament fights${activity.tournament_failed?` · ${activity.tournament_failed} failed`:''}</span></div>${fightList}${activity.running&&busy&&!op.fights&&op.participants?.length?`<div class="activity-actors"><span>${op.kind==='preparation_fight'?'Testing':'Engine'}:</span>${op.participants.map(actor).join('<span>vs</span>')}${op.opponent?`<span>vs ${e(op.opponent)}</span>`:''}</div>`:''}${activity.running&&activity.active.length?`<div class="activity-requests">${activity.active.map(item=>`<span>${actor(item.session)}<small>${item.kind==='model_request'?'Awaiting model response':item.kind==='provider_receipt_waiting'?(item.transport_phase==='failed'?'Provider stopped; recovery pending':'Response received; waiting for coordinator'):e(item.name||'Using tool')} · ${activityDuration(item.started_at)}${item.kind==='model_request'?` · No output for ${activityDuration(item.no_output_since||item.started_at)} · pauses after ${item.inactivity_timeout_seconds??300}s`:''}</small></span>`).join('')}</div>`:''}${preparationList?`<div class="activity-roster">${preparationList}</div>`:''}${activity.failed_preparations?`<p>${activity.failed_preparations} preparations need recovery.</p>`:''}<div class="activity-footer"><span>${activity.last_event?.at?'Last recorded progress: '+date(activity.last_event.at):'No checkpoint event recorded yet.'}</span><small>Updated ${new Date(activity.observed_at*1000).toLocaleTimeString()}</small></div>${activity.running&&!busy&&!activity.active.length?'<small>No model request or engine operation is currently recorded.</small>':''}${!activity.running&&activity.job_note?`<p>${e(activity.job_note)}</p>`:''}</div></details></section>`;
+  return `<section id="competition-activity" class="competition-activity activity-compact" aria-label="Competition activity"><div class="activity-heading"><strong>${activity.running?'<i class="activity-dot" aria-hidden="true"></i>':''}${e(title)}${activity.running&&busy&&op.started_at?` <small>· ${activityDuration(op.started_at)}</small>`:''}</strong><span>Round ${activity.round}${activity.rounds==null?'':` / ${activity.rounds}`} · ${activity.participants} participants</span></div><div class="activity-at-a-glance">${activity.running&&activity.parallel_requests?`<span><strong>${activity.active.filter(item=>item.kind==='model_request').length} / ${activity.parallel_requests}</strong> requests in flight</span>`:''}<span><strong>${activity.strategies_ready} / ${activity.strategies_expected}</strong> prepared</span><span><strong>${activity.tournament_completed} / ${activity.tournament_total}</strong> fights</span>${computingFights?`<span><strong>${computingFights}</strong> fights running</span>`:''}${verifyingFights?`<span><strong>${verifyingFights}</strong> verifying</span>`:''}${finishedFights?`<span><strong>${finishedFights}</strong> finished; saving</span>`:''}${op.next_retry_at?`<span>Next retry: <strong>${new Date(op.next_retry_at*1000).toLocaleTimeString()}</strong></span>`:''}${op.total_records?`<span><strong>${op.checked_records} / ${op.total_records}</strong> scheduled records checked</span>`:''}${activity.failed_preparations?`<span class="badge orange">${activity.failed_preparations} need attention</span>`:''}</div>${activity.running&&activeModels.length?`<div class="activity-preview"><span>Preparing · ${activeModels.length}</span>${preview}${activeModels.length>3?btn('+'+(activeModels.length-3)+' more','expand-activity'):''}</div>`:''}<details id="competition-activity-details" class="activity-details"><summary>Activity details</summary><div class="activity-detail-body"><div class="activity-progress"><span><strong>${activity.ready_participants} / ${activity.participants}</strong> participants ready</span><span><strong>${activity.strategies_ready} / ${activity.strategies_expected}</strong> strategies submitted</span><span><strong>${activity.strategies_validated} / ${activity.strategies_expected}</strong> strategies validated</span><span><strong>${activity.tournament_completed} / ${activity.tournament_total}</strong> tournament fights${activity.tournament_failed?` · ${activity.tournament_failed} failed`:''}</span></div>${fightList}${activity.running&&busy&&!op.fights&&op.participants?.length?`<div class="activity-actors"><span>${op.kind==='preparation_fight'?'Testing':'Engine'}:</span>${op.participants.map(actor).join('<span>vs</span>')}${op.opponent?`<span>vs ${e(op.opponent)}</span>`:''}</div>`:''}${activity.running&&activity.active.length?`<div class="activity-requests">${activity.active.map(item=>`<span>${actor(item.session)}<small>${item.kind==='model_request'?'Awaiting model response':item.kind==='provider_receipt_waiting'?(item.transport_phase==='failed'?'Provider stopped; recovery pending':'Response received; waiting for coordinator'):e(item.name||'Using tool')} · ${activityDuration(item.started_at)}${item.kind==='model_request'?` · No output for ${activityDuration(item.no_output_since||item.started_at)} · pauses after ${item.inactivity_timeout_seconds??300}s`:''}</small></span>`).join('')}</div>`:''}${preparationList?`<div class="activity-roster">${preparationList}</div>`:''}${activity.failed_preparations?`<p>${activity.failed_preparations} preparations need recovery.</p>`:''}<div class="activity-footer"><span>${activity.last_event?.at?'Last recorded progress: '+date(activity.last_event.at):'No checkpoint event recorded yet.'}</span><small>Updated ${new Date(activity.observed_at*1000).toLocaleTimeString()}</small></div>${activity.running&&!busy&&!activity.active.length?'<small>No model request or engine operation is currently recorded.</small>':''}${!activity.running&&activity.job_note?`<p>${e(activity.job_note)}</p>`:''}</div></details></section>`;
 }
 async function refreshCompetitionActivity(epoch=S.epoch) {
   const run=S.run;
@@ -1685,16 +1685,11 @@ async function launchDialog(draftId = null, runId = null) {
   );
 }
 function retryButton(session) {
-  if (session?.reconciliation_required && !S.detail.archived &&
-      !activeJobs().some(j => j.run === S.run))
-    return btn("Resolve billing", "reconcile-session", `data-session="${e(session.id)}"`);
-  return session?.retry_allowed && !S.detail.archived
-    ? btn(
-        "Retry conversation",
-        "retry-session",
-        `data-session="${e(session.id)}"`,
-      )
-    : "";
+  if (!session || S.detail.archived) return '';
+  if (session.reconciliation_required && !activeJobs().some(j=>j.run===S.run))
+    return btn('Resolve billing','reconcile-session',`data-session="${e(session.id)}"`);
+  if (!session.retry_allowed) return '';
+  return `${session.automatic_retry_at?`<small>Automatic retry at ${new Date(session.automatic_retry_at*1000).toLocaleTimeString()}</small>`:''}${btn('Continue now','recover-conversation',`data-session="${e(session.id)}"`)}${btn('Restart preparation','restart-conversation',`data-session="${e(session.id)}"`)}`;
 }
 function reconciliationDialog(sid) {
   const session = S.detail.sessions.find(s => s.id === sid);
@@ -1740,7 +1735,7 @@ function runHeader(d) {
     active = job && ["running", "stopping"].includes(job.status),
     experiment = !!d.metadata.config;
   const problems = d.sessions.filter(s=>!s.withdrawn && !s.planned_frozen && (["provider_unavailable","generation_failed","no_submission"].includes(s.status) || (s.reconciliation_required && (!active || s.status === "needs_reconciliation"))));
-  const recovery = problems.length ? `<details class="recovery-panel" data-recovery-run="${e(S.run)}" ${S.recoveryOpen?.[S.run] ? "open" : ""}><summary><span class="recovery-count">${problems.length}</span><strong>Conversations need attention</strong><span>Review & recover</span></summary><div>${problems.map(s=>`<div class="recovery-row"><div><strong>${e(s.model)}</strong><small>${e(sessionLabel(s))}</small>${s.failure?.message ? `<small class="provider-error">${e(s.failure.message)}</small>` : `<small>${e(text(s.status))}</small>`}${!s.retry_allowed && !s.reconciliation_required && !active ? `<small>${e(s.retry_reason || "Retry unavailable")}</small>` : ""}</div><div class="actions">${btn("Open conversation","session-conversation",`data-session="${e(s.id)}"`)}${!active ? (s.reconciliation_required ? btn("Resolve billing","reconcile-session",`data-session="${e(s.id)}"`) : retryButton(s)) : ""}</div></div>`).join("")}</div></details>` : "";
+  const recovery = problems.length ? `<details class="recovery-panel" data-recovery-run="${e(S.run)}" ${S.recoveryOpen?.[S.run] ? "open" : ""}><summary><span class="recovery-count">${problems.length}</span><strong>Conversations need attention</strong><span>Review & recover</span></summary><div>${problems.map(s=>`<div class="recovery-row"><div><strong>${e(s.model)}</strong><small>${e(sessionLabel(s))}</small>${s.failure?.message ? `<small class="provider-error">${e(s.failure.message)}</small>` : `<small>${e(text(s.status))}</small>`}${!s.retry_allowed && !s.reconciliation_required && !active ? `<small>${e(s.retry_reason || "Retry unavailable")}</small>` : ""}</div><div class="actions">${btn("Open conversation","session-conversation",`data-session="${e(s.id)}"`)}${retryButton(s)}</div></div>`).join("")}</div></details>` : "";
   return `<a class="back-link" href="#view=competitions">← Competitions</a>` + head(config.name, "", `${active ? btn("■ Stop", "stop-job", `data-id="${e(job.id)}"`) : experiment && !d.archived ? btn("Resume", "resume", "", true) : ""}<details class="action-menu"><summary class="button">More <span aria-hidden="true">⌄</span></summary><div>${experiment && !d.archived ? btn("Edit participants","edit-run-participants")+btn("Execution & metrics","run-metric-collection") : ""}${btn("Move to workspace","move-workspace",`data-run="${e(S.run)}"`)}<a class="button" href="/api/results.csv?${query({run:S.run})}" download>Download results CSV</a><a class="button" href="/api/results.csv?${query({run:S.run,table:"fights"})}" download>Download match results CSV</a><a class="button" href="/api/results.csv?${query({run:S.run,table:"sessions"})}" download>Download sessions CSV</a>${experiment ? btn("Clone configuration", "clone-run") + btn("Export competition", "export-run") : ""}</div></details>`) +
     `<div class="toolbar run-toolbar">${job ? status(job.status === "failed" && d.report?.incomplete ? "incomplete" : job.status) : ""}${config.models ? badge(config.models.every(m=>m.provider==="mock") ? "Built-in strategies" : "Model competition") : badge("Provided strategies")}${d.archived ? badge("Exported copy", "orange") : ""}<span class="run-id mono" title="Competition ID">${e(S.run)}</span><span class="spacer"></span><label class="check live-toggle"><input id="follow-live" type="checkbox" ${S.follow ? "checked" : ""}>Live</label>${job ? btn("Run log", "job-log", `data-id="${e(job.id)}"`) : ""}</div>` + competitionActivity() + recovery +
     (d.roster ? `<details class="quiet-details"><summary>Recorded competition changes · revision ${d.roster.revision}</summary><p>${d.roster.active.length} active · ${d.roster.withdrawn.length} withdrawn · ${Object.values(d.roster.frozen_tracks||{}).reduce((sum,tracks)=>sum+tracks.length,0)} frozen tracks. Completed fights and earlier submissions are retained. Scores cover the opponents actually faced.</p><p>Withdrawn: ${e(d.roster.withdrawn.join(", ") || "None")}</p>${btn("Edit participants","edit-run-participants")}</details>` : "") +
@@ -1811,7 +1806,7 @@ function sessionChooser(d) {
     S.session = sessions[0]?.id || null;
     S.offset = 0;
   }
-  return `<div class="toolbar">${modelPicker(d)}<label for="session-choice">Conversation</label><select id="session-choice" ${sessions.length ? "" : "disabled"}>${sessions.map((s) => `<option value="${e(s.id)}" ${s.id === S.session ? "selected" : ""}>${e(sessionLabel(s))}</option>`).join("") || "<option>No conversations yet</option>"}</select>${S.session ? btn("Conversation journal", "conversation-journal") + btn("Copy provider diagnostics", "copy-provider-diagnostics", `data-session="${e(S.session)}"`) + (canProbeProvider(d, S.session) ? btn("Test API", "test-provider", `data-session="${e(S.session)}"`) : "") : ""}${retryButton(d.sessions.find((s) => s.id === S.session))}${d.sessions.find(s=>s.id===S.session)?.submission ? btn("Save as participant","save-strategy",`data-session="${e(S.session)}"`) : ""}<span class="spacer"></span></div>`;
+  return `<div id="session-toolbar" class="toolbar">${modelPicker(d)}<label for="session-choice">Conversation</label><select id="session-choice" ${sessions.length ? "" : "disabled"}>${sessions.map((s) => `<option value="${e(s.id)}" ${s.id === S.session ? "selected" : ""}>${e(sessionLabel(s))}</option>`).join("") || "<option>No conversations yet</option>"}</select>${S.session ? btn("Conversation journal", "conversation-journal") + btn("Copy provider diagnostics", "copy-provider-diagnostics", `data-session="${e(S.session)}"`) + (canProbeProvider(d, S.session) ? btn("Test API", "test-provider", `data-session="${e(S.session)}"`) : "") : ""}${retryButton(d.sessions.find((s) => s.id === S.session))}${d.sessions.find(s=>s.id===S.session)?.submission ? btn("Save as participant","save-strategy",`data-session="${e(S.session)}"`) : ""}<span class="spacer"></span></div>`;
 }
 async function renderRun(epoch, liveUpdate=false) {
   const d = S.detail;
@@ -3862,6 +3857,14 @@ document.addEventListener("click", async (event) => {
     else if (a === "run-metric-collection") runMetricCollectionDialog();
     else if (a === "resume") await launchDialog(null, S.run);
     else if (a === "reconcile-session") reconciliationDialog(node.dataset.session);
+    else if (a === 'recover-conversation' || a === 'restart-conversation') {
+      if (a==='restart-conversation') {
+        openDialog('Restart preparation',strategyName(node.dataset.session),`<p>Start a fresh conversation with an empty workspace for this round. Previous exchanges and files are archived. Recorded usage and remaining limits are preserved. Other participants and completed fights are kept.</p><form data-form="restart-conversation" data-session="${e(node.dataset.session)}"><div class="form-footer">${btn('Cancel','close-dialog')}<button type="submit" class="button primary">Restart preparation</button></div></form>`);
+      } else {
+        await api('/api/conversation/recover',{run:S.run,session:node.dataset.session,action:'continue'},true);
+        toast('Continuation queued. Other conversations keep running.');await refreshBoot();
+      }
+    }
     else if (a === "retry-session") await retryDialog(node.dataset.session);
     else if (a === "open-run") navigate("run", { run: node.dataset.run });
     else if (a === "tab")
@@ -4053,6 +4056,15 @@ document.addEventListener("click", async (event) => {
   }
 });
 document.addEventListener("submit", async (event) => {
+  if(event.target.dataset.form==='restart-conversation') {
+    event.preventDefault();
+    try {
+      await api('/api/conversation/recover',{run:S.run,session:event.target.dataset.session,action:'restart'},true);
+      $('#dialog').close();toast('Restart queued. Earlier files and usage are preserved.');await refreshBoot();
+    } catch(error) {toast(error.message,true);}
+    return;
+  }
+
   const form = event.target;
   if (!form.dataset.form) return;
   event.preventDefault();
@@ -4540,9 +4552,11 @@ setInterval(async () => {
         S.renderedJobState !== S.boot.jobs.find((j) => j.run === S.run)?.status
       ) {
         S.detail = d;
-        const scroll = window.scrollY;
-        if (S.tab === "conversation" && S.liveConversation?.session === S.session)
+        if (S.tab === "conversation" && S.liveConversation?.session === S.session) {
+          const toolbar=$('#session-toolbar');
+          if(toolbar)LiveDOM.replace(toolbar,sessionChooser(d));
           return;
+        }
         if (S.follow && S.tab === "events" && !S.explicitOffset) {
           const events = await api("/api/events", {
             run: S.run,
@@ -4553,7 +4567,6 @@ setInterval(async () => {
           S.offset = Math.floor(Math.max(0, events.total - 1) / 100) * 100;
         }
         await renderRun(epoch,true);
-        window.scrollTo(0, scroll);
       }
     }
   } catch (error) {

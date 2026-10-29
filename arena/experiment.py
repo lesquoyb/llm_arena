@@ -484,6 +484,8 @@ def _provider_response_once(sid, state, model, config, journal):
         return None
     state["in_flight"] = False
     state["consecutive_context_recoveries"]=0
+    state["automatic_retry_attempts"]=0
+    state.pop("automatic_retry_at",None)
     response["elapsed_seconds"] = context['completed_at']-context['submitted_at'] if 'completed_at' in context else time.monotonic() - started
     response['request_metrics'] = {'history_messages':len(history),
         'request_setup_seconds':context.get('submitted_at',started) - request_setup_started,

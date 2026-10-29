@@ -113,29 +113,34 @@ def _prepare(tasks, config, out, journal, engine, interrupt=None, on_progress=No
     from .experiment import run_session, TERMINAL, provider_response
     limit=config.get('_parallel_requests',config.get('parallel_requests',1))
     tasks=ordered_tasks(tasks,config.get('_request_order',config.get('request_order','models')),serial=limit==1)
-    if limit==1:
-        # A resumed fight backlog must not run before later resumable sessions.
-        # There is no asynchronous dispatcher to provide this readiness signal.
-        from .activity import _provider_yielder
-        remaining=deque(tasks)
-        token=_provider_yielder.set(lambda:any(
-            journal.metadata(sid).get(sid,{}).get('status') not in TERMINAL
-            for sid,_ in remaining))
-        try:
-            while remaining:
-                sid,model=remaining.popleft()
-                before=journal.metadata(sid).get(sid,{})
-                run_session(sid,model,config,out,journal,engine,interrupt)
-                if on_progress and before.get('status') not in TERMINAL:on_progress()
-        finally:
-            _provider_yielder.reset(token)
-        return
     dispatcher=Requests(limit,tasks)
     journal.requests=dispatcher
     queue=deque(tasks);models=dict(tasks)
     coordinator=threading.get_ident()
+    from .conversation_recovery import automatic_due, recover, commands
+    retry_waiting={}
+    def queue_recoveries():
+        for sid,model in commands(out,journal,config,tasks,dispatcher.pending):
+            retry_waiting.pop(sid,None);dispatcher.finished.discard(sid)
+            if sid not in {item[0] for item in queue}:queue.append((sid,model))
+        for sid,(model,due) in list(retry_waiting.items()):
+            if time.time()<due:continue
+            state=journal.state(sid)
+            if state and state.get('status')=='provider_unavailable':
+                recover(sid,state,config,out,journal,automatic=True)
+                dispatcher.finished.discard(sid)
+                if sid not in {item[0] for item in queue}:queue.append((sid,model))
+            retry_waiting.pop(sid,None)
+    def schedule_retry(sid,model):
+        state=journal.state(sid)
+        due=automatic_due(state,config,journal.state(state['parent']) if state.get('parent') else None)
+        if due is not None and sid not in retry_waiting:
+            retry_waiting[sid]=(model,due)
+            state['automatic_retry_at']=due
+            journal.save(sid,state,'automatic_retry_scheduled',{'retry_at':due,'attempt':state.get('automatic_retry_attempts',0)+1})
     def drain_failures():
         if threading.get_ident()!=coordinator:return
+        queue_recoveries()
         # Long engine batches must not delay the visibility of failed requests.
         # Successful receipts keep their normal tool/coordinator ordering.
         for sid,context in list(dispatcher.pending.items()):
@@ -144,15 +149,18 @@ def _prepare(tasks, config, out, journal, engine, interrupt=None, on_progress=No
             state=journal.state(sid)
             if state is None:continue
             provider_response(sid,state,models[sid],config,journal)
-            if state['status'] in TERMINAL:dispatcher.release(sid)
+            if state['status'] in TERMINAL:
+                dispatcher.release(sid);schedule_retry(sid,models[sid])
             if sid not in {item[0] for item in queue}:queue.append((sid,models[sid]))
     from .activity import _provider_poller,_provider_yielder
     poll_token=_provider_poller.set(drain_failures)
     yield_token=_provider_yielder.set(lambda:any(dispatcher.ready(sid) for sid in dispatcher.pending) or
         any(sid not in dispatcher.pending and dispatcher.can_start(sid,model) for sid,model in queue))
     initial_progress=True
+    last_retry_progress=0
     try:
-        while queue or dispatcher.pending:
+        while queue or dispatcher.pending or retry_waiting:
+            queue_recoveries()
             if queue and not dispatcher.pending and not any(dispatcher.can_start(sid,model) for sid,model in queue):
                 # A stale local residency marker must never leave a fully idle
                 # scheduler spinning. No request is running, so releasing it is safe.
@@ -175,6 +183,7 @@ def _prepare(tasks, config, out, journal, engine, interrupt=None, on_progress=No
                 state=journal.metadata(sid).get(sid)
                 if state and state['status'] in TERMINAL:
                     dispatcher.release(sid)
+                    schedule_retry(sid,model)
                     if on_progress and before.get('status') not in TERMINAL:on_progress()
                 elif sid not in dispatcher.pending:
                     queue.append((sid,model))
@@ -183,6 +192,14 @@ def _prepare(tasks, config, out, journal, engine, interrupt=None, on_progress=No
             if initial_progress and on_progress:
                 initial_progress=False
                 on_progress()
+            if not queue and not dispatcher.pending and retry_waiting:
+                if time.monotonic()-last_retry_progress>=1:
+                    from .core import write_json
+                    write_json(out/'activity.json',{'kind':'retry_backoff','started_at':time.time(),
+                        'next_retry_at':min(due for _,due in retry_waiting.values()),
+                        'participants':list(retry_waiting),'retry_count':len(retry_waiting)})
+                    last_retry_progress=time.monotonic()
+                time.sleep(.2)
             # Responses can arrive while serialized tools or available fights run.
             queued={sid for sid,_ in queue}
             for sid in dispatcher.pending:

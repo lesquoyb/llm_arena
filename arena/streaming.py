@@ -106,4 +106,4 @@ def stream_json(url, payload, headers, timeout, progress, *, inactivity_timeout=
         raise
     except (OSError,TimeoutError,ValueError,KeyError,TypeError) as exc:
         update(True,'interrupted')
-        raise ProviderFailure(f'Provider stream interrupted ({type(exc).__name__}): {str(exc)[:500]}',uncertain=True) from None
+        raise ProviderFailure(f'Provider stream interrupted ({type(exc).__name__}): {str(exc)[:500]}',uncertain=True,retryable=isinstance(exc,(OSError,error.URLError,TimeoutError))) from None

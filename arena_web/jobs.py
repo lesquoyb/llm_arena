@@ -183,6 +183,32 @@ class Jobs:
             self.watcher.start()
             return row
 
+    def recover_conversation(self, run_id, sid, action='continue'):
+        if action not in {'continue','restart'}:raise ArenaError('Unknown recovery action')
+        with self.lock:
+            root=self.store.run_path(run_id)
+            state=self.store.session(run_id,sid)
+            metadata=read_json(root/'experiment.json')
+            if 'config' not in metadata or (root/'export.json').exists():raise ArenaError('Only original competitions can be recovered')
+            from arena.retries import retry_reason
+            from arena.roster import effective, active
+            config=effective(root,metadata['config'])
+            parent=self.store.session(run_id,state['parent']) if state.get('parent') else None
+            reason=retry_reason(state,config['budget_per_session'],parent)
+            if reason:raise ArenaError(reason)
+            if not active(config,state):raise ArenaError('Reactivate this participant before retrying it')
+            running=self.process and self.process.poll() is None
+            if running and (self.current['run']!=run_id or self.current['status']!='running'):
+                raise ArenaError('Another competition is running or this one is stopping')
+            identifier=uuid4().hex
+            write_json(root/'recovery-commands'/(identifier+'.json'),{'id':identifier,'session':sid,'action':action,'requested_at':time.time()})
+            if not running:
+                try:self.launch(run_id=run_id,confirm_paid=True)
+                except BaseException:
+                    (root/'recovery-commands'/(identifier+'.json')).unlink(missing_ok=True)
+                    raise
+            return {'id':identifier,'status':'queued','session':sid}
+
     def participants(self, run_id, selected, frozen_tracks=None, compare_previous_round=None, parallel_fights=None, request_order=None, parallel_requests=None):
         from contextlib import closing
         from arena.experiment import Journal, experiment_lock
@@ -230,6 +256,9 @@ class Jobs:
             if row['status'] == 'blocked':
                 row['note'] = 'Waiting for failed conversations to be recovered. Saved submissions and fights are retained.'
             self._save()
+            root=self.store.runs/row['run']
+            if self.process is process and row['status']!='stopped' and code==0 and any((root/'recovery-commands').glob('*.json')):
+                self.launch(run_id=row['run'],confirm_paid=True)
 
     def stop(self, identifier):
         with self.lock:

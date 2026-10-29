@@ -55,17 +55,31 @@
     }
     for(const node of previous)if(!used.has(node)&&node.parentNode===parent)node.remove();
   }
+  function preserveViewport(change) {
+    // Snapshot at mutation time, never before awaiting a network response.
+    const main=document.querySelector('#main'),scroll=window.scrollY;
+    const rect=main?.getBoundingClientRect();
+    const hit=rect?document.elementFromPoint(Math.max(1,Math.min(innerWidth-1,rect.left+Math.min(rect.width/2,80))),Math.min(innerHeight-1,120)):null;
+    const anchor=hit&&main.contains(hit)?hit:null;
+    const before=anchor?.getBoundingClientRect().top;
+    const result=change();
+    const delta=anchor?.isConnected?anchor.getBoundingClientRect().top-before:scroll-window.scrollY;
+    if(Math.abs(delta)>1)window.scrollTo({top:window.scrollY+delta,behavior:'instant'});
+    return result;
+  }
   function update(parent,html) {
     if(parent.tagName==='SELECT'&&parent===document.activeElement)return false;
     const template=document.createElement('template');template.innerHTML=html;
-    children(parent,template.content);
+    preserveViewport(()=>children(parent,template.content));
     return true;
   }
   function replace(node,html) {
     const template=document.createElement('template');template.innerHTML=html;
     const next=template.content.firstElementChild;
-    if(next&&compatible(node,next))sync(node,next);
-    else if(next)node.replaceWith(next);
+    preserveViewport(()=>{
+      if(next&&compatible(node,next))sync(node,next);
+      else if(next)node.replaceWith(next);
+    });
   }
   window.LiveDOM={update,replace};
 })();

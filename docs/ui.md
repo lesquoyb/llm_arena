@@ -1096,3 +1096,25 @@ dispatch, then the specific request, compilation or fight operation. Completed
 rounds still form a barrier: their scored fights must finish before preparing the
 next round and its feedback. Optional fixed-baseline evaluations no longer run
 before the current round's conversations are dispatched.
+
+### Recovering a timeout during execution
+
+Transient provider failures receive up to three automatic conversation retries,
+after 30, 60 and 120 seconds. A successful response resets this consecutive-failure
+streak. Waiting conversations release their request slots. The activity panel
+shows the next retry when only backoff work remains. Nonretryable errors and
+requests with an unresolved potential API charge still require review; unknown
+usage is never invented. Explicitly free requests do not need charge reconciliation.
+
+**Continue now** in the conversation toolbar or recovery panel queues an immediate
+continuation without stopping other participants. **Restart preparation** starts
+fresh with the same round instructions and an empty workspace. A confirmation
+explains the reset; the old state and files are retained under
+`sessions/<session>/restarts/`. Both actions preserve usage counters and remaining
+budgets. A completed submission cannot be reset. If execution has already ended,
+the action resumes the saved competition. Commands are processed by the coordinator,
+so the web server never edits a running worker's journal or workspace.
+
+Live page updates preserve the visible element at the moment of the DOM update.
+They do not restore a scroll position captured before a network request, which
+could otherwise move readers backwards while navigating Overview or Fights.
