@@ -496,6 +496,7 @@ def _provider_response_once(sid, state, model, config, journal):
             dispatcher.submit(sid,context)
             return None
     model=context['model'];history=context['history'];session_tools=context['session_tools']
+    print(f'[provider] {sid} consuming request={state.get("calls",0)} receipt',flush=True)
     paid=context['paid'];bound=context['bound'];output_limit=context['output_limit']
     request=context['request'];provider=context['provider'];request_setup_started=context['request_setup_started']
     budget=config['budget_per_session']

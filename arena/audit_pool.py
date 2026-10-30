@@ -17,5 +17,7 @@ def scan(items, check, accept, *, interrupted=None, workers=None):
                 dispatched+=1
             if not pending:break
             done,pending=wait(pending,timeout=.1,return_when=FIRST_COMPLETED)
+            from .runner_diagnostics import pulse
+            pulse('checking_fights',pending_checks=len(pending))
             for future in done:accept(future.result())
     return deferred

@@ -14,12 +14,15 @@ def operation(out, kind, **details):
     value={'kind':kind,'started_at':started,**details}
     parents=_operations.get()
     token=_operations.set((*parents,(out.resolve(),value)))
+    from .runner_diagnostics import pulse
+    pulse(kind,generation=details.get('generation',0))
     try:
         write_json(out/'activity.json',value)
         yield
     finally:
         _operations.reset(token)
         parent=next((entry for path,entry in reversed(parents) if path==out.resolve()),None)
+        pulse((parent or {}).get('kind','idle'))
         write_json(out/'activity.json',parent or {**value,'kind':'idle','previous_kind':kind,'finished_at':time.time()})
 
 

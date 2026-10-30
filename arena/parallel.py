@@ -68,6 +68,7 @@ class Requests:
                 try:write_json(status_path,{**receipt,'phase':phase,'updated_at':time.time()})
                 except OSError:pass
         publish('waiting')
+        print(f'[provider] {sid} request={receipt["call"]} dispatched; inactivity_timeout={context["model"].get("inactivity_timeout_seconds",300)}s',flush=True)
         from .provider_watchdog import RequestControl, request_control
         context['control']=RequestControl()
         def respond():
@@ -82,6 +83,7 @@ class Requests:
                 request_control.reset(token)
                 context['completed_at']=time.monotonic()
                 publish(phase)
+                print(f'[provider] {sid} request={receipt["call"]} transport={phase}',flush=True)
         context['future']=self.pool.submit(respond)
         self.pending[sid]=context
 
@@ -224,6 +226,9 @@ def _prepare(tasks, config, out, journal, engine, interrupt=None, on_progress=No
     next_idle_progress=0
     try:
         while queue or dispatcher.pending or retry_waiting or any((out/'recovery-commands').glob('*.json')):
+            from .runner_diagnostics import pulse
+            pulse('scheduling_preparations',queued=len(queue),requests=len(dispatcher.pending),
+                  ready_replies=sum(dispatcher.ready(sid) for sid in dispatcher.pending),retries=len(retry_waiting))
             queue_recoveries()
             from .execution_control import poll as poll_execution
             poll_execution(out,config.get('_parallel_fights',config.get('parallel_fights',1)))

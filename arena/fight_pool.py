@@ -118,6 +118,8 @@ def run(jobs, execute, save, *, limit=1, out, kind, generation=0, retry=None, ba
                     with guard:pending[future]=(job,started)
                 progress()
                 poll_provider_failures()
+                from .runner_diagnostics import pulse
+                pulse(kind,computing=len(pending),awaiting_publication=len(ready),saved=finished_workers)
                 if ready:
                     with guard:future,(job,_)=ready.popleft()
                     publish(job,future.result())
