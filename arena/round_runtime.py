@@ -123,12 +123,13 @@ class RoundClock:
         with _guard:_clocks.pop(self.out.resolve(),None)
 
 
-def view(value,*,running,now=None):
+def view(value,*,running,now=None,started_at=None):
     """Extrapolate at most one heartbeat gap; stopped jobs never accrue time."""
     value=copy.deepcopy(value);now=time.time() if now is None else now
     elapsed=now-value.get('observed_at',now)
     rows=value.get('rounds',{})
-    if running and value.get('recording') and 0<=elapsed<=GAP:
+    current_worker=started_at is None or value.get('observed_at',0)>=started_at
+    if running and current_worker and value.get('recording') and 0<=elapsed<=GAP:
         active={}
         for lane in value.get('lanes',[]):active.setdefault(str(lane['round']),set()).add(lane['phase'])
         for number,categories in active.items():

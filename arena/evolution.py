@@ -30,20 +30,23 @@ def references(engine, config, out, journal, entrants, label, panel, *, incremen
     hashes=getattr(journal,'verification',None)
     if not isinstance(hashes,VerificationCache):hashes=None
     hasher=hashes.hash if hashes else file_hash
-    runtime_binding=None;validated_infos=set()
+    accepted_engines={};validated_infos=set()
+    def accepts_engine(key,provenance):
+        from .recovery import engine_compatible
+        if key not in accepted_engines:
+            accepted_engines[key]=provenance==engine.identity or (getattr(engine,'allow_updated_runner',False) and engine_compatible(provenance,engine.identity))
+        return accepted_engines[key]
     scenario_binding=digest(config['scenario'])
     def validate_record(record,sources,seed):
-        nonlocal runtime_binding
         work=out/record['artifact_dir'];infos=[source['submission'] for source in sources]
+        binding=digest({'validation_version':2,'record':{key:record[key] for key in ('session','opponent','seed','side','result','artifact_dir')},
+                        'sources':[(info['entrypoint'],info['sha256']) for info in infos],'scenario_config':scenario_binding})
+        if hashes and hashes.checked_receipt(work,binding,engine_accepts=accepts_engine):return
         for index,info in enumerate(infos,1):
             identity=digest(info)
             if identity not in validated_infos:
                 if submission(work/'strategies'/str(index),info['entrypoint'])!=info:raise ArenaError('Reference source changed')
                 validated_infos.add(identity)
-        if runtime_binding is None:runtime_binding=digest({'engine':engine.identity,'allow_updated_runner':getattr(engine,'allow_updated_runner',False)})
-        binding=digest({'validation_version':1,'record':{key:record[key] for key in ('session','opponent','seed','side','result','artifact_dir')},
-                        'sources':[(info['entrypoint'],info['sha256']) for info in infos],'scenario_config':scenario_binding,'engine':runtime_binding})
-        if hashes and hashes.checked_receipt(work,binding):return
         scenario,scenario_hash=scenarios.get(infos,seed)
         directories={}
         def track(directory):
@@ -60,7 +63,7 @@ def references(engine, config, out, journal, entrants, label, panel, *, incremen
         if hashes:
             files=[work/name for name in ('outcome.json','result.json','scenario.json','provenance.json')]
             files.extend(work/'strategies'/str(index)/name for index,source in enumerate(sources,1) for name in source['submission']['files'])
-            hashes.remember_receipt(work,binding,files,directories)
+            hashes.remember_receipt(work,binding,files,directories,engine=provenance['engine'])
     results = read_json(root / 'results.json') if incremental and (root / 'results.json').exists() else {}
     progress={'label':label,'total':len(entrants)*len(panel)*len(config['final_seeds'])*2,
               'checked':0,'reused':0,'completed':0,'failed':0}

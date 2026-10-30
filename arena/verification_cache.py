@@ -9,7 +9,7 @@ import threading
 from functools import lru_cache
 import time
 from contextlib import closing
-from .core import ArenaError, file_hash
+from .core import ArenaError, file_hash,digest
 from .sqlite_metrics import connect
 
 
@@ -54,6 +54,7 @@ class VerificationCache:
         self.root=Path(root).absolute();self.path=self.root/'.verification-cache.sqlite'
         self.entries={};self.dirty={};self.records={};self.sessions={};self.dirty_sessions={};self._record_reads={};self.dirty_records={};self.receipts={};self.dirty_receipts={};self.receipt_hits=0;self.record_hits=0;self.session_hits=0;self.lock=threading.Lock();self.hits=0;self.misses=0;self.bytes_read=0;self.errors=0;self.last_flush=0
         self.force=os.environ.get('ARENA_FULL_AUDIT')=='1';self._discard=False
+        self.engines={};self.dirty_engines={}
         if self.path.is_file() and not self.path.is_symlink():
             try:
                 with closing(connect(self.path.as_uri()+'?mode=ro',uri=True,timeout=2)) as db:
@@ -65,10 +66,14 @@ class VerificationCache:
                         if kind=='hash':self.entries[name]=(tuple(value[0]),value[1])
                         elif kind=='record':self.records[name]=(tuple(value[0]),value[1])
                         elif kind=='session':self.sessions[name]=tuple(value)
-                        elif kind=='receipt':self.receipts[name]=(value[0],[(path,tuple(stamp)) for path,stamp in value[1]])
+                        elif kind=='receipt':self.receipts[name]=(value[0],[(path,tuple(stamp)) for path,stamp in value[1]],*value[2:])
+                        elif kind=='engine':
+                            if digest(value)!=name:raise ValueError('Derived engine binding mismatch')
+                            self.engines[name]=value
                         else:raise ValueError('Unknown derived cache entry')
             except (sqlite3.Error,OSError,ValueError,TypeError,IndexError,AttributeError):
                 self.entries.clear();self.records.clear();self.receipts.clear();self.sessions.clear()
+                self.engines.clear()
                 self.errors+=1;self._discard=True
 
     def hash(self, path):
@@ -125,10 +130,14 @@ class VerificationCache:
             if stamp is None or not verified or verified[0]!=stamp:return
             self.records[name]=(stamp,copy.deepcopy(value));self.dirty_records[name]=self.records[name]
 
-    def checked_receipt(self, path, binding):
+    def checked_receipt(self, path, binding, *, engine_accepts=None):
         name=path.relative_to(self.root).as_posix()
         with self.lock:cached=self.receipts.get(name)
         if self.force or not cached or cached[0]!=binding:return False
+        if engine_accepts is not None:
+            key=cached[2] if len(cached)>2 else None
+            with self.lock:engine=self.engines.get(key)
+            if engine is None or not engine_accepts(key,engine):return False
         for relative,expected in cached[1]:
             try:actual=fingerprint(self.root/relative,directory=True)
             except FileNotFoundError:return False
@@ -136,7 +145,7 @@ class VerificationCache:
         with self.lock:self.receipt_hits+=1
         return True
 
-    def remember_receipt(self, path, binding, files, directories):
+    def remember_receipt(self, path, binding, files, directories, *, engine=None):
         signature=[]
         for file in files:
             name=file.relative_to(self.root).as_posix()
@@ -147,11 +156,16 @@ class VerificationCache:
             if stamp is None or fingerprint(directory,directory=True)!=stamp:return
             signature.append((directory.relative_to(self.root).as_posix(),stamp))
         name=path.relative_to(self.root).as_posix()
-        with self.lock:self.receipts[name]=(binding,signature);self.dirty_receipts[name]=self.receipts[name]
+        with self.lock:
+            if engine is not None:
+                key=digest(engine);self.engines[key]=engine;self.dirty_engines[key]=engine
+                self.receipts[name]=(binding,signature,key)
+            else:self.receipts[name]=(binding,signature)
+            self.dirty_receipts[name]=self.receipts[name]
 
     def flush(self):
         # SQLite stays on the coordinator; worker checks only update in-memory data.
-        groups={'hash':self.dirty,'record':self.dirty_records,'receipt':self.dirty_receipts,'session':self.dirty_sessions}
+        groups={'hash':self.dirty,'record':self.dirty_records,'receipt':self.dirty_receipts,'session':self.dirty_sessions,'engine':self.dirty_engines}
         with self.lock:snapshots={kind:dict(values) for kind,values in groups.items()}
         if not any(snapshots.values()):return
         rows=[]

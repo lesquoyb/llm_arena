@@ -30,6 +30,15 @@ SQLite connection and does not prevent cleanup on Windows. Copying a study to
 another filesystem invalidates the applicable file-identity checks automatically.
 A missing/unusable cache falls back to verification from the actual artifacts.
 
+Validation receipts now store the identity of the engine that actually produced
+each result. Adding an accepted compatible runner version no longer invalidates
+all earlier receipts just because the accepted-version list changed. Removing an
+accepted engine or changing a result, source, scenario or replay still invalidates
+the relevant proof. Old receipt formats are upgraded once; unchanged file hashes
+remain reusable during that conversion. Reference checks also consult a valid
+receipt before reopening source bodies, and historical replays are not copied
+into cache entries for a different runner identity.
+
 ## Measurements
 
 A synthetic archive had the same 35 submissions, six seeds, 7,350 scheduled fights

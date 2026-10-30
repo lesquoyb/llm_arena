@@ -37,6 +37,7 @@ class RoundRuntimeTests(unittest.TestCase):
             self.assertEqual(snapshot['rounds']['1']['active_seconds'],10)
             self.assertEqual(view(snapshot,running=False,now=1020)['rounds'][0]['active_seconds'],10)
             self.assertEqual(view(snapshot,running=True,now=1020)['rounds'][0]['active_seconds'],20)
+            self.assertEqual(view(snapshot,running=True,now=1020,started_at=1015)['rounds'][0]['active_seconds'],10)
             self.assertEqual(view(snapshot,running=True,now=2000)['rounds'][0]['active_seconds'],10)
 
     def test_historical_estimate_uses_timestamps_and_rejects_ten_minute_gaps(self):

@@ -47,10 +47,9 @@ def verify_record(root: Path, record: dict, *, context=None):
     work=root/record['directory']
     expected=[context['strategies'][s]['submission'] for s in record['match']['sides']]
     hashes=context.get('hashes')
-    binding=digest({'validation_version':1,'match':record['match'],'result':record['result'],'sources':[(info['entrypoint'],info['sha256']) for info in expected],
-                    'scenario_config':context.get('scenario_binding') or digest(context['experiment']['manifest']['scenario']),
-                    'engines':context.get('engine_binding') or digest(context['engines'])})
-    if hashes and hashes.checked_receipt(work,binding):return
+    binding=digest({'validation_version':2,'match':record['match'],'result':record['result'],'sources':[(info['entrypoint'],info['sha256']) for info in expected],
+                    'scenario_config':context.get('scenario_binding') or digest(context['experiment']['manifest']['scenario'])})
+    if hashes and hashes.checked_receipt(work,binding,engine_accepts=lambda key,engine:engine in context['engines']):return
     if 'scenarios' in context:scenario,scenario_hash=context['scenarios'].get(expected,record['match']['seed'])
     else:
         scenario=make_scenario(context['experiment']['manifest']['scenario'],[s['entrypoint'] for s in expected],record['match']['seed'],[s.get('team') for s in expected])
@@ -76,7 +75,7 @@ def verify_record(root: Path, record: dict, *, context=None):
     if hashes:
         files=[work/name for name in ('outcome.json','result.json','provenance.json','scenario.json')]
         files.extend(work/'strategies'/str(side)/name for side,info in enumerate(expected,1) for name in info['files'])
-        hashes.remember_receipt(work,binding,files,directories)
+        hashes.remember_receipt(work,binding,files,directories,engine=provenance['engine'])
 
 
 def scoring_record(record):

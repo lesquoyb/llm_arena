@@ -46,6 +46,11 @@ def seed(engine, infos, config, seed_value, work):
     """Publish a verified existing fight too, without rewriting its run artifacts."""
     request=_request(engine,infos,config,seed_value);key=digest(request);root=_directory(engine);entry=root/key
     if (entry/'cache.json').is_file():return
+    # An accepted historical replay cannot seed a cache for a different runner
+    # identity. Detect that before copying/hashing its potentially large replay.
+    try:
+        if read_json(work/'provenance.json').get('engine')!=engine.identity:return
+    except (OSError,ValueError):return
     if any(is_link(path) for path in [work,*work.rglob('*')]):return
     root.mkdir(parents=True,exist_ok=True)
     try:
