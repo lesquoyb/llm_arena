@@ -73,7 +73,8 @@
       if(!groups.has(key))groups.set(key,[]);
       groups.get(key).push(row);
     }
-    return [...groups.values()].map(group=>{
+    return [...groups.values()].filter(group=>group[0].condition!=='initial'||!rows.some(row=>row.model===group[0].model&&row.condition!=='initial')).map(selected=>{
+      const group=selected[0].condition==='initial'?selected:[...selected,...rows.filter(row=>row.model===selected[0].model&&row.condition==='initial')];
       const repetitions=new Map();
       for(const row of group)for(const point of row.points) {
         if(!repetitions.has(point.replicate))repetitions.set(point.replicate,new Map());
@@ -82,7 +83,7 @@
       const measured=[...repetitions.values()].filter(values=>values.size);
       const rounds=measured.length?[...measured[0].keys()].filter(round=>measured.every(values=>values.has(round))).sort((a,b)=>a-b):[];
       const points=[...repetitions].map(([replicate,values])=>{
-        const last=[...values.values()].at(-1)||group.flatMap(row=>row.points).find(point=>point.replicate===replicate);
+        const last=values.get(Math.max(...values.keys()))||group.flatMap(row=>row.points).find(point=>point.replicate===replicate);
         return {...last,replicate,value:rounds.length&&values.size?rounds.reduce((sum,round)=>sum+values.get(round).value,0)/rounds.length:null};
       });
       return {...group[0],pooled:true,rounds,points,stats:describe(points.map(point=>point.value)),disagreement:null,
