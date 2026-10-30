@@ -62,6 +62,39 @@ for(const name of ['pointerout','focusout'])document.addEventListener(name,event
   const target=event.target.closest?.('[data-chart-model]');if(target&&!target.contains(event.relatedTarget))clearChartHover();
 });
 const hiddenChartModels=new Map();
+function compactGroupedBars(scope) {
+  for(const svg of scope.querySelectorAll('svg[data-bar-layout="grouped"]')) {
+    const set=(node,name,value)=>{value=String(value);if(node.getAttribute(name)!==value)node.setAttribute(name,value);};
+    const labels=[...svg.querySelectorAll('[data-bar-round-label]')];
+    const visible=[...svg.querySelectorAll('rect[data-bar-round]')].filter(bar=>!bar.classList.contains('chart-hidden'));
+    const models=new Set(),rounds=new Map();
+    for(const bar of visible) {
+      models.add(bar.dataset.chartModel);
+      if(!rounds.has(bar.dataset.barRound))rounds.set(bar.dataset.barRound,[]);
+      rounds.get(bar.dataset.barRound).push(bar);
+    }
+    const L=Number(svg.dataset.barLeft),R=Number(svg.dataset.barRight),gap=24;
+    const available=Math.max(320,Math.min(1200,svg.parentElement.clientWidth||Number(svg.dataset.barAvailable)));
+    const band=Math.max(12,Math.min(22,Math.floor((available-L-R-labels.length*gap)/(Math.max(1,labels.length)*Math.max(1,models.size)))));
+    const W=Math.max(available,L+R+labels.length*(Math.max(60,models.size*band)+gap));
+    const step=(W-L-R)/Math.max(1,labels.length);
+    const viewBox=svg.getAttribute('viewBox').split(/\s+/);viewBox[2]=String(W);
+    set(svg,'viewBox',viewBox.join(' '));if(svg.style.minWidth!==W+'px')svg.style.minWidth=W+'px';
+    for(const line of svg.querySelectorAll('[data-bar-grid]'))set(line,'x2',W-R);
+    for(const [index,label] of labels.entries()) {
+      const round=label.dataset.barRoundLabel,active=rounds.get(round)||[];
+      const order=[...new Set(active.map(bar=>bar.dataset.chartModel))];
+      const start=L+index*step+(step-order.length*band)/2;
+      set(label,'x',L+(index+.5)*step);
+      for(const bar of active) {
+        const initial=Number(round)===0,width=initial?band-6:Math.floor((band-4)/2);
+        const slot=order.indexOf(bar.dataset.chartModel),condition=bar.dataset.barCondition==='feedback'?1:0;
+        set(bar,'x',start+slot*band+(initial?3:condition*(width+2)+1));
+        set(bar,'width',width);
+      }
+    }
+  }
+}
 function applyChartVisibility() {
   for(const scope of document.querySelectorAll('[data-chart-key]')) {
     const hidden=hiddenChartModels.get(scope.dataset.chartKey)||new Set();
@@ -74,8 +107,10 @@ function applyChartVisibility() {
       item.classList.toggle('chart-legend-hidden',off&&legend);
       if(legend) {item.setAttribute('role','button');item.setAttribute('tabindex','0');item.setAttribute('aria-pressed',String(!off));item.setAttribute('aria-label',`${off?'Show':'Hide'} ${item.dataset.chartModel}`);}
     }
+    compactGroupedBars(scope);
   }
 }
+window.addEventListener('resize',()=>requestAnimationFrame(applyChartVisibility));
 function toggleChartModel(event) {
   const item=event.target.closest?.('.chart-legend [data-chart-model],.overview-legend [data-chart-model]');
   const scope=item?.closest('[data-chart-key]');if(!scope)return;
@@ -2381,17 +2416,17 @@ function overviewEvolutionBars(data) {
   const rows=new Map(data.history.map(row=>[JSON.stringify([row.model,row.generation,row.condition]),row]));
   const marks=rounds.map((round,index)=>{
     const start=L+index*step+(step-models.length*band)/2;
-    return `<text x="${L+(index+.5)*step}" y="${B+25}" text-anchor="middle">Round ${round+1}</text>`+models.map((model,mi)=>{
+    return `<text data-bar-round-label="${round}" x="${L+(index+.5)*step}" y="${B+25}" text-anchor="middle">Round ${round+1}</text>`+models.map((model,mi)=>{
       const conditions=round===0?['initial']:['control','feedback'];
       return conditions.map((condition,ci)=>{
         const row=rows.get(JSON.stringify([model,round,condition]));if(row?.score==null)return '';
         const width=round===0?band-6:Math.floor((band-4)/2),x=start+mi*band+(round===0?3:ci*(width+2)+1),color=overviewColor(model);
         const label=row.tooltip||`${model} · ${overviewRound(condition,round)} · ${pct(row.score)} · ${row.wins}W / ${row.draws}D / ${row.losses}L · ${row.completed} appearances`;
-        return `<rect x="${x}" y="${Math.min(y(row.score),origin)-(row.score===0?2:0)}" width="${width}" height="${Math.max(2,Math.abs(origin-y(row.score)))}" fill="${color}" fill-opacity="${condition==='control'?.35:1}" stroke="${color}" stroke-width=".6" tabindex="0" aria-label="${e(label)}" data-chart-model="${e(model)}" data-chart-label="${e(label)}"/>`;
+        return `<rect data-bar-round="${round}" data-bar-condition="${condition}" x="${x}" y="${Math.min(y(row.score),origin)-(row.score===0?2:0)}" width="${width}" height="${Math.max(2,Math.abs(origin-y(row.score)))}" fill="${color}" fill-opacity="${condition==='control'?.35:1}" stroke="${color}" stroke-width=".6" tabindex="0" aria-label="${e(label)}" data-chart-model="${e(model)}" data-chart-label="${e(label)}"/>`;
       }).join('');
     }).join('');
   }).join('');
-  return `<div class="chart-filterable" data-chart-key="${e(data.chartKey||'evolution:'+S.run)}"><div class="evolution-scroll" role="region" aria-label="Evolution by round" tabindex="0"><svg class="overview-evolution evolution-bars" style="min-width:${W}px" viewBox="0 0 ${W} ${H}" role="img" aria-label="Model scores grouped by round">${ticks.map(value=>`<line x1="${L}" x2="${W-R}" y1="${y(value)}" y2="${y(value)}" stroke="#e0e7e4"/><text x="${L-7}" y="${y(value)+4}" text-anchor="end">${data.signed?(data.signedUnit==='net_wins'?progressionNet(value):progressionPoints(value)):pct(value)}</text>`).join('')}${data.parity?`<line x1="${L}" x2="${W-R}" y1="${y(.5)}" y2="${y(.5)}" stroke="#6f8294" stroke-dasharray="4 4"/>`:''}${marks}</svg></div><div class="evolution-track-key"><span><i class="track-swatch"></i>${data.parity||data.signed?'With feedback':'Initial / With feedback'}</span><span><i class="track-swatch pale"></i>Without feedback</span></div><div class="overview-legend">${models.map(model=>`<span tabindex="0" data-chart-model="${e(model)}"><i style="background:${overviewColor(model)}"></i>${e(model)}</span>`).join('')}</div></div>`;
+  return `<div class="chart-filterable" data-chart-key="${e(data.chartKey||'evolution:'+S.run)}"><div class="evolution-scroll" role="region" aria-label="Evolution by round" tabindex="0"><svg data-bar-layout="grouped" data-bar-left="${L}" data-bar-right="${R}" data-bar-available="${available}" class="overview-evolution evolution-bars" style="min-width:${W}px" viewBox="0 0 ${W} ${H}" role="img" aria-label="Model scores grouped by round">${ticks.map(value=>`<line data-bar-grid x1="${L}" x2="${W-R}" y1="${y(value)}" y2="${y(value)}" stroke="#e0e7e4"/><text x="${L-7}" y="${y(value)+4}" text-anchor="end">${data.signed?(data.signedUnit==='net_wins'?progressionNet(value):progressionPoints(value)):pct(value)}</text>`).join('')}${data.parity?`<line data-bar-grid x1="${L}" x2="${W-R}" y1="${y(.5)}" y2="${y(.5)}" stroke="#6f8294" stroke-dasharray="4 4"/>`:''}${marks}</svg></div><div class="evolution-track-key"><span><i class="track-swatch"></i>${data.parity||data.signed?'With feedback':'Initial / With feedback'}</span><span><i class="track-swatch pale"></i>Without feedback</span></div><div class="overview-legend">${models.map(model=>`<span tabindex="0" data-chart-model="${e(model)}"><i style="background:${overviewColor(model)}"></i>${e(model)}</span>`).join('')}</div></div>`;
 }
 function overviewEvolutionLines(data) {
   if (!data.history.length)

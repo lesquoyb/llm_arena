@@ -2109,7 +2109,7 @@ svg path[data-chart-model] { pointer-events:stroke; }
 svg path.chart-selected { stroke-width:3.5; }
 .chart-legend [data-chart-model],.overview-legend [data-chart-model] { cursor:default; }
 @media (prefers-reduced-motion:reduce) { [data-chart-model] { transition:none; } }
-.chart-hidden { visibility:hidden; pointer-events:none !important; }
+.chart-hidden { display:none !important; pointer-events:none !important; }
 .chart-legend-hidden { opacity:.45 !important; text-decoration:line-through; }
 .chart-legend [role="button"],.overview-legend [role="button"] { cursor:pointer; border-radius:4px; }
 .chart-legend [role="button"]:focus-visible,.overview-legend [role="button"]:focus-visible { outline:2px solid #3568c0; outline-offset:3px; }
