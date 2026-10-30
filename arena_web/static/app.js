@@ -3503,6 +3503,20 @@ function replayState(index) {
   }
   return state;
 }
+function replayEventText(value,entities) {
+  const text=String(value||'');
+  // Match complete numbered names, longest first, and escape every text segment.
+  const labels=Object.values(entities).map(v=>({label:`${v.name} (#${v.id})`,team:v.team})).sort((a,b)=>b.label.length-a.label.length);
+  let output='',offset=0;
+  while(offset<text.length) {
+    let next=null;
+    for(const item of labels){const at=text.indexOf(item.label,offset);if(at>=0&&(!next||at<next.at))next={...item,at};}
+    if(!next){output+=e(text.slice(offset));break;}
+    output+=e(text.slice(offset,next.at))+`<strong class="replay-name team-${next.team===1?'blue':'orange'}">${e(next.label)}</strong>`;
+    offset=next.at+next.label.length;
+  }
+  return output;
+}
 function renderReplay(index) {
   if (!R || !$("#replay-board")) return;
   index = Math.max(0, Math.min(R.events.length, index));
@@ -3557,7 +3571,7 @@ function renderReplay(index) {
     .slice(Math.max(0, index - 20), Math.min(R.events.length, index + 30))
     .map(
       (ev, i) =>
-        `<button class="event-line ${ev.index === index - 1 ? "active" : ""}" data-action="replay-step" data-index="${Math.max(0, index - 20) + i + 1}"><span class="mono">${ev.index + 1}</span> · T${ev.turn} · ${e(ev.text)} <span class="muted mono">${e(pretty(ev.raw))}</span></button>`,
+        `<button class="event-line ${ev.index === index - 1 ? "active" : ""} ${state.entities[ev.actor]?`actor-${state.entities[ev.actor].team===1?'blue':'orange'}`:''}" data-action="replay-step" data-index="${Math.max(0, index - 20) + i + 1}"><span class="mono">${ev.index + 1}</span> · T${ev.turn} · ${replayEventText(ev.text,state.entities)} <span class="muted mono">${e(pretty(ev.raw))}</span></button>`,
     )
     .join("");
   if (index === R.events.length) {

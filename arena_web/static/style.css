@@ -2173,3 +2173,9 @@ svg rect[data-chart-model]:focus-visible,svg rect.chart-selected { outline:none;
 
 /* Separate outcome counts from the following fight-volume line. */
 .overview-rank-body > small { display: block; margin-top: 4px; }
+
+/* Keep actor identity visible without relying on color alone. */
+.event-line.actor-blue { border-left:3px solid #5278e5; background:rgba(82,120,229,.06); }
+.event-line.actor-orange { border-left:3px solid #c77749; background:rgba(199,119,73,.06); }
+.replay-name.team-blue { color:#5278e5; }
+.replay-name.team-orange { color:#b36335; }
