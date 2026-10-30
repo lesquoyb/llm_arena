@@ -9,7 +9,7 @@ from .core import read_json, write_json
 from .execution_control import poll
 
 
-def run(jobs, execute, save, *, limit=1, out, kind, generation=0, retry=None):
+def run(jobs, execute, save, *, limit=1, out, kind, generation=0, retry=None, batch_progress=None):
     jobs=iter(jobs);retries=deque();pools=[];pending={};ready=deque();exhausted=False;error=None
     limit=poll(out,limit);pool=ThreadPoolExecutor(max_workers=limit,thread_name_prefix='arena-fight');pools.append(pool)
     from .worker_resources import host_memory, children_cpu_seconds, thread_cpu_seconds, cpu_capacity
@@ -21,6 +21,7 @@ def run(jobs, execute, save, *, limit=1, out, kind, generation=0, retry=None):
     throughput_path=out/'fight-throughput.json'
     throughput=read_json(throughput_path) if throughput_path.exists() else {}
     last_progress=0;publishing_seconds=0;phase_seconds={};finished_workers=0;jvm_starts=0;jvm_reuses=0
+    slow_fights=[]
     guard=threading.RLock();stop_heartbeat=threading.Event();publication={}
     def snapshot(force=False):
         nonlocal last_progress,last_performance
@@ -30,7 +31,7 @@ def run(jobs, execute, save, *, limit=1, out, kind, generation=0, retry=None):
                  'phase_started_at':job.get('phase_started_at',started),'retry':job.get('_retry',0)}
                 for future,(job,started) in [*pending.items(),*ready]]
         write_json(out/'activity.json',{'kind':kind,'generation':generation,'started_at':batch_wall_started,'batch_started_at':batch_wall_started,'parallel_fights':limit,
-            'publishing_seconds':publishing_seconds,'retrying_fights':len(retries),'computing_workers':sum(not future.done() for future in pending),'publication_queue':len(ready)+sum(future.done() for future in pending),
+            'batch_progress':dict(batch_progress or {}),'publishing_seconds':publishing_seconds,'retrying_fights':len(retries),'computing_workers':sum(not future.done() for future in pending),'publication_queue':len(ready)+sum(future.done() for future in pending),
             'phase_seconds':phase_seconds,'finished_workers':finished_workers,'jvm_starts':jvm_starts,'jvm_reuses':jvm_reuses,'publication':publication,
             'fights':fights,'participants':list(dict.fromkeys(sid for item in fights for sid in item['participants']))})
         if throughput:write_json(throughput_path,throughput)
@@ -44,7 +45,8 @@ def run(jobs, execute, save, *, limit=1, out, kind, generation=0, retry=None):
                 'observed_at':time.time(),'scope':'Latest engine batch; phase durations are summed worker time, not wall-clock duration.',
                 'computing_workers':sum(not future.done() for future in pending),'publication_queue':len(ready)+sum(future.done() for future in pending),
                 'coordinator_cpu_seconds':None if coordinator_cpu is None else max(0,coordinator_cpu-coordinator_started),
-                'cpu_capacity':capacity,'io':io_metrics.snapshot(io_baseline)}
+                'cpu_capacity':capacity,'io':io_metrics.snapshot(io_baseline),
+                'batch_progress':dict(batch_progress or {}),'slow_fights':list(slow_fights)}
             write_json(out/'fight-performance.json',last_performance)
             history.observe(last_performance,throughput)
         last_progress=time.monotonic()
@@ -65,6 +67,14 @@ def run(jobs, execute, save, *, limit=1, out, kind, generation=0, retry=None):
             with guard:publication={};publishing_seconds+=time.monotonic()-started
         with guard:
             finished_workers+=1
+            timings=result.get('timings',{}) if isinstance(result,dict) else {}
+            slow_fights.append({'participants':job['participants'],'seed':job['seed'],
+                'artifact_dir':str(job.get('work','')),'status':result.get('status'),
+                'java_seconds':timings.get('java_process_seconds',0),
+                'java_cpu_seconds':timings.get('java_cpu_seconds'),
+                'script_seconds':timings.get('script_execution_seconds',0)})
+            slow_fights.sort(key=lambda item:item['java_seconds'],reverse=True)
+            del slow_fights[12:]
             reused=result.get('timings',{}).get('jvm_reused') if isinstance(result,dict) else None
             if reused is True:jvm_reuses+=1
             elif reused is False:jvm_starts+=1

@@ -62,6 +62,8 @@ def references(engine, config, out, journal, entrants, label, panel, *, incremen
             files.extend(work/'strategies'/str(index)/name for index,source in enumerate(sources,1) for name in source['submission']['files'])
             hashes.remember_receipt(work,binding,files,directories)
     results = read_json(root / 'results.json') if incremental and (root / 'results.json').exists() else {}
+    progress={'label':label,'total':len(entrants)*len(panel)*len(config['final_seeds'])*2,
+              'checked':0,'reused':0,'completed':0,'failed':0}
     def jobs():
         for entrant in entrants:
             for opponent in panel:
@@ -72,6 +74,7 @@ def references(engine, config, out, journal, entrants, label, panel, *, incremen
                         sources = [entrant, opponent] if side == 0 else [opponent, entrant]
                         reference_only=all(fixed(source) for source in sources)
                         key = digest({"entrant": entrant["id"], "opponent": opponent["id"], "seed": seed, "side": side})[:24]
+                        progress['checked']+=1
                         record={}
                         cached = root / "records" / (key + ".json")
                         if cached.exists():
@@ -80,6 +83,7 @@ def references(engine, config, out, journal, entrants, label, panel, *, incremen
                             if (record['session'],record['opponent'],record['seed'],record['side'])!=(entrant['id'],opponent['id'],seed,side):raise ArenaError('Reference match metadata changed')
                             if record["result"]["status"] == "completed" and verified.get(str(cached))==digest(record):
                                 results[key]=record
+                                progress['reused']+=1
                                 continue
                             if record["result"]["status"] == "completed":
                                 validate_record(record,sources,seed)
@@ -92,6 +96,7 @@ def references(engine, config, out, journal, entrants, label, panel, *, incremen
                         if cached and cached.exists():
                             verified[str(cached)]=digest(record)
                             results[key]=record
+                            progress['reused']+=1
                             continue
                         work=Preparation._attempt(root/'matches'/key)
                         yield {'entrant':entrant,'opponent':opponent,'sources':sources,'reference_only':reference_only,
@@ -124,6 +129,11 @@ def references(engine, config, out, journal, entrants, label, panel, *, incremen
         published=time.monotonic()
         journal.record(job['entrant']['id'],'progression_match' if label.endswith('-previous') else 'reference_match',record)
         job.setdefault('timings',{})['journal_publication_seconds']=time.monotonic()-published
+        previous=results.get(job['key'])
+        if previous and job.get('_published_in_batch'):
+            progress['completed' if previous['result']['status']=='completed' else 'failed']-=1
+        job['_published_in_batch']=True
+        progress['completed' if result['status']=='completed' else 'failed']+=1
         results[job['key']]=record
     def retry_job(job):
         base=job.get('_attempt_base',job['work'])
@@ -131,7 +141,7 @@ def references(engine, config, out, journal, entrants, label, panel, *, incremen
     from .fight_pool import run as run_fights
     run_fights(jobs(),execute,save,limit=config.get('_parallel_fights',config.get('parallel_fights',1)),out=out,
                kind='previous_round_fight' if label.endswith('-previous') else 'reference_fight',
-               generation=max((entrant.get('generation',0) for entrant in entrants),default=0),retry=retry_job)
+               generation=max((entrant.get('generation',0) for entrant in entrants),default=0),retry=retry_job,batch_progress=progress)
     write_json(root / "results.json", results)
     if hashes:
         hashes.flush()
