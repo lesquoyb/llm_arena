@@ -376,7 +376,7 @@ class Handler(BaseHTTPRequestHandler):
             elif parsed.path.startswith("/api/"):
                 self.json_response(200, app.get(parsed.path, query))
             else:
-                names = {"/": "index.html", "/app.js": "app.js", "/live-dom.js":"live-dom.js", "/repetition-stats.js":"repetition-stats.js", "/style.css": "style.css", "/workspace.css": "workspace.css", "/favicon.png": "favicon.png"}
+                names = {"/": "index.html", "/app.js": "app.js", "/live-dom.js":"live-dom.js", "/repetition-stats.js":"repetition-stats.js", "/repetition-chart.js":"repetition-chart.js", "/style.css": "style.css", "/workspace.css": "workspace.css", "/favicon.png": "favicon.png"}
                 if parsed.path not in names:
                     self.json_response(404, {"error": "Page not found"})
                     return

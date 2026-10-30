@@ -1,4 +1,12 @@
 /* Shared visual system for workspace navigation, collections and configuration. */
+.repetition-scroll { max-height:650px; overflow:auto; border:1px solid var(--border); border-radius:8px; }
+.repetition-plot { display:block; width:100%; }
+.repetition-plot text { font:11px system-ui,sans-serif; fill:var(--muted); }
+.repetition-plot .repetition-label { font-size:13px; font-weight:600; fill:var(--ink); }
+.repetition-point { cursor:pointer; }
+.repetition-plot a:focus { outline:none; }
+.repetition-plot a:focus .repetition-point { stroke:var(--ink); stroke-width:3px; }
+.repetition-key { color:var(--muted); font-size:12px; }
 :root {
   --nav: #172b2b;
   --nav-muted: #a3bcba;

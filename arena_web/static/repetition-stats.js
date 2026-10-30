@@ -59,6 +59,7 @@
         unionFixtures:union.size,observedRepetitions:measured.length,disagreement,
         submitted:group.points.filter(point=>point.submitted).length,
         invalid:group.points.filter(point=>point.validity==='invalid').length,
+        validated:group.points.filter(point=>['valid','invalid'].includes(point.validity)).length,
         engineFailures:group.points.reduce((sum,point)=>sum+point.failures.size,0),
         conflicts:group.points.reduce((sum,point)=>sum+point.conflicts.size,0),
         points:group.points.map(point=>({session:point.session,replicate:point.replicate,value:point.value,fixtures:point.fixtures.size}))});
