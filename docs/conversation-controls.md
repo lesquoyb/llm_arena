@@ -40,3 +40,17 @@ every 30 seconds. If the conversation coordinator stops advancing for two minute
 thread stacks are added to the log to identify its wait. Apply runner updates by
 stopping the existing worker, pulling the branch, restarting the web server and
 resuming the existing competition. Existing workers keep their loaded code.
+
+## Slow feedback tools
+
+Feedback listings filter the frozen calendar by trajectory and selected round
+before opening results. Only the requested page is read; inspecting one fight
+opens only that result. Archives without a calendar keep the legacy reader.
+Prior submission lookups use the compact session metadata index, with a fallback
+for archives created before that index existed.
+
+Each session's `tool-progress.json` and run log identify reservation, execution,
+result preparation and publication separately. Timings include SQLite calls,
+SQLite wall/CPU time and SQLite errors. SQLite wall time includes lock waits and
+database I/O, so a large value alone does not establish a lock problem. Provider
+receipts also record how long a completed response waited for the coordinator.

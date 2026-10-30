@@ -82,6 +82,7 @@ class Requests:
             finally:
                 request_control.reset(token)
                 context['completed_at']=time.monotonic()
+                context['completed_wall_at']=time.time()
                 publish(phase)
                 print(f'[provider] {sid} request={receipt["call"]} transport={phase}',flush=True)
         context['future']=self.pool.submit(respond)

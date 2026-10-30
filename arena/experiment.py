@@ -196,7 +196,8 @@ def experiment_lock(out: Path):
 class Journal:
     def __init__(self, out):
         self.out = out
-        self.db = sqlite3.connect(out / "journal.sqlite")
+        from .sqlite_metrics import connect
+        self.db = connect(out / "journal.sqlite")
         version = self.db.execute("PRAGMA user_version").fetchone()[0]
         if version not in (0, 1, 2):
             self.db.close()
@@ -547,6 +548,8 @@ def _provider_response_once(sid, state, model, config, journal):
     state.pop("automatic_retry_at",None)
     response["elapsed_seconds"] = context['completed_at']-context['submitted_at'] if 'completed_at' in context else time.monotonic() - started
     response['request_metrics'] = {'history_messages':len(history),
+        'response_received_at':context.get('completed_wall_at',time.time()),
+        'receipt_wait_seconds':max(0,time.monotonic()-context['completed_at']) if 'completed_at' in context else 0,
         'request_setup_seconds':context.get('submitted_at',started) - request_setup_started,
         'request_characters':len(json.dumps(request.get('body', request), ensure_ascii=False))}
     if paid:
@@ -585,6 +588,22 @@ def _provider_response_once(sid, state, model, config, journal):
 
 
 def execute_tool(sid, state, tools, journal, call, call_id, budget):
+    from .sqlite_metrics import collect
+    from .tool_diagnostics import ToolTrace
+    with collect() as sql:
+        trace=ToolTrace(journal.out,sid,call['name'],call_id,sql,
+            (state.get('pending') or {}).get('request_metrics',{}).get('response_received_at'))
+        try:
+            result=_execute_tool(sid,state,tools,journal,call,call_id,budget,trace)
+        except BaseException:
+            trace.step('failed')
+            raise
+        trace.step('completed')
+        return result
+
+
+def _execute_tool(sid, state, tools, journal, call, call_id, budget, trace):
+    trace.step('reserving')
     if state["status"] != "running":
         raise ArenaError("Session is closed")
     if (state.get("reserved") != call_id and
@@ -598,11 +617,13 @@ def execute_tool(sid, state, tools, journal, call, call_id, budget):
         state['current_tool'] = {'name':call['name'],'started_at':time.time()}
         journal.save(sid, state, "tool_reserved", call)
     tool_started = time.monotonic()
+    trace.step('executing')
     try:
         result = tools.call(call["name"], call["arguments"], call_id)
     except (ArenaError, OSError, ValueError, KeyError, TypeError) as error:
         result = {"error": str(error)}
     state['wall_seconds'] = state.get('wall_seconds',0) + time.monotonic() - tool_started
+    trace.step('preparing_result')
     from .budget_context import progress
     budget_progress = progress(state, budget)
     if budget_progress and isinstance(result,dict): result = {**result, 'preparation_budget':budget_progress}
@@ -619,6 +640,7 @@ def execute_tool(sid, state, tools, journal, call, call_id, budget):
         state['entrypoint_hint']=result['team']['members'][0]['entrypoint']
     if call["name"] == "submit" and "submission" in result:
         state["submission"], state["status"] = result["submission"], "submitted"
+    trace.step('publishing_result')
     journal.save(sid, state, "tool_result", result)
     return result
 

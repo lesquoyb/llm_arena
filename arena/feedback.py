@@ -50,20 +50,58 @@ class PastFights:
         self.versions = versions or [{'round':self.round, 'session':parent}]
         self.available_rounds = sorted(row['round'] for row in self.versions)
 
-    def records(self):
+    def records(self, number=None, identifier=None, identifiers=None):
         result = {}
         for version in self.versions:
-            number, parent = version['round'], version['session']
-            root = self.out / (f'g{number-1}-tournament' if number > 1 else 'tournament')
-            for path in sorted((root / 'records').glob('*.json')):
+            round_number, parent = version['round'], version['session']
+            if number is not None and round_number!=number:continue
+            root = self.out / (f'g{round_number-1}-tournament' if round_number > 1 else 'tournament')
+            calendar=root/'experiment.json'
+            if calendar.is_file():
+                # Filter compact fixture metadata before opening result files.
+                # Old archives without a calendar retain their bounded-scope fallback.
+                from .preparation import local_path
+                paths=[local_path(root/'records',match['id']+'.json')
+                       for match in read_json(calendar)['schedule']
+                       if not match.get('mirror') and parent in match['sides']]
+            else:paths=(root/'records').glob('*.json')
+            for path in sorted(paths):
+                key='fight-' + digest({'parent': parent, 'record': path.name})[:20]
+                if identifier is not None and key!=identifier:continue
+                if identifiers is not None and key not in identifiers:continue
+                if not path.is_file():continue
                 record = read_json(path)
                 match = record['match']
                 if match.get('mirror') or parent not in match['sides']:
                     continue
-                record = {**record, 'match':{**match, 'round':number}, '_root':root,
+                record = {**record, 'match':{**match, 'round':round_number}, '_root':root,
                           'own_session':parent, 'own_submission':version.get('submission')}
-                result['fight-' + digest({'parent': parent, 'record': path.name})[:20]] = record
+                result[key] = record
         return result
+
+    def listing(self, number, offset, limit):
+        versions=[version for version in getattr(self,'versions',[]) if version['round']==number]
+        calendars=[]
+        for version in versions:
+            root=self.out/(f'g{number-1}-tournament' if number>1 else 'tournament')
+            path=root/'experiment.json'
+            if not path.is_file():break
+            calendars.append((version,root,read_json(path)['schedule']))
+        else:
+            if versions:
+                identifiers=[]
+                from .preparation import local_path
+                for version,root,schedule in calendars:
+                    parent=version['session']
+                    paths=sorted(local_path(root/'records',match['id']+'.json') for match in schedule
+                                 if not match.get('mirror') and parent in match['sides'])
+                    identifiers.extend('fight-'+digest({'parent':parent,'record':path.name})[:20] for path in paths if path.is_file())
+                selected=identifiers[offset:offset+limit]
+                records=self.records(number=number,identifiers=set(selected)) if selected else {}
+                return [self.overview(key,records[key]) for key in selected if key in records],len(identifiers)
+        records=self.records(number=number)
+        rows=[self.overview(key,row) for key,row in records.items()]
+        return rows[offset:offset+limit],len(rows)
 
     def overview(self, identifier, record):
         match, result = record['match'], record['result']
@@ -95,17 +133,20 @@ class PastFights:
         else:
             from .model_content import character_page
             offset, limit = character_page(arguments, 4000)
-        records = self.records()
         if name == 'list_past_fights':
             number = arguments.get('round', self.round)
             if type(number) is not int or (number not in self.available_rounds and (self.available_rounds or 'round' in arguments)):
                 raise ArenaError('round must identify an earlier round in this track; available rounds: '+', '.join(map(str,self.available_rounds)))
-            matches = [self.overview(key, row) for key, row in records.items() if row['match'].get('round',self.round) == number]
-            end = min(len(matches), offset+limit)
+            matches,total=self.listing(number,offset,limit)
+            end = min(total, offset+limit)
             return {'round':number, 'available_rounds':self.available_rounds, 'scope': 'Your own selected-round tournament fights in this track; mirrors excluded. Results are from your perspective.',
-                    'total': len(matches), 'matches': matches[offset:end],
-                    'next_offset': end if end < len(matches) else None}
-        record = records.get(arguments.get('fight_id'))
+                    'total': total, 'matches': matches,
+                    'next_offset': end if end < total else None}
+        identifier=arguments.get('fight_id')
+        import re
+        if not isinstance(identifier,str) or not re.fullmatch(r'fight-[0-9a-f]{20}',identifier):
+            raise ArenaError('Fight is not available to this feedback branch')
+        record = self.records(identifier=identifier).get(identifier)
         if record is None:
             raise ArenaError('Fight is not available to this feedback branch')
         section = arguments.get('section', 'overview')

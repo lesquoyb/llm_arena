@@ -177,15 +177,17 @@ class CalibrationFights(PastFights):
         from .submitted_versions import OwnSubmissions
         self.sources = {v['round']:v['submission'] for v in OwnSubmissions(out,state).versions()}
 
-    def records(self):
+    def records(self, number=None, identifier=None):
         result = {}
-        for number, sid in enumerate(self.context['previous_sessions'], 1):
+        for round_number, sid in enumerate(self.context['previous_sessions'], 1):
+            if number is not None and number!=round_number:continue
             paths = [path for label in ('training-', 'history-') for path in (self.root/'evaluations'/(label+sid)/'records').glob('*.json')]
             for path in sorted(paths):
+                key = 'fight-' + digest({'session': sid, 'record': path.relative_to(self.root).as_posix()})[:20]
+                if identifier is not None and key!=identifier:continue
                 row = read_json(path)
-                identifier = 'fight-' + digest({'session': sid, 'record': path.relative_to(self.root).as_posix()})[:20]
                 sides = [self.parent, row['opponent']] if row['side'] == 0 else [row['opponent'], self.parent]
-                result[identifier] = {'match': {'sides': sides, 'round':number}, 'result': row['result'], 'directory': row['artifact_dir'], 'own_submission':self.sources.get(number)}
+                result[key] = {'match': {'sides': sides, 'round':round_number}, 'result': row['result'], 'directory': row['artifact_dir'], 'own_submission':self.sources.get(round_number)}
         return result
 
     def call(self, name, arguments):

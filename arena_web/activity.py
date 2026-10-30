@@ -108,6 +108,10 @@ def status(store, identifier, job=None):
     activity=[item for item in activity if item.get('started_at') is not None and item['started_at']>=(job or {}).get('started_at',0)]
     profiles={model['id']:model for model in config.get('models',[])}
     for item in activity:
+        if item['kind']=='tool':
+            progress=store.json(root/'sessions'/item['session']/'tool-progress.json',{})
+            if progress.get('call')==states[item['session']].get('reserved'):
+                item.update(tool_phase=progress.get('phase'),tool_timings=progress.get('timings',{}))
         if item['kind']=='model_request':
             item['inactivity_timeout_seconds']=profiles.get(item['model'],{}).get('inactivity_timeout_seconds',300)
             item['no_output_since']=item.get('stream_updated_at') or item.get('started_at')

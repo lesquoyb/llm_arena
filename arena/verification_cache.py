@@ -10,6 +10,7 @@ from functools import lru_cache
 import time
 from contextlib import closing
 from .core import ArenaError, file_hash
+from .sqlite_metrics import connect
 
 
 @lru_cache(maxsize=1)
@@ -55,7 +56,7 @@ class VerificationCache:
         self.force=os.environ.get('ARENA_FULL_AUDIT')=='1';self._discard=False
         if self.path.is_file() and not self.path.is_symlink():
             try:
-                with closing(sqlite3.connect(self.path.as_uri()+'?mode=ro',uri=True,timeout=2)) as db:
+                with closing(connect(self.path.as_uri()+'?mode=ro',uri=True,timeout=2)) as db:
                     tables={row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
                     if 'verification_entries' not in tables:return
                     for kind,name,raw,seal in db.execute('SELECT kind,path,payload,sha256 FROM verification_entries'):
@@ -160,7 +161,7 @@ class VerificationCache:
                 rows.append((kind,name,raw,hashlib.sha256((kind+'\0'+name+'\0'+raw).encode()).hexdigest()))
         try:
             if self.path.is_symlink():raise OSError('Linked verification cache rejected')
-            with closing(sqlite3.connect(self.path,timeout=2)) as db:
+            with closing(connect(self.path,timeout=2)) as db:
                 db.execute('CREATE TABLE IF NOT EXISTS verification_entries(kind TEXT,path TEXT,payload TEXT,sha256 TEXT,PRIMARY KEY(kind,path))')
                 with db:
                     if self._discard:db.execute('DELETE FROM verification_entries')

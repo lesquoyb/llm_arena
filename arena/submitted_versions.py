@@ -19,18 +19,25 @@ class OwnSubmissions:
         seeds = list(self.state.get('calibration',{}).get('previous_sessions',[]))
         if self.state.get('parent'): seeds.append(self.state['parent'])
         result, seen = [], set()
-        with closing(sqlite3.connect(database.as_uri()+'?mode=ro',uri=True)) as db:
+        from .sqlite_metrics import connect
+        with closing(connect(database.as_uri()+'?mode=ro',uri=True)) as db:
+            tables={row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name IN ('session_metadata','objects')")}
             while seeds:
                 sid = seeds.pop()
                 if sid in seen: continue
                 seen.add(sid)
-                row = db.execute("SELECT json_extract(state,'$.model'),json_extract(state,'$.replicate'),json_extract(state,'$.generation'),json_extract(state,'$.parent'),json_extract(state,'$.submission') FROM sessions WHERE id=?",(sid,)).fetchone()
+                indexed=db.execute("SELECT m.metadata FROM session_metadata m JOIN objects o ON o.id=m.id AND o.kind='Session' AND o.sha256=m.checkpoint_sha256 WHERE m.id=?",(sid,)).fetchone() if tables=={'session_metadata','objects'} else None
+                if indexed:
+                    value=json.loads(indexed[0])
+                    row=tuple(value.get(key) for key in ('model','replicate','generation','parent','submission'))
+                else:
+                    row = db.execute("SELECT json_extract(state,'$.model'),json_extract(state,'$.replicate'),json_extract(state,'$.generation'),json_extract(state,'$.parent'),json_extract(state,'$.submission') FROM sessions WHERE id=?",(sid,)).fetchone()
                 if not row: continue
                 model, replicate, generation, parent, info = row
                 if model != self.state['model'] or replicate != self.state['replicate'] or generation >= self.state['generation']:
                     raise ArenaError('Source version is outside this trajectory')
                 if parent: seeds.append(parent)
-                if info: result.append({'round':generation+1,'session':sid,'submission':json.loads(info)})
+                if info: result.append({'round':generation+1,'session':sid,'submission':json.loads(info) if isinstance(info,str) else info})
         return sorted(result,key=lambda r:r['round'])
 
     def call(self, name, arguments):
