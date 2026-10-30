@@ -42,3 +42,10 @@ test('resource metrics exclude unavailable values and non-submitted attempts',()
   const [row]=summarize([session('a',0,{metrics:{cost:1}}),session('b',1,{metrics:{cost:3}}),session('c',2,{metrics:{cost:null}}),session('d',3,{submission:null,metrics:{cost:99}})],[],'cost');
   assert.equal(row.stats.n,2);assert.equal(row.stats.mean,2);assert.equal(row.stats.variance,2);
 });
+test('all-round view averages each repetition before estimating spread',()=>{
+  const rows=summarize([session('a0',0),session('b0',1),session('a1',0,{generation:1}),session('b1',1,{generation:1})],
+    [fight('a0','x',1,0),fight('b0','x',1,1),fight('a1','x',1,1),fight('b1','x',1,0)]);
+  const [pooled]=require('../arena_web/static/repetition-stats.js').poolRounds(rows);
+  assert.equal(pooled.stats.n,2);assert.equal(pooled.stats.mean,.5);assert.equal(pooled.stats.sd,0);
+  assert.deepEqual(pooled.rounds,[0,1]);
+});

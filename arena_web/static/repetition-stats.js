@@ -66,5 +66,30 @@
     }
     return result.sort((a,b)=>a.model.localeCompare(b.model)||a.generation-b.generation||a.condition.localeCompare(b.condition));
   }
-  return {describe,summarize};
+  function poolRounds(rows) {
+    const groups=new Map();
+    for(const row of rows) {
+      const key=JSON.stringify([row.model,row.condition]);
+      if(!groups.has(key))groups.set(key,[]);
+      groups.get(key).push(row);
+    }
+    return [...groups.values()].map(group=>{
+      const repetitions=new Map();
+      for(const row of group)for(const point of row.points) {
+        if(!repetitions.has(point.replicate))repetitions.set(point.replicate,new Map());
+        if(point.value!==null)repetitions.get(point.replicate).set(row.generation,point);
+      }
+      const measured=[...repetitions.values()].filter(values=>values.size);
+      const rounds=measured.length?[...measured[0].keys()].filter(round=>measured.every(values=>values.has(round))).sort((a,b)=>a-b):[];
+      const points=[...repetitions].map(([replicate,values])=>{
+        const last=[...values.values()].at(-1)||group.flatMap(row=>row.points).find(point=>point.replicate===replicate);
+        return {...last,replicate,value:rounds.length&&values.size?rounds.reduce((sum,round)=>sum+values.get(round).value,0)/rounds.length:null};
+      });
+      return {...group[0],pooled:true,rounds,points,stats:describe(points.map(point=>point.value)),disagreement:null,
+        commonFixtures:group.filter(row=>rounds.includes(row.generation)).reduce((sum,row)=>sum+row.commonFixtures,0),
+        submitted:Math.min(...group.map(row=>row.submitted)),invalid:group.reduce((sum,row)=>sum+row.invalid,0),
+        validated:group.reduce((sum,row)=>sum+row.validated,0),engineFailures:group.reduce((sum,row)=>sum+row.engineFailures,0),conflicts:group.reduce((sum,row)=>sum+row.conflicts,0)};
+    });
+  }
+  return {describe,summarize,poolRounds};
 });

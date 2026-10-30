@@ -4512,8 +4512,8 @@ document.addEventListener("change", async (event) => {
     }
     if(n.matches('#competition-form input[name=participant]') || n.id==='competition-selected-only') {
       updateCompetitionSelection();
-    } else if(n.matches('[data-repetition-metric]')) {
-      S.repetitionMetric=n.value;clearChartHover();LiveDOM.replace($('#repetition-variance'),repetitionVariance(S.detail,overviewData(S.detail)));
+    } else if(n.matches('[data-repetition-metric],[data-repetition-rounds]')) {
+      if(n.matches('[data-repetition-rounds]'))S.repetitionRounds=n.value;else S.repetitionMetric=n.value;clearChartHover();LiveDOM.replace($('#repetition-variance'),repetitionVariance(S.detail,overviewData(S.detail)));
     } else if(n.matches('[data-resource-axis]')) {
       S.resourceMetric=n.value;const context=n.dataset.resourceAxis;clearChartHover();$('#'+context+'-resource-chart').innerHTML=renderResourceChart(context);
     } else if(n.matches('[data-resource-view]')) {
