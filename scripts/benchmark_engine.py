@@ -53,6 +53,7 @@ def main():
     parser.add_argument('--workers',type=int,default=min(4,os.cpu_count() or 1))
     parser.add_argument('--workload',choices=['mixed','short','long','compute'],default='mixed')
     parser.add_argument('--recycle',type=int,default=32)
+    parser.add_argument('--fight-artifact',type=Path,help='Repeat an archived competition fight with its frozen sources and seed, without provider calls')
     parser.add_argument('--out',type=Path)
     args=parser.parse_args()
     if min(args.matches,args.workers,args.recycle)<1:parser.error('matches, workers and recycle must be positive')
@@ -69,6 +70,20 @@ def main():
            'compute':(simple_scenario(),pair(source,strategies/'human-weapon'))}
     for name,(scenario,paths) in list(cases.items()):cases[name]=(scenario,paths,[submission(path) for path in paths])
     names=list(cases) if args.workload=='mixed' else [args.workload]
+    archived_seed=None
+    if args.fight_artifact:
+        artifact=args.fight_artifact.resolve()
+        provenance=read_json(artifact/'provenance.json')
+        owner=next((parent for parent in artifact.parents if (parent/'experiment.json').exists() and 'config' in read_json(parent/'experiment.json')),None)
+        if owner is None:raise ArenaError('Cannot find source competition configuration')
+        scenario=read_json(owner/'experiment.json')['config']['scenario']
+        paths=[artifact/'strategies'/str(side) for side in (1,2)]
+        infos=provenance['submissions']
+        if [submission(path,info['entrypoint']) for path,info in zip(paths,infos)]!=infos:raise ArenaError('Frozen sources changed')
+        from arena.core import make_scenario
+        saved=read_json(artifact/'scenario.json');archived_seed=saved['random_seed']
+        if make_scenario(scenario,[info['entrypoint'] for info in infos],archived_seed,[info.get('team') for info in infos])!=saved:raise ArenaError('Saved scenario differs from competition configuration')
+        cases={'archived':(scenario,paths,infos)};names=['archived']
     report={'matches_per_profile':args.matches,'workers':args.workers,'recycle_matches':args.recycle,'workload':args.workload,
             'cpu_count':os.cpu_count(),'profiles':[],'notes':'Engine only. Direct execution bypasses the reference replay cache. Cold starts are included. Peak RSS is sampled after completed fights.'}
     baseline={};guard=threading.Lock()
@@ -81,7 +96,7 @@ def main():
             engine.identity.update(worker_jvm_profile=profile,worker_jvm_options=engine.worker_options,worker_jvm_recycle_matches=recycle)
             peak=[None];started=time.perf_counter();python_started=time.process_time()
             def fight(index):
-                name=names[index%len(names)];scenario,paths,infos=cases[name];seed=101+(index//len(names))%3
+                name=names[index%len(names)];scenario,paths,infos=cases[name];seed=archived_seed or 101+(index//len(names))%3
                 result=engine.fight(paths,infos,scenario,seed,root/'fights'/profile/str(index))
                 if result['status']!='completed':raise ArenaError(f'{profile} {name}: {result.get("error",result["status"])}')
                 deterministic={'replay':result['replay_sha256'],'metrics':{side:{k:v for k,v in row.items() if k!='turn_elapsed_ns'} for side,row in result['team_metrics'].items()}}

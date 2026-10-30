@@ -132,3 +132,24 @@ startup, recycling and different opponents, so compare their phase breakdown as
 well as fight/turn/operation rates. Low MB/s does not rule out metadata latency,
 sharing violations, paging or antivirus activity; these are hypotheses until
 supported by measurements. No antivirus exclusions or OS priorities are changed.
+
+### Reproduce a slow competition fight
+
+Activity > Engine performance lists the slowest fights of the current batch,
+including their artifact directories and Java/script/CPU durations.
+To isolate engine capacity from scheduling and changing strategies, repeat one
+archived fight outside the competition (no provider calls and no result edits):
+
+```sh
+python scripts/benchmark_engine.py --fight-artifact "PATH/TO/MATCH" --profiles throughput --matches 32 --workers 1
+python scripts/benchmark_engine.py --fight-artifact "PATH/TO/MATCH" --profiles throughput --matches 32 --workers 8
+```
+
+Each invocation writes a separate benchmark directory. Frozen sources and the
+original scenario and seed are checked before execution. Compare wall time,
+throughput and JVM CPU/RSS on this identical workload. Run the benchmark while
+the competition is stopped to avoid competing for resources. Increasing workers
+without increasing throughput indicates a shared capacity limit; it does not
+by itself identify which resource is limiting. Java CPU far below Java wall time
+suggests waiting or preemption; script time measures elapsed turn execution,
+not CPU time, and can include pauses.
