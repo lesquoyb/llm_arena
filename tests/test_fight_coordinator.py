@@ -79,3 +79,23 @@ class IndependentCoordinatorTests(unittest.TestCase):
                         self.assertTrue(observed.wait(3))
                 journal.verify()
             finally:journal.db.close()
+
+    def test_normal_exit_drains_other_rounds_even_if_preparation_is_already_blocked(self):
+        value=config();entered=threading.Event();release=threading.Event();visited=[]
+        with scratch_directory() as root:
+            journal=Journal(root)
+            try:
+                for generation in (0,1):
+                    state=initial_state('one-r0',value['models'][0],value)
+                    state.update(generation=generation,submission={'entrypoint':'main.leek'},status='submitted')
+                    journal.save('round-'+str(generation),state,'fixture')
+                def evaluate(engine,config,out,engine_journal,generation):
+                    visited.append(generation);entered.set()
+                    if not release.wait(3):raise RuntimeError('Engine gate timed out')
+                with mock.patch('arena.greedy.evaluate',side_effect=evaluate):
+                    with FightCoordinator(root,value,CoordinatorEngine()):
+                        self.assertTrue(entered.wait(3))
+                        timer=threading.Timer(.05,release.set);timer.start()
+                    timer.join()
+                self.assertIn(0,visited);self.assertIn(1,visited)
+            finally:release.set();journal.db.close()
