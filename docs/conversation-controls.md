@@ -20,3 +20,23 @@ their cost and token usage are never silently replaced with zero.
 
 A frozen submission cannot be edited by these controls. **Restart preparation**
 remains available for eligible failed preparations and archives the earlier attempt.
+
+## Independent fight scheduling
+
+During preparation, a dedicated fight coordinator discovers committed frozen
+submissions every half second. It runs tournament and reference batches while the
+conversation coordinator handles replies, tools, pauses and recovery messages.
+Neither coordinator waits for a progress callback from the other. The existing
+round boundary still waits for the round's preparation and evaluation work.
+
+The fight coordinator owns its SQLite connection and verification caches. It
+only appends engine events; session checkpoints remain owned by the conversation
+coordinator. Completed fight artifacts remain immutable and are reused on resume.
+Engine activity is written separately so conversation updates cannot overwrite
+the visible fight-worker status.
+
+The run log emits provider dispatch/completion/receipt events and a heartbeat
+every 30 seconds. If the conversation coordinator stops advancing for two minutes,
+thread stacks are added to the log to identify its wait. Apply runner updates by
+stopping the existing worker, pulling the branch, restarting the web server and
+resuming the existing competition. Existing workers keep their loaded code.

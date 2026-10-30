@@ -108,7 +108,7 @@ def ordered_tasks(tasks, order='models', *, serial=False):
     return result
 
 
-def prepare(tasks, config, out, journal, engine, interrupt=None, on_progress=None):
+def prepare(tasks, config, out, journal, engine, interrupt=None, on_progress=None, *, independent_fights=False):
     """Expose dispatch/recovery before starting tools, transports or fight work."""
     from .activity import operation
     from .experiment import TERMINAL
@@ -137,16 +137,26 @@ def prepare(tasks, config, out, journal, engine, interrupt=None, on_progress=Non
         for sid in finished:
             info=states[sid]['submission']
             if submission(out/'sessions'/sid/'submission',info['entrypoint'])!=info:raise ArenaError('Archived session submission changed')
+        if independent_fights:
+            from .fight_coordinator import FightCoordinator
+            from .execution_control import _journal
+            with FightCoordinator(out,config,engine,on_progress) as fights:
+                token=_journal.set(None)
+                try:return _prepare(tasks,config,out,journal,engine,interrupt,primary_generations=primary_generations,fight_coordinator=fights)
+                finally:_journal.reset(token)
         return _prepare(tasks,config,out,journal,engine,interrupt,on_progress,primary_generations=primary_generations)
 
 
-def _prepare(tasks, config, out, journal, engine, interrupt=None, on_progress=None, *, primary_generations=None):
+def _prepare(tasks, config, out, journal, engine, interrupt=None, on_progress=None, *, primary_generations=None, fight_coordinator=None):
     """Finish one round before its caller starts the next round's preparation."""
     from .experiment import run_session, TERMINAL, provider_response
     limit=config.get('_parallel_requests',config.get('parallel_requests',1))
     tasks=ordered_tasks(tasks,config.get('_request_order',config.get('request_order','models')),serial=limit==1)
     regular_progress=on_progress
     def progress():
+        if fight_coordinator is not None:
+            fight_coordinator.notify()
+            return
         if getattr(journal,'_manual_fight_retry_pending',False):
             from .fight_recovery import run as recover_fights
             result=recover_fights(out,engine=engine,journal=journal,cooperative=True)
@@ -226,6 +236,7 @@ def _prepare(tasks, config, out, journal, engine, interrupt=None, on_progress=No
     next_idle_progress=0
     try:
         while queue or dispatcher.pending or retry_waiting or any((out/'recovery-commands').glob('*.json')):
+            if fight_coordinator is not None:fight_coordinator.check()
             from .runner_diagnostics import pulse
             pulse('scheduling_preparations',queued=len(queue),requests=len(dispatcher.pending),
                   ready_replies=sum(dispatcher.ready(sid) for sid in dispatcher.pending),retries=len(retry_waiting))
@@ -297,6 +308,11 @@ def _prepare(tasks, config, out, journal, engine, interrupt=None, on_progress=No
         # Stop schedules no further tools or calls. Keep any replies already paid
         # for, including their pending tool calls, before releasing the journal.
         try:
+            import sys
+            if sys.exc_info()[0] is not None:
+                if fight_coordinator is not None:fight_coordinator.stop.set()
+                for context in dispatcher.pending.values():
+                    if context.get('control'):context['control'].cancel()
             dispatcher.pool.shutdown(wait=True)
             for sid in list(dispatcher.pending):
                 state=journal.state(sid)

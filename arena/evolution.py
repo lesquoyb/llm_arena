@@ -170,12 +170,12 @@ def run_generation(config, out, journal, engine, initial, interrupt=None, retry_
     from .greedy import evaluate as evaluate_ready, entrants as ready_entrants
     evaluated = set()
     panel.sort(key=lambda source:not source['id'].startswith('fixed-'))
-    def evaluate_available():
-        evaluate_ready(engine, config, out, journal, generation)
-        for entrant in ready_entrants(journal, out, generation):
+    def evaluate_available(fight_journal):
+        evaluate_ready(engine, config, out, fight_journal, generation)
+        for entrant in ready_entrants(fight_journal, out, generation):
             if not active(config,entrant): continue
             if entrant['id'] not in evaluated:
-                collected=references(engine, config, out, journal, [entrant], f'g{generation}-panel', panel, incremental=True)
+                collected=references(engine, config, out, fight_journal, [entrant], f'g{generation}-panel', panel, incremental=True)
                 expected=len(panel)*len(config['final_seeds'])*2
                 if sum(record['session']==entrant['id'] and record['result']['status']=='completed' for record in collected.values())>=expected:
                     evaluated.add(entrant['id'])
@@ -264,7 +264,7 @@ def run_generation(config, out, journal, engine, initial, interrupt=None, retry_
             if permitted:tasks.append((sid,models[parent_state['model']]))
             candidates.append(sid)
     from .parallel import prepare
-    prepare(tasks,config,out,journal,engine,interrupt,evaluate_available)
+    prepare(tasks,config,out,journal,engine,interrupt,evaluate_available,independent_fights=True)
     evaluate_ready(engine, config, out, journal, generation)
     baseline = references(engine, config, out, journal, roots, "g0-panel", panel)
     for sid in candidates:

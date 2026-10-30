@@ -186,7 +186,8 @@ def _run_tournament(engine: Engine, manifest: dict, out: Path, resume: bool = Fa
         if record['result']['status']=='completed':
             completed.add(match['id']);verified_cache[match['id']]=known[match['id']]
         if time.monotonic()-last_audit>=.5 or checked==len(matches):
-            write_json(out.parent/'activity.json',{'kind':'checking_fights','started_at':audit_started,
+            from .activity import activity_path
+            write_json(activity_path(out.parent),{'kind':'checking_fights','started_at':audit_started,
                 'generation':max((s.get('generation',0) for s in strategies.values()),default=0),
                 'checked_records':checked,'total_records':len(matches)})
             last_audit=time.monotonic()

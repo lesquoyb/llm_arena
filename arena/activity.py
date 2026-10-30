@@ -6,6 +6,11 @@ from .core import write_json
 
 
 _operations=ContextVar('arena_operations',default=())
+_activity_name=ContextVar('arena_activity_name',default='activity.json')
+
+
+def activity_path(out):
+    return out/_activity_name.get()
 
 
 @contextmanager
@@ -17,13 +22,13 @@ def operation(out, kind, **details):
     from .runner_diagnostics import pulse
     pulse(kind,generation=details.get('generation',0))
     try:
-        write_json(out/'activity.json',value)
+        write_json(activity_path(out),value)
         yield
     finally:
         _operations.reset(token)
         parent=next((entry for path,entry in reversed(parents) if path==out.resolve()),None)
         pulse((parent or {}).get('kind','idle'))
-        write_json(out/'activity.json',parent or {**value,'kind':'idle','previous_kind':kind,'finished_at':time.time()})
+        write_json(activity_path(out),parent or {**value,'kind':'idle','previous_kind':kind,'finished_at':time.time()})
 
 
 def session_root(directory):

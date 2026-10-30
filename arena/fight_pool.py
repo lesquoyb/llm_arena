@@ -4,12 +4,13 @@ from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 import time
 import threading
 
-from .activity import operation, poll_provider_failures, provider_work_ready
+from .activity import operation, poll_provider_failures, provider_work_ready,activity_path
 from .core import read_json, write_json
 from .execution_control import poll
 
 
 def run(jobs, execute, save, *, limit=1, out, kind, generation=0, retry=None, batch_progress=None):
+    activity_target=activity_path(out)
     jobs=iter(jobs);retries=deque();pools=[];pending={};ready=deque();exhausted=False;error=None;dispatched=0
     limit=poll(out,limit);pool=ThreadPoolExecutor(max_workers=limit,thread_name_prefix='arena-fight');pools.append(pool)
     from .worker_resources import host_memory, children_cpu_seconds, thread_cpu_seconds, cpu_capacity
@@ -30,7 +31,7 @@ def run(jobs, execute, save, *, limit=1, out, kind, generation=0, retry=None, ba
                  'phase':'ready_to_save' if future.done() else job.get('phase','preparing'),
                  'phase_started_at':job.get('phase_started_at',started),'retry':job.get('_retry',0)}
                 for future,(job,started) in [*pending.items(),*ready]]
-        write_json(out/'activity.json',{'kind':kind,'generation':generation,'started_at':batch_wall_started,'batch_started_at':batch_wall_started,'parallel_fights':limit,
+        write_json(activity_target,{'kind':kind,'generation':generation,'started_at':batch_wall_started,'batch_started_at':batch_wall_started,'parallel_fights':limit,
             'batch_progress':dict(batch_progress or {}),'publishing_seconds':publishing_seconds,'retrying_fights':len(retries),'computing_workers':sum(not future.done() for future in pending),'publication_queue':len(ready)+sum(future.done() for future in pending),
             'phase_seconds':phase_seconds,'finished_workers':finished_workers,'jvm_starts':jvm_starts,'jvm_reuses':jvm_reuses,'publication':publication,
             'fights':fights,'participants':list(dict.fromkeys(sid for item in fights for sid in item['participants']))})

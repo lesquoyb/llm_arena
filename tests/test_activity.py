@@ -11,6 +11,22 @@ from arena_web.activity import status
 
 
 class ActivityTests(unittest.TestCase):
+    def test_independent_engine_activity_is_visible_alongside_waiting_conversations(self):
+        with scratch_directory() as root:
+            store=Store(root/'runs',root/'settings');out=store.runs/'run';out.mkdir()
+            config=read_json(ROOT/'configs/offline-complete.json')
+            write_json(out/'experiment.json',{'config':config})
+            journal=Journal(out)
+            with closing(journal.db):
+                model=config['models'][0];sid=model['id']+'-r0'
+                state=initial_state(sid,model,config);state['in_flight']=True
+                journal.save(sid,state,'model_intent',{})
+            write_json(out/'activity.json',{'kind':'request_preparation','started_at':1})
+            write_json(out/'engine-activity.json',{'kind':'tournament_fight','started_at':1,'computing_workers':2})
+            value=status(store,'run',{'status':'running','started_at':0})
+            self.assertEqual(value['operation']['kind'],'tournament_fight')
+            self.assertEqual(value['operation']['computing_workers'],2)
+            self.assertEqual(value['active'][0]['session'],sid)
     def test_historical_fights_do_not_reset_competition_round(self):
         with scratch_directory() as root:
             store=Store(root/'runs',root/'settings');out=store.runs/'run';out.mkdir()

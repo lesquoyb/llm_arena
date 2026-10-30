@@ -986,7 +986,7 @@ def run(config: dict, out: Path, resume=False, interrupt=None, prepare_only=Fals
             from .parallel import prepare
             tasks=[(f"{model['id']}-r{replicate}",model) for model in config['models']
                    for replicate in range(repetitions(config,model)) if active(config,model) and (not retry_session or f"{model['id']}-r{replicate}"==retry_session)]
-            prepare(tasks,config,out,journal,engine,interrupt,lambda:evaluate_ready(engine,config,out,journal))
+            prepare(tasks,config,out,journal,engine,interrupt,independent_fights=True)
             # Drain every fixture supported by frozen submissions before slower
             # final compiler assessments, even if another participant failed.
             tournament = evaluate_ready(engine, config, out, journal, final=True)

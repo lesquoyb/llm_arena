@@ -29,6 +29,10 @@ def status(store, identifier, job=None):
     states={sid:state for sid,state in states.items() if state['model'] not in withdrawn}
     running=bool(job and job['status'] in {'running','stopping'})
     operation=store.json(root/'activity.json',{}) if running else {}
+    engine_operation=store.json(root/'engine-activity.json',{}) if running else {}
+    if (engine_operation.get('kind') not in {None,'idle'} and
+            engine_operation.get('started_at',0)>=(job or {}).get('started_at',0)):
+        operation=engine_operation
     if operation.get('started_at',0)<(job or {}).get('started_at',0):operation={}
     busy=operation.get('kind') not in {None,'idle','starting'}
     generation=max((state.get('generation',0) for state in states.values()),default=0)
