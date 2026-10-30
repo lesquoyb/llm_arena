@@ -451,6 +451,7 @@ body[data-run-tab=conversation] .conversation-panel:fullscreen #conversation-scr
   .session-toolbar #session-choice { min-width:calc(100% - 100px); }
 }
 body[data-run-tab=conversation] #conversation-scroll { height:var(--conversation-height,clamp(320px,calc(100dvh - 370px),1500px)); }
+body[data-run-tab=conversation] main { padding-bottom:0; }
 .workspace-chart { margin-top:24px; }
 .comparison-chart:fullscreen > .chart-filterable .chart { min-height:55dvh; width:100%; }
 /* Keep navigation and status compact enough for a usable conversation reader. */

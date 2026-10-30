@@ -2079,7 +2079,9 @@ async function renderRun(epoch, liveUpdate=false) {
 }
 function fitConversationPane() {
   const pane=$('#conversation-scroll');if(!pane)return;
-  const height=Math.max(280,innerHeight-Math.max(0,pane.getBoundingClientRect().top)-($('#conversation-live-status')?.offsetHeight||0)-4);
+  const expanded=pane.closest(':fullscreen, .chart-expanded');
+  const footerHeight=expanded?0:($('.workspace > footer')?.offsetHeight||0);
+  const height=Math.max(280,innerHeight-Math.max(0,pane.getBoundingClientRect().top)-($('#conversation-live-status')?.offsetHeight||0)-footerHeight-4);
   pane.style.setProperty('--conversation-height',height+'px');
 }
 window.addEventListener('resize',()=>{if(S.tab==='conversation')fitConversationPane();});
