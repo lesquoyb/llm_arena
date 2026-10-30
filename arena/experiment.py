@@ -915,7 +915,8 @@ def run(config: dict, out: Path, resume=False, interrupt=None, prepare_only=Fals
     else:
         out.mkdir(parents=True, exist_ok=False)
     resume_timings['identity_and_corpus_seconds']=time.monotonic()-identity_started
-    with experiment_lock(out):
+    from .round_runtime import RoundClock
+    with experiment_lock(out),RoundClock(out) as runtime:
         if resume:
             previous_identity = read_json(out / "experiment.json")
             from .recovery import resume_compatible
@@ -933,6 +934,7 @@ def run(config: dict, out: Path, resume=False, interrupt=None, prepare_only=Fals
                     shutil.copyfile(source, target)
             write_json(out / "experiment.json", identity)
         journal = Journal(out)
+        runtime.mark('activity.json',max((state.get('generation',0) for state in journal.metadata().values()),default=0),'checkpoint_verification' if resume else 'starting')
         from .execution_control import _journal
         execution_token=_journal.set(journal)
         try:

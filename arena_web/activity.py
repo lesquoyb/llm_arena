@@ -28,6 +28,8 @@ def status(store, identifier, job=None):
     states=store.states(root,('model','replicate','generation','condition','status','submission','validity','in_flight','reserved','current_tool','wall_seconds','calls'))
     states={sid:state for sid,state in states.items() if state['model'] not in withdrawn}
     running=bool(job and job['status'] in {'running','stopping'})
+    from arena.round_runtime import view as runtime_view
+    runtime=runtime_view(store.json(root/'round-runtime.json',{}),running=running)
     operation=store.json(root/'activity.json',{}) if running else {}
     engine_operation=store.json(root/'engine-activity.json',{}) if running else {}
     if (engine_operation.get('kind') not in {None,'idle'} and
@@ -139,4 +141,4 @@ def status(store, identifier, job=None):
             'tournament_scheduled_pending':unrecorded+report.get('failed',0),'tournament_pending_available':unrecorded+unscheduled+report.get('failed',0),'tournament_waiting_submissions':max(0,possible-available),
             'tournament_scheduled':planned_count,'tournament_unscheduled_available':unscheduled,
             'tournament_planned_submissions':sum(model not in withdrawn for model in planned_models.values()),
-            'preparations':preparations,'waiting_preparations':waiting,'operation':operation if running else {},'active':activity,'last_event':last_event,'observed_at':time.time()}
+            'round_runtime':runtime,'preparations':preparations,'waiting_preparations':waiting,'operation':operation if running else {},'active':activity,'last_event':last_event,'observed_at':time.time()}

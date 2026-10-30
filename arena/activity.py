@@ -19,6 +19,8 @@ def operation(out, kind, **details):
     value={'kind':kind,'started_at':started,**details}
     parents=_operations.get()
     token=_operations.set((*parents,(out.resolve(),value)))
+    from .round_runtime import mark
+    mark(out,_activity_name.get(),details.get('generation'),kind)
     from .runner_diagnostics import pulse
     pulse(kind,generation=details.get('generation',0))
     try:
@@ -27,6 +29,7 @@ def operation(out, kind, **details):
     finally:
         _operations.reset(token)
         parent=next((entry for path,entry in reversed(parents) if path==out.resolve()),None)
+        mark(out,_activity_name.get(),(parent or {}).get('generation'),(parent or {}).get('kind','idle'))
         pulse((parent or {}).get('kind','idle'))
         write_json(activity_path(out),parent or {**value,'kind':'idle','previous_kind':kind,'finished_at':time.time()})
 

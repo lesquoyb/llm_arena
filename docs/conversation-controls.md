@@ -54,3 +54,17 @@ result preparation and publication separately. Timings include SQLite calls,
 SQLite wall/CPU time and SQLite errors. SQLite wall time includes lock waits and
 database I/O, so a large value alone does not establish a lock problem. Provider
 receipts also record how long a completed response waited for the coordinator.
+
+## Active time by round
+
+The Activity page shows cumulative active wall time for each round. A worker
+heartbeat checkpoints it every 30 seconds; graceful stops save the last interval.
+Restarts start a new interval and never bridge downtime, even if it is under ten
+minutes. A hard crash can lose up to one checkpoint interval. A process suspension
+of more than ten minutes is excluded too.
+
+Preparation, tournament, reference and verification phases are tracked separately.
+Concurrent phase durations can overlap; the round total counts each second once.
+For existing runs, a one-time estimate uses journal timestamps and retained engine
+heartbeat logs, excluding gaps over ten minutes. Estimates are marked ≈. Missing
+old logs cannot be reconstructed, and detailed phase timing starts with this update.
