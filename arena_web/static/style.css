@@ -2076,3 +2076,27 @@ dialog::backdrop {
 html:has(#conversation-transcript) {
   overflow-anchor: none;
 }
+
+/* Let short conversations fill the viewport without a blank strip above the footer. */
+.workspace:has(#conversation-transcript) {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+.workspace:has(#conversation-transcript) > .topbar,
+.workspace:has(#conversation-transcript) > footer {
+  flex-shrink: 0;
+}
+main:has(#conversation-transcript) {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  width: 100%;
+  min-height: 0;
+  margin: 0 auto;
+  padding-bottom: 0;
+}
+#conversation-transcript {
+  flex: 1;
+}
