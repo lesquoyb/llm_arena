@@ -6,6 +6,11 @@ from arena.audit_pool import scan
 
 
 class AuditPoolTests(unittest.TestCase):
+    def test_already_ready_provider_cannot_starve_audits_or_defer_an_empty_scan(self):
+        accepted=[]
+        self.assertTrue(scan(range(10),lambda value:value,accepted.append,interrupted=lambda:True,workers=2))
+        self.assertEqual(sorted(accepted),[0,1])
+        self.assertFalse(scan([],lambda value:value,accepted.append,interrupted=lambda:True,workers=2))
     def test_provider_readiness_stops_dispatch_and_drains_dispatched_checks(self):
         coordinator=threading.get_ident();accepted=[];started=[]
         def check(value):

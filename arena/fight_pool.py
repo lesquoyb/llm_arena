@@ -10,7 +10,7 @@ from .execution_control import poll
 
 
 def run(jobs, execute, save, *, limit=1, out, kind, generation=0, retry=None, batch_progress=None):
-    jobs=iter(jobs);retries=deque();pools=[];pending={};ready=deque();exhausted=False;error=None
+    jobs=iter(jobs);retries=deque();pools=[];pending={};ready=deque();exhausted=False;error=None;dispatched=0
     limit=poll(out,limit);pool=ThreadPoolExecutor(max_workers=limit,thread_name_prefix='arena-fight');pools.append(pool)
     from .worker_resources import host_memory, children_cpu_seconds, thread_cpu_seconds, cpu_capacity
     from . import io_metrics
@@ -69,7 +69,7 @@ def run(jobs, execute, save, *, limit=1, out, kind, generation=0, retry=None, ba
             finished_workers+=1
             timings=result.get('timings',{}) if isinstance(result,dict) else {}
             slow_fights.append({'participants':job['participants'],'seed':job['seed'],
-                'artifact_dir':str(job.get('work','')),'status':result.get('status'),
+                'artifact_dir':str(job.get('work','')),'status':result.get('status') if isinstance(result,dict) else None,
                 'java_seconds':timings.get('java_process_seconds',0),
                 'java_cpu_seconds':timings.get('java_cpu_seconds'),
                 'script_seconds':timings.get('script_execution_seconds',0)})
@@ -81,7 +81,7 @@ def run(jobs, execute, save, *, limit=1, out, kind, generation=0, retry=None, ba
         for key,value in {**(result.get('timings',{}) if isinstance(result,dict) else {}),**job.get('timings',{})}.items():
             if key.endswith('_seconds') and isinstance(value,(int,float)):
                 with guard:phase_seconds[key]=phase_seconds.get(key,0)+value
-        if retry and result.get('status') in {'timeout','engine_error'} and job.get('_retry',0)<2:
+        if retry and isinstance(result,dict) and result.get('status') in {'timeout','engine_error'} and job.get('_retry',0)<2:
             replacement=retry(job)
             replacement['_retry']=job.get('_retry',0)+1
             retries.append(replacement)
@@ -99,11 +99,14 @@ def run(jobs, execute, save, *, limit=1, out, kind, generation=0, retry=None, ba
                     if future.done():
                         with guard:ready.append((future,pending.pop(future)))
                 while len(pending)<limit and len(ready)+len(pending)<2*limit and (not exhausted or retries):
-                    if provider_work_ready():exhausted=True;retries.clear();break
+                    # Give both queues service: ready model replies yield the
+                    # batch after one wave, rather than preventing any fight.
+                    if dispatched>=limit and provider_work_ready():exhausted=True;retries.clear();break
                     job=retries.popleft() if retries else next(jobs,None)
                     if job is None:exhausted=True;break
                     job['phase']=job.get('phase','preparing');job['phase_started_at']=time.time()
                     started=time.time();future=pool.submit(execute,job)
+                    dispatched+=1
                     def finished(future,job=job):
                         job.update(finished_at=time.time(),phase='ready_to_save',phase_started_at=time.time())
                         if not future.cancelled() and future.exception() is None:

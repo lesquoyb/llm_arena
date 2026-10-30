@@ -9,6 +9,16 @@ from arena.reference_strategies import repetitions
 
 
 class FightPoolTests(unittest.TestCase):
+    def test_ready_provider_still_allows_a_wave_of_fights(self):
+        from arena.activity import _provider_yielder
+        saved=[];token=_provider_yielder.set(lambda:True)
+        try:
+            with tempfile.TemporaryDirectory() as directory:
+                jobs=[{'participants':['a','b'],'seed':i} for i in range(10)]
+                run(jobs,lambda job:job['seed'],lambda job,result:saved.append(result),
+                    limit=2,out=Path(directory),kind='tournament_fight')
+            self.assertEqual(sorted(saved),[0,1])
+        finally:_provider_yielder.reset(token)
     def test_fight_concurrency_has_no_arbitrary_upper_bound(self):
         from arena.core import ROOT, ArenaError, read_json
         from arena.experiment import validate_config
