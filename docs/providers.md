@@ -43,7 +43,29 @@ and per-session input, output and dollar limits may be omitted. If a total
 spending limit is configured, it must be positive. Model aliases and commercial prices are not hardcoded.
 Verify IDs, supported parameters and prices with the provider.
 
-Supply keys through server environment variables or the UI password field.
+For local use, copy `.env.example` to `.env` at the repository root and enter
+one key per provider:
+
+```dotenv
+ARENA_OPENAI_KEY=your_openai_key
+ARENA_GROQ_KEY=your_groq_key
+ARENA_GEMINI_KEY=your_gemini_key
+```
+
+All `arena` commands load this file at startup, including the interface,
+calibration workshop and their workers. Set each saved provider's API key
+environment variable to the matching name (for example `ARENA_GROQ_KEY`). Restart
+the application after editing the file. Loading uses the repository root,
+regardless of the terminal's current directory. Existing process environment
+variables take priority, including empty values.
+
+Use one `NAME=value` assignment per line; blank lines, `#` comments and simple
+single/double quoted values are supported. Values are literal: no shell commands,
+variable expansion, escaped quotes or multiline values. `.env` is ignored by Git;
+it contains plaintext secrets, so do not share it or include it in exports.
+Only `.env.example` belongs in the repository.
+
+You can also supply keys through server environment variables or the UI password field.
 UI-entered keys stay in server memory and are not written to configurations.
 In cloud settings, bind secrets to `api.openai.com`, `api.anthropic.com`,
 `generativelanguage.googleapis.com` or the configured compatible host.
@@ -187,3 +209,97 @@ The OpenAI compatible adapter retains provider-returned `reasoning_content` and
 This preserves the reasoning/tool sequence for compatible local servers. The
 journal keeps every response independently, including its native fields and raw
 response; the conversation viewer loads each response's reasoning separately.
+
+For the web recovery workflow, including **Resolve billing**, see [competition recovery](recovery.md).
+
+## Investigate a slow local model
+
+Improvement rounds start a fresh conversation. Within a preparation session, each request includes its growing history, including documentation pages, tool results and previous replies. Reading the entire API can therefore keep a large amount of text in subsequent requests. Prefer `lookup_api` to retrieve only relevant signatures.
+
+New conversation messages show input/output token counts when reported, request characters, message count, local request setup time and total API response time. The displayed output-token rate divides output tokens by the full response time: it includes input processing, queueing and provider retries, rather than measuring decoder throughput alone. Character counts are not tokenizer counts. Local setup measures request construction and saving its intent, separately from waiting for the provider.
+
+For Ollama, compare `ollama ps` before and during the slowdown. Check CPU/GPU placement and context allocation. Context growth, KV-cache memory pressure, partial CPU offload, prompt reprocessing and other workloads can reduce performance. Reasoning can also consume time beyond the visible answer. Arena cannot infer GPU saturation or actual decoder speed from a compatible API response that does not expose those measurements.
+
+Round fights run as soon as their strategies are submitted and frozen. Improvement strategies can also face the frozen reference panel before other preparations finish. Results are saved immediately and reused on resume. Only the next round waits for the current round to finish; preparation tools expose feedback from previous rounds only. Preparation tests remain separate and do not count toward competition results.
+
+## Requested reasoning effort
+
+OpenAI and compatible profiles have a **Reasoning effort** selector. **Provider default** omits `reasoning_effort`; Arena does not silently select medium or maximum. Explicit values are sent unchanged. Available levels depend on the exact model and endpoint. JSON configurations can specify additional endpoint-specific effort values. In the participant editor, the reasoning selector is authoritative over the JSON field; saved custom values are retained in the selector.
+
+The requested setting appears in the participant list, launch preview and recorded conversation requests. An endpoint may reject or ignore an unsupported setting, so the requested value does not prove the effective effort. An alias such as a Codex model name alone does not establish the API's default or supported levels. Inspect the exact endpoint/model documentation when choosing a level.
+
+Anthropic `thinking` and Gemini `thinking_config` remain provider-specific JSON settings; they are displayed as configured without translating them into OpenAI effort levels. Setting effort does not expose hidden reasoning. Existing competitions retain their frozen participant settings; changing a reusable profile affects new launches, not an already running conversation.
+
+## OpenAI Responses API
+
+GPT-6 model IDs, including `gpt-6.1-sol`, use `/v1/responses` automatically when reasoning effort is not explicitly `none`. A configured endpoint ending in `/chat/completions` is changed to `/responses` on the same server. This retains function tools together with reasoning effort. An explicit `/responses` endpoint also works for other models; compatible servers must implement that protocol.
+
+Responses requests send `reasoning.effort`, flat function-tool definitions and `max_output_tokens` when configured. They use `store: false` and replay only this conversation's output items and tool results. There is no `previous_response_id` or shared remote thread. Encrypted reasoning items are preserved for protocol continuation; they are not readable reasoning. Provider-exposed summaries, text, function calls and unknown output items remain inspectable in the conversation and journal. Input, cached input, output and reasoning token counts are normalized for accounting.
+
+Responses does not support `seed`; it is omitted and a note is attached to each recorded response. The recorded request is authoritative. Explicit `reasoning_effort: none` keeps Chat Completions unless the endpoint explicitly selects Responses. Other models retain their existing Chat Completions behavior.
+
+After a definitive HTTP 400 rejection, update the application and click **Retry conversation**. The saved conversation and other participants' results are retained; reasoning does not need to be disabled for this tools/endpoint incompatibility.
+
+For `gpt-6.1-sol`, the API reports `low`, `medium`, `high` and `xhigh`. Neither `none` nor `minimal` is supported. The editor disables these choices for that exact model and rejects unsupported profile saves before an API call.
+
+A running competition retains its original profile settings. **Retry conversation** now has an effort selector that explicitly overrides the saved effort for that failed conversation. The override is audited, does not rewrite the original configuration or affect other participants, and is inherited by future improvement branches from the recovered conversation. CLI equivalent: `python -m arena experiment retry RUN --session SESSION --reasoning-effort low --allow-updated-runner`. Use `--reasoning-effort provider-default` to explicitly omit an earlier effort setting.
+
+## Ollama memory and context troubleshooting
+
+During generation, run `ollama ps`. Its PROCESSOR column reports model placement,
+not instantaneous utilization. `66%/34% CPU/GPU` means CPU offloading is active.
+A context of 262144 reserves a large KV cache even before that many prompt tokens
+are used. With 8 GB of VRAM, this can force model layers onto CPU. The SIZE column
+includes the loaded allocation, so it is not by itself the model weight size.
+A growing prompt then increases work per request; message counts alone do not
+measure token work. The arena starts a fresh history at each improvement round,
+then retains messages within that round.
+
+Create a separate model with a smaller context for a pilot. In PowerShell:
+
+```powershell
+@'
+FROM code-agent:latest
+PARAMETER num_ctx 32768
+'@ | Set-Content -Encoding utf8 Modelfile.arena
+ollama create code-agent-32k -f Modelfile.arena
+ollama stop code-agent:latest
+```
+
+Select `code-agent-32k` in a new participant and run a short pilot. Inspect
+`ollama ps` again while it generates. A smaller context can improve placement;
+full GPU placement is not guaranteed if the weights still do not fit. If needed,
+try a smaller model or quantization. Do not treat a context change as the same
+benchmark variant. Retain the original model for comparisons.
+
+Check that the chosen context accommodates the real prompts, tool schemas,
+tool results and output. Ollama can truncate prompts exceeding its context;
+reducing context is not a lossless optimization. Each conversation's **Call
+performance** disclosure shows reported input/output tokens, request time and
+context message/character counts. The displayed tokens/s divides output tokens
+by full request time, including prompt processing, and is not decode-only speed.
+Compare calls with similar input/output lengths; total round time also includes
+compilation, tests, file writes and checkpoint work.
+
+See https://docs.ollama.com/context-length and https://docs.ollama.com/faq for
+context memory, model placement and KV-cache settings. Cache quantization and
+Flash Attention may help supported models, but should be recorded as separate
+runtime settings when benchmarking.
+
+## Test a saved model
+
+In **Participants**, click **Test API**. Calibration setup and active studies also expose model tests. Each click sends one small request:
+
+- **Connection** caps output at 16 tokens and omits optional generation parameters.
+  It checks the key, endpoint and model access; reasoning models may return no
+  visible text at this cap.
+- **Tools** caps output at 128 tokens, keeps saved generation parameters and asks
+  for one small `arena_probe` call. Returned tools are never executed. If no call
+  is returned, the result says so rather than claiming tool compatibility.
+
+The tests may incur provider charges. Automatic retries are disabled. Duration,
+reported usage/cost and failure diagnostics are saved under
+`.arena/ui/model-probes/`, separately from competition and calibration totals.
+Keys are resolved from the existing session/environment configuration, never
+written to these receipts. Unknown usage or cost stays unknown. Mistral requests
+use its `max_tokens` output-cap field.

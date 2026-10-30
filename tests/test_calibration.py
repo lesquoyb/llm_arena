@@ -37,12 +37,52 @@ class FixtureEngine:
 
 def config():
     value=defaults()
-    value.update(max_rounds=5,min_rounds=3,patience=2,replicates=1,opponents=['passive'],
+    value.pop('search')  # These fixtures exercise the legacy, frozen search protocol.
+    value.update(max_rounds=5,min_rounds=3,patience=2,replicates=1,stop_on_plateau=True,opponents=['passive'],
                  training_seeds=[101],validation_seeds=[301],audit_seeds=[701])
+    value['budget_per_session']={}
+    value['optimizer']['round_penalty']=0.002
     return value
 
 
 class CalibrationTests(TestCase):
+    def test_defaults_start_with_one_short_observation_and_legacy_configs_still_load(self):
+        value=defaults()
+        self.assertEqual(value['max_rounds'],1)
+        self.assertEqual(value['replicates'],1)
+        self.assertFalse(value['stop_on_plateau'])
+        self.assertEqual(value['budget_per_session']['max_calls'],8)
+        self.assertEqual(value['optimizer']['round_penalty'],0)
+        validate(value)
+        value.pop('stop_on_plateau')
+        validate(value)
+
+    def test_defaults_reload_arena_prompt_after_a_disk_edit(self):
+        with scratch_directory() as tmp,mock.patch('arena.calibration.ROOT',tmp):
+            path=tmp/'prompts/g0.md';path.parent.mkdir();path.write_text('First prompt',encoding='utf-8')
+            self.assertEqual(defaults()['prompt'],'First prompt')
+            path.write_text('Updated prompt',encoding='utf-8')
+            self.assertEqual(defaults()['prompt'],'Updated prompt')
+
+    def test_missing_submission_is_an_observation_for_the_analyst(self):
+        from arena.calibration import analyst_context
+        value=config();value['target']={'id':'empty','provider':'mock','profile':'empty'}
+        value['budget_per_session']={'max_calls':2};value['diagnostics']['enabled']=False
+        value['analyst']={'id':'editor','provider':'mock','profile':'single-shot'}
+        value['optimizer']['max_trials']=2
+        with scratch_directory() as tmp,mock.patch('arena.calibration.Engine',FixtureEngine):
+            result=study(value,tmp/'study',automatic=True)
+            self.assertEqual(result['status'],'completed')
+            baseline=result['trials'][0]['report']
+            self.assertEqual(baseline['validation_score'],0)
+            self.assertFalse(baseline['final_valid'])
+            self.assertEqual(baseline['replicates'][0]['stop_reason'],'no_submission')
+            self.assertEqual(len(baseline['replicates'][0]['rounds']),1)
+            self.assertTrue((tmp/'study/proposals/001/proposal.json').exists())
+            evidence=analyst_context(tmp/'study/trials/000',value,baseline)
+            self.assertIn('"has_submission": false',evidence['trajectory_excerpt'])
+            self.assertEqual(evidence['training'][0]['rounds'][0]['validity'],'no_submission')
+
     def test_rounds_plateau_frozen_sources_and_exact_resume_without_recomputation(self):
         with scratch_directory() as tmp:
             engine=FixtureEngine();value=config();out=tmp/'trial'
@@ -103,6 +143,66 @@ class CalibrationTests(TestCase):
         self.assertTrue(plateau([.4,.4,.4],value))
         invalid=copy.deepcopy(lean);invalid['final_valid']=False
         self.assertFalse(accept(invalid,baseline,value))
+
+    def test_token_objective_counts_all_rounds_and_normalizes_repetitions(self):
+        value=config()
+        rounds=[{'training':{'score':.5},'validation':{'score':.5},'validity':'valid',
+                 'input_tokens':100,'output_tokens':20,'cost_usd':'0.01'} for _ in range(3)]
+        result=objective({'replicates':[{'rounds':rounds},{'rounds':rounds}]},value)
+        self.assertEqual(result['tokens'],720)
+        self.assertEqual(result['input_tokens'],600)
+        self.assertEqual(result['output_tokens'],120)
+        self.assertEqual(result['mean_tokens_per_replicate'],360)
+        self.assertAlmostEqual(result['utility'],.5-value['optimizer']['round_penalty']-value['optimizer']['token_penalty_per_million']*360/1_000_000)
+        rounds[0]['input_tokens']=None
+        self.assertIsNone(objective({'replicates':[{'rounds':rounds}]},value)['tokens'])
+
+    def test_analyst_abstention_retains_best_without_running_another_trial(self):
+        value=config();value.update(max_rounds=1,min_rounds=1)
+        value['optimizer']['max_trials']=3
+        value['analyst']={'id':'editor','provider':'mock','profile':'single-shot'}
+        with scratch_directory() as tmp,mock.patch('arena.calibration.Engine',FixtureEngine),mock.patch('arena.calibration.propose',return_value={'no_change':True,'rationale':'No useful change justified.'}) as editor:
+            result=study(value,tmp/'study',automatic=True)
+            self.assertEqual(result['status'],'completed')
+            self.assertEqual(result['stop_reason'],'analyst_no_change')
+            self.assertEqual(result['incumbent'],0)
+            self.assertEqual(len(result['trials']),1)
+            self.assertFalse((tmp/'study/trials/001').exists())
+            editor.assert_called_once()
+
+    def test_guard_revisions_are_automatic_and_observation_does_not_revise(self):
+        from arena.calibration_guard import defaults as guard_defaults
+        with scratch_directory() as tmp:
+            value=config();value['analyst']={'id':'editor','provider':'openai-compatible','model':'fixture'};value['spending']={'allow_paid_calls':True}
+            value['proposal_guard']={**guard_defaults(),'enabled':True}
+            value['optimizer']['editor_retries']=0
+            answers=[]
+            def respond(sid,state,model,cfg,journal):
+                text=json.dumps({'prompt':value['prompt']+' revision '+str(len(answers)),
+                                 'tools':value['tools'],'rationale':'General authoring clarification'})
+                response={'role':'assistant','content':text}
+                answers.append(response);state['calls']=len(answers);state['history'].append(response);state['pending']=response
+                journal.save(sid,state,'fixture_response',response)
+                return response
+            context={'trajectory_excerpt':'Saved trajectory'}
+            with mock.patch('arena.calibration.analyst_context',return_value=context),mock.patch('arena.calibration.provider_response',side_effect=respond),mock.patch('arena.calibration.guard.review',side_effect=[{'status':'rejected','identity':'first','observations':[]},{'status':'approved','identity':'second','observations':[]}]):
+                propose(value,{},tmp/'baseline',tmp/'automatic')
+            self.assertEqual(len(answers),2)
+            self.assertEqual(len(list((tmp/'automatic/attempts').glob('*-draft.json'))),2)
+            answers.clear()
+            with mock.patch('arena.calibration.analyst_context',return_value=context),mock.patch('arena.calibration.provider_response',side_effect=respond),mock.patch('arena.calibration.guard.review',return_value={'status':'needs_review','identity':'ambiguous','observations':[]}):
+                propose(value,{},tmp/'baseline',tmp/'ambiguous')
+            self.assertEqual(len(answers),1)
+            checkpoint=Journal(tmp/'ambiguous')
+            try:
+                self.assertEqual(checkpoint.state('analyst-r0')['proposal_guard_decision']['action'],'evaluate_with_uncertainty')
+                self.assertEqual(checkpoint.state('analyst-r0')['status'],'submitted')
+            finally: checkpoint.db.close()
+            value['proposal_guard']['mode']='observe';answers.clear()
+            with mock.patch('arena.calibration.analyst_context',return_value=context),mock.patch('arena.calibration.provider_response',side_effect=respond),mock.patch('arena.calibration.guard.review',return_value={'status':'rejected','identity':'observed','observations':[]}):
+                result=propose(value,{},tmp/'baseline',tmp/'observe')
+            self.assertEqual(len(answers),1)
+            self.assertEqual(result['rationale'],'General authoring clarification')
 
     def test_system_prompt_is_native_for_all_protocols_and_empty_editor_tools_are_omitted(self):
         history=[{'role':'system','content':'SYSTEM EXACT'},{'role':'user','content':'TASK'}]
@@ -178,6 +278,39 @@ class CalibrationTests(TestCase):
             write_json(tmp/'proposal/proposal.json',{**proposal,'prompt':'tampered'})
             with self.assertRaisesRegex(ArenaError,'changed'): propose(value,report,tmp/'incumbent',tmp/'proposal')
 
+    def test_analyst_does_not_inherit_target_token_and_cost_limits(self):
+        with scratch_directory() as tmp:
+            value=config();report=trial(value,tmp/'incumbent',engine=FixtureEngine())
+            value['budget_per_session'].update(max_input_tokens=1,max_output_tokens=1,max_cost_usd='0')
+            value['spending']={'allow_paid_calls':True}
+            value['analyst']={'id':'editor','provider':'openai-compatible','model':'fixture','api_key_env':'ARENA_EDITOR_FIXTURE',
+                'endpoint':'http://127.0.0.1:11434/v1/chat/completions','max_output_tokens':2048,
+                'pricing':{'date':'2026-10-22','currency':'USD','input_per_million':'0','output_per_million':'0'}}
+            answer={'role':'assistant','content':json.dumps({'no_change':True,'rationale':'No justified improvement.'}),
+                    'tool_calls':[],'usage':{'input_tokens':900,'output_tokens':90},'cost_usd':'0'}
+            with mock.patch('arena.api_providers.APIProvider.respond',return_value=answer) as respond:
+                result=propose(value,report,tmp/'incumbent',tmp/'proposal')
+                self.assertTrue(result['no_change'])
+                self.assertEqual(respond.call_args.args[-1],2048)
+            journal=Journal(tmp/'proposal')
+            try:
+                state=journal.state('analyst-r0')
+                self.assertEqual(state['status'],'submitted')
+                self.assertEqual(state['input_tokens'],900)
+            finally:journal.db.close()
+            from arena.experiment import initial_state
+            from arena.calibration import experiment_config
+            saved=tmp/'saved-budget-answer';saved.mkdir()
+            journal=Journal(saved)
+            try:
+                state=initial_state('analyst-r0',value['analyst'],experiment_config(value))
+                state.update(status='budget_exhausted',calls=1,input_tokens=900,output_tokens=90,
+                             calibration={'tools':[]},pending=answer)
+                journal.save('analyst-r0',state,'fixture_saved_answer')
+            finally:journal.db.close()
+            with mock.patch('arena.api_providers.APIProvider.respond',side_effect=AssertionError('Do not repeat a saved response')):
+                self.assertTrue(propose(value,report,tmp/'incumbent',saved)['no_change'])
+
     def test_study_ceiling_includes_earlier_candidates_before_reserving_another_request(self):
         from arena.experiment import initial_state,provider_response
         from test_web import api_model
@@ -198,6 +331,25 @@ class CalibrationTests(TestCase):
                     self.assertIsNone(provider_response('target-r0-g0',state,value['target'],exp,journal))
                     self.assertEqual(state['status'],'budget_exhausted');respond.assert_not_called()
             finally:journal.db.close()
+
+    def test_preparation_limits_are_explained_and_returned_in_calibration_tools(self):
+        with scratch_directory() as tmp:
+            value=config()
+            value.update(max_rounds=1,min_rounds=1)
+            value['budget_per_session']={'max_calls':8,'max_agent_steps':20,'max_test_matches':4}
+            trial(value,tmp/'trial',engine=FixtureEngine())
+            journal=Journal(tmp/'trial')
+            try:
+                history=journal.state('target-r0-g0')['history']
+                instruction=next(message for message in history if message['role']=='user')
+                self.assertEqual(instruction['preparation_budget']['limits']['calls']['remaining'],8)
+                self.assertIn('Save a complete strategy early',instruction['budget_instructions'])
+                receipts=[message['result'] for message in history if message['role']=='tool']
+                self.assertTrue(receipts)
+                self.assertTrue(all('preparation_budget' in result for result in receipts))
+                self.assertLess(receipts[-1]['preparation_budget']['limits']['calls']['remaining'],8)
+            finally:
+                journal.db.close()
 
 
 class NativeCalibrationTests(TestCase):

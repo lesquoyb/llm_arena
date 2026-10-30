@@ -73,3 +73,43 @@ class ModelContextTests(TestCase):
             with self.assertRaisesRegex(ArenaError,'changed'): access.call('read_submitted_file',{'round':2,'path':'main.leek'})
             # Windows rejects deletion if any reader or the fixture kept a handle.
             (out/'journal.sqlite').unlink()
+
+    def test_earlier_fights_link_to_sources_and_ui_keeps_inherited_baseline(self):
+        import hashlib
+        from arena.experiment import Journal
+        from arena.feedback import access_for
+        from arena_web.data import Store
+        with scratch_directory() as out:
+            journal=Journal(out)
+            try:
+                parent=None
+                for sid,generation,code in [('model-r0',0,'// Round one\n'),('model-r0-g1-feedback',1,'// Full inherited strategy\n')]:
+                    folder=out/'sessions'/sid/'submission';folder.mkdir(parents=True)
+                    (folder/'main.leek').write_text(code,encoding='utf-8')
+                    info=submission(folder)
+                    journal.save(sid,{'model':'model','replicate':0,'generation':generation,'parent':parent,'submission':info,'history':[]},'submitted')
+                    stage='tournament' if not generation else 'g1-tournament'
+                    write_json(out/stage/'records/match.json',{'match':{'sides':[sid,'other'],'mirror':False},'result':{'status':'completed','winner_side':0,'turns':1}})
+                    parent=sid
+                after='// One line\n'
+                state={'model':'model','replicate':0,'generation':2,'parent':parent,'condition':'feedback','history_policy':'fresh-round',
+                       'history':[{'role':'assistant','tool_calls':[{'name':'write_file','arguments':{'path':'main.leek','content':after}}]},
+                                  {'role':'tool','name':'write_file','result':{'sha256':hashlib.sha256(after.encode()).hexdigest()}}]}
+                journal.save('model-r0-g2-feedback',state,'branch_created')
+                access=access_for(out,state)
+                self.assertEqual(access.call('list_past_fights',{})['round'],2)
+                listing=access.call('list_past_fights',{'round':1})
+                self.assertEqual(listing['available_rounds'],[1,2])
+                fight=access.call('read_past_fight',{'fight_id':listing['matches'][0]['fight_id']})
+                self.assertEqual(fight['own_submission']['read']['arguments'],{'round':1,'path':'main.leek'})
+                with self.assertRaises(ArenaError): access.call('list_past_fights',{'round':3})
+                self.assertIsNone(access_for(out,{**state,'condition':'control'}))
+                store=Store(out.parent,out/'ui')
+                versions=store.versions(out.name,'model-r0-g2-feedback')['versions']
+                self.assertEqual(versions[0]['inherited_round'],2)
+                result=store.source(out.name,'model-r0-g2-feedback',1,'main.leek')
+                self.assertEqual(result['before'],'// Full inherited strategy\n')
+                self.assertEqual(result['after'],after)
+                exchange=store.tool_exchange(out.name,'model-r0-g2-feedback',1)
+                self.assertEqual(exchange['before'],'// Full inherited strategy\n')
+            finally: journal.db.close()

@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import hashlib
+import copy
+from functools import lru_cache
 import json
 import re
 import shutil
@@ -10,6 +12,7 @@ import uuid
 import os
 from contextlib import contextmanager
 from pathlib import Path
+from . import io_metrics
 
 ROOT = Path(os.environ.get("ARENA_PROJECT_ROOT", Path(__file__).resolve().parent.parent)).resolve()
 STATE_ROOT = Path(os.environ.get("ARENA_STATE_ROOT", ROOT / ".arena")).resolve()
@@ -85,15 +88,24 @@ def scratch_directory():
 
 
 def read_json(path: Path):
-    return json.loads(path.read_text(encoding="utf-8-sig"))
+    if not io_metrics.enabled:return json.loads(path.read_text(encoding="utf-8-sig"))
+    started=time.monotonic();raw=path.read_text(encoding="utf-8-sig")
+    io_metrics.add('json_read',time.monotonic()-started)
+    started=time.monotonic();result=json.loads(raw)
+    io_metrics.add('json_parse',time.monotonic()-started)
+    return result
 
 
-def write_json(path: Path, value):
+def write_json(path: Path, value, *, return_sha256=False):
+    measured=io_metrics.enabled;started=time.monotonic() if measured else 0
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(path.suffix + ".tmp")
     # Receipts and crash recovery hash canonical UTF-8/LF bytes on every host.
-    temporary.write_text(json.dumps(value, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n")
-    replace_file(temporary, path)
+    content=json.dumps(value,ensure_ascii=False,indent=2)+'\n'
+    temporary.write_text(content,encoding='utf-8',newline='\n')
+    replace_file(temporary,path)
+    if measured:io_metrics.add('json_write',time.monotonic()-started)
+    if return_sha256:return hashlib.sha256(content.encode('utf-8')).hexdigest()
 
 
 def replace_file(source: Path, target: Path, attempts: int = 50):
@@ -110,7 +122,9 @@ def replace_file(source: Path, target: Path, attempts: int = 50):
         except PermissionError:
             if os.name != "nt" or attempt == attempts - 1:
                 raise
+            started=time.monotonic()
             time.sleep(min(0.01 * 2 ** attempt, 0.25))
+            io_metrics.add('windows_replace_backoff',time.monotonic()-started)
 
 
 def digest(value) -> str:
@@ -118,12 +132,19 @@ def digest(value) -> str:
 
 
 def file_hash(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+    if not io_metrics.enabled:return hashlib.sha256(path.read_bytes()).hexdigest()
+    started=time.monotonic();raw=path.read_bytes()
+    io_metrics.add('hash_read',time.monotonic()-started)
+    started=time.monotonic();result=hashlib.sha256(raw).hexdigest()
+    io_metrics.add('hash_compute',time.monotonic()-started)
+    return result
 
 
 def tree_hash(path: Path) -> str:
     return digest({p.relative_to(path).as_posix(): file_hash(p) for p in sorted(path.rglob("*")) if p.is_file()})
 
+
+AUTOMATIC_ERROR_FILE='.arena-submission-error.json'
 
 def source_files(source: Path) -> dict[str, bytes]:
     if not source.is_dir() or is_link(source):
@@ -132,29 +153,42 @@ def source_files(source: Path) -> dict[str, bytes]:
     for p in sorted(source.rglob("*")):
         if is_link(p):
             raise ArenaError(f"Links are not allowed in submissions: {p}")
-        if p.is_file() and (p.suffix == ".leek" or p == source / "team.json"):
+        if p.is_file() and (p.suffix == ".leek" or p == source / "team.json" or p == source / AUTOMATIC_ERROR_FILE):
             files[p.relative_to(source).as_posix()] = p.read_bytes()
-    if not any(name.endswith(".leek") for name in files) or sum(name.endswith(".leek") for name in files) > 128 or sum(map(len, files.values())) > 2_000_000:
+    if AUTOMATIC_ERROR_FILE in files and len(files[AUTOMATIC_ERROR_FILE])>4096: raise ArenaError('Automatic submission diagnostic exceeds its size limit')
+    if not any(name.endswith(".leek") for name in files) or sum(name.endswith(".leek") for name in files) > 128 or sum(len(data) for name,data in files.items() if name!=AUTOMATIC_ERROR_FILE) > 2_000_000:
         raise ArenaError("A submission must contain 1–128 .leek files, totalling at most 2 MB")
     return files
 
 
-def submission(source: Path, entrypoint: str = "main.leek") -> dict:
-    files = source_files(source)
+@lru_cache(maxsize=256)
+def _normalized_team(content, names):
+    from .teams import validate_team
+    return validate_team(json.loads(content),files=names)
+
+
+def _submission_files(files, entrypoint):
     if entrypoint not in files or not entrypoint.endswith(".leek"):
         raise ArenaError(f"Entrypoint must name a .leek file within the submission: {entrypoint}")
     hashes = {name: hashlib.sha256(content).hexdigest() for name, content in files.items()}
     info = {"entrypoint": entrypoint, "files": hashes, "sha256": digest(hashes)}
+    if AUTOMATIC_ERROR_FILE in files:
+        issue=json.loads(files[AUTOMATIC_ERROR_FILE])
+        if not isinstance(issue,dict) or not isinstance(issue.get('error'),str): raise ArenaError('Invalid automatic-submission diagnostic')
+        info['configuration_error']=issue['error']
     if "team.json" in files:
-        from .teams import validate_team
-        info["team"] = validate_team(json.loads(files["team.json"]), files=files)
+        info["team"] = copy.deepcopy(_normalized_team(files['team.json'],tuple(sorted(files))))
     return info
+
+
+def submission(source: Path, entrypoint: str = "main.leek") -> dict:
+    return _submission_files(source_files(source),entrypoint)
 
 
 def copy_submission(source: Path, target: Path, expected: dict):
     files = source_files(source)
     actual = {name: hashlib.sha256(content).hexdigest() for name, content in files.items()}
-    if actual != expected["files"] or submission(source, expected["entrypoint"]) != expected:
+    if actual != expected["files"] or _submission_files(files,expected['entrypoint']) != expected:
         raise ArenaError(f"Submission changed since scheduling: {source}")
     target.mkdir(parents=True, exist_ok=True)
     for name, content in files.items():
@@ -163,9 +197,10 @@ def copy_submission(source: Path, target: Path, expected: dict):
         dest.write_bytes(content)
 
 
-def integer(value, low: int, high: int, label: str):
-    if type(value) is not int or not low <= value <= high:
-        raise ArenaError(f"{label} must be an integer in [{low}, {high}]")
+def integer(value, low: int, high: int | None, label: str):
+    if type(value) is not int or value < low or (high is not None and value > high):
+        bounds=f"in [{low}, {high}]" if high is not None else f"at least {low}"
+        raise ArenaError(f"{label} must be an integer {bounds}")
 
 
 def validate_scenario(config: dict):
@@ -295,3 +330,18 @@ def load_manifest(path: Path) -> dict:
         s["path"] = str((path.parent / s["path"]).absolute())
         s["submission"] = submission(Path(s["path"]), s.get("entrypoint", "main.leek"))
     return value
+
+
+def verify_source_files(source, expected, hasher=file_hash, track_directory=None):
+    """Verify an already normalized frozen submission without reinterpreting its team."""
+    if not source.is_dir() or is_link(source):raise ArenaError('Invalid frozen source directory')
+    hashes={};size=0
+    if track_directory:track_directory(source)
+    for path in sorted(source.rglob('*')):
+        if is_link(path):raise ArenaError('Links are not allowed in submissions: '+str(path))
+        if track_directory and path.is_dir():track_directory(path)
+        if path.is_file() and (path.suffix=='.leek' or path==source/'team.json' or path==source/AUTOMATIC_ERROR_FILE):
+            name=path.relative_to(source).as_posix();hashes[name]=hasher(path)
+            if name!=AUTOMATIC_ERROR_FILE:size+=path.stat().st_size
+            elif path.stat().st_size>4096:raise ArenaError('Automatic submission diagnostic exceeds its size limit')
+    if hashes!=expected['files'] or size>2_000_000:raise ArenaError('Frozen source was modified: '+str(source))

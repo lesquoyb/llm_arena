@@ -66,6 +66,7 @@ class ProviderContractTests(unittest.TestCase):
                               "completion_tokens_details": {"reasoning_tokens": 15}}}
         captured = []
         def transport(url, payload, headers, timeout):
+            self.assertEqual(headers.get("User-Agent"), "LLMArena/1.0")
             captured.append(payload)
             return response, "request-fixture"
         with mock.patch.dict(os.environ, {"ARENA_TEST_KEY": "test-only"}):

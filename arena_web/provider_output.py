@@ -41,6 +41,20 @@ def blocks(message):
     native = message.get('native') or {}
     if not isinstance(native, dict):
         native = {}
+    for item in native.get('responses_output') or []:
+        kind = item.get('type')
+        if kind == 'message':
+            for part in item.get('content') or []:
+                add('text' if part.get('type') == 'output_text' else 'other', 'Answer text', part)
+        elif kind == 'function_call': add('tool_call', 'Arena tool request · ' + str(item.get('name')), item)
+        elif kind == 'reasoning':
+            if item.get('summary'): add('reasoning', 'Provider-exposed reasoning summary', item['summary'])
+            if item.get('encrypted_content'):
+                add('opaque', 'Encrypted reasoning (not readable)', item['encrypted_content'])
+                result[-1]['hidden'] = True
+            add('other', 'Reasoning item metadata', {k:v for k,v in item.items() if k not in {'summary','encrypted_content'}})
+            result[-1]['hidden'] = True
+        else: add('provider_tool' if 'call' in str(kind) else 'other', 'Provider output · ' + str(kind), item)
     reasoning_keys = {'reasoning', 'reasoning_content', 'reasoning_details', 'thinking', 'analysis'}
     for key, value in native.items():
         if key in reasoning_keys:
@@ -80,7 +94,7 @@ def blocks(message):
         name = (call.get('function') or {}).get('name', call.get('type', 'unknown'))
         add('tool_call', 'Arena tool request · ' + str(name), call)
     for key, value in native.items():
-        if key in {'role', 'content', 'parts', 'tool_calls'} | reasoning_keys:
+        if key in {'role', 'content', 'parts', 'tool_calls', 'responses_output'} | reasoning_keys:
             continue
         kind = 'reasoning' if key in {'reasoning', 'reasoning_content', 'reasoning_details', 'thinking', 'analysis'} else 'other'
         if key in {'thought_signature', 'thoughtSignature', 'encrypted_content'}: kind = 'opaque'
@@ -113,6 +127,9 @@ def preview(message):
         text = content
     elif isinstance(content, list):
         text = '\n'.join(p.get('text', '') for p in content if isinstance(p, dict) and p.get('type') == 'text' and isinstance(p.get('text'), str))
+    elif native.get('responses_output') is not None:
+        text = '\n'.join(part.get('text', '') for item in native['responses_output'] if item.get('type') == 'message'
+                         for part in item.get('content', []) if part.get('type') == 'output_text')
     elif native.get('parts'):
         text = '\n'.join(p.get('text', '') for p in native['parts'] if isinstance(p, dict) and not p.get('thought') and isinstance(p.get('text'), str))
     else:

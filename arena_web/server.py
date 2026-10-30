@@ -36,7 +36,9 @@ class Application:
         from arena.presets import simple_scenario, participant_scenario
         demo = self.store.json(ROOT / "configs/offline-complete.json")
         config = {**demo, "name": "New competition", "scenario": simple_scenario()}
-        return {"token": self.token, "participants": self.store.participants(),
+        return {"token": self.token, "participants": self.store.participants(), "providers": self.store.providers(),
+                "workspaces":self.store.workspace_index()['workspaces'],
+                "participant_groups":self.store.participant_groups(),
                 "drafts": self.store.drafts(), "runs": self.store.listing(), "jobs": self.jobs.listing(),
                 "profiles": list(PROFILES), "engine": engine,
                 "default_config": config, "demo_config": demo, "participant_scenario": participant_scenario()}
@@ -69,14 +71,44 @@ class Application:
             return {"components": component_catalog(), "stat_rules": RULES, "weapons": catalog(data, "weapons"), "chips": catalog(data, "chips"),
                     "component_snapshot": {key: component_rules[key] for key in ('source_url', 'master_version', 'fetched_at')},
                     "effects": effects, "snapshot": store.json(data / "snapshot.json")["engine"]["lock"]["commit"]}
+        if route == "/api/reference-strategies":
+            from arena.reference_strategies import CATALOG
+            return {"strategies":CATALOG}
+        if route == '/api/performance':
+            return store.performance.snapshot()
+        if route == '/api/fight-performance':
+            from arena.fight_history import read
+            root=store.run_path(run)
+            return {'latest':store.json(root/'fight-performance.json',{}),'samples':read(root),
+                    'units':'CPU cores = CPU seconds / wall seconds. Phase and I/O times sum concurrent work and overlap; do not add them as percentages. Throughput is the last 60 seconds.'}
         if route == "/api/runs":
             return {"runs": store.listing(), "jobs": self.jobs.listing()}
+        if route == '/api/workspace':
+            return store.workspace_summary(value('workspace',''),section=value('section','all'))
+        if route == '/api/match/source':
+            return store.match_source(run,value('path'),int(value('side','0')),value('file'))
+        if route == '/api/match/sources':
+            return {'sources':store.match_sources(run,value('path'))}
+        if route == '/api/schedule-audit':
+            from .schedule_audit import audit
+            return audit(store,run,int(value('generation')) if value('generation') is not None else None)
+        if route == '/api/activity':
+            from .activity import status
+            jobs=[job for job in self.jobs.listing() if job['run']==run]
+            return {**status(store,run,jobs[0] if jobs else None),'jobs':jobs}
+        if route == '/api/faults':
+            from .faults import report
+            return report(store,run)
+        if route == '/api/run/provider-limits':
+            return self.jobs.provider_limits(run)
         if route == "/api/run":
             return store.detail(run)
+        if route == "/api/provider-diagnostics":
+            return store.provider_diagnostics(run, sid)
         if route == "/api/session-diagnostics":
             return store.session_diagnostics(run, sid)
         if route == "/api/conversation":
-            return store.conversation(run, sid, number("offset", 0), min(number("limit", 25), 100))
+            return store.conversation(run, sid, number("offset", 0), min(number("limit", 25), 100),include_diagnostics=value("lightweight")!="1",tail=value("tail")=="1")
         if route == "/api/tool-exchange":
             return store.tool_exchange(run, sid, number("index", 0))
         if route == "/api/message-output":
@@ -84,7 +116,8 @@ class Application:
         if route == "/api/message":
             return store.message(run, sid, number("index", 0))
         if route == "/api/events":
-            return store.events(run, sid, number("offset", 0), min(number("limit", 100), 500), value("model"))
+            return store.events(run, sid, number("offset", 0), min(number("limit", 100), 500), value("model"),
+                                {"round":value("scope_round"),"track":value("scope_track"),"replicate":value("scope_replicate")})
         if route == "/api/event":
             return store.event(run, number("id", 0))
         if route == "/api/versions":
@@ -93,11 +126,11 @@ class Application:
             return store.source(run, sid, number("version", 0), value("file"),
                                 int(value("previous")) if value("previous") is not None else None)
         if route == "/api/files":
-            return store.files(run)
+            return store.files(run,include_artifacts=value("artifacts","1")=="1")
         if route == "/api/statistics":
             return store.statistics(run)
         if route == "/api/matches":
-            return store.matches(run)
+            return store.matches(run,compact=value("compact")=="1")
         if route == "/api/match":
             from .replay import describe
             result = store.match(run, value("path"))
@@ -115,6 +148,12 @@ class Application:
     def post(self, route, data):
         if not isinstance(data, dict):
             raise ArenaError("Expected a JSON object")
+        if route == "/api/provider":
+            return self.store.save_provider(data['spec'],data.get('secret'))
+        if route == "/api/provider/delete":
+            return self.store.delete_provider(data['id'])
+        if route == "/api/provider/participants":
+            return self.store.create_provider_participants(data['id'],data['models'])
         if route == "/api/models":
             from arena.api_providers import list_models
             import os
@@ -141,20 +180,86 @@ class Application:
         if route == "/api/stats/realistic":
             from arena.stats import to_realistic
             return {"scenario": to_realistic(data['scenario'])}
+        if route == '/api/participant/reference':
+            from arena.reference_strategies import participant
+            from arena.presets import simple_scenario
+            scenario=self.store.detail(data['run'])['metadata']['config']['scenario'] if data.get('run') else simple_scenario()
+            spec=participant(data['reference'],data['id'],scenario)
+            with self.store.lock:
+                if any(m['id']==data['id'] for m in self.store.catalog()):
+                    raise ArenaError('A participant with this name already exists')
+                config=read_json(ROOT/'configs/offline-complete.json')
+                config.update(models=[spec],scenario=scenario,spending={'allow_paid_calls':False,'max_total_usd':0})
+                validate_config(config)
+                from arena.core import write_json
+                write_json(self.store.state/'participants.json',self.store.catalog()+[spec])
+            return {'saved':data['id']}
+        if route == "/api/participant/import":
+            return self.store.import_strategy(data["run"],data["session"],data["id"])
         if route == "/api/participant":
             return self.store.save_participant(data["spec"], data.get("secret"))
         if route == "/api/participant/delete":
             return self.store.delete_participant(data["id"])
+        if route == '/api/participant-group':
+            return self.store.save_participant_group(data['name'],data.get('members',[]),data.get('id'))
+        if route == '/api/participant-group/delete':
+            return self.store.delete_participant_group(data['id'])
+        if route == '/api/participant/groups':
+            return self.store.set_participant_groups(data['participant'],data.get('groups',[]))
         if route == "/api/competition":
-            return self.store.save_draft(data["config"], data.get("id"))
+            options={'workspace_id':data['workspace_id']} if 'workspace_id' in data else {}
+            return self.store.save_draft(data["config"], data.get("id"),**options)
+        if route == '/api/workspace':
+            return self.store.save_workspace(data['name'],data.get('id'),data.get('description',''))
+        if route == '/api/workspace/delete':
+            return self.store.delete_workspace(data['id'])
+        if route == '/api/workspace/members':
+            return self.store.assign_workspace(data.get('workspace_id'),data.get('runs'),data.get('drafts'),replace=data.get('replace') is True)
         if route == "/api/competition/delete":
             return self.store.delete_draft(data["id"])
         if route == "/api/plan":
+            if data.get('frozen') and data.get('run'):
+                from arena.roster import effective, snapshot, validate_effective
+                root=self.store.run_path(data['run'])
+                config=effective(root,read_json(root/'experiment.json')['config'])
+                roster=snapshot(root) or {}
+                withdrawn=set(roster.get('withdrawn',[]))
+                validate_effective(config,withdrawn)
+                selected={**config,'compare_previous_round':roster.get('compare_previous_round',config.get('compare_previous_round',False)),'models':[model for model in config['models'] if model['id'] not in withdrawn]}
+                planned={**selected,'_parallel_fights':self.store.json(root/'execution-control.json',{}).get('parallel_fights',roster.get('parallel_fights',config.get('parallel_fights',1))),
+                         '_request_order':roster.get('request_order',config.get('request_order','models')),
+                         '_parallel_requests':roster.get('parallel_requests',config.get('parallel_requests',1)),
+                         '_fixed_reference_repetitions':read_json(root/'experiment.json').get('fixed_reference_repetitions',config['replicates'])}
+                return {**plan(planned),'active_models':[model['id'] for model in selected['models']], 'config':config,'config_sha256':digest(config)}
             config = data['config'] if data.get('frozen') else self.store.resolve_models(data['config'])
             return {**plan(validate_config(config)), 'config':config, 'config_sha256':digest(config)}
+        if route == '/api/run/participants':
+            return self.jobs.participants(data['run'], data.get('participants'), data.get('frozen_tracks'), data.get('compare_previous_round'), data.get('parallel_fights'), data.get('request_order'), data.get('parallel_requests'))
+        if route == '/api/run/provider-limits':
+            return self.jobs.provider_limits(data['run'],data['endpoint_limits'])
+        if route == '/api/conversation/retry-policy':
+            return self.jobs.retry_policy(data['run'],data['session'],data['paused'])
+        if route == '/api/conversation/recover':
+            return self.jobs.recover_conversation(data['run'],data['session'],data.get('action','continue'),data.get('message'))
+        if route == '/api/run/execution':
+            return self.jobs.execution_control(data['run'],data['parallel_fights'])
+        if route == '/api/run/retry-fights':
+            return self.jobs.retry_fights(data['run'])
+        if route == '/api/run/run-fights':
+            return self.jobs.retry_fights(data['run'],include_ready=True)
         if route == "/api/launch":
             return self.jobs.launch(draft_id=data.get("draft_id"), run_id=data.get("run"),
-                                    confirm_paid=data.get("confirm_paid", False), ceiling=data.get("ceiling"), retry_session=data.get("retry_session"), expected_config_sha256=data.get("expected_config_sha256"))
+                                    confirm_paid=data.get("confirm_paid", False), ceiling=data.get("ceiling"), retry_session=data.get("retry_session"), expected_config_sha256=data.get("expected_config_sha256"), allow_updated_runner=data.get("allow_updated_runner") is True, retry_reasoning_effort=data.get("retry_reasoning_effort"))
+        if route == '/api/model-test':
+            from .model_probe import probe_model
+            model=next((row for row in self.store.catalog() if row['id']==data['id']),None)
+            if not model: raise ArenaError('Unknown participant')
+            return probe_model(self.store,model,data.get('mode','text'),data.get('secret'))
+        if route == "/api/provider-probe":
+            from .provider_probe import probe
+            return probe(self.jobs, data["run"], data["session"], data["mode"], data.get("confirm_paid"))
+        if route == "/api/reconcile":
+            return self.jobs.reconcile(data["run"], data["session"], data["cost_usd"], data["note"])
         if route == "/api/stop":
             return self.jobs.stop(data["id"])
         if route == "/api/aggregate":
@@ -168,8 +273,15 @@ class Application:
             source = self.store.run_path(data["run"])
             target = self.store.runs / (source.name + "-export-" + uuid.uuid4().hex[:8])
             result = export_experiment(source, target)
-            return {**result, "run": target.relative_to(self.store.runs).as_posix()}
+            identifier=target.relative_to(self.store.runs).as_posix()
+            with self.store.lock:
+                workspace=self.store.workspace_index()['runs'].get(data['run'])
+                if workspace:self.store.assign_workspace(workspace,runs=[identifier])
+            return {**result, "run": identifier}
         raise ArenaError("Route not found")
+
+
+from .performance import request as measure_request, stage as performance_stage, response as performance_response
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -192,9 +304,15 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def json_response(self, status, value):
-        body = json.dumps(value, ensure_ascii=False).encode("utf-8")
-        self.headers_for(status, "application/json; charset=utf-8", len(body))
-        self.wfile.write(body)
+        with performance_stage('json_serialization'):
+            body = json.dumps(value, ensure_ascii=False).encode("utf-8")
+        performance_response(status,len(body))
+        try:
+            self.headers_for(status, "application/json; charset=utf-8", len(body))
+            with performance_stage('socket_write'):
+                self.wfile.write(body)
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            self.close_connection=True
 
     def check_origin(self):
         expected = {f"127.0.0.1:{self.server.server_port}", f"localhost:{self.server.server_port}"}
@@ -207,13 +325,45 @@ class Handler(BaseHTTPRequestHandler):
         if self.headers.get("Sec-Fetch-Site") == "cross-site":
             raise ArenaError("Origin not allowed")
 
+    @measure_request
     def do_GET(self):
         try:
             self.check_origin()
             parsed = urlsplit(self.path)
             query = parse_qs(parsed.query)
             app = self.server.app
-            if parsed.path == "/api/file":
+            if parsed.path == "/api/results.csv":
+                from tempfile import TemporaryDirectory
+                from arena.benchmark_export import export
+                roots=([app.store.run_path(row['id']) for row in app.store.workspace_runs(query['workspace'][0])
+                        if not row.get('archived') and not row.get('error')]
+                       if 'workspace' in query else [app.store.run_path(query['run'][0])])
+                table = query.get('table', ['results'])[0]
+                if table=='summary' and 'workspace' in query:
+                    import csv
+                    import io
+                    summary=app.store.workspace_summary(query['workspace'][0])
+                    stream=io.StringIO(newline='')
+                    columns=['workspace_id','comparison_group','kind','stage','scenario_sha256','runs','participant','round','condition','score','wins','draws','losses','failed','strategies','model_size_billion','score_per_billion','mean_cost_usd','mean_wall_seconds','mean_tool_calls','total_tool_calls']
+                    writer=csv.DictWriter(stream,fieldnames=columns);writer.writeheader()
+                    for group in summary['groups']:
+                        for row in group['models']:
+                            writer.writerow({'workspace_id':query['workspace'][0],'comparison_group':group['id'],
+                                'kind':group['kind'],'stage':group['stage'],'scenario_sha256':digest(group['scenario']),
+                                'runs':json.dumps(group['runs']), 'participant':row['name'],'strategies':row['conversations'],
+                                **{key:row[key] for key in ('round','condition','score','wins','draws','losses','failed','model_size_billion','score_per_billion','mean_cost_usd','mean_wall_seconds','mean_tool_calls','total_tool_calls')}})
+                    body=stream.getvalue().encode('utf-8-sig')
+                elif table in {'results', 'fights', 'sessions', 'errors'}:
+                    with TemporaryDirectory(prefix='arena-results-') as directory:
+                        target = Path(directory) / 'export'
+                        export(roots, target,catalog=app.store.catalog())
+                        body = (target / (table + '.csv')).read_bytes()
+                else:
+                    raise ArenaError('Unknown results table')
+                filename=(query['workspace'][0]+'-' if 'workspace' in query else '')+table+'.csv'
+                self.headers_for(200, 'text/csv; charset=utf-8', len(body), filename)
+                self.wfile.write(body)
+            elif parsed.path == "/api/file":
                 root = app.store.run_path(query["run"][0])
                 path = safe_path(root, query["path"][0])
                 if not path.is_file() or path.name.startswith("journal.sqlite") or path.name == ".lock":
@@ -228,7 +378,7 @@ class Handler(BaseHTTPRequestHandler):
             elif parsed.path.startswith("/api/"):
                 self.json_response(200, app.get(parsed.path, query))
             else:
-                names = {"/": "index.html", "/app.js": "app.js", "/style.css": "style.css", "/favicon.png": "favicon.png"}
+                names = {"/": "index.html", "/app.js": "app.js", "/live-dom.js":"live-dom.js", "/repetition-stats.js":"repetition-stats.js", "/repetition-chart.js":"repetition-chart.js", "/style.css": "style.css", "/workspace.css": "workspace.css", "/favicon.png": "favicon.png"}
                 if parsed.path not in names:
                     self.json_response(404, {"error": "Page not found"})
                     return
@@ -236,17 +386,19 @@ class Handler(BaseHTTPRequestHandler):
                 body = path.read_bytes()
                 mime = {".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".png": "image/png"}[path.suffix]
                 self.headers_for(200, mime if path.suffix == ".png" else mime + "; charset=utf-8", len(body))
-                self.wfile.write(body)
+                with performance_stage('socket_write'):
+                    self.wfile.write(body)
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            self.close_connection=True
         except (ArenaError, ValueError, KeyError, TypeError, OSError, sqlite3.Error) as error:
             self.json_response(400, {"error": str(error)})
-        except (BrokenPipeError, ConnectionResetError):
-            pass
 
+    @measure_request
     def do_POST(self):
         try:
             self.check_origin()
             if not secrets.compare_digest(self.headers.get("X-Arena-Token", ""), self.server.app.token):
-                self.json_response(403, {"error": "Reload the page before continuing"})
+                self.json_response(403, {"error": "The application session changed. Refresh its session token and retry.", "code":"stale_arena_token"})
                 return
             if self.headers.get("Content-Type", "").split(";")[0] != "application/json":
                 raise ArenaError("Content-Type application/json requis")
@@ -255,6 +407,8 @@ class Handler(BaseHTTPRequestHandler):
                 raise ArenaError("Request is empty or too large")
             data = json.loads(self.rfile.read(length))
             self.json_response(200, self.server.app.post(urlsplit(self.path).path, data))
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            self.close_connection=True
         except (ArenaError, ValueError, KeyError, TypeError, OSError, sqlite3.Error) as error:
             self.json_response(400, {"error": str(error)})
 

@@ -35,6 +35,38 @@ class Preparation:
         self.allowed_tools = allowed_tools
         self.versions = versions
 
+    def _archive(self, info):
+        target=self.directory/'submission'
+        if target.exists():
+            if submission(target,info['entrypoint'])!=info: raise ArenaError('Frozen submission changed')
+        else:
+            staging=self.directory/f'submission-staging-{uuid4().hex}'
+            copy_submission(self.workspace,staging,info);staging.rename(target)
+        return {'submission':info}
+
+    def freeze_latest(self, entrypoint=None):
+        """Budget closure freezes saved sources; missing team remains an invalid entry."""
+        from .core import source_files
+        files=source_files(self.workspace)
+        if not entrypoint or entrypoint not in files:
+            if 'team.json' in files:
+                members=read_json(self.workspace/'team.json').get('members',[])
+                entrypoint=members[0]['entrypoint'] if members else None
+            if not entrypoint:
+                choices=[name for name in files if name.endswith('.leek')]
+                entrypoint='main.leek' if 'main.leek' in files else choices[0] if len(choices)==1 else None
+        if not entrypoint: raise ArenaError('Several source files exist but no main.leek or configured entrypoint identifies the program')
+        try: return self.call('submit',{'entrypoint':entrypoint},'final')
+        except ArenaError:
+            info=submission(self.workspace,entrypoint)
+            if self.scenario.get('team_selection') and 'team' not in info:
+                error='Sources were frozen at the preparation limit, but no team was configured. Call configure_team with members, entrypoints, equipment and required capital before the next submission.'
+                from .core import AUTOMATIC_ERROR_FILE
+                write_json(self.workspace/AUTOMATIC_ERROR_FILE,{'error':error})
+                result=self._archive(submission(self.workspace,entrypoint));result['configuration_error']=error
+                return result
+            raise
+
     def call(self, name: str, arguments: dict, call_id: str) -> dict:
         if self.allowed_tools is not None and name not in self.allowed_tools:
             raise ArenaError("Tool is disabled for this calibration trial")
@@ -51,6 +83,10 @@ class Preparation:
             if self.versions is None: raise ArenaError('Submitted versions are not available in this session')
             return self.versions.call(name, arguments)
         entry = arguments.get("entrypoint", "main.leek")
+        if name == "lookup_api":
+            self._fields(arguments, {'query','queries','mode','kind','offset','limit'})
+            from .api_lookup import lookup
+            return lookup(read_json(self.docs/'leekscript-v1/api.json'),arguments)
         if name == "list_files":
             self._fields(arguments, set())
             return {"files": sorted(p.relative_to(self.workspace).as_posix()
@@ -93,7 +129,7 @@ class Preparation:
             tmp.write_bytes(encoded)
             replace_file(tmp, path)
             return {"path": arguments["path"], "characters": len(content), "bytes": len(encoded),
-                    "created": created, "sha256": file_hash(path)}
+                    "success": True, "created": created, "updated": not created, "sha256": file_hash(path)}
         if name == "preview_build":
             from .teams import build_preview
             self._fields(arguments, {"capital", "member_index", "components", "level"})
@@ -120,6 +156,8 @@ class Preparation:
                 raise ArenaError("Participant teams are disabled for this competition")
             team = validate_team(arguments, self.scenario, source_files(self.workspace), self.docs / "leekscript-v1")
             write_json(self.workspace / TEAM_FILE, team)
+            from .core import AUTOMATIC_ERROR_FILE
+            (self.workspace/AUTOMATIC_ERROR_FILE).unlink(missing_ok=True)
             return {"path": TEAM_FILE, "content": (self.workspace / TEAM_FILE).read_text(encoding="utf-8"),
                     "sha256": file_hash(self.workspace / TEAM_FILE), "team": team,
                     "validation": team_preview(team, self.scenario, source_files(self.workspace), check_sources=True)}
@@ -157,25 +195,19 @@ class Preparation:
                     raise ArenaError("Choose a team with configure_team before testing or submitting")
                 validate_team(info["team"], self.scenario, info["files"], self.docs / "leekscript-v1")
             if name == "submit":
-                target = self.directory / "submission"
-                if target.exists():
-                    if submission(target, entry) != info:
-                        raise ArenaError("Frozen submission changed")
-                else:
-                    staging = self.directory / f"submission-staging-{uuid4().hex}"
-                    copy_submission(self.workspace, staging, info)
-                    staging.rename(target)
-                return {"submission": info}
+                return self._archive(info)
             if name == "analyze":
                 out = self.directory / "tools" / call_id
                 from .compiler_diagnostics import readable_analysis
                 if (out / "result.json").exists():
                     if read_json(out / "provenance.json")["submission"] != info:
                         raise ArenaError("Cached analysis source differs from current source")
-                    return readable_analysis(read_json(out / "result.json"), getattr(self.engine, "identity", None))
+                    return readable_analysis(read_json(out / "result.json"), getattr(self.engine, "identity", None), self.workspace)
                 # An interrupted invocation is retained; retry in a new directory.
                 out = self._attempt(out)
-                return readable_analysis(self.engine.analyze(self.workspace, entry, out), getattr(self.engine, "identity", None))
+                from .activity import operation, session_root
+                with operation(session_root(self.directory),'preparation_analysis',participants=[self.directory.name]):
+                    return readable_analysis(self.engine.analyze(self.workspace, entry, out), getattr(self.engine, "identity", None), self.workspace)
             opponent = ROOT / 'examples/strategies/passive'
             opponent_info = submission(opponent,'main.leek')
             if own_opponent is not None:
@@ -210,7 +242,10 @@ class Preparation:
                 sources = [self.workspace, opponent] if side == 0 else [opponent, self.workspace]
                 infos = [info,opponent_info] if side == 0 else [opponent_info,info]
                 work = self._attempt(base / "match")
-                result = self.engine.fight(sources, infos, self.scenario, 17, work)
+                from .activity import operation, session_root
+                with operation(session_root(self.directory),'preparation_fight',participants=[self.directory.name],
+                               opponent=opponent_id,side=side):
+                    result = self.engine.fight(sources, infos, self.scenario, 17, work)
                 result["artifact_dir"] = work.relative_to(self.directory).as_posix()
                 result['own_side'] = side
                 result['opponent'] = opponent_id

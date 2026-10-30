@@ -47,12 +47,19 @@ def parser():
         action.add_argument("config", type=Path)
         if name in {"run", "init"}:
             action.add_argument("--out", type=Path, required=True)
+    action = actions.add_parser('retry-fights',help='Retry frozen engine fixtures without making model requests')
+    action.add_argument('directory',type=Path)
+    action.add_argument('--include-ready',action='store_true',help='Schedule and drain all available frozen submissions too')
     action = actions.add_parser("retry", help="Continue one failed conversation, retaining completed submissions and matches")
     action.add_argument("directory", type=Path)
     action.add_argument("--session", required=True)
+    action.add_argument("--reasoning-effort")
+    action.add_argument("--allow-updated-runner", action="store_true")
     for name in ("resume", "status", "report"):
         action = actions.add_parser(name)
         action.add_argument("directory", type=Path)
+        if name == "resume":
+            action.add_argument("--allow-updated-runner", action="store_true")
     action = actions.add_parser("export")
     action.add_argument("directory", type=Path)
     action.add_argument("--out", type=Path, required=True)
@@ -67,11 +74,19 @@ def parser():
     action.add_argument("config", type=Path)
     action.add_argument("--out", type=Path, required=True)
     action.add_argument("--automatic", action="store_true")
+    for name,help_text in [('score-conversation',"Score an exported conversation's readable reasoning with local Laya"),('diagnose-conversation','Save independent Laya choice diagnostics for an exported conversation')]:
+        action = ca.add_parser(name, help=help_text)
+        action.add_argument("conversation", type=Path)
+        action.add_argument("--out", type=Path, required=True)
+        action.add_argument("--model", choices=['convaiinnovations/laya','convaiinnovations/laya-multilingual','convaiinnovations/laya-typed-decisions'], default='convaiinnovations/laya')
+        action.add_argument("--device", choices=['cpu','cuda','mps'], default='cpu')
     c = commands.add_parser("mcp", help="Preparation tools over MCP stdio")
     actions_mcp = c.add_subparsers(dest="mcp_action", required=True)
     action = actions_mcp.add_parser("serve")
     action.add_argument("--experiment", type=Path, required=True)
     action.add_argument("--session", required=True)
+    action.add_argument("--reasoning-effort")
+    action.add_argument("--allow-updated-runner", action="store_true")
     for name in ("analyze", "fight", "verify", "tournament"):
         c = commands.choices[name]
         c.add_argument("--out", type=Path)
@@ -82,6 +97,8 @@ def parser():
 def main(argv=None):
     args = parser().parse_args(argv)
     try:
+        from .environment import load_dotenv
+        load_dotenv()
         if args.command == "ui":
             from arena_web.server import serve
             if not 0 <= args.port <= 65535:
@@ -94,6 +111,12 @@ def main(argv=None):
                 from arena_web.calibration import serve
                 serve(args.out, args.port, args.open_browser)
                 return 0
+            if args.calibration_action in {'score-conversation','diagnose-conversation'}:
+                from .calibration_transcript import score,diagnose_export
+                operation=score if args.calibration_action=='score-conversation' else diagnose_export
+                result=operation(args.conversation,args.out,args.model,args.device)
+                print(json.dumps(result,ensure_ascii=False,indent=2))
+                return 0 if result['status']=='completed' else 1
             result = defaults() if args.calibration_action == "example" else study(read_json(args.config), args.out, args.automatic)
             print(json.dumps(result, ensure_ascii=False, indent=2))
             return int(result.get('status') == 'blocked')
@@ -106,10 +129,17 @@ def main(argv=None):
             if args.action in {"plan", "run", "init"}:
                 config = load_config(args.config.absolute())
                 result = plan(config) if args.action == "plan" else run(config, args.out.absolute(), prepare_only=args.action == "init")
+            elif args.action=='retry-fights':
+                from .fight_recovery import run as retry_fights
+                result=retry_fights(args.directory.absolute(),include_ready=args.include_ready)
+                print(json.dumps(result,ensure_ascii=False,indent=2))
+                return int(bool(result['remaining_failed']))
             elif args.action in {"resume", "retry"}:
                 directory = args.directory.absolute()
                 result = run(read_json(directory / "experiment.json")["config"], directory, resume=True,
-                             retry_session=args.session if args.action == "retry" else None)
+                             retry_session=args.session if args.action == "retry" else None,
+                             allow_updated_runner=args.allow_updated_runner,
+                             retry_reasoning_effort=getattr(args,"reasoning_effort",None))
             elif args.action == "status":
                 result = status(args.directory.absolute())
             elif args.action == "export":

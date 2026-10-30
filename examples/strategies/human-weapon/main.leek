@@ -1,0 +1,31 @@
+// Adapted from smarlhens/leekwars-scripts weapon.lks, Apache-2.0.
+// See NOTICE and LICENSE. LeekScript 4 port: equipped weapons only,
+// runtime legality checks, repeated selection after each action, no chip logic.
+function expectedDamage(weapon) {
+    for (var effect in getWeaponEffects(weapon)) {
+        if (effect[0] == EFFECT_DAMAGE) return (effect[1] + effect[2]) / 2
+    }
+    return 0
+}
+var enemy = getNearestEnemy()
+if (enemy != null && isAlive(enemy)) {
+    moveToward(enemy)
+    while (isAlive(enemy) && getTP() > 0) {
+        var best = null
+        var bestDamage = 0
+        for (var weapon in getWeapons()) {
+            if (!canUseWeapon(weapon, enemy)) continue
+            var switching = getWeapon() == weapon ? 0 : 1
+            var shots = floor((getTP() - switching) / getWeaponCost(weapon))
+            var damage = expectedDamage(weapon) * shots
+            if (damage > bestDamage) {
+                best = weapon
+                bestDamage = damage
+            }
+        }
+        if (best == null) break
+        if (getWeapon() != best) setWeapon(best)
+        if (getWeapon() != best) break
+        if (useWeapon(enemy) != USE_SUCCESS) break
+    }
+}

@@ -30,6 +30,10 @@ bash scripts/bootstrap-linux.sh
 .venv/bin/python -m arena ui --open
 ```
 
+For API keys, copy [`.env.example`](.env.example) to `.env` at the repository
+root and fill in the providers you use. The application loads it at startup;
+no terminal assignments are needed. `.env` is ignored by Git.
+
 The interface opens at **http://127.0.0.1:8765**. It provides participant and
 price settings, competition management, full recorded conversations, source
 history and diffs, schematic replays, match statistics and comparisons across
@@ -38,13 +42,20 @@ compatible experiments. No Node.js installation is needed to use it.
 See the [Windows](docs/windows.md), [Linux](docs/linux.md) and [interface](docs/ui.md)
 guides. Installation needs Internet access; mock experiments and matches run locally afterward.
 
+## Benchmark campaigns
+
+See the [multi-model experiment plan](docs/benchmark-plan.md) for batching, parameter
+variants, feedback ablations, provider-free strategy reuse and multi-run CSV exports.
+
 ## Prompt calibration
 
 Run `python -m arena calibrate serve --open` with the virtual environment activated
 to compare system prompts, tool sets and model parameters in a separate workshop.
-It supports manual revisions, automatic analyst proposals, fixed opponents,
-round-by-round inspection and held-out evaluation. See the
+It supports manual revisions, analyst-led prompt/document optimization with exploration and exploitation,
+fixed opponents, independent local Laya diagnostics and round-by-round inspection. See the
 [prompt calibration guide](docs/calibration.md).
+Round context, earlier source versions and feedback permissions are described in
+the [round feedback guide](docs/round-feedback.md).
 
 ## Command line
 
@@ -73,8 +84,7 @@ python -m arena experiment resume runs/complete-demo
 python -m arena experiment export runs/complete-demo --out runs/complete-export
 ```
 
-Use a new output directory for a new experiment. Resume requires the recorded
-code, runtime, configuration and sources. Existing archives remain readable after updates.
+Use a new output directory for a new experiment. The web interface can continue after application updates while keeping completed work and recording version changes. CLI resume remains strict unless `--allow-updated-runner` is supplied. Configuration, game-engine and source integrity checks still apply. See [competition recovery and billing reconciliation](docs/recovery.md).
 
 ## Strategies and results
 

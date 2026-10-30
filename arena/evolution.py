@@ -1,10 +1,10 @@
 """Paired G1 branches and shared reference evaluation; opponents stay private."""
 from __future__ import annotations
 import copy
+import time
 from pathlib import Path
 from .core import ROOT, ArenaError, copy_submission, digest, make_scenario, read_json, submission, write_json
 from .preparation import Preparation
-from .tournament import run_tournament
 
 
 def feedback_for(sid, tournament):
@@ -12,56 +12,177 @@ def feedback_for(sid, tournament):
     return PastFights(tournament.parent, sid).summary()
 
 
-def references(engine, config, out, journal, entrants, label, panel):
+def references(engine, config, out, journal, entrants, label, panel, *, incremental=False):
     """Both positions, identical reference opponents and final seeds for each branch."""
     root = out / "evaluations" / label
     root.mkdir(parents=True, exist_ok=True)
-    results = {}
-    for entrant in entrants:
-        for opponent in panel:
-            for seed in config["final_seeds"]:
-                for side in (0, 1):
-                    sources = [entrant, opponent] if side == 0 else [opponent, entrant]
-                    key = digest({"entrant": entrant["id"], "opponent": opponent["id"], "seed": seed, "side": side})[:24]
-                    cached = root / "records" / (key + ".json")
-                    if cached.exists():
-                        record = read_json(cached)
-                        work = out / record["artifact_dir"]
-                        from .core import file_hash
-                        if record["result"]["status"] == "completed":
-                            if file_hash(work / "outcome.json") != record["result"]["outcome_sha256"]:
-                                raise ArenaError("Reference outcome changed")
-                            if read_json(work / "result.json") != record["result"]:
-                                raise ArenaError("Reference result changed")
-                            scenario = make_scenario(config["scenario"], [s["submission"]["entrypoint"] for s in sources], seed, [s["submission"].get("team") for s in sources])
-                            provenance = read_json(work / "provenance.json")
-                            if (read_json(work / "scenario.json") != scenario or provenance["engine"] != engine.identity
-                                    or provenance["submissions"] != [s["submission"] for s in sources]):
-                                raise ArenaError("Reference provenance changed")
-                            for index, source in enumerate(sources, 1):
-                                if submission(work / "strategies" / str(index), source["submission"]["entrypoint"]) != source["submission"]:
-                                    raise ArenaError("Reference source changed")
-                        else:
-                            cached = None
-                    if not cached or not cached.exists():
-                        work = Preparation._attempt(root / "matches" / key)
-                        result = engine.fight([Path(s["path"]) for s in sources], [s["submission"] for s in sources],
-                                              config["scenario"], seed, work)
-                        record = {"session": entrant["id"], "opponent": opponent["id"], "seed": seed,
-                                  "side": side, "result": result, "artifact_dir": work.relative_to(out).as_posix()}
-                        write_json(root / "records" / (key + ".json"), record)
-                        journal.save(entrant["id"], journal.state(entrant["id"]), "reference_match", record)
-                    results[key] = record
+    models={model['id']:model for model in config.get('models',[])}
+    def fixed(source):
+        if source.get('model') in models:return models[source['model']].get('provider')=='mock'
+        return source['id'] in {'fixed-rush','fixed-single-shot','fixed-passive'}
+    if not hasattr(journal,'_verified_reference_records'):journal._verified_reference_records={}
+    verified=journal._verified_reference_records
+    from .scenario_cache import ScenarioCache
+    scenarios=ScenarioCache(config['scenario'])
+    from .core import verify_source_files
+    from .core import file_hash
+    from .verification_cache import VerificationCache
+    hashes=getattr(journal,'verification',None)
+    if not isinstance(hashes,VerificationCache):hashes=None
+    hasher=hashes.hash if hashes else file_hash
+    accepted_engines={};validated_infos=set()
+    def accepts_engine(key,provenance):
+        from .recovery import engine_compatible
+        if key not in accepted_engines:
+            accepted_engines[key]=provenance==engine.identity or (getattr(engine,'allow_updated_runner',False) and engine_compatible(provenance,engine.identity))
+        return accepted_engines[key]
+    scenario_binding=digest(config['scenario'])
+    def validate_record(record,sources,seed):
+        work=out/record['artifact_dir'];infos=[source['submission'] for source in sources]
+        binding=digest({'validation_version':2,'record':{key:record[key] for key in ('session','opponent','seed','side','result','artifact_dir')},
+                        'sources':[(info['entrypoint'],info['sha256']) for info in infos],'scenario_config':scenario_binding})
+        if hashes and hashes.checked_receipt(work,binding,engine_accepts=accepts_engine):return
+        for index,info in enumerate(infos,1):
+            identity=digest(info)
+            if identity not in validated_infos:
+                if submission(work/'strategies'/str(index),info['entrypoint'])!=info:raise ArenaError('Reference source changed')
+                validated_infos.add(identity)
+        scenario,scenario_hash=scenarios.get(infos,seed)
+        directories={}
+        def track(directory):
+            from .verification_cache import fingerprint
+            directories[directory]=fingerprint(directory,directory=True)
+        if hasher(work/'outcome.json')!=record['result']['outcome_sha256']:raise ArenaError('Reference outcome changed')
+        for name in ('result.json','scenario.json','provenance.json'):hasher(work/name)
+        if read_json(work/'result.json')!=record['result']:raise ArenaError('Reference result changed')
+        provenance=read_json(work/'provenance.json')
+        from .recovery import engine_compatible
+        accepted=provenance['engine']==engine.identity or (getattr(engine,'allow_updated_runner',False) and engine_compatible(provenance['engine'],engine.identity))
+        if not accepted or provenance['submissions']!=infos or provenance.get('scenario_sha256')!=scenario_hash or read_json(work/'scenario.json')!=scenario:raise ArenaError('Reference provenance changed')
+        for index,source in enumerate(sources,1):verify_source_files(work/'strategies'/str(index),source['submission'],hasher,track)
+        if hashes:
+            files=[work/name for name in ('outcome.json','result.json','scenario.json','provenance.json')]
+            files.extend(work/'strategies'/str(index)/name for index,source in enumerate(sources,1) for name in source['submission']['files'])
+            hashes.remember_receipt(work,binding,files,directories,engine=provenance['engine'])
+    results = read_json(root / 'results.json') if incremental and (root / 'results.json').exists() else {}
+    progress={'label':label,'total':len(entrants)*len(panel)*len(config['final_seeds'])*2,
+              'checked':0,'reused':0,'completed':0,'failed':0}
+    def jobs():
+        for entrant in entrants:
+            for opponent in panel:
+                for seed in config["final_seeds"]:
+                    for side in (0, 1):
+                        from .activity import poll_provider_failures
+                        poll_provider_failures()
+                        sources = [entrant, opponent] if side == 0 else [opponent, entrant]
+                        reference_only=all(fixed(source) for source in sources)
+                        key = digest({"entrant": entrant["id"], "opponent": opponent["id"], "seed": seed, "side": side})[:24]
+                        progress['checked']+=1
+                        record={}
+                        cached = root / "records" / (key + ".json")
+                        if cached.exists():
+                            record = hashes.read_record(cached) if hashes else read_json(cached)
+                            work = out / record["artifact_dir"]
+                            if (record['session'],record['opponent'],record['seed'],record['side'])!=(entrant['id'],opponent['id'],seed,side):raise ArenaError('Reference match metadata changed')
+                            if record["result"]["status"] == "completed" and verified.get(str(cached))==digest(record):
+                                results[key]=record
+                                progress['reused']+=1
+                                continue
+                            if record["result"]["status"] == "completed":
+                                validate_record(record,sources,seed)
+                                if hashes:hashes.remember_record(cached,record)
+                                if reference_only:
+                                    from .reference_cache import seed as seed_reference
+                                    seed_reference(engine,[source['submission'] for source in sources],config['scenario'],seed,work)
+                            else:
+                                cached = None
+                        if cached and cached.exists():
+                            verified[str(cached)]=digest(record)
+                            results[key]=record
+                            progress['reused']+=1
+                            continue
+                        work=Preparation._attempt(root/'matches'/key)
+                        yield {'entrant':entrant,'opponent':opponent,'sources':sources,'reference_only':reference_only,
+                               'key':key,'work':work,'side':side,'seed':seed,
+                               '_retry':record.get('retry_attempt',0)+1 if cached is None and record.get('retry_pending') else 0,'participants':[source['id'] for source in sources]}
+    def execute(job):
+        from .reference_cache import fight as cached_reference_fight
+        from .fight_phases import callback
+        import time
+        def update(name):job.update(phase=name,phase_started_at=time.time())
+        token=callback.set(update)
+        try:
+            fight=cached_reference_fight if job['reference_only'] else lambda engine,*args:engine.fight(*args)
+            result=fight(engine,[Path(source['path']) for source in job['sources']],
+                         [source['submission'] for source in job['sources']],config['scenario'],job['seed'],job['work'])
+            if result['status']=='completed':
+                update('verifying_result')
+                validate_record({'session':job['entrant']['id'],'opponent':job['opponent']['id'],'seed':job['seed'],'side':job['side'],'result':result,'artifact_dir':job['work'].relative_to(out).as_posix()},job['sources'],job['seed'])
+            return result
+        finally:callback.reset(token)
+    def save(job,result):
+        record={'session':job['entrant']['id'],'opponent':job['opponent']['id'],'seed':job['seed'],
+                'side':job['side'],'result':result,'artifact_dir':job['work'].relative_to(out).as_posix(),
+                'retry_attempt':job.get('_retry',0),'retry_pending':result.get('status') in {'timeout','engine_error'} and job.get('_retry',0)<2}
+        record_path=root/'records'/(job['key']+'.json')
+        write_json(record_path,record)
+        if result['status']=='completed':
+            verified[str(record_path)]=digest(record)
+            if hashes:hashes.remember_record(record_path,record)
+        published=time.monotonic()
+        journal.record(job['entrant']['id'],'progression_match' if label.endswith('-previous') else 'reference_match',record)
+        job.setdefault('timings',{})['journal_publication_seconds']=time.monotonic()-published
+        previous=results.get(job['key'])
+        if previous and job.get('_published_in_batch'):
+            progress['completed' if previous['result']['status']=='completed' else 'failed']-=1
+        job['_published_in_batch']=True
+        progress['completed' if result['status']=='completed' else 'failed']+=1
+        results[job['key']]=record
+    def retry_job(job):
+        base=job.get('_attempt_base',job['work'])
+        return {**job,'work':Preparation._attempt(base),'_attempt_base':base,'phase':'preparing'}
+    from .fight_pool import run as run_fights
+    run_fights(jobs(),execute,save,limit=config.get('_parallel_fights',config.get('parallel_fights',1)),out=out,
+               kind='previous_round_fight' if label.endswith('-previous') else 'reference_fight',
+               generation=max((entrant.get('generation',0) for entrant in entrants),default=0),retry=retry_job,batch_progress=progress)
     write_json(root / "results.json", results)
+    if hashes:
+        hashes.flush()
+        if not incremental:hashes.release(root,records=False)
     return results
 
 
 def run_generation(config, out, journal, engine, initial, interrupt=None, retry_session=None, allow_extend=False, generation=1, roots=None):
     from .experiment import run_session, PROMPT, initial_state
     from .analysis import analyze_evolution
+    from .roster import active
     models = {m["id"]: m for m in config["models"]}
     initial_states = {s["id"]: journal.state(s["id"]) for s in initial}
     branches = []
+    roots = roots if roots is not None else initial
+    panel = [dict(s, path=s["path"]) for s in roots]
+    for name in ("rush", "single-shot", "passive"):
+        source = ROOT / "examples/strategies" / name
+        target = out / "controls" / name
+        info = submission(source)
+        if not target.exists():
+            copy_submission(source, target, info)
+        elif submission(target) != info:
+            raise ArenaError("Frozen control changed")
+        panel.append({"id": "fixed-" + name, "path": target, "submission": info})
+    from .greedy import evaluate as evaluate_ready, entrants as ready_entrants
+    evaluated = set()
+    panel.sort(key=lambda source:not source['id'].startswith('fixed-'))
+    def evaluate_available(fight_journal):
+        evaluate_ready(engine, config, out, fight_journal, generation)
+        for entrant in ready_entrants(fight_journal, out, generation):
+            if not active(config,entrant): continue
+            if entrant['id'] not in evaluated:
+                collected=references(engine, config, out, fight_journal, [entrant], f'g{generation}-panel', panel, incremental=True)
+                expected=len(panel)*len(config['final_seeds'])*2
+                if sum(record['session']==entrant['id'] and record['result']['status']=='completed' for record in collected.values())>=expected:
+                    evaluated.add(entrant['id'])
+    tasks=[];candidates=[]
     for parent in initial:
         parent_state = initial_states[parent["id"]]
         if parent_state["status"] == "needs_reconciliation":
@@ -80,14 +201,19 @@ def run_generation(config, out, journal, engine, initial, interrupt=None, retry_
                 if not permitted:
                     continue
                 state = copy.deepcopy(parent_state)
-                state.update(generation=generation, condition=condition, parent=parent["id"], lineage_root=root,
+                state.update(generation=generation, condition=condition, parent=parent["id"], lineage_root=root, participant_revision=config.get('_roster_revision',0),
                              parent_checkpoint_sha256=digest(parent_state), status="running",
-                             calls=0, steps=0, test_matches=0, wall_seconds=0, pending=None, cursor=0,
-                             in_flight=False, money_reserved="0", reservation_unbounded=False, cost_spent="0", input_tokens=0, output_tokens=0)
+                             calls=0, completed_calls=0, steps=0, test_matches=0, wall_seconds=0, pending=None, cursor=0,
+                             discarded_attempt_cost_usd="0", attempt=0,
+                             in_flight=False, money_reserved="0", reservation_unbounded=False, cost_spent="0", input_tokens=0, output_tokens=0, diagnostic_calls=0, diagnostic_cost_usd="0")
                 state['history'] = initial_state(sid, models[parent_state['model']], config)['history']
                 state['message_times'] = []
                 state['history_policy'] = 'fresh-round'
+                state.pop('request_history_start', None)
+                state.pop('attempt_started_at',None)
+                state.pop('context_recoveries', None)
                 state["token_usage_known"] = False
+                state["missing_usage_calls"] = 0
                 state.pop("submission", None)
                 state.pop("reserved", None)
                 state.pop("assessment_sha256", None)
@@ -95,47 +221,81 @@ def run_generation(config, out, journal, engine, initial, interrupt=None, retry_
                 state.pop("failure", None)
                 state.pop("retry_parent_refresh", None)
                 state.pop("retry_count", None)
+                state.pop('manual_frozen', None)
+                state.pop('automatic_retries_paused',None)
                 state.pop("submission_reminders", None)
                 prompt_path = ROOT / "prompts" / ("feedback.md" if condition == "feedback" else "control.md")
                 message = state['history'][0]
+                from .round_context import phase, source_context, progress_line
+                from .submitted_versions import OwnSubmissions
+                versions = OwnSubmissions(out, state).versions()
+                message['previous_submission'] = source_context(versions[-1])
                 message.update(generation=generation,condition=condition,
-                    content=f"You are preparing Round {generation+1}; {generation} competition rounds have elapsed.\n"
+                    content=phase(generation+1, config.get('generations', 2)) + f" {generation} competition rounds have elapsed.\n"
                         + prompt_path.read_text(encoding='utf-8') + '\nPreparation rules:\n' + PROMPT)
                 if condition == "feedback":
                     counts = feedback_for(parent["id"], out / "tournament")
                     state["previous_round_feedback"] = counts
-                    message["content"] += (f"\nYour Round {generation} tournament results: {counts['wins']} wins, {counts['draws']} draws, "
-                                           f"{counts['losses']} losses, {counts['failures']} unscored failures across {counts['matches']} fights. "
-                                           "Use list_past_fights to choose a fight, then read_past_fight to inspect its overview, actions, "
-                                           f"your per-turn metrics or your debug/error logs. These tools only expose your Round {generation} fights.\n")
+                    message["content"] += ("\nUse list_past_fights to choose a fight, then read_past_fight to inspect its overview, actions, "
+                                           f"your per-turn metrics or your debug/error logs. The default is Round {generation}; pass round to list_past_fights for an earlier round of this track.\n")
+                    message['content'] += 'Performance across your own earlier rounds in this track:\n' + '\n'.join(
+                        progress_line(v['round'], feedback_for(v['session'], out / 'tournament')) for v in versions)
                     write_json(out / "feedback" / (sid + ".json"), counts)
                 copy_submission(Path(parent["path"]), out / "sessions" / sid / "workspace", parent["submission"])
+                from .experiment import workspace_files
+                state['workspace_files'] = workspace_files(out / 'sessions' / sid / 'workspace')
                 journal.save(sid, state, "branch_created", {"parent": parent["id"],
                                                           "checkpoint_sha256": state["parent_checkpoint_sha256"],
                                                           "condition": condition})
-            if permitted:
-                run_session(sid, models[parent_state["model"]], config, out, journal, engine, interrupt)
-            state = journal.state(sid)
-            if "submission" in state:
-                directory = out / "sessions" / sid
-                cached = directory / "assessment.json"
-                from .core import file_hash
-                if cached.exists():
-                    if state.get("assessment_sha256") and file_hash(cached) != state["assessment_sha256"]:
-                        raise ArenaError("G1 assessment changed")
-                    assessment = read_json(cached)
-                else:
+            if condition in config.get('_frozen_tracks',{}).get(parent_state['model'], []):
+                state = journal.state(sid)
+                if not state.get('submission'):
+                    target = out/'sessions'/sid/'submission'
+                    if target.exists():
+                        if submission(target,parent['submission']['entrypoint']) != parent['submission']:
+                            raise ArenaError('An existing frozen source differs from the requested manual freeze')
+                    else:
+                        copy_submission(Path(parent['path']),target,parent['submission'])
+                    for call in (state.get('pending') or {}).get('tool_calls',[])[state.get('cursor',0):]:
+                        state['history'].append({'role':'tool','name':call['name'],'provider_call_id':call.get('id'),
+                                                 'result':{'error':'Not executed: this track was manually frozen at its previous submitted strategy'}})
+                    state.update(status='submitted',submission=parent['submission'],pending=None,cursor=0,reserved=None,
+                                 manual_frozen={'from_session':parent['id'],'submission_sha256':parent['submission']['sha256'],
+                                                'roster_revision':config.get('_roster_revision',0)})
+                    state.pop('failure',None)
+                    journal.save(sid,state,'track_frozen',state['manual_frozen'])
+            if permitted:tasks.append((sid,models[parent_state['model']]))
+            candidates.append(sid)
+    from .parallel import prepare
+    prepare(tasks,config,out,journal,engine,interrupt,evaluate_available,independent_fights=True,independent_validation=True)
+    evaluate_ready(engine, config, out, journal, generation)
+    baseline = references(engine, config, out, journal, roots, "g0-panel", panel)
+    for sid in candidates:
+        state = journal.state(sid)
+        if "submission" in state:
+            directory = out / "sessions" / sid
+            cached = directory / "assessment.json"
+            from .core import file_hash
+            if cached.exists():
+                if state.get("assessment_sha256") and file_hash(cached) != state["assessment_sha256"]:
+                    raise ArenaError("G1 assessment changed")
+                assessment = read_json(cached)
+            else:
+                from .activity import operation
+                with operation(out,'validation',participants=[sid],generation=generation):
                     assessment = engine.analyze(directory / "submission", state["submission"]["entrypoint"],
                                                 Preparation._attempt(directory / "assessment"))
-                    write_json(cached, assessment)
-                state["validity"] = assessment["status"]
-                state["assessment_sha256"] = file_hash(cached)
-                journal.save(sid, state, "submission_assessment", assessment)
-                branches.append({"id": sid, "path": out / "sessions" / sid / "submission",
-                                 "submission": state["submission"], "model": state["model"],
-                                 "replicate": state["replicate"], "parent": parent["id"], "generation": generation, "condition": condition})
+                write_json(cached, assessment)
+            assessment_hash=file_hash(cached)
+            changed=state.get('validity')!=assessment['status'] or state.get('assessment_sha256')!=assessment_hash
+            state["validity"] = assessment["status"]
+            state["assessment_sha256"] = assessment_hash
+            if changed:journal.save(sid, state, "submission_assessment", assessment)
+            branches.append({"id": sid, "path": out / "sessions" / sid / "submission",
+                             "submission": state["submission"], "model": state["model"],
+                             "replicate": state["replicate"], "parent": state["parent"], "generation": generation, "condition": state["condition"]})
     for parent_sid, parent_state in list(journal.states().items()):
-        if parent_state.get("generation", 0) != generation-1 or "submission" in parent_state:
+        if not active(config,parent_state) or parent_state.get("generation", 0) != generation-1 or "submission" in parent_state:
             continue
         for condition in config["improvement_conditions"]:
             if generation > 1 and condition != parent_state.get('condition'): continue
@@ -144,27 +304,17 @@ def run_generation(config, out, journal, engine, initial, interrupt=None, retry_
             if journal.state(sid) is None:
                 skipped = copy.deepcopy(parent_state)
                 skipped.update(parent=parent_sid, generation=generation, lineage_root=root, condition=condition, status="no_submission",
-                               calls=0, steps=0, test_matches=0, cost_spent="0", money_reserved="0")
+                               calls=0, completed_calls=0, steps=0, test_matches=0, cost_spent="0", money_reserved="0",
+                               discarded_attempt_cost_usd="0",attempt=0,
+                               input_tokens=0, output_tokens=0, token_usage_known=False, missing_usage_calls=0, diagnostic_calls=0, diagnostic_cost_usd="0")
                 journal.save(sid, skipped, "branch_unavailable", {"reason": "No G0 submission"})
-    contemporaries = None
-    if len(branches) >= 2:
-        manifest = {"name": config["name"] + f"-round-{generation+1}", "seeds": config["final_seeds"], "scenario": config["scenario"],
-                    "include_mirrors": config["include_mirrors"],
-                    "strategies": [{**s, "path": str(s["path"])} for s in branches]}
-        contemporaries = run_tournament(engine, manifest, out / f"g{generation}-tournament", (out / f"g{generation}-tournament").exists(), allow_extend=allow_extend)
-    roots = roots if roots is not None else initial
-    panel = [dict(s, path=s["path"]) for s in roots]
-    for name in ("rush", "single-shot", "passive"):
-        source = ROOT / "examples/strategies" / name
-        target = out / "controls" / name
-        info = submission(source)
-        if not target.exists():
-            copy_submission(source, target, info)
-        elif submission(target) != info:
-            raise ArenaError("Frozen control changed")
-        panel.append({"id": "fixed-" + name, "path": target, "submission": info})
-    baseline = references(engine, config, out, journal, roots, "g0-panel", panel)
+    contemporaries = evaluate_ready(engine, config, out, journal, generation, final=True)
     evolved = references(engine, config, out, journal, branches, f"g{generation}-panel", panel)
+    if config.get('_compare_previous_round',config.get('compare_previous_round',False)) and generation>=2:
+        learned=[source for source in initial if models[journal.state(source['id'])['model']]['provider']!='mock']
+        candidates=[source for source in branches if models[source['model']]['provider']!='mock']
+        if candidates and learned:
+            references(engine,config,out,journal,candidates,f'g{generation}-previous',learned,incremental=True)
     result = analyze_evolution(config, out, journal.states(), roots, branches, baseline, evolved, contemporaries)
     result["contemporaries"] = contemporaries
     write_json(out / "evolution.json", result)
@@ -175,6 +325,7 @@ def run_evolution(config, out, journal, engine, initial, interrupt=None, retry_s
     """Two persistent improvement tracks, with a tournament barrier between rounds."""
     import itertools
     from .analysis import analyze_evolution
+    from .roster import active
     previous, branches, evolved, tournaments = initial, [], {}, []
     indices = range(1, config.get('generations', 1)) if config.get('generations', 1) is not None else itertools.count(1)
     for generation in indices:
@@ -184,7 +335,7 @@ def run_evolution(config, out, journal, engine, initial, interrupt=None, retry_s
         current = [{'id':sid,'path':out/'sessions'/sid/'submission','submission':s['submission'],
                     'model':s['model'],'replicate':s['replicate'],'parent':s['parent'],
                     'condition':s['condition'],'generation':generation}
-                   for sid,s in states.items() if s.get('generation')==generation and 'submission' in s]
+                   for sid,s in states.items() if active(config,s) and s.get('generation')==generation and 'submission' in s]
         branches.extend(current)
         evolved.update(read_json(out/'evaluations'/f'g{generation}-panel/results.json'))
         if result['contemporaries']: tournaments.append(result['contemporaries'])
@@ -209,8 +360,8 @@ def run_evolution(config, out, journal, engine, initial, interrupt=None, retry_s
         # Preserve a resumable boundary if any model needs recovery. Do not silently
         # exclude it from all future rounds or spin forever with an empty panel.
         if (not current or len(current) != 2*len(initial)
-                or any(s.get('generation',0)<=generation and 'submission' not in s for s in states.values())
-                or any(r['failed'] for r in result['rows'])):
+                or any(active(config,s) and s.get('generation',0)<=generation and 'submission' not in s for s in states.values())
+                or result.get('incomplete')):
             break
         previous = current
     return result

@@ -99,8 +99,11 @@ all future rounds. Other optional budgets still apply. In JSON, `generations` is
 the total round count, or `null` for manual stopping.
 
 A match seed controls reproducible map generation and placement. Preparation
-seed 17, feedback seeds and final evaluation seeds are separate. Mirrors compare
-a strategy with itself and do not affect the ranked score.
+seed 17 is reserved for preparation. Round 1 and Round 2+ evaluation seeds
+may overlap: keeping the same seeds compares versions on the same maps; using
+different seeds tests other maps. The Round 2+ list is reused in every later round. Optional self-play
+diagnostics compare a strategy and team with an identical copy. They are unscored.
+The standard A-vs-B and B-vs-A side-swapped fixtures both count toward standings.
 
 All preparation limits are optional and blank in new competitions: calls, tools,
 test matches, time, tokens and cost. A **Model call** is one API response,
@@ -207,7 +210,7 @@ Text search matches participant IDs and seeds.
 In **Summary**, the match matrix shows row-against-column wins, draws and losses.
 Click a count to open those fights. Failure counts open failed matches; a score
 opens completed matches in its denominator. Links preserve the exact stage and
-both participants and exclude mirrors. Filters remain in the URL, so a view
+both participants and exclude self-play diagnostics. Filters remain in the URL, so a view
 can be reloaded or shared. **Clear filters** restores the full match list.
 A zero count opens an empty filtered list rather than selecting an unrelated fight.
 
@@ -251,7 +254,7 @@ The competition Summary uses one shared filter bar: **Round**, **Model** and **M
 
 The default view shows four indicators, a model ranking, evolution by version and a head-to-head matrix. Detailed metrics, conversations, accounting and methodology expand on demand. Numeric columns in detail tables can be sorted. Small matrices fit the available width; large matrices scroll within their own container. Full model names are available from abbreviated headers.
 
-Score is `(wins + 0.5 * draws) / completed appearances`. The ranking pools the selected appearances for each model; a 50% score can mean all draws. Failures are displayed separately. A tournament fight contributes an appearance to each model, so appearance counts can exceed unique fight counts. The completed-fight indicator counts each selected fight once. Tournament mirrors and preparation tests do not enter the scores.
+Score is `(wins + 0.5 * draws) / completed appearances`. The ranking pools the selected appearances for each model; a 50% score can mean all draws. Failures are displayed separately. A tournament fight contributes an appearance to each model, so appearance counts can exceed unique fight counts. The completed-fight indicator counts each selected fight once. Self-play diagnostics and preparation tests do not enter the scores.
 
 Round 1 is the initial submission. Round 2 has two alternative branches, with and without feedback. Tournament opponents may change between rounds; use Reference tests to compare against frozen initial submissions and built-in scripts. Reference tests count only the candidate side, including tests against its own initial strategy. The evolution chart uses the same selected matches and rounds as the ranking.
 
@@ -581,3 +584,743 @@ run the alternate script for every member, without editing the candidate's team.
 The Matches view labels these opponents by their source entrypoint. These are
 preparation tests, not scored competition fights. No other model's sources are
 readable through this mechanism.
+
+### Reuse submitted strategies
+
+In a competition, open a conversation or the overview's conversation table and
+choose **Save as participant**. Give the frozen strategy a unique participant ID.
+It then appears in **Participants** and can be selected in another competition.
+The code, entrypoint and participant-selected team are copied and fingerprinted,
+so deleting the source run does not remove the participant. No API key, model
+call or generation charge is required. Every round uses the same saved files.
+The original scenario is required to preserve equipment/build semantics: clone
+the source competition and replace its participant selection. A mismatch is
+reported before launch. Saved participants are inspected rather than edited;
+save a newer submitted version under a new ID to replace a strategy.
+
+**Participants > Add reference strategy** adds a fixed opponent for the default
+single-leek scenario: passive, stationary shooter, one-shot pursuer, aggressive
+shooter, or the Apache-2.0 human weapon heuristic. Their descriptions state what
+they do. They are not Elo ratings and are not guaranteed to be ordered by strength.
+
+Model ranking and progress charts exclude matches between versions of the same
+model, including earlier rounds and feedback tracks. Those fights remain in the
+strategy-version matrix and match list. Click the ranking's win/draw/loss counts
+to inspect exactly the matches contributing to that number.
+
+### Saved providers and bulk participants
+
+In Participants, open **Providers & bulk add**. Save a named protocol, endpoint and
+API key environment variable. A key entered here stays in server memory until
+shutdown; set the named variable in the repository-root `.env` file to reuse it after restarting. Copy `.env.example` to get started.
+The connection settings are saved in `.arena/ui/providers.json`, without the key.
+
+Choose a saved provider, load its models, select the models to add, and enter each
+model's input/output prices in USD per million tokens (0 for free/local models).
+Each participant gets its own editable ID and pricing. Anthropic also requires
+an output token maximum. Creation validates the entire selection before saving;
+existing participant IDs are never overwritten. Loading models does not generate
+text or establish that a listed model supports tools.
+
+For individual models or parameter variants, choose **Add participant**, then a
+**Saved provider**. Adjust the model, reasoning settings and prices as usual.
+Participants copy the connection settings at creation. Editing or deleting a
+saved provider does not modify existing participants or frozen competitions.
+
+## Workspaces
+
+Use **Workspaces > New workspace** to separate tests and benchmark campaigns.
+The sidebar selector scopes Overview, Competitions and Compare results. Participant
+profiles and provider connections remain shared. Existing competitions start as
+**Unassigned**; no files are moved or rewritten.
+
+Open a workspace and choose **Add existing competitions** to organize existing runs and
+saved configurations. Each item belongs to one workspace. Selecting an item from
+another workspace moves it; unchecking an item already here makes it unassigned.
+You can also move one run using the workspace button under its name in the run
+history. The competition editor has a workspace selector; runs launched from a
+saved configuration inherit its workspace. Moving a configuration later does not
+move its previous runs. Deleting a workspace only unassigns its members.
+
+The workspace page shows recorded costs, reservations, submission validity,
+measured tokens, messages and preparation time across its competitions. Resources
+are summed once per conversation. Missing token measurements remain marked, and
+reserved money is separate from recorded cost. Exported copies are excluded.
+These are recorded estimates using configured prices, not provider billing totals.
+
+Performance charts keep different scenarios, engines, preparation settings,
+rounds and configured opponent pools in separate comparison groups. Reference
+panels also require matching archived opponent hashes. Tournament matches between
+versions or repetitions of the same participant are excluded from model scores;
+self-play diagnostics and preparation fights are excluded too. Model variants with different
+participant IDs remain distinct. The score is an equal-weight mean of each
+conversation's completed-fight score (win 1, draw 0.5, loss 0). Engine failures
+are shown separately. An evolving tournament score measures performance against
+that pool, not improvement against a constant benchmark.
+
+**Download CSV > Workspace scores** exports the displayed aggregate scores and
+their comparison group IDs. The other downloads preserve raw match results,
+strategy results and conversations for the workspace's original competitions,
+including same-participant fights. Each fight has two side rows in the match
+CSV. Use the conversation CSV to total costs; costs repeated across result stages
+must not be added together. Calibration studies remain in their separate workshop.
+Workspace metadata lives in `.arena/ui/workspaces.json` with other local UI settings.
+
+## Participant groups
+
+In **Participants > Groups**, create groups such as Local, Free APIs or Paid.
+Select any number of existing profiles for each group. A profile can belong to
+several groups. Use **Groups** on a profile card to edit its memberships, or the
+list filter to browse a group. Groups are shared across workspaces, like profiles.
+
+In the competition editor, choose **Add participants from group > Add group**.
+This adds the group's profiles to the current selection without removing other
+profiles or creating duplicates. You can add several overlapping groups, clear
+the selection, and still select individual profiles. Groups organize participant
+profiles, so two parameter variants of the same model can have different groups.
+
+The selection is copied into the competition configuration when saved. Changing,
+renaming or deleting a group does not change existing configurations or running
+competitions. Deleting a profile removes it from groups. Deleting a group keeps
+all profiles. Group metadata is saved in `.arena/ui/participant-groups.json`;
+it is not sent to models or added to frozen experiment settings.
+
+## Model size and resource charts
+
+API participant profiles have an optional **Model size (B parameters)** field.
+Enter total parameter count in billions: `7` for 7B, `0.5` for 500M. For MoE models,
+use total parameters, not the active subset. This field does not describe file
+size, quantization or VRAM, and is never sent as a generation parameter. Leave it
+blank when the size is unknown; the arena does not guess from model names.
+
+Competition summaries and workspace performance groups include **Performance vs
+resources**, with size, preparation cost and preparation time on the horizontal
+axis and score on the vertical axis. Existing round/model/group filters apply.
+Cost and duration are averaged per selected strategy conversation, not summed
+across repetitions. Missing measurements are excluded from that chart. Preparation
+time includes model and tool work and depends on hardware, quantization and
+concurrency. Size alone is not a measure of running cost.
+
+Detailed metrics and CSV exports include `model_size_billion`; result exports also
+include `score_per_billion` (score from 0 to 1 divided by parameter count in
+billions). This ratio complements the raw score; it is not a replacement ranking.
+Saved model sizes take precedence. For older competitions without a saved size,
+the interface and CSV export can use the current profile only when its ID,
+provider, exact model ID and endpoint match. Existing competition files are not
+rewritten. Frozen strategy exports preserve size in their origin metadata.
+
+
+### Create directly from a workspace
+
+Use **New competition** in the workspace header (or on its card) to create a
+configuration assigned to that workspace. Saved configurations appear under
+**Ready to launch** in the workspace, with Edit and Launch actions.
+**Add existing competitions** only organizes competitions/configurations you
+already have.
+
+The competition editor keeps the model list in a compact scrollable panel with
+search and **Selected only**. Filtering does not deselect hidden profiles. The
+bottom bar shows the selected count and keeps **Save configuration** accessible
+while editing, including on smaller screens. Saving still makes no model calls.
+
+## Parallel preparation
+
+In the competition editor, **Parallel model requests** sets the maximum number
+of simultaneous provider requests (1 to 20). The default is **1**, preserving
+sequential execution. The setting applies to initial preparation and subsequent
+feedback/no-feedback rounds and is frozen when the competition starts.
+
+Each conversation keeps its own source files, tools, history and streamed output.
+Provider transports run in background threads. One coordinator executes tools,
+records engine results, writes checkpoints and accounts for shared spending.
+Engine fights use the separate simultaneous-fights setting.
+A request waits when another active request temporarily holds the required budget
+reservation. Models sharing a loopback server and port finish one loaded model
+before switching to another; conversations of that same model can overlap.
+Hosted requests can overlap up to the selected limit; provider quotas still apply.
+
+Submitted sources remain frozen. Available fights run progressively, and the next
+round still waits for all participants. A failed provider retains its place and
+can be recovered without regenerating healthy peers. **Stop** stops scheduling
+new work and lets already dispatched requests return or time out; received replies
+and pending tools are saved for Resume. Killing the process before a receipt is
+saved can still require billing reconciliation.
+
+Preparation duration includes request waiting and coordination, not just token
+generation. Resource exports record `parallel_requests`, and workspace comparison
+groups keep different concurrency settings separate.
+
+## Edit an existing competition
+
+Stop the run, then use **More → Edit participants** to withdraw, reactivate or add
+profiles without creating another competition. Completed work stays in place.
+Expand **Freeze preparation** to keep a track fighting with its preceding submitted
+strategy without further model calls. Freeze and pool changes are audited; already
+submitted versions are never regenerated. See [recovery details](recovery.md#change-participants-without-restarting).
+
+The **Errors** tab filters observed failures by model, round and track. It includes
+failed compilation checks, unknown tools, invalid arguments, team validation,
+runtime errors and separate provider failures, with rates, recent incidents and an
+**errors.csv** export. These observations are not an automatic hallucination score.
+
+## Tool-call comparisons and live activity
+
+The competition overview shows **Total tool calls** and **Performance vs resources**,
+with **Tool calls** selected by default. The total is the sum of tool invocations
+in the selected rounds/models. The performance chart uses mean invocations per
+strategy, so repetitions do not inflate its horizontal axis. Every tool in a batch
+counts separately; failed invocations count too. Message and API-response counts
+are retained in logs/exports but do not determine these charts. References are
+excluded. Workspace comparison groups expose the same tool totals and means;
+workspace resource tables show tool calls instead of message counts.
+
+An activity panel is present on every competition tab. It refreshes independently
+of the detailed **Live** toggle, showing the current round, active participants,
+submitted/validated strategies, tournament progress, models awaiting responses,
+and the engine's current pair or compilation. Preparation tests and reference
+checks are labelled separately from tournament fights. Durations, last recorded
+progress and the most recent activity observation are visible. When available,
+provider stream-file updates are reported without loading the streamed text.
+
+Resume also reports checkpoint verification instead of appearing idle while it
+checks source and journal integrity. Stopped jobs suppress stale engine/request
+markers. Withdrawn profiles remain archived, but no longer inflate active
+participant counts in the competition list, configuration or progress panel.
+
+## Live rendering
+
+Background updates reconcile the existing DOM instead of remounting the page.
+Dropdowns retain their nodes and selections; a focused native picker defers option
+changes until focus leaves. Open disclosures, text inputs, keyboard focus and
+scrollable readers stay in place. Conversation messages still append progressively.
+Code follows new writes when already viewing the latest version; selecting an older
+version or an explicit comparison keeps that selection. Replays are not restarted
+by unrelated competition activity. Explicit navigation and user commands can mount
+a different view normally.
+
+The shared `live-dom.js` renderer handles these rules for all live-rendered views.
+Independently loaded readers declare `data-live-preserve`; their owner reconciles
+their content after loading. New components should use this update path rather than
+replacing live containers with `innerHTML` or `outerHTML`.
+
+The default preparation prompt explicitly identifies the model as the competing
+coding agent, responsible for editing its own workspace and submitting it. Analysis
+in an answer is allowed, but it is not a submission or a request for a human to
+implement suggestions. Stops without tool calls already trigger bounded submission
+reminders; those reminders now also clarify this role. Existing recorded initial
+prompts stay unchanged; the revised default applies to new preparations.
+
+## Replay source inspection and filters
+
+Every match has **View executed code** for Blue and Orange when its source archive
+is available. The viewer reads that fight's `strategies/1` or `strategies/2` snapshot,
+checks its recorded file hash, and offers every submitted source/support file. This
+also works for fixed opponents and preparation tests, whose scripts can differ from
+the eventual submission. **Code history** opens the participant conversation's
+version browser separately. Viewing source makes no model call.
+
+Match filters separate **Model**, **Opponent model**, **Round** and **Track**. Model
+options do not repeat every round/version. Exact links from the strategy matrix
+retain their precise version pair and identify that restriction; changing filters
+switches to model-level selection. Outcome filters use the selected participant's
+side. Reference-evaluation round filters refer to the candidate's round.
+
+The overview now includes **Errors** charts for tool-call errors and failed
+compilation checks, respecting its model and round selection. **Details & incidents**
+opens the existing Errors tab. Reference scripts are excluded from these overview
+rates; full recorded errors remain available in the detail tab. Error summaries
+refresh at most every ten seconds while live, without reading conversation bodies.
+
+## Reference-first execution
+
+Fixed/mock participants prepare before remote/local LLM participants. Available
+fights involving those reference participants are executed before remaining
+model/model fixtures. Improvement-round reference panels run before contemporary
+tournament fixtures, and the fixed baseline scripts are checked first within the
+panel. This changes execution priority, not the frozen schedule, opponents or
+cached match identities; completed fights are retained on resume.
+
+The common comparison panel consists of Round 1 frozen submissions plus three
+built-in controls. Later versions are tested against that panel and their
+contemporaries. Built-in references such as passive and rush keep the same code
+in every round and feedback track; their labels say **fixed reference · same code**.
+Legacy scripted mock fixtures can select predefined code for a track; this is
+scripted test behavior, not model learning.
+
+Enable **Compare every round with the previous round** in the competition
+editor, or stop an existing competition and use **More > Execution & metrics**.
+This is optional data collection for learning-progress metrics, rather than a
+scoring rule. Save and resume to run missing comparisons without regenerating submitted code.
+Round 2 reuses its existing Round 1 reference fights. From Round 3 onward, extra
+engine fights compare current LLM versions with all preceding-round LLM versions,
+including the same model, on both starting sides. Fixed references are excluded
+from this extra panel. Comparisons run after preparation has completed.
+
+Select **Previous-round comparisons (unscored)** in the overview or match list.
+These fights are separate from tournament scores and are not sent to models as
+feedback. CSV exports identify new fights with `kind=progression`; the
+`previous_round_comparison` column also marks reused Round 2 fights. No duplicate
+fights are created for those reused results. Additional engine work grows with
+the square of the number of LLM versions; no extra provider calls are required.
+
+Competition tabs reuse previously loaded data and refresh it when the saved
+revision changes. Replays are cached in a bounded cache. Dashboard counters use a
+small checkpoint-linked session index; old journals remain readable without a
+migration or a rewrite of their conversation history.
+
+### Chart identification and preparation resources
+
+Hover or keyboard-focus a series point or its legend to show its full model name
+and highlight matching marks. Series colors no longer cycle after six models.
+The resource chart supports **Preparation fights** and **Replay reads** in both
+competition and workspace summaries. Values are means per selected strategy,
+consistent with cost, time and tool-call axes; fixed references are excluded.
+Preparation fights count both starting sides. Replay reads count executed
+`read_replay` and `read_past_fight` invocations, including failed reads and
+pagination, rather than distinct fights. These counters are also exported in
+`sessions.csv` and `results.csv`.
+
+Click a model's name in a chart legend to hide or show its marks. Enter and Space
+work on a focused legend item. Visibility is local to that chart and survives
+live refreshes, axis changes and navigation during the current page session.
+It does not change statistical filters or exports; axes keep their original scale.
+
+Conversation pages request their latest page directly and show messages before
+loading the fight-health summary in the background. Exact messages, requests,
+provider outputs and file diffs remain available on demand.
+
+### Grouped evolution bars
+
+Evolution defaults to **Grouped bars**: rounds form separate groups, with one
+initial bar per model and paired later bars for feedback/no-feedback versions.
+Solid bars represent initial or feedback strategies; pale bars represent
+no-feedback strategies. The vertical score scale stays fixed at 0–100%.
+**Display > Lines** restores the line view. Both views keep the same filters and
+legend visibility; bar widths adapt to the available space, with scrolling
+confined to the chart for larger histories.
+
+Resource comparisons default to horizontal **Bars**, ranked by efficiency:
+score points (0–100) divided by the selected mean resource per strategy. A score
+of 60 with 20 tool calls gives 3 points per call. Higher is better; each row
+shows the denominator and its tooltip includes the original score. Missing and
+zero denominators are excluded rather than displayed as infinite efficiency.
+**Display > Points** keeps the original score-versus-resource scatter view.
+These displays use the same observations and do not aggregate models into bins. Chart marks and legend
+items use a single custom tooltip; native browser titles are suppressed there.
+
+### Learning progress
+
+**Learning progress** separates stronger code from a changing tournament rank.
+It uses the overview model/round filters and offers grouped bars, lines or latest
+values for four comparisons:
+
+- **Against own Round 1**: newer versions face their frozen initial submission,
+  paired by repetition. This directly compares the end with the beginning.
+- **Against own previous round**: the preceding version of the same repetition
+  and feedback track. Round 2 uses the initial version as its parent.
+- **Against previous-round LLM pool**: all available previous-round LLM versions,
+  including the candidate's own older versions; fixed scripts are excluded.
+- **Score change in selected category**: score at t minus score at t-1, with the
+  initial score used for the first improvement round. The latest-values table
+  also shows the change since Round 1 and its relative percentage change.
+
+Head-to-head scores use `(wins + 0.5 * draws) / completed fights`; 50% is parity.
+Only the newer candidate's outcome is counted, so its own predecessor's loss does
+not cancel its win. Matching an own predecessor never crosses repetitions or
+feedback tracks. Failures and missing results are kept separate from zero scores.
+Score differences are percentage points: 50% to 60% is +10 pp, or +20% relative
+change. Relative change is unavailable for an initial score of zero. Global score
+changes can reflect different opponents or seeds and do not establish improvement
+against fixed opponents.
+
+Historical reference results supply the initial-version comparisons and Round 2's
+previous pool. From Round 3, the previous-round option supplies additional fights.
+Missing data shows an availability message and **More > Execution & metrics**;
+opening a chart never launches model calls or changes standings/feedback.
+
+The competition editor groups this option under **Learning-progress metrics**. It
+adds engine work for two specific charts from Round 3 onward: comparisons against
+the own previous version and against the previous LLM pool. The own-initial and
+global-score-change charts use data collected anyway. A stopped competition has a
+dedicated **More > Execution & metrics** dialog; changing participants preserves the
+collection setting. Disabling it retains already generated diagnostic results.
+
+If the backend restarts while a page stays open, the next modifying request can
+carry an old application-session token. The interface fetches a new token and
+retries once only when the server explicitly rejected that token before executing
+the action. Draft names, scenario settings and other unsaved form inputs remain
+intact. Network timeouts and unrelated HTTP errors are not retried by this UI
+mechanism.
+
+Previous-round collection continues for every later round, including unlimited
+runs: Round 2 vs Round 1, Round 3 vs Round 2, Round 4 vs Round 3, and so on. There
+is no Round 3 cutoff. Round 2 needs no extra matches because the standard frozen
+Round 1 evaluation panel is also its immediately preceding round. From Round 3
+onward, a separate previous-round panel supplies those diagnostic fights after
+each preparation round.
+
+### Fight categories and self-play
+
+Setup and the match-list guide distinguish current-vs-current ranked fights,
+current-vs-frozen-Round-1 baseline evaluations, and optional current-vs-previous
+progression comparisons. Round 5 examples show the difference directly: R5 vs R5,
+R5 vs R1, and R5 vs R4.
+
+The setup checkbox **Add self-play diagnostics (A vs an identical A)** enables the
+old `include_mirrors` option; stored configuration and CSV field names are retained.
+Each distinct pair already plays A/B and B/A with both results scored. Self-play
+uses identical code and team builds on both sides and stays outside standings and
+model feedback.
+
+**Matches > Self-play diagnostics (A vs A, unscored)** filters these fights. The
+overview accounting links directly to this category and separates their count
+from ranked fights. Match cards and replay notices identify self-play explicitly;
+winners are labeled Blue or Orange rather than repeating the same strategy name.
+The outcome filter uses the blue side for self-play. Fixed-baseline, previous-round
+and preparation fights also carry unscored badges in the match list.
+
+Fights between two fixed references reuse a shared replay cache in
+`.arena/reference-fights`. The first occurrence executes the engine; identical
+occurrences across rounds, repetitions and competitions reuse that result.
+Scripts, team builds, resolved scenario, seed, side order, engine identity and
+timeout must all match. Fights involving an LLM strategy execute normally.
+Failed engine runs are not cached, and corrupt entries are rebuilt.
+
+Cached fights retain their logical place in the schedule and statistics. Match
+cards and replays show **Cached reference**, and overview accounting reports the
+reuse count. Each competition keeps independent copies of the replay and executed
+scripts, so exporting it does not require the shared cache. Reused fights report
+zero engine execution time and preserve the original duration in cache metadata.
+
+The competition activity panel lists preparations for the displayed round under
+**Preparing now**, **Preparation finished**, **Needs attention** and **Waiting**.
+Click a session to open its conversation directly. Finished preparation means a
+strategy has been frozen; tournament fight progress is shown separately. Repeated
+runs and feedback tracks have distinct links. These lists refresh with live mode.
+
+**Simultaneous fights** controls independent engine workers (any positive integer), separately from
+parallel model requests. New competition forms start at 2; configurations without
+this field retain sequential execution. Ranked, fixed-baseline and previous-round
+fights use the setting. Preparation tool calls remain coordinated. Each worker
+allows 512 MB of Java heap plus process overhead, so start with 2–4 workers.
+The activity panel lists every active fight, seed and participant conversation.
+Results and SQLite events are published by the coordinator as workers finish;
+completed peers are preserved if another worker fails. Resume skips completed fights.
+Each new result is fully verified on its worker before publication. Live rankings
+reuse compact verified records in memory instead of rereading every earlier replay
+after every fight. Resume and standalone reports reuse persistent validation
+receipts after checking file identity, change stamps and input bindings. Changed
+artifacts receive full verification; `ARENA_FULL_AUDIT=1` forces content rechecks. Occupied slots distinguish
+engine computation, result verification and finished results awaiting publication.
+CPU usage can still depend on disk throughput, cached fights and engine workload.
+
+For an existing competition, stop it, choose **More > Execution & metrics**, change
+**Simultaneous fights**, save and resume. This is an audited execution setting:
+frozen submissions and completed fights are retained.
+
+In new competitions, **Repetitions per generated participant** applies to generated
+strategies. Fixed saved strategies, including built-in references and imported
+frozen submissions, have one repetition per track. Six repetitions with two LLMs
+and one fixed reference therefore create 13 initial entrants, not 18. LLM samples
+remain distinct even if they happen to produce identical code. Earlier competitions
+retain their frozen repetition counts and historical schedules; clone their
+configuration to use the new reference sampling policy.
+
+Deleting a saved competition configuration opens a confirmation naming it and
+explaining the impact. Cancel is focused initially; Cancel or Escape leaves it
+unchanged. Only **Delete configuration** sends the deletion request. Existing
+runs, conversations, strategies and match results are retained.
+
+**Request scheduling preference** controls the order of conversations: **Different
+models first** alternates models before taking another repetition; **Repetitions
+of one model first** groups their conversations. This is a preference, not a
+per-model limit: any free request slots may run repetitions or parameter variants
+of the same model. The overall **Parallel model requests** ceiling still applies.
+Change the preference for a stopped competition in **More > Execution & metrics**.
+The change is audited and does not reset conversations or usage counters.
+
+On each loopback server, all conversations of the currently loaded model finish
+before another model starts, under either preference. Several conversations of
+that same model may run concurrently up to the overall request ceiling. Ollama
+reuses its model weights; each conversation has separate history and context.
+Ollama itself may queue requests according to its server parallelism and available
+memory. This ordering does not configure or guarantee provider RPM/TPM quotas.
+
+The activity panel defaults to compact counters and links to at most three active
+models. **+N more** opens **Activity details**, which contains the full preparation
+and fight lists in a bounded scroll area. Its expanded state and scroll position
+are preserved during live updates. Finished and waiting preparations remain
+available there without expanding the main page.
+
+Provider errors pause only the affected conversation and release its parallel
+request slot. Other conversations in the current round continue; the next round
+waits for unresolved participants. Submissions, files and counters are preserved.
+
+Participant **Advanced settings > Pause after no provider output** defaults to
+300 seconds. It interrupts a silent request, including SSE connections that only
+send heartbeats. Actual text, reasoning and tool deltas reset the timer; active
+streams can therefore last longer. Increase this setting for long silent
+reasoning or local prompt processing. The socket connection/read timeout remains
+separate. Silence alone is reported as an inactivity timeout, not a proven quota
+error. Free requests need no billing reconciliation; an interrupted paid request
+can still have an unknown charge under the existing recovery policy.
+
+The compact activity panel counts **requests in flight** separately from models.
+Details show the time since output and the inactivity threshold. Responses already
+received while engine work is being processed show **Response received; waiting
+for coordinator**. Failed requests are recorded during engine batches and no
+longer appear as active network requests, including those awaiting billing review.
+
+Engine batches yield when a model response is ready or another conversation can
+start: currently running fights finish and are saved, then preparation resumes.
+Remaining tournament and reference fights are collected progressively and drained
+before the round ends. A long list of pending fights therefore does not make an
+already-responded model wait for the entire list. A stale local-model residency
+marker is also released automatically if no requests are in flight and it blocks
+every queued conversation; the recovery is journaled without changing counters.
+
+To lower an existing competition's request concurrency, stop it, open **More >
+Execution & metrics**, change **Parallel model requests**, save and resume.
+The effective cap is shown with the number of requests actually in flight.
+
+### Resuming conversations before fight backlogs
+
+Stop and resume restarts eligible failed/interrupted conversations before draining
+pending tournament or reference fights. In parallel mode, available fight workers
+run while model requests are pending and yield when a response or queued
+conversation needs the coordinator. Already dispatched fights finish and are saved.
+In sequential mode, remaining resumable conversations take priority over an
+intermediate fight backlog. Usage counters and saved submissions are retained.
+
+The activity heading shows **Scheduling / resuming model conversations** during
+dispatch, then the specific request, compilation or fight operation. Completed
+rounds still form a barrier: their scored fights must finish before preparing the
+next round and its feedback. Optional fixed-baseline evaluations no longer run
+before the current round's conversations are dispatched.
+
+### Recovering a timeout during execution
+
+Transient provider failures receive up to three automatic conversation retries,
+after 30, 60 and 120 seconds. A successful response resets this consecutive-failure
+streak. Waiting conversations release their request slots. The activity panel
+shows the next retry when only backoff work remains. Nonretryable errors and
+requests with an unresolved potential API charge still require review; unknown
+usage is never invented. Explicitly free requests do not need charge reconciliation.
+
+**Continue now** in the conversation toolbar or recovery panel queues an immediate
+continuation without stopping other participants. **Restart preparation** starts
+fresh with the same round instructions and an empty workspace. A confirmation
+explains the reset; the old state and files are retained under
+`sessions/<session>/restarts/`. Both actions preserve usage counters and remaining
+budgets. A completed submission cannot be reset. If execution has already ended,
+the action resumes the saved competition. Commands are processed by the coordinator,
+so the web server never edits a running worker's journal or workspace.
+
+Live page updates preserve the visible element at the moment of the DOM update.
+They do not restore a scroll position captured before a network request, which
+could otherwise move readers backwards while navigating Overview or Fights.
+
+### Submitted strategies and final checks
+
+A submitted strategy is a frozen source snapshot, including snapshots frozen at
+preparation limits. Submission does not establish that it compiles. Final checks
+are separate arena assessments run after preparation: the activity details show
+checks completed out of submitted snapshots, then valid, invalid and awaiting
+check counts. Agent-requested `analyze` calls are recorded separately under Errors.
+
+**Expected submissions** expands the count per participant, repetitions and track.
+For example, five generated participants with six repetitions plus five fixed
+references require 35 initial snapshots: 30 generated and five fixed. Participants
+ready counts model configurations whose entire expected set has been submitted.
+
+Tournament **engine failures** are incomplete process results such as timeouts,
+crashes or unreadable output, not losses or LeekScript runtime error counts. Click
+the activity failure count to inspect those fights. They are unscored; the next
+execution of that fight pool, including Resume, retries them in a new attempt
+directory while retaining old logs. Completed fights are retained.
+
+Compilation failure rate is failed compiler checks divided by checks that returned
+a compiler verdict. Multiple diagnostics in one attempt count as one failed check.
+Engine timeouts and other checks without a compiler verdict are counted separately,
+not treated as successful compilations. Errors shows percentages alongside raw
+attempts and diagnostics; its CSV includes the counts and rate. No checks means
+N/A. This rate measures observed authoring failures, not errors per source line.
+
+### Workspace loading
+
+Opening a workspace immediately displays its competition list, launch controls and
+an accessible statistics skeleton. Model usage and costs load first; performance
+groups populate afterwards. A failed statistics request leaves the page usable
+with **Retry statistics**. Reduced-motion settings disable skeleton animation.
+
+Workspace aggregation reads compact fight outcomes instead of retaining per-turn
+metrics or computing replay progression summaries. Compact artifact projections
+are bounded and refreshed when their files change. Complete summaries are cached
+for up to four workspaces and invalidated by changes to membership, configuration,
+model-size metadata, journal events or fight records. Reopening an unchanged
+workspace can reuse its complete result without aggregating all fights again.
+
+### Output continuation and exhausted preparation
+
+A provider finish reason of `length`, `max_tokens` or `max_output_tokens` means
+that response reached its output limit. While preparation budgets allow it, Arena
+immediately requests continuation in the same conversation, retaining the partial
+output, saved files and usage. This is not a provider outage, a new round or a
+completed turn without submission. It does not increment submission reminders.
+An incomplete tool call must be regenerated with complete arguments.
+
+The last permitted tool call closes preparation immediately. Arena freezes the
+latest saved files without requesting another model response, preserves all usage
+counters and appends an **Arena · Preparation closed** receipt to the conversation.
+The strategy is shown with its budget-exhausted status and saved submission;
+compilation and fight results remain separate. Other participants continue.
+If no source can be frozen, the receipt explains that no submission was produced.
+
+Earlier runs incorrectly marked as **API unavailable** after reaching their tool
+limit are finalized on Resume without calling the provider. **Finalize saved
+files** also queues this action directly while the competition runs. It consumes
+no additional model or tool call budget.
+
+### Pending fights during model preparation
+
+A fight batch yields to a ready provider response, then resumes during subsequent
+provider waits. It does not wait for another model to submit before refilling the
+engine workers. Activity details separate unfinished fights between already
+submitted strategies from fixtures awaiting additional submissions.
+
+Completed tournament records are verified once and kept as compact scoring records
+for the lifetime of the coordinator, including across cooperative yields and pool
+extensions. Resume creates a fresh coordinator and uses persistent validation
+receipts for unchanged artifacts; changed inputs receive full verification.
+Standalone reports follow the same rules; `ARENA_FULL_AUDIT=1` forces a fresh audit. A failed fixture is retried on
+pool extension or Resume, rather than repeatedly retried on every idle poll.
+
+Tournament outcomes count for both models. Overview totals exclude same-model
+fights and self-play. Fixed references have one sample; generated participants
+have the configured repetitions, so raw model fight totals need not be equal.
+Each ranking row shows its number of submitted strategies. With five models × six
+samples, five fixed references, six combat seeds and self-play enabled, the full
+schedule has 7,350 fights. There are 6,240 cross-model ranked fights, counted as
+12,480 side appearances: 2,088 per generated model and 408 per fixed reference.
+
+### Schedule reconciliation
+
+The number of unfinished available fights is computed from the frozen schedule
+and result files, including available fixtures not yet registered in the schedule.
+It does not rely on an earlier report's `pending` counter. The last scored fight
+batch runs before final submission compiler assessments, including when another
+conversation failed. All frozen submissions enter the pool regardless of whether
+they were submitted explicitly or frozen automatically after reaching limits.
+
+**More > Copy scheduling diagnostics** compares submitted snapshots, scheduled
+fixtures and saved result records for the displayed round. It includes actual
+result statuses, missing fixture counts, per-model ranked appearances and the
+unfinished conversations. It contains no API keys, prompts or generated source.
+This distinguishes missing scheduling from missing results and stale counters.
+
+**Simultaneous fights** has no arbitrary upper cap. Set any positive integer in
+competition creation or **More > Execution & metrics**. The default is unchanged;
+workers are created as work becomes available, up to the selected concurrency.
+
+### Live fight controls, retries and execution time
+
+**Workers: N** in the activity panel opens a live concurrency control. **Apply now**
+changes dispatch without Stop / Resume, including growth from a single worker.
+Decreasing the value lets current work finish before starting additional jobs.
+The setting persists across restarts, has no upper cap, and is recorded separately
+from frozen experiment inputs. Application of the setting is logged by the
+coordinator; requests are retained in `execution-requests/`.
+
+Engine `timeout` and `engine_error` results receive two automatic retries in new
+attempt directories. They retain the original source snapshots, seed and scenario.
+Cooperative yields preserve the remaining attempts. A still-failing fixture remains
+unscored after three attempts. **Retry failed fights** requests another repair pass
+without restarting model conversations. While running, the coordinator handles
+ranked and reference fixtures alongside provider requests; while stopped, a separate
+engine-only job runs. Preparation tool tests remain historical evidence and are
+not silently replayed. The equivalent CLI is `python -m arena experiment retry-fights RUN`.
+
+Activity distinguishes preparing source/data files, the Java process, reading and
+hashing output, reference-cache work, artifact verification and waiting for result
+publication. A lightweight heartbeat keeps those phases current even when the
+coordinator is publishing results. Displayed total slot time includes all these
+phases; it is not the Java process lifetime.
+
+New replay details include **Execution timing**. **Copy scheduling diagnostics**
+includes the latest batch's timing totals and live execution setting. Batch phase
+times sum concurrent worker durations, so they are not a wall-clock breakdown or
+CPU utilization measurement. Timings are hidden from model-facing tool results.
+
+Pinned engine data are staged with hardlinks where supported, with a byte-copy
+fallback across filesystems. Temporary data are removed when the process finishes;
+static data are no longer duplicated in new reference replay caches. Sources,
+scenarios, replay outputs, logs and their integrity checks remain archived.
+After rebuilding the bridge, native fights use reusable JVM slots with a fresh
+game/compiler classloader and clean source workspace for each request. See below.
+
+### Summary scale, counts and engine recovery
+
+Summary uses a compact match index, cached until the journal or result artifacts
+change. It does not load replay actions or per-turn metrics. Chart colors and
+participant identities are computed once per dataset rather than scanning all
+fights for every chart mark. The error panel loads separately.
+
+A normal preparation budget stop is not a conversation recovery alert. Submitted
+strategies with invalid code remain visible in validation and error statistics;
+they do not request a provider retry. Conversation alerts are for unfinished
+provider/generation failures or unresolved billing receipts.
+
+Fight totals are scheduled appearances, including cache hits. Fixed reference
+strategies normally have one sample, whereas generated models have one per
+repetition and track. Different appearance counts therefore do not by themselves
+indicate missing results. The ranking shows submitted version counts and marks
+cached results. Cache reuse does not remove a scheduled appearance from scores.
+
+The activity panel reports physical engine completions over the last 60 seconds,
+with cache hits counted separately. This rolling count starts at zero and decays
+to zero during inactivity; it is not a prediction from the worker setting.
+
+Available current-round tournament fights run before baseline-panel evaluations.
+The end-of-preparation pass retries exhausted tournament failures again. Persistent
+engine failures leave the round incomplete and prevent advancing to the next
+round. **Retry failed fights** repairs archived fixtures without repeating LLM
+calls; **Resume** then continues the competition from its saved round boundary.
+
+
+### Reusable JVM workers
+
+Run `python -m arena setup` once after updating to compile `ArenaWorker`, then
+restart the application. Native fight workers keep their JVM alive across fights;
+the concurrency control still chooses the number of simultaneous fight slots.
+Without the rebuilt transport, existing installations retain isolated execution.
+Docker workers remain isolated. `ARENA_JVM_MODE=isolated` explicitly selects the
+previous implementation for comparisons.
+
+Every request has fresh game/compiler classes, source directories, metrics and
+registers. Pinned static data are copied once per JVM. Slots recycle after 32
+requests by default (`ARENA_JVM_RECYCLE_MATCHES` can override this) and close after 30 seconds idle. A timeout destroys the affected slot;
+the next request starts a new JVM. Experiment shutdown closes retained workers.
+This preserves per-match source isolation rather than relying on mutable engine
+statics being reset by convention. Runtime compilation resolves its AI base
+classes through the current request's classloader.
+
+Execution details record the process ID, whether its JVM was reused, and measured
+Java CPU seconds where available. The activity details show new/reused JVM counts.
+Scheduling diagnostics now also include memory availability, batch Python CPU
+and wall time, occupied phases, grouped engine errors and bounded log excerpts.
+Existing failed records can be diagnosed without rerunning fights. CPU and wall
+time are different: a process waiting on memory or storage accumulates elapsed
+time while consuming little CPU. Batch phase totals overlap and must not be added.
+
+A local JDK 25 check of six short seeded fights took 8.94 seconds with isolated
+processes and 4.53 seconds with one reusable slot. Replay digests and deterministic
+team metrics matched, including parallel runs and alternating strategy files.
+These timings are an implementation check, not a performance forecast for a
+particular competition or host.
+
+The pooled JVM preset, measured tradeoffs and local benchmark command are documented
+in [JVM tuning](performance/jvm-tuning.md). Tuning changes require an application
+restart but do not require recompiling the unchanged Java bridge.
+
+Resume verification, cache invalidation, measurements and the full-audit option
+are documented in [Fast competition resume](performance/resume.md).

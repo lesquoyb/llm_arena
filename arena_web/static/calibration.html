@@ -13,24 +13,26 @@
       ><span id="connection"></span>
     </header>
     <main>
-      <section id="editor">
+      <details id="setup" class="setup-shell" open><summary>1 · Configure a study <small>Models, learning material and limits</small></summary><section id="editor">
         <h1>New calibration</h1>
         <p>
-          Compare initial prompts against fixed opponents. Each candidate starts
-          with a fresh conversation; only training results return to the target.
+          Each candidate tests one system prompt and its reference documents.
+          Rounds improve the script under that same prompt. In automatic mode,
+          the analyst revises the learning material between candidates.
         </p>
         <div class="fields">
           <label>Name<input id="name" /></label
           ><label>Target model<select id="target"></select></label
           ><label
             >Workflow<select id="mode">
-              <option value="manual">Manual prompt editing</option>
-              <option value="automatic">Automatic prompt editing</option>
+              <option value="manual">Manual editing (no analyst)</option>
+              <option value="automatic">Automatic optimization</option>
               <option value="grid">Model parameter sweep</option>
             </select></label
           ><label id="analyst-label" hidden
-            >Analyst model<select id="analyst"></select
+            >Prompt analyst / summary model<select id="analyst"></select
           ></label>
+          <label id="candidate-count-label" hidden>Optional candidate limit (blank = no limit)<input id="candidate-count" type="number" min="1" placeholder="Until plateau or manual stop"></label>
         </div>
         <div class="fields">
           <label
@@ -45,6 +47,7 @@
               autocomplete="off"
           /></label>
         </div>
+        <div class="actions"><button type="button" id="test-setup-target">Test student · 16 tokens</button><button type="button" id="test-setup-analyst">Test analyst · 16 tokens</button><small>Small API requests, billed separately from calibration.</small></div>
         <details>
           <summary>Provider configuration</summary>
           <p>
@@ -59,7 +62,7 @@
               rows="8"
             ></textarea></label
           ><label
-            >Analyst model JSON<textarea id="analyst-json" rows="8"></textarea>
+            >Analyst / summary model JSON<textarea id="analyst-json" rows="8"></textarea>
           </label>
         </details>
         <label
@@ -69,6 +72,13 @@
             spellcheck="false"
           ></textarea>
         </label>
+        <p id="prompt-origin"></p><button id="reload-arena-material" class="secondary" type="button">Load current Arena prompt & documents</button>
+        <details>
+          <summary>Reference documents</summary>
+          <p>Edit the learning material supplied through read_docs. Changes apply only to this candidate; engine catalogs and evaluation rules remain fixed. The automatic analyst can edit these documents too.</p>
+          <select id="reference-path" aria-label="Reference document"></select>
+          <textarea id="reference-content" rows="18" spellcheck="false" aria-label="Reference document contents"></textarea>
+        </details>
         <details>
           <summary>Tools available to the target</summary>
           <p>
@@ -79,9 +89,14 @@
           </p>
           <div id="tools"></div>
         </details>
+        <h3>One observation per prompt candidate</h3>
+        <p>Repetitions start from scratch. Within each repetition, rounds improve the same script using earlier results. The prompt changes only between candidates.</p>
+        <div class="actions"><button id="quick-observation" class="secondary" type="button">Quick diagnosis: 1 round, 1 repetition</button><button id="learning-observation" class="secondary" type="button">Learning curve: up to 10 rounds</button></div>
+        <p id="loop-plan" class="workflow-status" aria-live="polite"></p>
+        <label class="inline-check"><input type="checkbox" id="stream-responses" checked>Stream responses for Ollama/OpenAI (disable if the compatible server does not support streaming)</label>
         <div class="fields">
           <label
-            >Round stopping rule<select id="round-stop">
+            >Script improvement stopping rule<select id="round-stop">
               <option value="plateau">
                 Stop on plateau, up to maximum rounds
               </option>
@@ -90,16 +105,16 @@
             </select></label
           >
           <label
-            >Maximum rounds<input id="rounds" type="number" min="1" /></label
+            >Maximum script rounds per candidate<input id="rounds" type="number" min="1" /></label
           ><label
-            >Minimum rounds<input id="minimum" type="number" min="1" /></label
+            >Minimum script rounds<input id="minimum" type="number" min="1" /></label
           ><label
             >Plateau patience<input
               id="patience"
               type="number"
               min="1" /></label
           ><label
-            >Replicates<input
+            >Fresh repetitions per candidate<input
               id="replicates"
               type="number"
               min="1"
@@ -126,7 +141,7 @@
             outputs may vary even with a seed.
           </p>
           <label
-            >Static opponents (comma separated)<input id="opponents"
+            >Static opponents: passive, turret, single-shot, rush, evasive, human-weapon (comma separated)<input id="opponents"
           /></label>
           <div class="fields">
             <label>Training seeds<input id="training" /></label
@@ -143,15 +158,32 @@
           ><label
             >Scenario JSON<textarea id="scenario" rows="10"></textarea>
           </label>
-          <h3>Search settings</h3>
+          <h3>Independent Laya diagnostics</h3>
+          <label class="inline-check"><input id="diagnostics-enabled" type="checkbox">Save independent Laya diagnostics for human inspection</label>
           <div class="fields">
-            <label
-              >Maximum candidates<input
-                id="candidate-count"
-                type="number"
-                min="1" /></label
-            ><label
-              >Stop after rejected candidates<input
+            <label hidden>Legacy reward source<select id="reward-mode"><option value="fights">Combat score</option><option value="hybrid">Combat score + Laya tie-break</option><option value="conversation">Laya conversation score (no evaluation fights)</option></select></label>
+            <label>Evidence sent to Laya<select id="judge-evidence"><option value="reasoning">Readable reasoning only</option><option value="summary">Analyst summary (adds analyst calls)</option></select></label>
+            <label>Laya checkpoint<select id="judge-model"><option value="convaiinnovations/laya">English</option><option value="convaiinnovations/laya-multilingual">Multilingual</option><option value="convaiinnovations/laya-typed-decisions">Typed decisions</option></select></label>
+            <label>Laya device<select id="judge-device"><option value="cpu">CPU (keeps GPU free for Ollama)</option><option value="cuda">CUDA</option><option value="mps">Apple MPS</option></select></label>
+            <label hidden>Legacy conversation reward weight<input id="judge-weight" type="number" min="0" max="1" step="0.01"></label>
+          </div>
+          <p>Laya diagnoses task understanding, language/API problems, tools, use of results and progress. Its probability distributions are saved for you, never sent to the analyst and never used to select candidates. Missing reasoning or an unavailable Laya installation does not block optimization.</p>
+          <h3>Exploration and exploitation</h3>
+          <div class="fields">
+            <label hidden>Legacy learning rate<input id="rl-rate" type="number" min="0.001" max="1" step="0.01"></label>
+            <label>Exploration probability<input id="rl-exploration" type="number" min="0" max="1" step="0.01"></label>
+            <label>Minimum optimization attempts<input id="rl-minimum" type="number" min="1"></label>
+            <label>Objective plateau patience<input id="rl-patience" type="number" min="1"></label>
+            <label>Minimum objective improvement<input id="rl-improvement" type="number" min="0" max="1" step="0.001"></label>
+            <label>Search seed<input id="rl-seed" type="number" min="0"></label>
+            <label><input id="rl-plateau" type="checkbox">Stop on objective plateau</label>
+          </div>
+          <p>The analyst independently chooses all changes. Exploitation starts from the best candidate; exploration may revisit another valid archived candidate to try a different hypothesis. Combat results and configured penalties decide whether to keep the result. Leave the candidate limit blank and disable plateau stopping to continue until manually stopped.</p>
+          <h3>Analyst proposal check</h3><label>Laya proposal decisions<select id="proposal-guard"><option value="off">Off</option><option value="observe">Observe only: save the diagnosis, keep evaluating</option><option value="automatic">Automatic: follow Laya and revise rejected proposals</option></select></label><p>Automatic mode sends rejected checks back to the analyst for revision. Inconclusive checks are saved and allow evaluation to proceed. Observation mode never blocks a proposal. Laya checks can be wrong; all decisions and revisions are saved.</p>
+          <h3>Objective settings</h3>
+          <div class="fields">
+            <label hidden
+              >Legacy search patience<input
                 id="search-patience"
                 type="number"
                 min="1" /></label
@@ -197,18 +229,22 @@
             ></textarea>
           </label>
           <p>
-            Utility = validation score − round penalty × convergence round −
-            token penalty × mean tokens / 1,000,000. A candidate must improve
-            utility and stay within score tolerance in every paired replicate.
+            Utility combines evaluation score, the optional Laya weight and the round/token penalties. Combat scoring protects every paired replicate within the score tolerance. In hybrid mode, Laya only breaks equivalent combat scores.
             Parameter grid replaces analyst editing with a deterministic
             Cartesian sweep.
           </p>
-          <label
+        </details>
+          <h3>Preparation budget per round</h3>
+          <p>The target sees these limits and the remaining budget in tool results. Empty fields mean unlimited. Saved files are frozen when a limit is exhausted.</p>
+          <div class="fields"><label>Model calls<input id="limit-calls" type="number" min="1" placeholder="Unlimited"></label><label>Tool calls<input id="limit-tools" type="number" min="1" placeholder="Unlimited"></label><label>Preparation fights<input id="limit-fights" type="number" min="0" step="2" placeholder="Unlimited"></label></div>
+          <button id="short-budget" class="secondary" type="button">Use short trial: 8 calls, 20 tools, 4 fights</button>
+          <p id="budget-preview"></p>
+          <details><summary>Other limits and budget JSON</summary><label
             >Optional per-round limits JSON<textarea
               id="budget"
               rows="3"
             ></textarea></label
-          ><label
+          ></details><label
             ><input id="api-enabled" type="checkbox" /> Enable API requests,
             including local servers</label
           ><label
@@ -220,20 +256,19 @@
               placeholder="Unlimited"
           /></label>
           <p>
-            No token or call limits apply by default. Remote API calls require
+            Quick diagnosis starts with a short call/tool budget. Clear limits for unlimited preparation. Remote API calls require
             allow_paid_calls=true. If set, max_total_usd covers the entire
             study, including the analyst.
           </p>
-        </details>
         <p id="simulation-note"></p>
         <div class="actions">
           <button id="start">Run calibration</button
           ><button id="export" class="secondary">Export configuration</button>
         </div>
-      </section>
+      </section></details>
       <section>
         <div class="title">
-          <h2>Studies</h2>
+          <h2>2 · Studies</h2>
           <button id="refresh" class="secondary">Refresh</button>
         </div>
         <p id="comparison-note"></p>
@@ -242,23 +277,25 @@
       <section id="inspection" hidden>
         <div class="title">
           <h2 id="study-title"></h2>
-          <div>
+          <details class="study-tools"><summary>Study tools & exports</summary><div>
+            <button id="prompt-history" class="secondary">Prompt version history</button>
+            <button id="export-material" class="secondary">Download selected learning material</button>
             <button id="show-prompt" class="secondary">Inspect prompt</button
             ><button id="fork" class="secondary">Edit selected prompt</button
             ><button id="resume" class="secondary">Resume</button
             ><button id="stop" class="secondary">Stop</button
-            ><button id="log" class="secondary">Run log</button>
-          </div>
+            ><button id="log" class="secondary">Run log</button><button id="tool-requests" class="secondary">Tool improvement report</button>
+          </div></details>
         </div>
-        <div id="status"></div>
+        <div id="status" hidden></div><div id="study-command" class="study-command" aria-live="polite"></div><section id="study-models" class="panel role-models" aria-label="Calibration model roles"></section><nav class="study-tabs" aria-label="Study sections"><button data-study-tab="overview">Overview</button><button data-study-tab="changes">Prompt changes</button><button data-study-tab="inspect">Conversations & files</button></nav><div class="fields study-selection"><label>Saved version<select id="trial"></select></label><label>Replicate<select id="replicate"></select></label></div><div data-study-panel="overview"><div id="study-cost" class="budget-strip"></div>
+<div id="workflow-status" class="workflow-status" hidden></div>
+        <section><h3>Optimization progress</h3><div id="rl-progress"></div></section>
+        </div><div data-study-panel="changes" hidden><div class="diagnostic-comparison"><section id="analyst-review" class="review-panel"><h3>Analyst findings & changes</h3><div id="analyst-content"></div></section><section class="review-panel"><h3>Independent Laya observations</h3><div id="diagnostic-content"></div></section></div>
+        </div><div data-study-panel="overview"><section><h3>Fight results for the evaluated candidate</h3><div id="fight-summary"></div></section>
         <div id="trial-comparison"></div>
-        <div class="fields">
-          <label>Candidate<select id="trial"></select></label
-          ><label>Replicate<select id="replicate"></select></label>
-        </div>
-        <div id="chart"></div>
+        <p id="observation-status" role="status"></p><div id="chart"></div>
         <div id="rounds-table"></div>
-        <h3>Inspect trajectory</h3>
+        </div><div data-study-panel="inspect" hidden><h3>Conversation & records</h3>
         <div class="fields">
           <label>Round or analyst session<select id="session"></select></label
           ><label
@@ -270,7 +307,11 @@
             </select></label
           >
         </div>
-        <div id="history"></div>
+        <div class="actions"><button id="export-conversation" class="secondary">Export conversation JSON</button><button id="inspect-reasoning" class="secondary">Inspect available reasoning</button></div>
+        <div id="session-budget"></div>
+        <div class="actions transcript-controls"><label class="inline-check"><input type="checkbox" id="follow-live" checked>Follow live</label><span id="live-status" role="status"></span><button id="history-top" class="secondary">Top</button><button id="history-bottom" class="secondary">Latest</button></div>
+        <p id="session-identity" role="status"></p><div id="history" tabindex="0" aria-label="Conversation and records"></div>
+        <div id="live-output" aria-live="off"></div>        <details><summary>Continue a stopped target conversation</summary><p>Stop the study, then continue the tested model from its saved workspace and conversation. This sends your instructions and restarts the worker immediately. Conversation counters and submission reminders are preserved; completed observations remain unchanged. Configured budgets still apply.</p><label>Optional instructions to the tested model<textarea id="target-instructions" rows="4"></textarea></label><details><summary>Reconcile an interrupted or unreadable provider response</summary><p>Only fill these fields when billing reconciliation is required. Check the provider's charge for the unresolved request; enter 0 only if no API charge occurred. Usage that was not reported stays unknown.</p><label>Confirmed additional cost (USD)<input id="target-reconciliation-cost" type="number" min="0" step="any"></label><label>How was the charge checked?<input id="target-reconciliation-note"></label></details><button id="target-continue" class="secondary">Continue target & resume optimization</button><p id="target-recovery-status" role="status"></p></details><details><summary>Intervene in a blocked analyst proposal</summary><p>Stop the study first. Add instructions to request another answer, or paste a complete corrected JSON proposal. Resume afterwards. Finished trials and provider usage are preserved. Corrected proposals still pass normal validation and the configured proposal check.</p><label>Instructions or complete proposal JSON<textarea id="intervention-text" rows="8"></textarea></label><button id="intervention-instruct" class="secondary">Send instructions to analyst</button><button id="intervention-replace" class="secondary">Use corrected proposal JSON</button><p id="intervention-status" role="status"></p></details></div>
       </section>
     </main>
     <dialog id="dialog">
@@ -279,7 +320,7 @@
         <button id="close" class="secondary">Close</button>
       </div>
       <button id="copy" class="secondary">Copy</button>
-      <pre id="dialog-content"></pre>
+      <div id="dialog-content"></div>
     </dialog>
     <div id="error" role="alert" hidden></div>
   </body>

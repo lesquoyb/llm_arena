@@ -28,7 +28,7 @@ def describe(fight, catalogs=None):
     templates = {kind: {int(row["template"]): row.get("name", str(row["template"]))
                         for row in rows.values()} for kind, rows in catalogs.items()}
     width, height = fight.get("map", {}).get("width", 18), fight.get("map", {}).get("height", 18)
-    names = {leek["id"]: leek.get("name", str(leek["id"])) for leek in fight.get("leeks", [])}
+    names = {leek["id"]: f"{leek.get('name', str(leek['id']))} (#{leek['id']})" for leek in fight.get("leeks", [])}
     turn, actor, events, unknown = 1, None, [], set()
     for index, action in enumerate(fight.get("actions", [])):
         if not isinstance(action, list) or not action:
@@ -39,6 +39,7 @@ def describe(fight, catalogs=None):
             unknown.add(code)
         if code == 6 and len(action) > 1:
             turn = action[1]
+            actor = None
             label = f"Turn {turn}"
         elif code == 7 and len(action) > 1:
             actor = action[1]
@@ -62,6 +63,7 @@ def describe(fight, catalogs=None):
         elif code == 13 and len(action) > 1:
             label = f"{names.get(actor, actor)} equips {templates.get('weapons', {}).get(action[1], 'weapon template ' + str(action[1]))}"
         events.append({"index": index, "turn": turn, "actor": actor, "code": code, "text": label, "raw": action})
+        if code == 8:actor = None
     return {"cells": [cell_position(i, width) for i in range((2 * width - 1) * height - (width - 1))],
             "events": events, "unknown_codes": sorted(unknown),
             "note": "Schematic replay: positions, HP, shots, healing and deaths. "

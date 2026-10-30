@@ -1,7 +1,8 @@
 You previously submitted a strategy. The previous competition round has finished.
 You now have a new preparation period to improve that strategy before the next round.
 Your previous submitted files are already in your workspace, including team.json
-when you choose your team. Start with list_files and read_file to inspect them.
+when you choose your team. The previous_submission field identifies the exact entrypoint and files. Start with
+its read_workspace call; read_frozen retrieves the unchanged submitted version.
 Do not assume the previous version was correct or competitive merely because it
 was submitted or passed a test against passive. Reassess its weaknesses, investigate
 improvements, compile and test the resulting code, then explicitly call submit.

@@ -6,6 +6,43 @@ from arena.preparation import Preparation
 
 
 class FeedbackAccessTests(unittest.TestCase):
+    def test_calibration_reads_only_selected_training_round_or_requested_fight(self):
+        from arena.calibration import CalibrationFights
+        from arena.core import read_json
+        from unittest import mock
+        with scratch_directory() as out:
+            for sid in ('one','two'):
+                write_json(out/'evaluations'/('training-'+sid)/'records/a.json',
+                    {'opponent':'fixed','side':0,'artifact_dir':'unused','result':{'status':'completed','winner_side':0}})
+            access=CalibrationFights(out,{'generation':2,'calibration':{'previous_sessions':['one','two']}})
+            with mock.patch('arena.calibration.read_json',wraps=read_json) as reader:
+                listing=access.call('list_past_fights',{'round':1})
+                self.assertEqual(reader.call_count,1)
+                self.assertEqual(listing['total'],1)
+            with mock.patch('arena.calibration.read_json',wraps=read_json) as reader:
+                access.call('read_past_fight',{'fight_id':listing['matches'][0]['fight_id']})
+                self.assertEqual(reader.call_count,1)
+    def test_calendar_filters_records_before_reading_and_selects_only_requested_round(self):
+        from unittest import mock
+        from arena.core import read_json
+        with scratch_directory() as out:
+            self.records(out)
+            stage=out/'tournament'
+            schedule=[{**read_json(path)['match'],'id':path.stem} for path in sorted((stage/'records').glob('*.json'))]
+            write_json(stage/'experiment.json',{'schedule':schedule})
+            access=PastFights(out,'parent-r0',versions=[{'round':1,'session':'parent-r0'},{'round':2,'session':'later'}])
+            with mock.patch('arena.feedback.read_json',wraps=read_json) as reader:
+                listing=access.call('list_past_fights',{'round':1,'limit':1})
+                opened=[call.args[0] for call in reader.call_args_list]
+                self.assertEqual(listing['total'],18)
+                self.assertNotIn(stage/'records/peer.json',opened)
+                self.assertNotIn(stage/'records/mirror.json',opened)
+                self.assertFalse(any('g1-tournament' in path.parts for path in opened))
+                self.assertEqual(sum(path.parent.name=='records' for path in opened),1)
+            with mock.patch('arena.feedback.read_json',wraps=read_json) as reader:
+                access.call('read_past_fight',{'fight_id':listing['matches'][0]['fight_id']})
+                results=[call.args[0] for call in reader.call_args_list if call.args[0].parent.name=='records']
+                self.assertEqual(len(results),1)
     def records(self, out):
         for index in range(18):
             side = index % 2

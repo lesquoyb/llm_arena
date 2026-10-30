@@ -1,0 +1,77 @@
+"""Own engine scheduling/publication on a thread independent of conversations."""
+import copy
+import threading
+
+
+class FightCoordinator:
+    def __init__(self, out, config, engine, callback=None, *, validate_frozen=None):
+        self.out=out;self.config=copy.deepcopy(config);self.engine=engine;self.callback=callback
+        self.wake=threading.Event();self.stop=threading.Event();self.error=None
+        self.finish=threading.Event()
+        self.thread=threading.Thread(target=self.run,name='arena-fight-coordinator',daemon=True)
+        self.validator=None
+        if validate_frozen is not None:
+            from .submission_validation import SubmissionValidator
+            self.validator=SubmissionValidator(out,engine,validate_frozen)
+
+    def validate(self,sid):
+        if self.validator:self.validator.submit(sid)
+
+    def notify(self):
+        self.check();self.wake.set()
+
+    def check(self):
+        if self.error is not None:raise self.error
+        if self.validator and self.validator.error is not None:raise self.validator.error
+
+    def run(self):
+        from .experiment import Journal
+        from .execution_control import _journal,poll
+        from .activity import _provider_yielder,_activity_name
+        from .greedy import evaluate
+        journal=None;tokens=[]
+        try:
+            # SQLite connections and verification caches stay with their owner.
+            # This journal only appends engine events; it never edits sessions.
+            journal=Journal(self.out)
+            tokens=[(_journal,_journal.set(journal)),
+                    (_provider_yielder,_provider_yielder.set(self.stop.is_set)),
+                    (_activity_name,_activity_name.set('engine-activity.json'))]
+            print('[arena] Independent fight coordinator started.',flush=True)
+            while not self.stop.is_set():
+                final_pass=self.finish.is_set()
+                self.wake.clear()
+                poll(self.out,self.config.get('_parallel_fights',self.config.get('parallel_fights',1)))
+                if getattr(journal,'_manual_fight_retry_pending',False):
+                    from .fight_recovery import run
+                    result=run(self.out,engine=self.engine,journal=journal,cooperative=True,include_ready=getattr(journal,'_include_ready_fights',False))
+                    if not result.get('deferred'):journal._manual_fight_retry_pending=False
+                generations={state.get('generation',0) for state in journal.metadata().values() if state.get('submission')}
+                for generation in sorted(generations,reverse=True):
+                    if self.stop.is_set():break
+                    evaluate(self.engine,self.config,self.out,journal,generation)
+                if self.callback and not self.stop.is_set():self.callback(journal)
+                if final_pass:break
+                self.wake.wait(.5)
+        except BaseException as error:
+            self.error=error
+            import traceback
+            traceback.print_exc()
+        finally:
+            if journal is not None:
+                try:journal.verification.flush()
+                finally:journal.db.close()
+            for variable,token in reversed(tokens):variable.reset(token)
+            print('[arena] Independent fight coordinator stopped.',flush=True)
+
+    def __enter__(self):
+        if self.validator:self.validator.thread.start()
+        self.thread.start();return self
+
+    def __exit__(self,kind,*args):
+        if kind is None:self.finish.set()
+        else:self.stop.set()
+        self.wake.set()
+        if self.validator:self.validator.close(cancel=kind is not None)
+        self.thread.join()
+        if kind is None:self.check()

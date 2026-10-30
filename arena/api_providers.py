@@ -4,20 +4,26 @@ import json
 import os
 import re
 import time
+import errno
+import socket
+import ssl
 from urllib import request, error, parse
 from .core import ArenaError, digest
-from .usage import normalize, cost
+from .usage import normalize, cost, effective_pricing
 from .endpoints import validate_endpoint, optional_local_key
 
 
 class ProviderFailure(ArenaError):
-    def __init__(self, message, *, uncertain=False, retryable=False):
+    def __init__(self, message, *, uncertain=False, retryable=False, diagnostics=None):
         super().__init__(message)
         self.uncertain, self.retryable = uncertain, retryable
+        self.diagnostics = diagnostics or {}
 
 
 class LocalRedirectHandler(request.HTTPRedirectHandler):
+    followed = False
     def redirect_request(self, req, fp, code, msg, headers, newurl):
+        self.followed = True
         validate_endpoint(newurl, allow_query=True)
         redirected = super().redirect_request(req, fp, code, msg, headers, newurl)
         if redirected and parse.urlsplit(newurl).netloc != parse.urlsplit(req.full_url).netloc:
@@ -26,43 +32,118 @@ class LocalRedirectHandler(request.HTTPRedirectHandler):
         return redirected
 
 
-def http_json(url, payload, headers, timeout):
+def open_provider_response(req, timeout):
+    """Only proven failures before a direct request avoid uncertain billing."""
+    redirects=LocalRedirectHandler()
+    from .provider_watchdog import request_control, cancellable_handlers
+    control=request_control.get()
+    handlers=[redirects,*cancellable_handlers(control)] if control else [redirects]
+    try:
+        return request.build_opener(*handlers).open(req,timeout=timeout)
+    except error.HTTPError:
+        raise
+    except (error.URLError,OSError,TimeoutError) as exc:
+        if control:control.check()
+        reason=exc.reason if isinstance(exc,error.URLError) else exc
+        code='connection_unavailable';description='The connection failed before a complete response was received.';not_sent=False
+        if isinstance(reason,socket.gaierror):
+            code='dns_resolution_failed';description='DNS resolution failed. Check the endpoint hostname, network or VPN.';not_sent=True
+        elif isinstance(reason,ConnectionRefusedError) or getattr(reason,'errno',None)==errno.ECONNREFUSED:
+            code='connection_refused';description='The server refused the connection. Check its address and whether it is running.';not_sent=True
+        elif getattr(reason,'errno',None) in {errno.ENETUNREACH,errno.EHOSTUNREACH}:
+            code='network_unreachable';description='The endpoint network is unreachable.';not_sent=True
+        elif isinstance(reason,ssl.SSLCertVerificationError):
+            code='tls_certificate_verification_failed';description='TLS certificate verification failed. Check system certificates or HTTPS interception by a proxy/VPN.';not_sent=True
+        elif isinstance(reason,ssl.SSLError):
+            code='tls_connection_failed';description='The TLS connection failed before a complete response was received; request delivery is unknown.'
+        elif isinstance(reason,(TimeoutError,socket.timeout)):
+            code='connection_timeout';description='The request timed out while waiting for the provider. Its outcome is unknown.'
+        uncertain=redirects.followed or not not_sent
+        parsed=parse.urlsplit(req.full_url)
+        diagnostics={'endpoint':parse.urlunsplit((parsed.scheme,parsed.netloc,parsed.path,'','')),
+                     'network_error':code,'cause_type':type(reason).__name__,
+                     'request_delivery':'unknown' if uncertain else 'not_sent','redirect_followed':redirects.followed}
+        raise ProviderFailure('Provider connection failed: '+description,uncertain=uncertain,retryable=code!='tls_certificate_verification_failed',diagnostics=diagnostics) from None
+
+
+def http_json(url, payload, headers, timeout, *, inactivity_timeout=None):
     validate_endpoint(url, allow_query=True)
     req = request.Request(url, data=json.dumps(payload).encode() if payload is not None else None,
                           headers=headers, method="POST" if payload is not None else "GET")
     try:
-        open_url = (request.build_opener(LocalRedirectHandler()).open
-                    if parse.urlsplit(url).scheme == 'http' else request.urlopen)
-        with open_url(req, timeout=timeout) as response:
-            body = response.read(8_000_001)
+        from .provider_watchdog import InactivityGuard
+        idle=inactivity_timeout or timeout
+        started=time.monotonic()
+        with open_provider_response(req,min(timeout,idle)) as response, InactivityGuard(response,idle,started_at=started) as guard:
+            body=bytearray()
+            read=getattr(response,'read1',response.read)
+            while len(body)<=8_000_000:
+                chunk=read(min(65536,8_000_001-len(body)))
+                guard.check()
+                if not chunk:break
+                body.extend(chunk)
+                guard.touch()
             if len(body) > 8_000_000:
                 raise ProviderFailure("Provider response exceeded quota", uncertain=True)
+            guard.touch()
             return json.loads(body), response.headers.get("x-request-id") or response.headers.get("request-id")
     except error.HTTPError as exc:
-        # Keep only the structured public error fields, never the raw error body.
-        detail = ""
-        try:
-            problem = json.loads(exc.read(16000)).get("error", {})
-            if isinstance(problem, dict):
-                detail = " · ".join(str(problem[k]) for k in ("status", "type", "message")
-                                    if isinstance(problem.get(k), (str, int)))[:2000]
-                for header, value in headers.items():
-                    if header.lower() in {"authorization", "x-api-key", "x-goog-api-key"}:
-                        detail = detail.replace(value, "[REDACTED]").replace(value.removeprefix("Bearer "), "[REDACTED]")
-                detail = re.sub(r"(?i)(key|api_key|token)=([^\s&]+)", r"\1=[REDACTED]", detail)
-        except (ValueError, OSError, AttributeError):
-            pass
-        raise ProviderFailure(f"Provider HTTP {exc.code}" + (": " + detail if detail else ""), uncertain=exc.code >= 500,
-                              retryable=exc.code == 429) from None
+        raise_http_error(exc,url,headers,read_timeout=idle)
     except (error.URLError, TimeoutError, OSError, ValueError) as exc:
-        raise ProviderFailure(f"Provider response unavailable ({type(exc).__name__})", uncertain=True) from None
+        raise ProviderFailure(f"Provider response could not be read ({type(exc).__name__}); the request outcome is unknown.", uncertain=True,retryable=isinstance(exc,(OSError,error.URLError,TimeoutError)),
+                              diagnostics={'network_error':'response_read_failed','cause_type':type(exc).__name__,'request_delivery':'unknown'}) from None
+
+
+def raise_http_error(exc,url,headers,*,read_timeout=60):
+    # Extract public validation fields, including proxy/FastAPI error formats.
+    from .provider_watchdog import InactivityGuard
+    try:
+        with exc, InactivityGuard(exc,min(read_timeout,5)):
+            body=exc.read(16000).decode('utf-8',errors='replace')
+    except (OSError,ProviderFailure):body=''
+    def public(value):
+        if isinstance(value, str): return value
+        if isinstance(value, list): return ' · '.join(public(item) for item in value[:8])
+        if isinstance(value, dict):
+            parts = []
+            for field in ('status', 'type', 'code', 'param', 'message', 'msg', 'detail', 'error', 'errors', 'loc'):
+                if field in value:
+                    part = public(value[field])
+                    if part: parts.append(field + ': ' + part)
+            return ' · '.join(parts)
+        return str(value) if isinstance(value, (int, float)) else ''
+    try: detail = public(json.loads(body))
+    except ValueError:
+        detail = body.strip() if '<html' not in body.lower() and '<!doctype' not in body.lower() else ''
+    for header, value in headers.items():
+        if header.lower() in {'authorization', 'x-api-key', 'x-goog-api-key'} and value:
+            detail = detail.replace(value, '[REDACTED]').replace(value.removeprefix('Bearer '), '[REDACTED]')
+    detail = re.sub(r'(?i)(key|api_key|token)=([^\s&]+)', r'\1=[REDACTED]', detail)[:2000]
+    parsed = parse.urlsplit(url)
+    diagnostics = {'http_status':exc.code, 'endpoint':parse.urlunsplit((parsed.scheme, parsed.netloc, parsed.path, '', '')),
+                   'request_id':(exc.headers or {}).get('x-request-id') or (exc.headers or {}).get('request-id'),
+                   'provider_detail':detail or 'No public error detail was returned by the endpoint'}
+    raise ProviderFailure(f"Provider HTTP {exc.code}" + (": " + detail if detail else ""), uncertain=exc.code >= 500,
+                          retryable=exc.code == 429, diagnostics=diagnostics) from None
 
 
 class APIProvider:
-    def __init__(self, model, transport=http_json):
+    def __init__(self, model, transport=http_json, stream_progress=None):
         self.model, self.transport = model, transport
+        self.stream_progress = stream_progress
 
     def payload(self, history, tools, output_limit):
+        result=self._payload(history,tools,output_limit)
+        if self.model.get('_stream'):
+            result['stream']=True
+            from .openai_responses import uses_responses
+            if not uses_responses(self.model): result['stream_options']={'include_usage':True}
+        return result
+
+    def _payload(self, history, tools, output_limit):
+        from .openai_responses import uses_responses, payload as responses_payload
+        if uses_responses(self.model):
+            return responses_payload(self.model, history, tools, output_limit)
         from .model_content import history_view, message_text, tool_text
         history = history_view(history)
         m = self.model
@@ -101,24 +182,36 @@ class APIProvider:
                 payload["system"] = system
         else:
             if output_limit is not None:
-                payload["max_completion_tokens"] = output_limit
+                # Mistral's Chat API uses max_tokens, unlike OpenAI reasoning chat models.
+                field = 'max_tokens' if parse.urlsplit(m.get('endpoint','')).hostname == 'api.mistral.ai' else 'max_completion_tokens'
+                payload[field] = output_limit
             payload.update(tools=[{"type": "function", "function": {"name": t["name"],
                                   "description": t["description"], "parameters": t["input_schema"]}} for t in tools])
         if not tools: payload.pop("tools", None)
         return payload
 
-    def respond(self, history, tools, output_limit):
+    def respond(self, history, tools, output_limit, *, key_override=None):
+        from .provider_watchdog import request_control
+        control=request_control.get()
+        if control:control.check()
         m = self.model
-        key = os.environ.get(m["api_key_env"])
+        key = key_override if key_override is not None else os.environ.get(m["api_key_env"])
         if not key and not optional_local_key(m):
             raise ProviderFailure(f"Missing credential binding: {m['api_key_env']}")
+        from .openai_responses import uses_responses
         anthropic = m["provider"] == "anthropic"
         endpoint, headers = connection(m, key)
         payload = self.payload(history, tools, output_limit)
         retries = []
         for attempt in range(m.get("max_retries", 0) + 1):
             try:
-                raw, request_id = self.transport(endpoint, payload, headers, m.get("timeout_seconds", 60))
+                if m.get('_stream') and self.stream_progress is not None:
+                    from .streaming import stream_json
+                    raw,request_id=stream_json(endpoint,payload,headers,m.get('timeout_seconds',60),self.stream_progress,inactivity_timeout=m.get('inactivity_timeout_seconds',300))
+                elif self.transport is http_json:
+                    raw,request_id=self.transport(endpoint,payload,headers,m.get('timeout_seconds',60),inactivity_timeout=m.get('inactivity_timeout_seconds',300))
+                else:
+                    raw, request_id = self.transport(endpoint, payload, headers, m.get("timeout_seconds", 60))
                 break
             except ProviderFailure as failure:
                 if not failure.retryable or failure.uncertain or attempt == m.get("max_retries", 0):
@@ -137,6 +230,15 @@ class APIProvider:
                     calls.append({"id": call.get("id", f"gemini-{len(history)}-{index}"),
                                   "name": call["name"], "arguments": call.get("args", {})})
             stop = candidate.get("finishReason") or raw.get("promptFeedback", {}).get("blockReason")
+        elif uses_responses(m):
+            from .openai_responses import unpack
+            self.last_response = {"raw":raw, "request_id":request_id, "sent_parameters":payload}
+            if raw.get('error') or raw.get('status') in {'failed','cancelled'}:
+                detail = str(raw.get('error') or raw.get('status'))[:2000]
+                if key: detail = detail.replace(key, '[REDACTED]')
+                raise ProviderFailure('Responses request failed: ' + detail, uncertain=True)
+            native, calls = unpack(raw)
+            stop = raw.get('incomplete_details', {}).get('reason') if raw.get('incomplete_details') else raw.get('status')
         elif anthropic:
             self.last_response = {"raw": raw, "request_id": request_id, "sent_parameters": payload}
             native = {"role": "assistant", "content": raw["content"]}
@@ -154,13 +256,15 @@ class APIProvider:
                     arguments = None
                 calls.append({"id": call["id"], "name": call["function"]["name"], "arguments": arguments})
             stop = raw["choices"][0].get("finish_reason")
-        usage = normalize(m["provider"], raw.get("usageMetadata") if m["provider"] == "gemini" else raw.get("usage"))
+        usage = normalize('openai-responses' if uses_responses(m) else m["provider"], raw.get("usageMetadata") if m["provider"] == "gemini" else raw.get("usage"))
         return {"role": "assistant", "provider": m["provider"], "simulated": False, "native": native,
                 "tool_calls": calls, "stop_reason": stop, "usage": usage, "raw": raw,
                 "request_id": request_id or raw.get("responseId"), "sent_parameters": payload,
                 "request_sha256": digest(payload), "system_fingerprint": raw.get("system_fingerprint"),
+                "adapter_notes": (["Responses API does not support seed; configured seed was not sent."] if uses_responses(m) and 'seed' in m.get('parameters', {}) else []),
+                "api_protocol": "responses" if uses_responses(m) else "native",
                 "model_version": raw.get("modelVersion") or raw.get("model"), "retries": retries,
-                "cost_usd": cost(usage, m["pricing"]), "cost_status": "calculated_from_reported_usage"}
+                "cost_usd": cost(usage, effective_pricing(m)), "cost_status": "calculated_from_reported_usage"}
 
 
 DEFAULT_ENDPOINTS = {"openai": "https://api.openai.com/v1/chat/completions",
@@ -173,7 +277,8 @@ def connection(model, key):
     endpoint = model.get("endpoint") or DEFAULT_ENDPOINTS.get(provider)
     if not endpoint:
         raise ArenaError("An endpoint is required")
-    headers = {"Content-Type": "application/json"}
+    # Some API gateways reject urllib's default Python user agent (Groq: 403/1010).
+    headers = {"Content-Type": "application/json", "User-Agent": "LLMArena/1.0"}
     if provider == "gemini":
         endpoint = endpoint.rstrip("/") + "/models/" + parse.quote(model["model"].removeprefix("models/"), safe="") + ":generateContent"
         headers["x-goog-api-key"] = key
@@ -181,7 +286,8 @@ def connection(model, key):
         headers.update({"x-api-key": key, "anthropic-version": "2023-06-01"})
     elif key:
         headers["Authorization"] = "Bearer " + key
-    return endpoint, headers
+    from .openai_responses import endpoint as response_endpoint
+    return response_endpoint(model, endpoint), headers
 
 
 def gemini_payload(history, tools, output_limit, parameters):
@@ -272,7 +378,7 @@ def list_models(provider, key, endpoint=None, transport=http_json):
     if provider == "gemini":
         base = url.rsplit("/models/", 1)[0] + "/models"
     else:
-        suffix = "/messages" if provider == "anthropic" else "/chat/completions"
+        suffix = "/messages" if provider == "anthropic" else "/responses" if url.endswith("/responses") else "/chat/completions"
         if not url.endswith(suffix):
             raise ArenaError("Nonstandard endpoint path; enter the model ID manually")
         base = url[:-len(suffix)] + "/models"

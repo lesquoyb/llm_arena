@@ -1,0 +1,9 @@
+// Catchable evasive target: no attacks, limited speed, predictable rest turns.
+var enemy = getNearestEnemy()
+if (enemy >= 0 && isAlive(enemy) && getMP() > 0) {
+    // Stay put at a distance. Near an enemy, spend at most two MP fleeing.
+    // Rest every fourth turn so a slower pursuer can still close the gap.
+    if (getTurn() % 4 != 0 && getCellDistance(getCell(), getCell(enemy)) < 8) {
+        moveAwayFrom(enemy, min(2, getMP()))
+    }
+}

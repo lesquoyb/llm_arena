@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import re
 import sqlite3
 import time
@@ -15,7 +16,6 @@ from .preparation import Preparation
 from .providers import MockProvider, PROFILES
 from .api_providers import APIProvider, ProviderFailure
 from .usage import amount, reservation
-from .tournament import run_tournament
 
 PROMPT = (ROOT / "prompts/g0.md").read_text(encoding="utf-8") if (ROOT / "prompts/g0.md").exists() else (
           "Write a LeekScript 4 strategy. Read authoring.md and submit main.leek.")
@@ -39,10 +39,14 @@ def load_config(path: Path) -> dict:
 def validate_config(value: dict) -> dict:
     required = {"schema_version", "name", "models", "replicates", "budget_per_session",
                 "spending", "seeds", "scenario", "include_mirrors"}
-    optional = {"generations", "improvement_conditions", "prompt_language", "final_seeds"}
+    optional = {"generations", "improvement_conditions", "prompt_language", "final_seeds", "parallel_requests", "parallel_fights", "request_order", "compare_previous_round"}
     if (not isinstance(value, dict) or not required <= set(value) or set(value) - required - optional or
             type(value["schema_version"]) is not int or value["schema_version"] not in (1, 2)):
         raise ArenaError("Unsupported offline experiment schema")
+    integer(value.get('parallel_requests',1),1,20,'parallel_requests')
+    integer(value.get('parallel_fights',1),1,None,'parallel_fights')
+    if value.get('request_order','models') not in ('models','repetitions'):raise ArenaError('Request order must be models or repetitions')
+    if type(value.get('compare_previous_round',False)) is not bool:raise ArenaError('compare_previous_round must be boolean')
     spending = value["spending"]
     if not isinstance(spending, dict) or "allow_paid_calls" not in spending or set(spending) - {"allow_paid_calls", "max_total_usd"}:
         raise ArenaError("Invalid spending policy")
@@ -73,13 +77,22 @@ def validate_config(value: dict) -> dict:
             raise ArenaError("Invalid or duplicate model ID")
         ids.add(model["id"])
         if model["provider"] == "mock":
+            if model.get("profile") == "saved-strategy":
+                from .saved_strategy import validate as validate_saved
+                validate_saved(model, value["scenario"])
+                continue
             if set(model) != {"id", "provider", "profile"} or model["profile"] not in PROFILES:
                 raise ArenaError("Invalid mock profile")
         else:
             fields = {"id", "provider", "model", "api_key_env", "pricing"}
             if (model["provider"] not in {"openai", "openai-compatible", "anthropic", "gemini"} or not fields <= set(model)
-                    or set(model) - fields - {"endpoint", "parameters", "timeout_seconds", "max_retries", "max_input_tokens_per_call", "max_output_tokens"}):
+                    or set(model) - fields - {"endpoint", "parameters", "timeout_seconds", "inactivity_timeout_seconds", "max_retries", "max_input_tokens_per_call", "max_output_tokens", "model_size_billion"}):
                 raise ArenaError("Invalid API model configuration")
+            if 'model_size_billion' in model:
+                import math
+                size=model['model_size_billion']
+                if type(size) not in (int,float) or not 0<size<=1_000_000 or not math.isfinite(size):
+                    raise ArenaError('Model size must be a positive finite number in billions of parameters')
             if not spending["allow_paid_calls"] or ("max_total_usd" in spending and amount(spending["max_total_usd"]) == 0):
                 raise ArenaError("Real providers require explicit paid activation and a positive ceiling if configured")
             if not isinstance(model["model"], str) or not model["model"]:
@@ -96,6 +109,7 @@ def validate_config(value: dict) -> dict:
             if model["provider"] == "anthropic" and "max_output_tokens" not in model:
                 raise ArenaError("Anthropic requires an explicit maximum output per call (max_tokens)")
             integer(model.get("timeout_seconds", 60), 1, 3600, "timeout_seconds")
+            integer(model.get("inactivity_timeout_seconds",300),1,3600,"inactivity_timeout_seconds")
             integer(model.get("max_retries", 0), 0, 3, "max_retries")
             params = model.get("parameters", {})
             allowed = {"temperature", "top_p", "reasoning_effort", "seed"}
@@ -105,6 +119,8 @@ def validate_config(value: dict) -> dict:
                 allowed = {"temperature", "top_p", "top_k", "seed", "thinking_config"}
             if not isinstance(params, dict) or set(params) - allowed:
                 raise ArenaError("Unsupported provider parameters (Anthropic does not expose a seed)")
+            if "reasoning_effort" in params and (not isinstance(params['reasoning_effort'], str) or not params['reasoning_effort'].strip()):
+                raise ArenaError('reasoning_effort must be a nonempty level string; omit it for the provider default')
             if "seed" in params:
                 integer(params["seed"], 0, 2**31 - 1, "model seed")
             pricing = model["pricing"]
@@ -138,13 +154,13 @@ def validate_config(value: dict) -> dict:
             raise ArenaError("Evaluation seeds must differ from preparation seed 17")
     final = value.get("final_seeds", [])
     if value.get("generations", 1) != 1 and not final:
-        raise ArenaError("G1 requires separate final seeds")
+        raise ArenaError("Round 2+ evaluation seeds are required")
     if not isinstance(final, list) or len(final) != len(set(final)) or len(final) > 100:
         raise ArenaError("Invalid final seeds")
     for seed in final:
         integer(seed, 1, 2**31 - 1, "final seed")
-        if seed in seeds or seed == 17:
-            raise ArenaError("Preparation, feedback and final seeds must be distinct")
+        if seed == 17:
+            raise ArenaError("Evaluation seeds must differ from preparation seed 17")
     validate_scenario(value["scenario"])
     if type(value["include_mirrors"]) is not bool:
         raise ArenaError("include_mirrors must be boolean")
@@ -152,13 +168,16 @@ def validate_config(value: dict) -> dict:
 
 
 def plan(config: dict) -> dict:
-    n = len(config["models"]) * config["replicates"]
+    from .reference_strategies import repetitions
+    n = sum(repetitions(config,model) for model in config["models"])
     evolved = config.get("generations", 1) != 1
     paid = [m for m in config["models"] if m["provider"] != "mock"]
-    return {"sessions": None if config.get("generations", 1) is None else n * (2 * config.get("generations", 1) - 1), "generation": None if config.get("generations", 1) is None else config.get("generations", 1) - 1,
+    learned=sum(model['provider']!='mock' for model in config['models'])*config['replicates']
+    previous_matches=(None if config.get('generations',1) is None else 8*learned*learned*max(0,config.get('generations',1)-2)*len(config.get('final_seeds',[]))) if config.get('compare_previous_round') and learned else 0
+    return {"previous_comparison_matches":previous_matches, "parallel_requests":config.get("_parallel_requests",config.get("parallel_requests",1)), "request_order":config.get("_request_order",config.get("request_order","models")), "parallel_fights":config.get("_parallel_fights",config.get("parallel_fights",1)), "sessions": None if config.get("generations", 1) is None else n * (2 * config.get("generations", 1) - 1), "generation": None if config.get("generations", 1) is None else config.get("generations", 1) - 1,
             "provider": "mixed" if paid else "mock", "simulated": not paid,
             "ranked_matches_if_all_submit": n * (n - 1) * len(config["seeds"]),
-            "mirrors_if_all_submit": n * len(config["seeds"]) if config["include_mirrors"] and n >= 2 else 0,
+            "mirrors_if_all_submit": n * len(config["seeds"]) if config["include_mirrors"] else 0,
             "g1_contemporary_matches": (2*n*(2*n-1) + (2*n if config["include_mirrors"] else 0)) *
                                       len(config.get("final_seeds", [])) * (config["generations"]-1) if evolved and config.get("generations") is not None else None if evolved else 0,
             "common_reference_matches": (2*config["generations"]-1)*n*(n+3)*2*len(config.get("final_seeds", [])) if evolved and config.get("generations") is not None else None if evolved else 0,
@@ -177,7 +196,8 @@ def experiment_lock(out: Path):
 class Journal:
     def __init__(self, out):
         self.out = out
-        self.db = sqlite3.connect(out / "journal.sqlite")
+        from .sqlite_metrics import connect
+        self.db = connect(out / "journal.sqlite")
         version = self.db.execute("PRAGMA user_version").fetchone()[0]
         if version not in (0, 1, 2):
             self.db.close()
@@ -185,14 +205,32 @@ class Journal:
         self.db.execute("PRAGMA journal_mode=WAL")
         self.db.execute("PRAGMA synchronous=FULL")
         self.db.execute("CREATE TABLE IF NOT EXISTS sessions (id TEXT PRIMARY KEY, state TEXT NOT NULL)")
+        self.db.execute("CREATE TABLE IF NOT EXISTS session_metadata (id TEXT PRIMARY KEY, checkpoint_sha256 TEXT NOT NULL, metadata TEXT NOT NULL)")
         self.db.execute("CREATE TABLE IF NOT EXISTS events (id INTEGER PRIMARY KEY, session TEXT, kind TEXT, payload TEXT)")
         self.db.execute("CREATE TABLE IF NOT EXISTS objects (id TEXT PRIMARY KEY, kind TEXT, parent TEXT, artifact TEXT, sha256 TEXT)")
         self.db.execute("PRAGMA user_version=2")
         self.db.commit()
+        from .verification_cache import VerificationCache
+        self.verification=VerificationCache(out)
 
     def state(self, sid):
         row = self.db.execute("SELECT state FROM sessions WHERE id=?", (sid,)).fetchone()
         return json.loads(row[0]) if row else None
+
+    def metadata(self, sid=None):
+        """Coordinator counters without deserializing every conversation."""
+        from .session_metadata import FIELDS
+        condition=' WHERE s.id=?' if sid is not None else ''
+        args=(sid,) if sid is not None else ()
+        rows=self.db.execute("SELECT s.id,m.metadata FROM sessions s LEFT JOIN objects o ON o.id=s.id AND o.kind='Session' LEFT JOIN session_metadata m ON m.id=s.id AND m.checkpoint_sha256=o.sha256"+condition,args).fetchall()
+        values={key:json.loads(raw) for key,raw in rows if raw is not None}
+        missing=[key for key,raw in rows if raw is None]
+        # Old checkpoints need a small JSON projection, never the whole history.
+        paths=', '.join("'$."+field+"'" for field in FIELDS)
+        for key in missing:
+            raw=self.db.execute('SELECT json_extract(state,'+paths+') FROM sessions WHERE id=?',(key,)).fetchone()[0]
+            values[key]={field:value for field,value in zip(FIELDS,json.loads(raw)) if value is not None}
+        return values
 
     def save(self, sid, state, kind, payload=None):
         times = state.setdefault("message_times", [None] * len(state.get("history", [])))
@@ -206,36 +244,97 @@ class Journal:
         else:
             write_json(artifact, payload)
         reference = {"at": time.time(), "artifact": artifact.relative_to(self.out).as_posix(),
-                     "sha256": file_hash(artifact)}
+                     "sha256": self.verification.hash(artifact)}
+        from .response_archive import compact as compact_response
+        if 'history' in state:
+            state['history']=[compact_response(self.out,message) for message in state['history']]
+        if state.get('pending'):
+            state['pending']=compact_response(self.out,state['pending'])
         checkpoint = self.out / "artifacts" / (digest(state) + ".json")
-        if not checkpoint.exists():
-            write_json(checkpoint, state)
+        created=not checkpoint.exists()
+        if created:written_hash=write_json(checkpoint,state,return_sha256=True)
+        checkpoint_sha256=self.verification.hash(checkpoint)
+        if created and checkpoint_sha256!=written_hash:raise ArenaError('Journal session checkpoint was modified during publication')
+        from .session_metadata import project
+        raw_state=json.dumps(state);raw_metadata=json.dumps(project(state))
+        proof=(1,checkpoint_sha256,hashlib.sha256(raw_state.encode()).hexdigest(),checkpoint_sha256,hashlib.sha256(raw_metadata.encode()).hexdigest())
+        if not created and not self.verification.checked_session(sid,proof) and read_json(checkpoint)!=state:
+            raise ArenaError('Journal session checkpoint was modified')
         with self.db:
-            self.db.execute("INSERT OR REPLACE INTO sessions VALUES (?,?)", (sid, json.dumps(state)))
+            self.db.execute('INSERT OR REPLACE INTO session_metadata VALUES (?,?,?)',(sid,checkpoint_sha256,raw_metadata))
+            self.db.execute("INSERT OR REPLACE INTO sessions VALUES (?,?)", (sid,raw_state))
             self.db.execute("INSERT INTO events(session,kind,payload) VALUES (?,?,?)",
                             (sid, kind, json.dumps(reference)))
             event_id = self.db.execute("SELECT last_insert_rowid()").fetchone()[0]
             self.db.execute("INSERT OR REPLACE INTO objects VALUES (?,?,?,?,?)",
                             (f"{sid}/{kind}/{event_id}", kind, sid, reference["artifact"], reference["sha256"]))
             self.db.execute("INSERT OR REPLACE INTO objects VALUES (?,?,?,?,?)",
-                            (sid, "Session", state.get("parent"), checkpoint.relative_to(self.out).as_posix(), file_hash(checkpoint)))
+                            (sid, "Session", state.get("parent"), checkpoint.relative_to(self.out).as_posix(), checkpoint_sha256))
             category = {"model_intent": "ModelCall", "model_response": "ModelCall",
                         "tool_reserved": "ToolCall", "tool_result": "ToolCall",
                         "usage_event": "UsageEvent", "submission_assessment": "Submission",
-                        "branch_created": "FeedbackArtifact", "reference_match": "Match"}.get(kind)
+                        "branch_created": "FeedbackArtifact", "reference_match": "Match", "progression_match":"Match"}.get(kind)
             if category:
                 identifier = f"{sid}/{category}/{state.get('calls', 0)}/{state.get('cursor', 0)}"
                 self.db.execute("INSERT OR REPLACE INTO objects VALUES (?,?,?,?,?)",
                                 (identifier, category, sid, reference["artifact"], reference["sha256"]))
 
-    def verify(self):
-        for artifact, expected in self.db.execute("SELECT artifact,sha256 FROM objects"):
-            if file_hash(self.out / artifact) != expected:
-                raise ArenaError("Journal artifact was modified")
-        for sid, raw in self.db.execute("SELECT id,state FROM sessions"):
-            row = self.db.execute("SELECT artifact FROM objects WHERE id=? AND kind='Session'", (sid,)).fetchone()
-            if row and read_json(self.out / row[0]) != json.loads(raw):
-                raise ArenaError("Journal session checkpoint was modified")
+        self.verification.remember_session(sid,proof)
+        if time.monotonic()-self.verification.last_flush>2:self.verification.flush()
+
+    def record(self, sid, kind, payload):
+        """Append immutable evidence without rewriting an unchanged conversation."""
+        artifact=self.out/'artifacts'/(digest(payload)+'.json')
+        if artifact.exists():
+            if read_json(artifact)!=payload:raise ArenaError('Journal artifact changed')
+        else:write_json(artifact,payload)
+        reference={'at':time.time(),'artifact':artifact.relative_to(self.out).as_posix(),'sha256':self.verification.hash(artifact)}
+        with self.db:
+            cursor=self.db.execute('INSERT INTO events(session,kind,payload) VALUES (?,?,?)',(sid,kind,json.dumps(reference)))
+            event=cursor.lastrowid;name=f'{sid or "@competition"}/{kind}/{event}'
+            self.db.execute('INSERT INTO objects VALUES (?,?,?,?,?)',(name,kind,sid,reference['artifact'],reference['sha256']))
+            if kind in {'reference_match','progression_match'}:
+                self.db.execute('INSERT INTO objects VALUES (?,?,?,?,?)',(f'{sid}/Match/{event}','Match',sid,reference['artifact'],reference['sha256']))
+        if time.monotonic()-self.verification.last_flush>2:self.verification.flush()
+
+    def verify(self, progress=None):
+        # Several event/object rows can reference identical immutable bytes.
+        # Hash each unique artifact once, retaining every expected digest check.
+        expected={}
+        for artifact,sha in self.db.execute('SELECT DISTINCT artifact,sha256 FROM objects'):
+            expected.setdefault(artifact,set()).add(sha)
+        from .audit_pool import scan
+        checked=0
+        session_count=self.db.execute('SELECT count(*) FROM sessions').fetchone()[0]
+        def check(item):
+            artifact,digests=item
+            if self.verification.hash(self.out/artifact) not in digests or len(digests)!=1:
+                raise ArenaError('Journal artifact was modified')
+            return artifact
+        def accept(artifact):
+            nonlocal checked
+            checked+=1
+            if progress:progress(checked,len(expected)+session_count)
+        scan(expected.items(),check,accept)
+        self.verification.flush()
+        for index,(sid,raw) in enumerate(self.db.execute('SELECT id,state FROM sessions'),1):
+            row=self.db.execute("SELECT artifact,sha256 FROM objects WHERE id=? AND kind='Session'",(sid,)).fetchone()
+            metadata=self.db.execute('SELECT checkpoint_sha256,metadata FROM session_metadata WHERE id=?',(sid,)).fetchone()
+            proof=(1,row[1],hashlib.sha256(raw.encode()).hexdigest(),metadata[0] if metadata else None,
+                   hashlib.sha256(metadata[1].encode()).hexdigest() if metadata else None) if row else None
+            # The artifact digest was checked above. Pairing that digest with the
+            # exact SQLite state/index bytes avoids parsing large frozen histories.
+            if not proof or not self.verification.checked_session(sid,proof):
+                state=json.loads(raw)
+                if row and read_json(self.out/row[0])!=state:raise ArenaError('Journal session checkpoint was modified')
+                if row and metadata and metadata[0]==row[1]:
+                    from .session_metadata import project
+                    saved_metadata=json.loads(metadata[1]);expected_metadata=project(state)
+                    if 'replay_reads' not in saved_metadata:expected_metadata.pop('replay_reads',None)
+                    if saved_metadata!=expected_metadata:raise ArenaError('Session metadata index was modified')
+                if proof:self.verification.remember_session(sid,proof)
+            if progress:progress(checked+index,len(expected)+session_count)
+        self.verification.flush()
 
     def states(self):
         return {sid: json.loads(raw) for sid, raw in self.db.execute("SELECT id,state FROM sessions ORDER BY id")}
@@ -250,34 +349,86 @@ def _finish(sid, state, tools, journal, reason):
                                      "result": {"error": "Session finished before tool execution"}})
         state["cursor"] = len(state["pending"]["tool_calls"])
     try:
-        result = tools.call("submit", {}, "final")
+        result = tools.freeze_latest(state.get("entrypoint_hint"))
         state["submission"] = result["submission"]
         state["status"] = reason
-    except (ArenaError, OSError):
+        state["automatic_submission"]=True
+        if result.get('configuration_error'):
+            state['submission_configuration_error']=result['configuration_error']
+            state['failure']={'message':result['configuration_error'],'phase':'team configuration','retryable':False,'uncertain':False}
+            assessment={'status':'invalid','success':False,'phase':'team_configuration','diagnostics':[{'severity':'error','file':'team.json','message':result['configuration_error']}]}
+            write_json(tools.directory/'assessment.json',assessment)
+            state.update(validity='invalid',assessment_sha256=file_hash(tools.directory/'assessment.json'))
+            journal.save(sid,state,'automatic_submission_invalid_configuration',assessment)
+        else: state.pop('failure',None)
+    except (ArenaError, OSError) as error:
         state["status"] = "no_submission"
+        state['failure']={'message':'Could not freeze saved sources at the preparation limit: '+str(error),'phase':'automatic submission','retryable':False,'uncertain':False}
+        journal.save(sid,state,'automatic_submission_failed',state['failure'])
     state["pending"] = None
+    state["workspace_files"]=workspace_files(tools.workspace)
+    # This is an Arena receipt for the reader, not another provider request.
+    stop=(state.get('budget_stop') or {}).get('message') or ('The preparation budget was reached.' if reason=='budget_exhausted' else 'Arena ended preparation.')
+    if state.get('submission'):
+        outcome=f"Arena automatically froze the latest saved files as the submitted strategy ({state['submission']['entrypoint']})."
+    else:outcome='No strategy was submitted: saved sources could not be frozen. See the recorded error.'
+    state['history'].append({'role':'user','arena_finalization':True,'content':stop+' '+outcome+' This preparation session is closed.'})
     journal.save(sid, state, "finished", reason)
 
 
-def provider_response(sid, state, model, config, journal):
+def _prepare_provider_response(sid, state, model, config, journal):
+    dispatcher=getattr(journal,'requests',None)
+    if dispatcher and not dispatcher.can_start(sid,model):return None
+    from .activity import operation
+    with operation(journal.out,'request_preparation',participants=[sid],generation=state.get('generation',0)):
+        return _build_provider_response(sid,state,model,config,journal)
+
+
+def _build_provider_response(sid, state, model, config, journal):
+    dispatcher=getattr(journal,'requests',None)
+    if dispatcher and not dispatcher.can_start(sid,model):return None
+    from .call_counts import hydrate_calls
+    hydrate_calls(state,journal.db,sid)
+    request_setup_started = time.monotonic()
+    message=state.pop('resume_message_pending',None)
+    if message:
+        state['history'].append({'role':'user','content':message,'manual_resume':True})
+        journal.save(sid,state,'conversation_resume_message',{'message':message})
+    history=state['history'][state.get('request_history_start', 0):]
+    if state.get('calibration',{}).get('tools')==[]:
+        from .calibration_models import study_root,portable_analyst_history
+        root=study_root(journal.out)
+        if root and (root/'role-models.json').exists():
+            history=portable_analyst_history(history,model)
+
     from .feedback import available_tools
     session_tools = available_tools(state)
     paid = model["provider"] != "mock"
+    stream_progress=None
+    if state.get('calibration') is not None and state['calibration'].get('stream_responses',True) and model['provider'] in {'openai','openai-compatible'}:
+        model={**model,'_stream':True}
     if state.get("in_flight") and paid:
         state["status"] = "needs_reconciliation"
         journal.save(sid, state, "remote_state_unknown")
         return None
     if paid:
         budget = config["budget_per_session"]
-        try:
-            bound = reservation(model, state["history"], session_tools,
-                                (budget["max_output_tokens"] - state.get("output_tokens", 0)) if "max_output_tokens" in budget else None)
-        except ArenaError:
+        def stop_budget(scope, message, details=None):
+            if scope=='study' and dispatcher and dispatcher.other_reservations(sid,journal)>0:
+                dispatcher.deferred.add(sid)
+                return  # Wait for active receipts to release unused reservations.
             state["status"] = "budget_exhausted"
+            state['budget_stop']={'scope':scope,'message':message,**(details or {})}
+            journal.save(sid,state,'request_budget_blocked',state['budget_stop'])
+        try:
+            bound = reservation(model, history, session_tools,
+                                (budget["max_output_tokens"] - state.get("output_tokens", 0)) if "max_output_tokens" in budget else None)
+        except ArenaError as error:
+            stop_budget('request',str(error),getattr(error,'admission',None))
             return None
         spent = amount(state.get("cost_spent", "0"))
-        total = sum(amount(s.get("cost_spent", "0")) + amount(s.get("money_reserved", "0"))
-                    for s in journal.states().values())
+        total = sum(amount(s.get("cost_spent", "0")) + amount(s.get("discarded_attempt_cost_usd", "0")) + amount(s.get("money_reserved", "0"))
+                    for s in journal.metadata().values())
         if state.get("calibration"):
             from .calibration import study_spending
             total = study_spending(journal)
@@ -286,68 +437,146 @@ def provider_response(sid, state, model, config, journal):
             remaining.append(amount(budget["max_cost_usd"]) - spent)
         if "max_total_usd" in config["spending"]:
             remaining.append(amount(config["spending"]["max_total_usd"]) - total)
-        if any(value <= 0 for value in remaining):
-            state["status"] = "budget_exhausted"
+        if any(value < 0 or (value == 0 and (bound['cost_bound'] is None or amount(bound['cost_bound'])>0)) for value in remaining):
+            scope='study' if 'max_total_usd' in config['spending'] and total>=amount(config['spending']['max_total_usd']) else 'session'
+            stop_budget(scope,'The shared study spending limit is exhausted; completed work is preserved.' if scope=='study' else 'The session spending limit is exhausted.')
             return None
         state["reservation_unbounded"] = bound["cost_bound"] is None and not remaining
         if bound["cost_bound"] is None and remaining:
             bound["cost_bound"] = str(min(remaining))
-        if (("max_input_tokens" in budget and state.get("input_tokens", 0) + bound["input_bound"] > budget["max_input_tokens"])
-                or (bound["cost_bound"] is not None and any(amount(bound["cost_bound"]) > value for value in remaining))):
-            state["status"] = "budget_exhausted"
+        if "max_input_tokens" in budget and state.get("input_tokens",0)+bound['input_bound']>budget['max_input_tokens']:
+            stop_budget('session','The next request exceeds the session input token limit (conservative admission estimate).')
             return None
+        if bound['cost_bound'] is not None and any(amount(bound['cost_bound'])>value for value in remaining):
+            scope='study' if 'max_total_usd' in config['spending'] and amount(bound['cost_bound'])>amount(config['spending']['max_total_usd'])-total else 'session'
+            stop_budget(scope,'The next request reservation exceeds the remaining shared study spending limit; completed work is preserved.' if scope=='study' else 'The next request reservation exceeds the remaining session spending limit.')
+            return None
+        state.pop('budget_stop',None)
         state["money_reserved"] = bound["cost_bound"] or "0"
     else:
         bound = None
+    descriptor={key:value for key,value in model.items() if key!='_stream'}
+    if state.get('model_descriptor')!=descriptor:
+        state['model_descriptor']=descriptor
+        journal.save(sid,state,'effective_model',descriptor)
     state["calls"] += 1
     state["in_flight"] = True
     from .api_providers import request_snapshot
     output_limit = bound["output_bound"] if paid else model.get("max_output_tokens")
-    request = request_snapshot(model, state["history"], session_tools, output_limit)
+    request = request_snapshot(model, history, session_tools, output_limit)
     journal.save(sid, state, "model_intent", {"model": model, "reservation": bound, "request": request})
-    provider = APIProvider(model) if paid else MockProvider(model["profile"])
+    if model.get('_stream'):
+        from .streaming import LiveResponse
+        stream_progress=LiveResponse(journal.out,sid,state['calls'])
+    provider = (APIProvider(model,stream_progress=stream_progress) if stream_progress else APIProvider(model)) if paid else MockProvider(model["profile"])
+    return dict(request_status_path=journal.out/'sessions'/sid/'request-status.json',request_call=state['calls'],model=model,history=history,session_tools=session_tools,paid=paid,bound=bound,
+                output_limit=output_limit,request=request,provider=provider,request_setup_started=request_setup_started)
+
+
+def provider_response(sid, state, model, config, journal):
+    # The same continuation works for synchronous callers and parallel transports.
+    while True:
+        state.pop('context_retry_pending',None)
+        response=_provider_response_once(sid,state,model,config,journal)
+        if not state.pop('context_retry_pending',False):return response
+
+
+def _provider_response_once(sid, state, model, config, journal):
+    dispatcher=getattr(journal,'requests',None)
+    if dispatcher and sid in dispatcher.pending:
+        if not dispatcher.ready(sid):return None
+        context=dispatcher.pending.pop(sid)
+        dispatcher.deferred.clear()
+        # Include request waiting in preparation time, but measure the API itself
+        # only until the transport completed, not until this receipt is consumed.
+        state['wall_seconds']+=time.monotonic()-context.get('paused_at',context['submitted_at'])
+    else:
+        context=_prepare_provider_response(sid,state,model,config,journal)
+        if context is None:return None
+        if dispatcher and context['paid']:
+            dispatcher.submit(sid,context)
+            return None
+    model=context['model'];history=context['history'];session_tools=context['session_tools']
+    print(f'[provider] {sid} consuming request={state.get("calls",0)} receipt',flush=True)
+    paid=context['paid'];bound=context['bound'];output_limit=context['output_limit']
+    request=context['request'];provider=context['provider'];request_setup_started=context['request_setup_started']
+    budget=config['budget_per_session']
     started = time.monotonic()
     try:
-        response = (provider.respond(state["history"], session_tools, bound["output_bound"]) if paid
-                    else provider.respond(state["history"], session_tools, output_limit))
+        response = context['future'].result() if 'future' in context else (provider.respond(history, session_tools, bound["output_bound"]) if paid
+                    else provider.respond(history, session_tools, output_limit))
     except ProviderFailure as error:
-        state["status"] = "needs_reconciliation" if error.uncertain else "provider_unavailable"
-        state["in_flight"] = error.uncertain
-        if not error.uncertain:
+        from .recovery import zero_cost_requests
+        uncertain_charge=error.uncertain and not zero_cost_requests(model)
+        if error.uncertain:
+            state["token_usage_known"]=False
+            state["missing_usage_calls"]=state.get("missing_usage_calls",0)+1
+        state["status"] = "needs_reconciliation" if uncertain_charge else "provider_unavailable"
+        state["in_flight"] = uncertain_charge
+        if not uncertain_charge:
             state["money_reserved"] = "0"
             state["reservation_unbounded"] = False
-        state["failure"] = {"message": str(error), "phase": "provider request", "at": time.time(), "uncertain": error.uncertain, "retryable": error.retryable}
+        state["failure"] = {"message": str(error), "phase": "provider request", "at": time.time(), "uncertain": error.uncertain, "retryable": error.retryable, "diagnostics":error.diagnostics}
         journal.save(sid, state, "provider_failure", {"error": str(error),
-                                                    "uncertain": error.uncertain, "retryable": error.retryable})
+                                                    "uncertain": error.uncertain, "retryable": error.retryable, "diagnostics":error.diagnostics})
+        if not error.uncertain:
+            from .context_recovery import recover_automatically, context_overflow
+            recovery=recover_automatically(state)
+            if recovery:
+                journal.save(sid,state,'context_rebased',recovery)
+            elif context_overflow(state):
+                state['failure']['message'] += ' Automatic context recovery could not reduce this request further. The retained instructions or tool declarations may exceed the model context window.'
+                journal.save(sid,state,'context_recovery_blocked',{'reason':'no_further_safe_reduction','consecutive_context_recoveries':state.get('consecutive_context_recoveries',0)})
         return None
     except (KeyError, ValueError, TypeError, ArenaError) as error:
-        state["status"] = "needs_reconciliation" if paid else "generation_failed"
-        state["in_flight"] = paid
-        state["failure"] = {"message": "The provider returned an unreadable response (" + type(error).__name__ + "). Inspect the recorded response in the journal; billing may need reconciliation.", "phase": "provider response", "at": time.time()}
+        from .recovery import zero_cost_requests
+        uncertain_charge=paid and not zero_cost_requests(model)
+        state["status"] = "needs_reconciliation" if uncertain_charge else "provider_unavailable" if paid else "generation_failed"
+        if paid:
+            state["missing_usage_calls"] = state.get("missing_usage_calls", 0) + 1
+            state["token_usage_known"] = False
+        state["in_flight"] = uncertain_charge
+        if not uncertain_charge:
+            state.update(money_reserved="0",reservation_unbounded=False)
+        state["failure"] = {"message": "The provider returned an unreadable response (" + type(error).__name__ + "). Inspect the recorded response in the journal." + (" Billing needs reconciliation." if uncertain_charge else " Retry without billing reconciliation." if paid else ""), "phase": "provider response", "at": time.time()}
         journal.save(sid, state, "malformed_provider_response", {"error_type": type(error).__name__,
                                                                "response": getattr(provider, "last_response", None)})
         return None
     state["in_flight"] = False
-    response["elapsed_seconds"] = time.monotonic() - started
+    state["consecutive_context_recoveries"]=0
+    state["automatic_retry_attempts"]=0
+    state.pop("automatic_retry_at",None)
+    response["elapsed_seconds"] = context['completed_at']-context['submitted_at'] if 'completed_at' in context else time.monotonic() - started
+    response['request_metrics'] = {'history_messages':len(history),
+        'response_received_at':context.get('completed_wall_at',time.time()),
+        'receipt_wait_seconds':max(0,time.monotonic()-context['completed_at']) if 'completed_at' in context else 0,
+        'request_setup_seconds':context.get('submitted_at',started) - request_setup_started,
+        'request_characters':len(json.dumps(request.get('body', request), ensure_ascii=False))}
     if paid:
         usage = response["usage"]
-        known = (response["cost_usd"] is not None and usage["input_tokens"] is not None
-                 and usage["output_tokens"] is not None)
-        if known:
-            state["token_usage_known"] = True
+        tokens_known = usage["input_tokens"] is not None and usage["output_tokens"] is not None
+        if tokens_known:
             state["input_tokens"] = state.get("input_tokens", 0) + usage["input_tokens"]
             state["output_tokens"] = state.get("output_tokens", 0) + usage["output_tokens"]
+        else:
+            state["missing_usage_calls"] = state.get("missing_usage_calls", 0) + 1
+        state["token_usage_known"] = tokens_known and not state.get("missing_usage_calls")
+        from .recovery import zero_cost_requests
+        free_request=zero_cost_requests(model)
+        if free_request:response["cost_usd"]="0"
+        known = free_request or (response["cost_usd"] is not None and tokens_known)
+        if known:
             state["cost_spent"] = str(amount(state.get("cost_spent", "0")) + amount(response["cost_usd"]))
             state["money_reserved"] = "0"
             state["reservation_unbounded"] = False
-            if (("max_input_tokens" in budget and state["input_tokens"] > budget["max_input_tokens"])
-                    or ("max_output_tokens" in budget and state["output_tokens"] > budget["max_output_tokens"])
+            if (("max_input_tokens" in budget and state.get("input_tokens",0) > budget["max_input_tokens"])
+                    or ("max_output_tokens" in budget and state.get("output_tokens",0) > budget["max_output_tokens"])
                     or ("max_cost_usd" in budget and amount(state["cost_spent"]) > amount(budget["max_cost_usd"]))):
                 state["status"] = "budget_exhausted"
         else:
-            state["token_usage_known"] = False
             state["status"] = "needs_reconciliation"
     state.pop("failure", None)
+    state["completed_calls"] += 1
     state["history"].append(response)
     state["pending"], state["cursor"] = response, 0
     # Receipt, conversation, usage counters and released reservation commit together.
@@ -359,6 +588,22 @@ def provider_response(sid, state, model, config, journal):
 
 
 def execute_tool(sid, state, tools, journal, call, call_id, budget):
+    from .sqlite_metrics import collect
+    from .tool_diagnostics import ToolTrace
+    with collect() as sql:
+        trace=ToolTrace(journal.out,sid,call['name'],call_id,sql,
+            (state.get('pending') or {}).get('request_metrics',{}).get('response_received_at'))
+        try:
+            result=_execute_tool(sid,state,tools,journal,call,call_id,budget,trace)
+        except BaseException:
+            trace.step('failed')
+            raise
+        trace.step('completed')
+        return result
+
+
+def _execute_tool(sid, state, tools, journal, call, call_id, budget, trace):
+    trace.step('reserving')
     if state["status"] != "running":
         raise ArenaError("Session is closed")
     if (state.get("reserved") != call_id and
@@ -369,35 +614,56 @@ def execute_tool(sid, state, tools, journal, call, call_id, budget):
         state["steps"] += 1
         state["test_matches"] += 2 if call["name"] == "test" else 0
         state["reserved"] = call_id
+        state['current_tool'] = {'name':call['name'],'started_at':time.time()}
         journal.save(sid, state, "tool_reserved", call)
+    tool_started = time.monotonic()
+    trace.step('executing')
     try:
         result = tools.call(call["name"], call["arguments"], call_id)
     except (ArenaError, OSError, ValueError, KeyError, TypeError) as error:
         result = {"error": str(error)}
+    state['wall_seconds'] = state.get('wall_seconds',0) + time.monotonic() - tool_started
+    trace.step('preparing_result')
+    from .budget_context import progress
+    budget_progress = progress(state, budget)
+    if budget_progress and isinstance(result,dict): result = {**result, 'preparation_budget':budget_progress}
     state["history"].append({"role": "tool", "call_id": call_id,
                              "provider_call_id": call.get("id", call_id),
                              "name": call["name"], "result": result})
     state["cursor"] += 1
+    state.pop('current_tool',None)
     state["reserved"] = None
     state["workspace_files"] = workspace_files(tools.workspace)
+    if not result.get('error') and call['name'] in {'analyze','test'}:
+        state['entrypoint_hint']=call['arguments'].get('entrypoint','main.leek')
+    if call['name']=='configure_team' and result.get('team'):
+        state['entrypoint_hint']=result['team']['members'][0]['entrypoint']
     if call["name"] == "submit" and "submission" in result:
         state["submission"], state["status"] = result["submission"], "submitted"
+    trace.step('publishing_result')
     journal.save(sid, state, "tool_result", result)
     return result
 
 
 def initial_state(sid, model, config):
     from .briefing import briefing, participant_scenario
-    return {"model": model["id"], "replicate": int(sid.split("-r")[-1].split("-")[0]),
+    from .teams import maximum_level
+    from .round_context import phase
+    from .budget_context import progress, NOTICE
+    limits = progress({}, config['budget_per_session'])
+    shared = config.get('spending',{}).get('max_total_usd') if model.get('provider','mock') != 'mock' else None
+    return {"participant_revision":config.get('_roster_revision',0), "model": model["id"], "replicate": int(sid.split("-r")[-1].split("-")[0]),
             "generation": 0, "condition": "initial", "status": "running",
-            "history": [{"role": "user", "content": PROMPT, "budgets": config["budget_per_session"],
+            "history": [{"role": "user", "context_format":"briefing-v1", "content": phase(1, config.get('generations', 2)) + '\n' + PROMPT, "budgets": config["budget_per_session"],
+                         **({'preparation_budget':limits,'budget_instructions':NOTICE} if limits else {}),
+                         **({'shared_spending_limit_usd':shared,'shared_limit_instructions':'Other conversations share this competition spending limit. Its exhaustion can stop your preparation before session limits; latest saved files are frozen automatically.'} if shared is not None else {}),
                          "scenario": participant_scenario(config["scenario"]), "briefing": briefing(config["scenario"]), "equipment_ids": {"weapons": "Use the item field in leekscript-v1/weapons.json (for example pistol = 37), not its object key or template", "chips": "Use the object key/id in leekscript-v1/chips.json (for example shock = 1); replay chip actions use template IDs"}, **({"team_instructions":
                          "Choose 1..scenario.team_size members using configure_team after writing their sources. "
-                         "Each member can use a different entrypoint and equipment. When independent_builds is true, freely choose each member level (1–301), capital and components; supply level and capital explicitly. Reference member stats and components are not imposed on your team; omitted components mean none. Use preview_build to calculate final stats and costs, then validate_team to check the complete draft without changing files. Read the pinned equipment catalogs; "
+                         f"Each member can use a different entrypoint and equipment. When independent_builds is true, freely choose each member level (1–{maximum_level(config['scenario'])}), capital and components; supply level and capital explicitly. Reference member stats and components are not imposed on your team; omitted components mean none. Use preview_build to calculate final stats and costs, then validate_team to check the complete draft without changing files. Read the pinned equipment catalogs; "
                          "respect slot limits and allowlists; realistic mode also enforces equipment level. Stats follow scenario.stats_mode: per-member capital in realistic-v1 plus optional components (item-template IDs or {template, stats} alteration instances; eight slots, recovery components cost three; no duplicates; alteration charge must fit capacity), or raw stats in free mode. When require_capital is true you must explicitly allocate capital for every member; raw stats and inherited allocations are not accepted. Otherwise omit to inherit default member builds. Read corpus/stat-rules.json and corpus/component-rules.json (current public stats, levels, capacities and alteration weights). Configure the team before test or submit. "
                          "Improvements inherit team.json and may revise it with the same tool."}
                          if config["scenario"].get("team_selection") else {})}],
-            "calls": 0, "steps": 0, "test_matches": 0, "wall_seconds": 0,
+            "calls": 0, "completed_calls": 0, "steps": 0, "test_matches": 0, "wall_seconds": 0,
             "pending": None, "cursor": 0, "workspace_files": {}}
 
 
@@ -408,7 +674,7 @@ def workspace_files(directory):
     for path in sorted(directory.rglob("*")):
         if is_link(path):
             raise ArenaError("Working source links are not allowed")
-        if path.is_file() and (path.suffix == ".leek" or path == directory / "team.json"):
+        if path.is_file() and (path.suffix == ".leek" or path == directory / "team.json" or path.name==".arena-submission-error.json"):
             files[path.relative_to(directory).as_posix()] = file_hash(path)
     return files
 
@@ -436,15 +702,46 @@ def verify_workspace(state, tools):
 
 
 def run_session(sid, model, config, out, journal, engine, interrupt=None):
+    brief=journal.metadata(sid).get(sid)
+    from .budget_context import tool_budget_exhausted
+    if brief and brief['status'] in TERMINAL and (brief['status']!='budget_exhausted' or brief.get('submission')) and not tool_budget_exhausted(brief,config['budget_per_session']):
+        if 'submission' in brief and submission(out/'sessions'/sid/'submission',brief['submission']['entrypoint'])!=brief['submission']:
+            raise ArenaError('Archived session submission changed')
+        return
     state = journal.state(sid) or initial_state(sid, model, config)
+    from .submission_stops import restore_interrupted_streak
+    restored=restore_interrupted_streak(state)
+    if restored:journal.save(sid,state,'submission_counter_restored',restored)
+    dispatcher=getattr(journal,'requests',None)
+    drained_response=False
+    if dispatcher and sid in dispatcher.pending:
+        if not dispatcher.ready(sid):return
+        drained_response=provider_response(sid,state,model,config,journal) is not None
+    if state.get('conversation_paused'):return
+    from .call_counts import hydrate_calls
+    hydrate_calls(state,journal.db,sid)
+    from .reasoning import apply_overrides
+    if model["provider"] != "mock":
+        model = apply_overrides(model, state)
     directory = out / "sessions" / sid
     from .feedback import access_for
     from .submitted_versions import OwnSubmissions
     tools = Preparation(directory, out / "corpus", engine, config["scenario"], feedback=access_for(out, state),
                         allowed_tools=state.get("calibration", {}).get("tools"), versions=OwnSubmissions(out,state))
+    if tool_budget_exhausted(state,config['budget_per_session']):
+        verify_workspace(state,tools)
+        state['budget_stop']={'scope':'session','message':f"Tool call limit reached ({state['steps']} / {config['budget_per_session']['max_agent_steps']})."}
+        _finish(sid,state,tools,journal,'budget_exhausted')
+    if state['status']=='budget_exhausted' and state.get('pending') and not state.get('submission'):
+        verify_workspace(state,tools)
+        _finish(sid,state,tools,journal,'budget_exhausted')
     if state["status"] in TERMINAL:
         if "submission" in state and submission(directory / "submission", state["submission"]["entrypoint"]) != state["submission"]:
             raise ArenaError("Archived session submission changed")
+        return
+    if model.get("profile") == "saved-strategy" and model.get("provider") == "mock":
+        from .saved_strategy import restore
+        restore(model, tools, state, sid, journal)
         return
     verify_workspace(state, tools)
     budget = config["budget_per_session"]
@@ -452,13 +749,18 @@ def run_session(sid, model, config, out, journal, engine, interrupt=None):
     previous = state["wall_seconds"]
     journal.save(sid, state, "session_started")
     try:
+        if drained_response and interrupt:interrupt("response",sid)
         while state["status"] == "running":
             state["wall_seconds"] = previous + time.monotonic() - started
             if state["wall_seconds"] >= budget.get("max_wall_seconds", float("inf")):
                 _finish(sid, state, tools, journal, "budget_exhausted")
                 break
+            if tool_budget_exhausted(state,budget):
+                state['budget_stop']={'scope':'session','message':f"Tool call limit reached ({state['steps']} / {budget['max_agent_steps']})."}
+                _finish(sid,state,tools,journal,'budget_exhausted')
+                break
             if state["pending"] is None:
-                if state["calls"] >= budget.get("max_calls", float("inf")):
+                if state["completed_calls"] >= budget.get("max_calls", float("inf")):
                     _finish(sid, state, tools, journal, "budget_exhausted")
                     break
                 response = provider_response(sid, state, model, config, journal)
@@ -488,6 +790,9 @@ def run_session(sid, model, config, out, journal, engine, interrupt=None):
                 execute_tool(sid, state, tools, journal, call, call_id, budget)
                 if interrupt:
                     interrupt("tool", sid)
+            if state['status']=='running' and tool_budget_exhausted(state,budget):
+                state['budget_stop']={'scope':'session','message':f"Tool call limit reached ({state['steps']} / {budget['max_agent_steps']})."}
+                _finish(sid,state,tools,journal,'budget_exhausted')
             if state["status"] != "running" and state.get("pending"):
                 for index in range(state["cursor"], len(calls)):
                     call = calls[index]
@@ -498,37 +803,68 @@ def run_session(sid, model, config, out, journal, engine, interrupt=None):
                 state["cursor"] = len(calls)
                 journal.save(sid, state, "cancelled_remaining_tools")
             if state["status"] == "running":
+                from .submission_stops import output_limited, continue_output
+                if output_limited(state['pending']):
+                    from .budget_context import progress
+                    remaining=progress(state,budget) or {}
+                    exhausted=next(((name,item) for name,item in remaining.get('limits',{}).items()
+                        if name!='test_matches' and item.get('remaining') is not None and amount(str(item['remaining']))<=0),None)
+                    if exhausted:
+                        name,item=exhausted
+                        state['budget_stop']={'scope':'session','message':f"Preparation {name} limit reached ({item['used']} / {item['limit']})."}
+                        _finish(sid,state,tools,journal,'budget_exhausted')
+                    else:
+                        details=continue_output(state,state['pending'])
+                        journal.save(sid,state,'output_continuation_requested',details)
+                    continue
                 if not calls:
-                    # A provider stop ends one response, not the Arena preparation session.
+                    from .submission_stops import completed_turn, interrupted_response
+                    pending=state['pending']
+                    if not completed_turn(pending):
+                        details=interrupted_response(state,pending)
+                        journal.save(sid,state,'provider_failure',details)
+                        break
+                    # Only a confirmed model end-turn can count toward this safeguard.
                     state["pending"] = None
-                    reminders = state.get("submission_reminders", 0)
+                    reminders = state.get("consecutive_submission_reminders", 0)
                     if reminders < 3:
-                        state["submission_reminders"] = reminders + 1
+                        state["submission_reminders"] = state.get("submission_reminders", 0) + 1
+                        state["consecutive_submission_reminders"] = reminders + 1
                         state["history"].append({"role": "user", "content":
-                            "Your response ended, but you have not submitted a strategy. "
-                            "This round is not complete. Continue using the Arena tools: "
+                            "Your response completed without a tool call, but you have not submitted a strategy. "
+                            "This round is still open. You are the competing coding agent. "
+                            "Continue working in your workspace using the Arena tools: "
                             "finish your LeekScript files, run analyze to check compilation, "
                             "then explicitly call submit. Ending a response or saying you are "
                             "finished does not submit your files. "
                             f"Reminder {reminders + 1} of 3; after three reminders, another "
-                            "response without tool calls will end this session without a submission."})
-                        journal.save(sid, state, "submission_required", {"reminder": reminders + 1})
+                            "completed response without tool calls will end preparation and freeze any saved sources for evaluation.",
+                            'submission_reminder':True,'trigger_model_call':state['calls'],'completion_reason':pending.get('stop_reason') or pending.get('finish_reason')})
+                        journal.save(sid, state, "submission_required", {"reminder": reminders + 1,'trigger_model_call':state['calls'],'completion_reason':pending.get('stop_reason') or pending.get('finish_reason'),'cause':'completed_model_turn'})
                     else:
+                        if any(tools.workspace.rglob("*.leek")):
+                            state["history"].append({"role":"user","content":"Arena ended preparation after three consecutive reminders. The latest saved sources are frozen automatically and will be evaluated, including any compilation or team configuration errors."})
+                            _finish(sid, state, tools, journal, "submitted")
+                            journal.save(sid, state, "repeated_stops_frozen")
+                            continue
                         state["status"] = "no_submission"
                         state["failure"] = {"message": "The model ended responses without explicitly calling submit after three reminders.",
                                             "phase": "submission",
-                                            "retryable": False, "uncertain": False}
+                                            "retryable": True, "uncertain": False, "at": time.time()}
                         state["history"].append({"role": "user", "content":
                             "Arena stopped this session: no strategy was submitted after three reminders. "
                             "This round has no valid submission; workspace files were not submitted automatically."})
                         journal.save(sid, state, "finished_without_submission", state["failure"])
                 else:
+                    state["consecutive_submission_reminders"] = 0
                     state["pending"] = None
                     journal.save(sid, state, "turn_completed")
     finally:
         state["wall_seconds"] = previous + time.monotonic() - started
         journal.save(sid, state, "session_checkpoint")
         write_json(directory / "conversation.json", state["history"])
+        if dispatcher and sid in dispatcher.pending:
+            dispatcher.pending[sid]['paused_at']=time.monotonic()
 
 
 def status(out: Path) -> dict:
@@ -542,12 +878,16 @@ def status(out: Path) -> dict:
     return {"sessions": states}
 
 
-def run(config: dict, out: Path, resume=False, interrupt=None, prepare_only=False, retry_session=None) -> dict:
+def run(config: dict, out: Path, resume=False, interrupt=None, prepare_only=False, retry_session=None, allow_updated_runner=False, retry_reasoning_effort=None) -> dict:
     validate_config(config)
+    if retry_reasoning_effort is not None and not retry_session:
+        raise ArenaError("An effort override requires a specific failed conversation")
     if retry_session and not resume:
         raise ArenaError("Retry requires an existing experiment")
     out = out.resolve()
-    engine = Engine()
+    resume_started=time.monotonic();engine = Engine()
+    resume_timings={'engine_initialization_seconds':time.monotonic()-resume_started}
+    identity_started=time.monotonic()
     docs = ROOT / "docs"
     corpus_files = [docs / "authoring.md", *sorted((docs / "leekscript-v1").rglob("*")),
                     *sorted((docs / "corpus").rglob("*"))]
@@ -565,16 +905,25 @@ def run(config: dict, out: Path, resume=False, interrupt=None, prepare_only=Fals
                 "prompts_sha256": tree_hash(ROOT / "prompts"),
                 "provider_fixtures": {name: file_hash(ROOT / "examples/strategies" / name / "main.leek")
                                       for name in ("rush", "single-shot", "passive")}}
+    # Keep older frozen studies reproducible; new studies sample fixed code once.
+    prior=read_json(out/'experiment.json') if resume and (out/'experiment.json').exists() else {}
+    if not resume or 'fixed_reference_repetitions' in prior:
+        identity['fixed_reference_repetitions']=1
     if resume:
         if not out.is_dir():
             raise ArenaError("Experiment does not exist")
     else:
         out.mkdir(parents=True, exist_ok=False)
-    with experiment_lock(out):
+    resume_timings['identity_and_corpus_seconds']=time.monotonic()-identity_started
+    from .round_runtime import RoundClock
+    with experiment_lock(out),RoundClock(out) as runtime:
         if resume:
-            if read_json(out / "experiment.json") != identity:
-                raise ArenaError("Cannot resume: configuration, runner, engine, prompt or corpus changed")
-            if tree_hash(out / "corpus") != identity["corpus_sha256"]:
+            previous_identity = read_json(out / "experiment.json")
+            from .recovery import resume_compatible
+            if previous_identity != identity and not (allow_updated_runner and resume_compatible(previous_identity, identity)):
+                raise ArenaError("Cannot resume with changed settings or game engine. For an application update, use --allow-updated-runner; the continuation will be recorded.")
+            engine.allow_updated_runner = allow_updated_runner
+            if tree_hash(out / "corpus") != previous_identity["corpus_sha256"]:
                 raise ArenaError("Frozen documentation changed")
         else:
             import shutil
@@ -585,31 +934,87 @@ def run(config: dict, out: Path, resume=False, interrupt=None, prepare_only=Fals
                     shutil.copyfile(source, target)
             write_json(out / "experiment.json", identity)
         journal = Journal(out)
+        runtime.mark('activity.json',max((state.get('generation',0) for state in journal.metadata().values()),default=0),'checkpoint_verification' if resume else 'starting')
+        from .execution_control import _journal
+        execution_token=_journal.set(journal)
         try:
             if not resume:
                 journal.db.execute("INSERT OR REPLACE INTO objects VALUES (?,?,?,?,?)",
                                    ("experiment", "Experiment", None, "experiment.json", file_hash(out / "experiment.json")))
                 journal.db.commit()
             if resume:
-                journal.verify()
+                from .activity import operation
+                with operation(out,'checkpoint_verification'):
+                    verification_started=time.monotonic();last_progress=[0]
+                    def verification_progress(checked,total):
+                        if time.monotonic()-last_progress[0]>=.5 or checked==total:
+                            write_json(out/'activity.json',{'kind':'checkpoint_verification','started_at':time.time()-(time.monotonic()-verification_started),'checked_records':checked,'total_records':total})
+                            last_progress[0]=time.monotonic()
+                    journal.verify(progress=verification_progress)
+                    resume_timings.update(journal_verification_seconds=time.monotonic()-verification_started,journal_hashes=journal.verification.stats())
+                    write_json(out/'resume-performance.json',resume_timings)
+            from .roster import effective, snapshot, active
+            config = effective(out, config)
+            config['_fixed_reference_repetitions']=identity.get('fixed_reference_repetitions',config['replicates'])
+            from .reference_strategies import repetitions
+            roster = snapshot(out)
+            config['_withdrawn_models'] = roster['withdrawn'] if roster else []
+            config['_parallel_requests']=(roster or {}).get('parallel_requests',config.get('parallel_requests',1))
+            config['_request_order']=(roster or {}).get('request_order',config.get('request_order','models'))
+            config['_parallel_fights']=(roster or {}).get('parallel_fights',config.get('parallel_fights',1))
+            config['_frozen_tracks'] = (roster or {}).get('frozen_tracks', {})
+            config['_roster_revision'] = (roster or {}).get('revision',0)
+            config['_compare_previous_round'] = (roster or {}).get('compare_previous_round',config.get('compare_previous_round',False))
+            if resume:
+                from .recovery import needs_reconciliation, recover_zero_cost_requests
+                recover_zero_cost_requests(journal,config["models"])
+                external = {m['id'] for m in config['models'] if m['provider'] != 'mock'}
+                blocked = [sid for sid,state in journal.metadata().items() if active(config,state) and needs_reconciliation(state, state['model'] in external)]
+                if blocked:
+                    raise ArenaError('Resolve billing for these conversations before resuming: ' + ', '.join(blocked))
+                if previous_identity != identity:
+                    continuation=digest(identity)
+                    prior_update=journal.db.execute("SELECT payload FROM events WHERE kind='runner_updated' AND session IS NULL ORDER BY id DESC LIMIT 1").fetchone()
+                    saved_update=read_json(out/json.loads(prior_update[0])['artifact']) if prior_update else {}
+                    evidence={'original':previous_identity,'current':identity,'continuation_identity':continuation,
+                              'frozen_documentation_preserved':True,'completed_matches_preserved':True}
+                    if saved_update.get('continuation_identity')!=continuation:journal.record(None,'runner_updated',evidence)
+                    for sid,metadata in journal.metadata().items():
+                        if not metadata.get('submission') and metadata.get('continuation_identity')!=continuation:
+                            state=journal.state(sid);state['continuation_identity']=continuation
+                            journal.save(sid,state,'runner_updated',evidence)
+            from .retry_policy import apply as apply_retry_policies
+            apply_retry_policies(out,journal)
             if retry_session:
                 from .retries import prepare_retry
-                prepare_retry(journal, retry_session, config)
-            allow_extend = any(s.get('retry_count') for s in journal.states().values())
+                prepare_retry(journal, retry_session, config, retry_reasoning_effort)
+            elif resume:
+                from .retries import prepare_retry, retry_reason
+                retry_states=journal.metadata()
+                for sid,state in retry_states.items():
+                    from .call_counts import hydrate_calls
+                    hydrate_calls(state, journal.db, sid)
+                    parent = retry_states.get(state.get('parent'))
+                    if active(config,state) and not state.get('conversation_paused') and not state.get('automatic_retries_paused') and retry_reason(state, config['budget_per_session'], parent) is None:
+                        prepare_retry(journal, sid, config)
+            allow_extend = any(s.get('retry_count') for s in journal.metadata().values())
             if prepare_only:
                 for model in config["models"]:
-                    for replicate in range(config["replicates"]):
+                    for replicate in range(repetitions(config,model)):
                         sid = f"{model['id']}-r{replicate}"
                         directory = out / "sessions" / sid
                         directory.mkdir(parents=True, exist_ok=True)
                         journal.save(sid, initial_state(sid, model, config), "session_created")
                 return {"initialized": True, "sessions": list(journal.states())}
-            for model in config["models"]:
-                for replicate in range(config["replicates"]):
-                    sid = f"{model['id']}-r{replicate}"
-                    if not retry_session or sid == retry_session:
-                        run_session(sid, model, config, out, journal, engine, interrupt)
-            states = {sid: state for sid, state in journal.states().items() if state.get("generation", 0) == 0}
+            from .greedy import evaluate as evaluate_ready
+            from .parallel import prepare
+            tasks=[(f"{model['id']}-r{replicate}",model) for model in config['models']
+                   for replicate in range(repetitions(config,model)) if active(config,model) and (not retry_session or f"{model['id']}-r{replicate}"==retry_session)]
+            prepare(tasks,config,out,journal,engine,interrupt,independent_fights=True,independent_validation=True)
+            # Drain every fixture supported by frozen submissions before slower
+            # final compiler assessments, even if another participant failed.
+            tournament = evaluate_ready(engine, config, out, journal, final=True)
+            states = {sid: state for sid, state in journal.states().items() if state.get("generation", 0) == 0 and active(config,state)}
             assessments = {}
             for sid, state in states.items():
                 if "submission" not in state:
@@ -623,20 +1028,18 @@ def run(config: dict, out: Path, resume=False, interrupt=None, prepare_only=Fals
                     assessments[sid] = read_json(cached)
                 else:
                     target = Preparation._attempt(directory / "assessment")
-                    assessments[sid] = engine.analyze(directory / "submission", state["submission"]["entrypoint"], target)
+                    from .activity import operation
+                    with operation(out,'validation',participants=[sid],generation=0):
+                        assessments[sid] = engine.analyze(directory / "submission", state["submission"]["entrypoint"], target)
                     write_json(cached, assessments[sid])
+                assessment_hash=file_hash(cached)
+                changed=state.get('validity')!=assessments[sid]['status'] or state.get('assessment_sha256')!=assessment_hash
                 state["validity"] = assessments[sid]["status"]
-                state["assessment_sha256"] = file_hash(cached)
-                journal.save(sid, state, "submission_assessment", assessments[sid])
+                state["assessment_sha256"] = assessment_hash
+                if changed:journal.save(sid, state, "submission_assessment", assessments[sid])
             entrants = [{"id": sid, "model": state["model"], "replicate": state["replicate"],
                          "path": str(out / "sessions" / sid / "submission"), "submission": state["submission"]}
                         for sid, state in states.items() if "submission" in state]
-            tournament = None
-            if len(entrants) >= 2:
-                manifest = {"name": config["name"], "seeds": config["seeds"],
-                            "scenario": config["scenario"], "include_mirrors": config["include_mirrors"],
-                            "strategies": entrants}
-                tournament = run_tournament(engine, manifest, out / "tournament", (out / "tournament").exists(), allow_extend=allow_extend)
             simulated = all(m["provider"] == "mock" for m in config["models"])
             summary = {"simulated": simulated, "generation": 0, "sessions": len(states),
                        "with_submission": len(entrants),
@@ -646,7 +1049,7 @@ def run(config: dict, out: Path, resume=False, interrupt=None, prepare_only=Fals
                        "invalid_submissions": sum(a["status"] == "invalid" for a in assessments.values()),
                        "assessment_failures": sum(a["status"] not in {"valid", "invalid", "no_submission"}
                                                   for a in assessments.values()),
-                       "model_calls": sum(s["calls"] for s in states.values()),
+                       "model_calls": sum(s.get("completed_calls",s["calls"]) for s in states.values()),
                        "tool_calls": sum(s["steps"] for s in states.values()),
                        "preparation_matches_reserved": sum(s["test_matches"] for s in states.values()),
                        "known_cost_subtotal_usd": str(sum(amount(s.get("cost_spent", "0")) for s in states.values())),
@@ -654,22 +1057,28 @@ def run(config: dict, out: Path, resume=False, interrupt=None, prepare_only=Fals
                        "cost_usd": None if any(s["status"] == "needs_reconciliation" or amount(s.get("money_reserved", "0")) > 0
                                               for s in states.values()) else str(sum(amount(s.get("cost_spent", "0")) for s in states.values())),
                        "cost_status": "simulation" if simulated else "calculated_or_reserved",
-                       **token_totals(config, states),
+                       **token_totals(config, {sid:s for sid,s in journal.metadata().items() if s.get("generation",0)==0}),
                        "tournament": tournament,
-                       "incomplete": any("submission" not in s for s in states.values()),
-                       "unresolved_sessions": [sid for sid,s in states.items() if s["status"] == "needs_reconciliation"]}
+                       "incomplete": bool(tournament and (tournament.get("failed") or tournament.get("pending"))) or len(states) < sum(repetitions(config,m) for m in config["models"] if active(config,m)) or any("submission" not in s for s in states.values()),
+                       "unresolved_sessions": [sid for sid,s in states.items() if active(config,s) and s["status"] == "needs_reconciliation"]}
+            initial_resources = [state for state in journal.metadata().values() if state.get('generation',0)==0]
+            for key, field in [('model_calls','completed_calls'), ('tool_calls','steps'), ('preparation_matches_reserved','test_matches')]:
+                summary[key] = sum(state.get(field,state.get('calls',0) if field=='completed_calls' else 0) for state in initial_resources)
+            summary['known_cost_subtotal_usd'] = str(sum(amount(state.get('cost_spent','0')) for state in initial_resources))
+            summary['reserved_usd'] = None if any(state.get('reservation_unbounded') for state in initial_resources) else str(sum(amount(state.get('money_reserved','0')) for state in initial_resources))
+            summary['cost_usd'] = None if any(state['status']=='needs_reconciliation' or amount(state.get('money_reserved','0'))>0 for state in initial_resources) else summary['known_cost_subtotal_usd']
             write_json(out / "report.json", summary)
-            if config.get("generations", 1) != 1:
+            if config.get("generations", 1) != 1 and not summary["incomplete"] and not summary["unresolved_sessions"]:
                 from .evolution import run_evolution
                 summary["evolution"] = run_evolution(config, out, journal, engine, entrants, interrupt, retry_session=retry_session, allow_extend=allow_extend)
-                summary["generation"] = max((s.get("generation", 0) for s in journal.states().values()), default=0)
-                summary["sessions"] = len(journal.states())
+                summary["generation"] = max((s.get("generation", 0) for s in journal.metadata().values()), default=0)
+                summary["sessions"] = len(journal.metadata())
                 summary["cost_usd"] = summary["evolution"]["cost_usd"]
-                final_states = journal.states()
-                summary["model_calls"] = sum(s["calls"] for s in final_states.values())
+                final_states = journal.metadata()
+                summary["model_calls"] = sum(s.get("completed_calls",s["calls"]) for s in final_states.values())
                 summary["tool_calls"] = sum(s["steps"] for s in final_states.values())
                 summary["preparation_matches_reserved"] = sum(s["test_matches"] for s in final_states.values())
-                summary["unresolved_sessions"] = [sid for sid,s in final_states.items() if s["status"] == "needs_reconciliation"]
+                summary["unresolved_sessions"] = [sid for sid,s in final_states.items() if active(config,s) and s["status"] == "needs_reconciliation"]
                 summary["with_submission"] = sum("submission" in s for s in final_states.values())
                 summary["no_submission"] = sum("submission" not in s for s in final_states.values())
                 summary["valid_submissions"] = sum(s.get("validity") == "valid" for s in final_states.values())
@@ -681,8 +1090,13 @@ def run(config: dict, out: Path, resume=False, interrupt=None, prepare_only=Fals
                 summary["known_cost_subtotal_usd"] = summary["evolution"]["known_cost_subtotal_usd"]
                 summary["reserved_usd"] = summary["evolution"]["reserved_usd"]
                 summary.update(token_totals(config, final_states))
+            summary['blocked_sessions'] = [{'session':sid, 'status':state['status']}
+                for sid,state in journal.metadata().items() if active(config,state) and ('submission' not in state or state.get('status') == 'needs_reconciliation')]
+            summary['participant_changes'] = {key:value for key,value in roster.items() if key!='models'} if roster else None
+            summary['waiting_for_recovery'] = bool(summary['blocked_sessions'])
+            summary['incomplete'] = summary['incomplete'] or summary['waiting_for_recovery']
             summary["session_failures"] = [{"session": sid, "status": state["status"], **state["failure"]}
-                                            for sid, state in journal.states().items() if state.get("failure")]
+                                            for sid, state in journal.metadata().items() if state.get("failure")]
             write_json(out / "report.json", summary)
             rows = ["| Session | Status | Validity | Calls | Tools |",
                     "|---|---|---|---:|---:|"]
@@ -703,4 +1117,8 @@ def run(config: dict, out: Path, resume=False, interrupt=None, prepare_only=Fals
                     stream.write("\n[Comparaison G0/G1 sur panel commun](analysis.md) · [HTML](analysis.html) · [CSV](analysis.csv)\n")
             return summary
         finally:
+            from .execution_control import _journal
+            _journal.reset(execution_token)
+            journal.verification.flush()
+            if hasattr(engine,'close'):engine.close()
             journal.db.close()
