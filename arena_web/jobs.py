@@ -219,7 +219,7 @@ class Jobs:
             write_json(root/'recovery-commands'/(identifier+'.json'),{'id':identifier,'session':sid,'action':action,'message':message,'requested_at':time.time()})
             write_json(root/'conversation-controls'/(sid+'.json'),{'paused':action=='pause','requested_at':time.time()})
             if not running and action!='pause':
-                try:self.launch(run_id=run_id,confirm_paid=True,allow_updated_runner=True)
+                try:self.launch(run_id=run_id,confirm_paid=True,ceiling=config['spending'].get('max_total_usd'),allow_updated_runner=True)
                 except BaseException:
                     (root/'recovery-commands'/(identifier+'.json')).unlink(missing_ok=True)
                     raise

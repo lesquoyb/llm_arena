@@ -8,6 +8,25 @@ from contextvars import ContextVar
 request_control=ContextVar('arena_request_control',default=None)
 
 
+def cancellable_handlers(control):
+    """Register sockets before waiting for response headers, preserving urllib TLS/proxy handling."""
+    from http.client import HTTPConnection, HTTPSConnection
+    from urllib.request import HTTPHandler, HTTPSHandler
+    def connection(base):
+        class Connection(base):
+            def connect(self):
+                control.check()
+                super().connect()
+                control.attach(self.sock)
+                control.check()
+        return Connection
+    class HTTP(HTTPHandler):
+        def http_open(self, req):return self.do_open(connection(HTTPConnection),req)
+    class HTTPS(HTTPSHandler):
+        def https_open(self, req):return self.do_open(connection(HTTPSConnection),req,context=self._context)
+    return [HTTP(),HTTPS()]
+
+
 class RequestControl:
     """Cancel one transport without cancelling the other conversations."""
     def __init__(self):

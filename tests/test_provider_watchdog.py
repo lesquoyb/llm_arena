@@ -16,6 +16,7 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self,*args):pass
     def do_POST(self):
         mode=json.loads(self.rfile.read(int(self.headers['Content-Length'])))['mode']
+        if mode=='headers':time.sleep(2)
         self.send_response(429 if mode=='error-body' else 200)
         self.send_header('Content-Type','text/event-stream')
         self.end_headers()
@@ -59,6 +60,23 @@ class ProviderWatchdogTests(unittest.TestCase):
             self.assertTrue(caught.exception.uncertain)
         finally:
             timer.cancel();timer.join();request_control.reset(token)
+    def test_manual_pause_also_interrupts_waiting_for_response_headers(self):
+        from arena.provider_watchdog import RequestControl,request_control
+        control=RequestControl();token=request_control.set(control)
+        attached=threading.Event()
+        attach=control.attach
+        def connected(sock):
+            attach(sock)
+            if sock:attached.set()
+        control.attach=connected
+        def pause():
+            if attached.wait(3):control.cancel()
+        thread=threading.Thread(target=pause);thread.start()
+        try:
+            with self.assertRaises(ProviderFailure) as caught:
+                http_json(self.url,{'mode':'headers'},{},5,inactivity_timeout=5)
+            self.assertEqual(caught.exception.diagnostics['network_error'],'conversation_paused')
+        finally:thread.join();request_control.reset(token)
     def test_active_output_can_run_longer_than_the_inactivity_threshold(self):
         result,_=stream_json(self.url,{'mode':'active'},{},3,Progress(),inactivity_timeout=.5)
         self.assertEqual(result['choices'][0]['message']['content'],'xxxxxxxx')

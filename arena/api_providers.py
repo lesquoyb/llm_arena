@@ -35,11 +35,15 @@ class LocalRedirectHandler(request.HTTPRedirectHandler):
 def open_provider_response(req, timeout):
     """Only proven failures before a direct request avoid uncertain billing."""
     redirects=LocalRedirectHandler()
+    from .provider_watchdog import request_control, cancellable_handlers
+    control=request_control.get()
+    handlers=[redirects,*cancellable_handlers(control)] if control else [redirects]
     try:
-        return request.build_opener(redirects).open(req,timeout=timeout)
+        return request.build_opener(*handlers).open(req,timeout=timeout)
     except error.HTTPError:
         raise
     except (error.URLError,OSError,TimeoutError) as exc:
+        if control:control.check()
         reason=exc.reason if isinstance(exc,error.URLError) else exc
         code='connection_unavailable';description='The connection failed before a complete response was received.';not_sent=False
         if isinstance(reason,socket.gaierror):
