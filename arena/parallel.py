@@ -109,7 +109,7 @@ def ordered_tasks(tasks, order='models', *, serial=False):
     return result
 
 
-def prepare(tasks, config, out, journal, engine, interrupt=None, on_progress=None, *, independent_fights=False):
+def prepare(tasks, config, out, journal, engine, interrupt=None, on_progress=None, *, independent_fights=False, independent_validation=False):
     """Expose dispatch/recovery before starting tools, transports or fight work."""
     from .activity import operation
     from .experiment import TERMINAL
@@ -141,7 +141,8 @@ def prepare(tasks, config, out, journal, engine, interrupt=None, on_progress=Non
         if independent_fights:
             from .fight_coordinator import FightCoordinator
             from .execution_control import _journal
-            with FightCoordinator(out,config,engine,on_progress) as fights:
+            frozen=[sid for sid,state in states.items() if state.get('submission')] if independent_validation else None
+            with FightCoordinator(out,config,engine,on_progress,validate_frozen=frozen) as fights:
                 token=_journal.set(None)
                 try:return _prepare(tasks,config,out,journal,engine,interrupt,primary_generations=primary_generations,fight_coordinator=fights)
                 finally:_journal.reset(token)
@@ -160,7 +161,7 @@ def _prepare(tasks, config, out, journal, engine, interrupt=None, on_progress=No
             return
         if getattr(journal,'_manual_fight_retry_pending',False):
             from .fight_recovery import run as recover_fights
-            result=recover_fights(out,engine=engine,journal=journal,cooperative=True)
+            result=recover_fights(out,engine=engine,journal=journal,cooperative=True,include_ready=getattr(journal,'_include_ready_fights',False))
             if not result.get('deferred'):journal._manual_fight_retry_pending=False
         # Recovered later-round sessions may finish while the controller is
         # still visiting an older round. Plan their fights immediately too.
@@ -274,6 +275,7 @@ def _prepare(tasks, config, out, journal, engine, interrupt=None, on_progress=No
                 run_session(sid,model,config,out,journal,engine,interrupt)
                 state=journal.metadata(sid).get(sid)
                 if state and state['status'] in TERMINAL:
+                    if fight_coordinator is not None and state.get('submission'):fight_coordinator.validate(sid)
                     dispatcher.release(sid)
                     schedule_retry(sid,model)
                     if on_progress and before.get('status') not in TERMINAL:on_progress()

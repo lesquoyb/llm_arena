@@ -4,17 +4,25 @@ import threading
 
 
 class FightCoordinator:
-    def __init__(self, out, config, engine, callback=None):
+    def __init__(self, out, config, engine, callback=None, *, validate_frozen=None):
         self.out=out;self.config=copy.deepcopy(config);self.engine=engine;self.callback=callback
         self.wake=threading.Event();self.stop=threading.Event();self.error=None
         self.finish=threading.Event()
         self.thread=threading.Thread(target=self.run,name='arena-fight-coordinator',daemon=True)
+        self.validator=None
+        if validate_frozen is not None:
+            from .submission_validation import SubmissionValidator
+            self.validator=SubmissionValidator(out,engine,validate_frozen)
+
+    def validate(self,sid):
+        if self.validator:self.validator.submit(sid)
 
     def notify(self):
         self.check();self.wake.set()
 
     def check(self):
         if self.error is not None:raise self.error
+        if self.validator and self.validator.error is not None:raise self.validator.error
 
     def run(self):
         from .experiment import Journal
@@ -36,7 +44,7 @@ class FightCoordinator:
                 poll(self.out,self.config.get('_parallel_fights',self.config.get('parallel_fights',1)))
                 if getattr(journal,'_manual_fight_retry_pending',False):
                     from .fight_recovery import run
-                    result=run(self.out,engine=self.engine,journal=journal,cooperative=True)
+                    result=run(self.out,engine=self.engine,journal=journal,cooperative=True,include_ready=getattr(journal,'_include_ready_fights',False))
                     if not result.get('deferred'):journal._manual_fight_retry_pending=False
                 generations={state.get('generation',0) for state in journal.metadata().values() if state.get('submission')}
                 for generation in sorted(generations,reverse=True):
@@ -57,10 +65,13 @@ class FightCoordinator:
             print('[arena] Independent fight coordinator stopped.',flush=True)
 
     def __enter__(self):
+        if self.validator:self.validator.thread.start()
         self.thread.start();return self
 
     def __exit__(self,kind,*args):
         if kind is None:self.finish.set()
         else:self.stop.set()
-        self.wake.set();self.thread.join()
+        self.wake.set()
+        if self.validator:self.validator.close(cancel=kind is not None)
+        self.thread.join()
         if kind is None:self.check()

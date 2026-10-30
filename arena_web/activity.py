@@ -32,6 +32,10 @@ def status(store, identifier, job=None):
     runtime=runtime_view(store.json(root/'round-runtime.json',{}),running=running,started_at=(job or {}).get('started_at'))
     operation=store.json(root/'activity.json',{}) if running else {}
     engine_operation=store.json(root/'engine-activity.json',{}) if running else {}
+    validation_operation=store.json(root/'validation-activity.json',{}) if running else {}
+    if (validation_operation.get('kind')=='validation' and
+            validation_operation.get('started_at',0)>=(job or {}).get('started_at',0)):
+        operation=validation_operation
     if (engine_operation.get('kind') not in {None,'idle'} and
             engine_operation.get('started_at',0)>=(job or {}).get('started_at',0)):
         operation=engine_operation

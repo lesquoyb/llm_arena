@@ -49,6 +49,7 @@ def parser():
             action.add_argument("--out", type=Path, required=True)
     action = actions.add_parser('retry-fights',help='Retry frozen engine fixtures without making model requests')
     action.add_argument('directory',type=Path)
+    action.add_argument('--include-ready',action='store_true',help='Schedule and drain all available frozen submissions too')
     action = actions.add_parser("retry", help="Continue one failed conversation, retaining completed submissions and matches")
     action.add_argument("directory", type=Path)
     action.add_argument("--session", required=True)
@@ -130,7 +131,7 @@ def main(argv=None):
                 result = plan(config) if args.action == "plan" else run(config, args.out.absolute(), prepare_only=args.action == "init")
             elif args.action=='retry-fights':
                 from .fight_recovery import run as retry_fights
-                result=retry_fights(args.directory.absolute())
+                result=retry_fights(args.directory.absolute(),include_ready=args.include_ready)
                 print(json.dumps(result,ensure_ascii=False,indent=2))
                 return int(bool(result['remaining_failed']))
             elif args.action in {"resume", "retry"}:

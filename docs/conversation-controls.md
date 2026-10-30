@@ -68,3 +68,20 @@ Concurrent phase durations can overlap; the round total counts each second once.
 For existing runs, a one-time estimate uses journal timestamps and retained engine
 heartbeat logs, excluding gaps over ten minutes. Estimates are marked ≈. Missing
 old logs cannot be reconstructed, and detailed phase timing starts with this update.
+
+### Running fights while providers are blocked
+
+Activity → **Run remaining fights** runs the game engine for frozen submitted
+strategies, including strategies absent from an older tournament manifest. It
+preserves completed fights and makes no model API requests. During an active run
+the command is handled by the independent fight coordinator; otherwise it starts
+an engine-only worker. CLI equivalent: `experiment retry-fights RUN --include-ready`.
+
+An HTTP 402 `billing_api_budget_exhausted` is a permanent provider failure until
+the provider budget is restored. It must not prevent available strategies from
+fighting. Normal coordinator shutdown drains all submitted rounds before exiting.
+
+The submission validity check compiles the frozen submitted source. It now runs
+in a separate worker as soon as a submission finishes, and during engine-only
+recovery of existing submissions. Other models need not finish first. Cached
+assessments are reused by final reporting.

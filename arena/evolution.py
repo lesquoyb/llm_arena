@@ -267,7 +267,7 @@ def run_generation(config, out, journal, engine, initial, interrupt=None, retry_
             if permitted:tasks.append((sid,models[parent_state['model']]))
             candidates.append(sid)
     from .parallel import prepare
-    prepare(tasks,config,out,journal,engine,interrupt,evaluate_available,independent_fights=True)
+    prepare(tasks,config,out,journal,engine,interrupt,evaluate_available,independent_fights=True,independent_validation=True)
     evaluate_ready(engine, config, out, journal, generation)
     baseline = references(engine, config, out, journal, roots, "g0-panel", panel)
     for sid in candidates:

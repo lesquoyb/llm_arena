@@ -25,4 +25,5 @@ class FightRecoveryWorkerTests(unittest.TestCase):
                     result=run(root,engine=engine,journal=journal,cooperative=True)
                 self.assertFalse(result['deferred'])
                 self.assertEqual(tournament.call_args.kwargs['parallel_fights'],4)
-                self.assertEqual(read_json(root/'activity.json')['parallel_fights'],expected)
+                from arena.execution_control import poll
+                self.assertEqual(poll(root,4),expected)

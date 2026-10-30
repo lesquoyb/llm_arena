@@ -10,17 +10,19 @@ from .recovery import engine_compatible
 from .roster import effective, snapshot
 
 
-def run(directory, *, engine=None, journal=None, cooperative=False):
+def run(directory, *, engine=None, journal=None, cooperative=False, include_ready=False):
     out=Path(directory).resolve();metadata=read_json(out/'experiment.json')
     if 'config' not in metadata:raise ArenaError('Fight recovery requires an original model competition')
     engine=engine or Engine()
     if not engine_compatible(metadata['engine'],engine.identity):raise ArenaError('Restore the original game engine before retrying fights')
     engine.allow_updated_runner=True
     owns_journal=journal is None
-    with experiment_lock(out) if owns_journal else nullcontext():
+    from .round_runtime import RoundClock
+    with experiment_lock(out) if owns_journal else nullcontext(), RoundClock(out) if owns_journal else nullcontext():
         journal=journal or Journal(out);token=_journal.set(journal)
+        validator=None
         from .activity import _provider_yielder, provider_work_ready
-        recovery_yielder=_provider_yielder.set(lambda:any((out/'recovery-commands').glob('*.json'))) if owns_journal else None
+        recovery_yielder=_provider_yielder.set(lambda:not include_ready and any((out/'recovery-commands').glob('*.json'))) if owns_journal else None
         try:
             if owns_journal and provider_work_ready():return {'deferred':True,'no_model_requests':True,'remaining_failed':0}
             config=effective(out,metadata['config']);roster=snapshot(out) or {}
@@ -28,13 +30,25 @@ def run(directory, *, engine=None, journal=None, cooperative=False):
             parallel_fights=roster.get('parallel_fights',config.get('_parallel_fights',config.get('parallel_fights',1)))
             from .execution_control import poll
             poll(out,parallel_fights)
+            include_ready=include_ready or getattr(journal,'_include_ready_fights',False)
             initial_retry_epoch=getattr(journal,'_fight_retry_epoch',0)
             done=getattr(journal,'_manual_recovery_done',set())
             pending_jobs=getattr(journal,'_manual_pending_jobs',{})
             failures=getattr(journal,'_manual_failures',{})
             journal._manual_recovery_done=done;journal._manual_pending_jobs=pending_jobs;journal._manual_failures=failures
             states=journal.metadata();anchor=next(iter(states),None)
+            if owns_journal and include_ready:
+                from .submission_validation import SubmissionValidator
+                validator=SubmissionValidator(out,engine,[sid for sid,state in states.items() if state.get('submission')])
+                validator.thread.start()
             if anchor:journal.record(anchor,'engine_only_recovery_started',{'no_model_requests':True,'engine':engine.identity})
+            if include_ready:
+                from .greedy import evaluate
+                config['_parallel_fights']=parallel_fights
+                for generation in sorted({state.get('generation',0) for state in states.values() if state.get('submission')},reverse=True):
+                    value=evaluate(engine,config,out,journal,generation,final=True)
+                    if value and (value.get('deferred') or value.get('pending') or value.get('retry_pending')):
+                        return {'deferred':True,'no_model_requests':True,'remaining_failed':value.get('failed',0)}
             from .tournament import run_tournament
             tournaments={}
             for root in [out/'tournament',*sorted(out.glob('g*-tournament'))]:
@@ -117,6 +131,9 @@ def run(directory, *, engine=None, journal=None, cooperative=False):
                     remaining+=sum(record['result'].get('status')!='completed' for record in records.values())
             summary=read_json(out/'report.json') if (out/'report.json').exists() else {}
             if 'tournament' in tournaments:summary['tournament']=tournaments['tournament']
+            if validator:
+                validator.close()
+                if validator.error is not None:raise validator.error
             all_states=journal.states()
             if any(state.get('generation',0)>0 for state in all_states.values()):
                 from .analysis import analyze_evolution
@@ -142,6 +159,7 @@ def run(directory, *, engine=None, journal=None, cooperative=False):
             if anchor:journal.record(anchor,'engine_only_recovery_finished',receipt)
             return receipt
         finally:
+            if validator and validator.thread.is_alive():validator.close(cancel=True)
             if recovery_yielder is not None:_provider_yielder.reset(recovery_yielder)
             _journal.reset(token)
             if owns_journal:journal.db.close()

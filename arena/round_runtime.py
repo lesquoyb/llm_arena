@@ -14,7 +14,7 @@ GAP=600
 
 def phase(kind):
     if kind in {'idle',None}:return None
-    if kind in {'checkpoint_verification','checking_fights'}:return 'verification'
+    if kind in {'checkpoint_verification','checking_fights','validation'}:return 'verification'
     if kind=='tournament_fight':return 'tournament'
     if kind in {'reference_fight','previous_round_fight'}:return 'references'
     if kind=='retry_backoff':return 'waiting'

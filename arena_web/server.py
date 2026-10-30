@@ -245,6 +245,8 @@ class Application:
             return self.jobs.execution_control(data['run'],data['parallel_fights'])
         if route == '/api/run/retry-fights':
             return self.jobs.retry_fights(data['run'])
+        if route == '/api/run/run-fights':
+            return self.jobs.retry_fights(data['run'],include_ready=True)
         if route == "/api/launch":
             return self.jobs.launch(draft_id=data.get("draft_id"), run_id=data.get("run"),
                                     confirm_paid=data.get("confirm_paid", False), ceiling=data.get("ceiling"), retry_session=data.get("retry_session"), expected_config_sha256=data.get("expected_config_sha256"), allow_updated_runner=data.get("allow_updated_runner") is True, retry_reasoning_effort=data.get("retry_reasoning_effort"))

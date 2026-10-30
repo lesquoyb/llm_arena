@@ -29,6 +29,7 @@ def poll(out, default=1):
             states=journal.metadata()
             for request in requests:
                 command=read_json(request)
+                if command.get('include_ready'):journal._include_ready_fights=True
                 if states:
                     sid=next(iter(states));journal.record(sid,'fight_retry_requested',command)
                 write_json(out/'fight-retry-receipts'/request.name,{**command,'status':'accepted'})

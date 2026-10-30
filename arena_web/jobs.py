@@ -263,7 +263,7 @@ class Jobs:
             write_json(root/'execution-control.json',command)
             return {**command,'status':'requested'}
 
-    def retry_fights(self, run_id):
+    def retry_fights(self, run_id, *, include_ready=False):
         with self.lock:
             root=self.store.run_path(run_id)
             if (root/'export.json').exists():raise ArenaError('Exported archives are read-only')
@@ -271,7 +271,7 @@ class Jobs:
             if self.process and self.process.poll() is None:
                 if not self.current or self.current['run']!=run_id or self.current['status']!='running':
                     raise ArenaError('Another competition is running or this one is stopping')
-                command={'id':uuid4().hex,'requested_at':time.time()}
+                command={'id':uuid4().hex,'requested_at':time.time(),'include_ready':include_ready}
                 write_json(root/'fight-retry-requests'/(command['id']+'.json'),command)
                 return {'status':'queued','no_model_requests':True}
             from arena.engine import Engine
@@ -284,7 +284,7 @@ class Jobs:
             row={'id':identifier,'run':run_id,'name':metadata.get('config',{}).get('name',run_id),'started_at':time.time(),
                  'status':'running','mode':'retry_fights','log':identifier+'.log'}
             with (logs/row['log']).open('wb') as log:
-                self.process=subprocess.Popen([sys.executable,'-m','arena_web.worker','experiment','retry-fights',str(root)],
+                self.process=subprocess.Popen([sys.executable,'-m','arena_web.worker','experiment','retry-fights',str(root),*(['--include-ready'] if include_ready else [])],
                     cwd=ROOT,env=env,stdin=subprocess.DEVNULL,stdout=log,stderr=subprocess.STDOUT,**options)
             self.current=row;self.rows.append(row);self._save()
             self.watcher=threading.Thread(target=self._watch,args=(self.process,row),daemon=True);self.watcher.start()
@@ -344,10 +344,11 @@ class Jobs:
                                else 'Waiting for failed conversations to be recovered. Saved submissions and fights are retained.')
             self._save()
             root=self.store.runs/row['run']
-            if self.process is process and row['status']!='stopped' and code==0 and any((root/'recovery-commands').glob('*.json')):
-                self.launch(run_id=row['run'],confirm_paid=True,allow_updated_runner=True)
-            elif self.process is process and row['status']!='stopped' and any((root/'fight-retry-requests').glob('*.json')):
-                self.retry_fights(row['run'])
+            if self.process is process and row['status']!='stopped' and any((root/'fight-retry-requests').glob('*.json')):
+                self.retry_fights(row['run'],include_ready=any(read_json(path).get('include_ready') for path in (root/'fight-retry-requests').glob('*.json')))
+            elif self.process is process and row['status']!='stopped' and code==0 and any((root/'recovery-commands').glob('*.json')):
+                metadata=read_json(root/'experiment.json')
+                self.launch(run_id=row['run'],confirm_paid=True,ceiling=metadata.get('config',{}).get('spending',{}).get('max_total_usd'),allow_updated_runner=True)
 
     def stop(self, identifier):
         with self.lock:
