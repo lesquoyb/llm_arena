@@ -389,6 +389,10 @@ def _build_provider_response(sid, state, model, config, journal):
     from .call_counts import hydrate_calls
     hydrate_calls(state,journal.db,sid)
     request_setup_started = time.monotonic()
+    message=state.pop('resume_message_pending',None)
+    if message:
+        state['history'].append({'role':'user','content':message,'manual_resume':True})
+        journal.save(sid,state,'conversation_resume_message',{'message':message})
     history=state['history'][state.get('request_history_start', 0):]
     if state.get('calibration',{}).get('tools')==[]:
         from .calibration_models import study_root,portable_analyst_history
@@ -690,6 +694,7 @@ def run_session(sid, model, config, out, journal, engine, interrupt=None):
     if dispatcher and sid in dispatcher.pending:
         if not dispatcher.ready(sid):return
         drained_response=provider_response(sid,state,model,config,journal) is not None
+    if state.get('conversation_paused'):return
     from .call_counts import hydrate_calls
     hydrate_calls(state,journal.db,sid)
     from .reasoning import apply_overrides
@@ -822,7 +827,7 @@ def run_session(sid, model, config, out, journal, engine, interrupt=None):
                         state["status"] = "no_submission"
                         state["failure"] = {"message": "The model ended responses without explicitly calling submit after three reminders.",
                                             "phase": "submission",
-                                            "retryable": False, "uncertain": False}
+                                            "retryable": True, "uncertain": False, "at": time.time()}
                         state["history"].append({"role": "user", "content":
                             "Arena stopped this session: no strategy was submitted after three reminders. "
                             "This round has no valid submission; workspace files were not submitted automatically."})
@@ -965,7 +970,7 @@ def run(config: dict, out: Path, resume=False, interrupt=None, prepare_only=Fals
                     from .call_counts import hydrate_calls
                     hydrate_calls(state, journal.db, sid)
                     parent = retry_states.get(state.get('parent'))
-                    if active(config,state) and not state.get('automatic_retries_paused') and retry_reason(state, config['budget_per_session'], parent) is None:
+                    if active(config,state) and not state.get('conversation_paused') and not state.get('automatic_retries_paused') and retry_reason(state, config['budget_per_session'], parent) is None:
                         prepare_retry(journal, sid, config)
             allow_extend = any(s.get('retry_count') for s in journal.metadata().values())
             if prepare_only:

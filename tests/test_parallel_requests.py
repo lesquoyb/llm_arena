@@ -72,9 +72,9 @@ class ParallelRequestsTests(TestCase):
         from arena.conversation_recovery import automatic_due
         state={'status':'provider_unavailable','failure':{'retryable':True,'at':100},'calls':1}
         value=config()
-        self.assertEqual(automatic_due(state,value),130)
-        state['automatic_retry_attempts']=2
         self.assertEqual(automatic_due(state,value),220)
+        state['automatic_retry_attempts']=2
+        self.assertEqual(automatic_due(state,value),400)
         state['automatic_retry_attempts']=3
         self.assertIsNone(automatic_due(state,value))
         state['automatic_retry_attempts']=0;state['failure']['retryable']=False

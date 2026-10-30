@@ -2,6 +2,39 @@
 import socket
 import threading
 import time
+from contextvars import ContextVar
+
+
+request_control=ContextVar('arena_request_control',default=None)
+
+
+class RequestControl:
+    """Cancel one transport without cancelling the other conversations."""
+    def __init__(self):
+        self.cancelled=threading.Event()
+        self.lock=threading.Lock()
+        self.socket=None
+
+    def attach(self, sock):
+        with self.lock:
+            self.socket=sock
+            if self.cancelled.is_set():self._shutdown()
+
+    def _shutdown(self):
+        if self.socket is not None:
+            try:self.socket.shutdown(socket.SHUT_RDWR)
+            except OSError:pass
+
+    def cancel(self):
+        with self.lock:
+            self.cancelled.set()
+            self._shutdown()
+
+    def check(self):
+        if self.cancelled.is_set():
+            from .api_providers import ProviderFailure
+            raise ProviderFailure('Conversation paused by the user. The interrupted request may have reached the provider.',
+                uncertain=True,retryable=True,diagnostics={'network_error':'conversation_paused','request_delivery':'unknown'})
 
 
 class InactivityGuard:
@@ -9,6 +42,7 @@ class InactivityGuard:
         self.timeout=timeout
         self.last_progress=time.monotonic() if started_at is None else started_at
         self.expired=False
+        self.control=request_control.get()
         self.stop=threading.Event()
         node=response;self.socket=None
         for _ in range(5):
@@ -31,6 +65,7 @@ class InactivityGuard:
             return
 
     def check(self):
+        if self.control:self.control.check()
         if self.expired or time.monotonic()-self.last_progress>=self.timeout:
             from .api_providers import ProviderFailure
             raise ProviderFailure(f'No provider output for {self.timeout:g} seconds. Conversation paused; retry when the provider is available. This does not establish a quota error.',
@@ -38,6 +73,7 @@ class InactivityGuard:
                     'inactivity_timeout_seconds':self.timeout,'request_delivery':'unknown'})
 
     def __enter__(self):
+        if self.control:self.control.attach(self.socket)
         self.check()
         self.thread.start()
         return self
@@ -45,4 +81,6 @@ class InactivityGuard:
     def __exit__(self,*args):
         self.stop.set()
         self.thread.join()
-        self.check()
+        try:self.check()
+        finally:
+            if self.control:self.control.attach(None)

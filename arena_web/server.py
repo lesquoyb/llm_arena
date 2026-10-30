@@ -240,7 +240,7 @@ class Application:
         if route == '/api/conversation/retry-policy':
             return self.jobs.retry_policy(data['run'],data['session'],data['paused'])
         if route == '/api/conversation/recover':
-            return self.jobs.recover_conversation(data['run'],data['session'],data.get('action','continue'))
+            return self.jobs.recover_conversation(data['run'],data['session'],data.get('action','continue'),data.get('message'))
         if route == '/api/run/execution':
             return self.jobs.execution_control(data['run'],data['parallel_fights'])
         if route == '/api/run/retry-fights':

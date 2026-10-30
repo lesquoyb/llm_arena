@@ -78,6 +78,7 @@ def http_json(url, payload, headers, timeout, *, inactivity_timeout=None):
                 guard.check()
                 if not chunk:break
                 body.extend(chunk)
+                guard.touch()
             if len(body) > 8_000_000:
                 raise ProviderFailure("Provider response exceeded quota", uncertain=True)
             guard.touch()
@@ -186,6 +187,9 @@ class APIProvider:
         return payload
 
     def respond(self, history, tools, output_limit, *, key_override=None):
+        from .provider_watchdog import request_control
+        control=request_control.get()
+        if control:control.check()
         m = self.model
         key = key_override if key_override is not None else os.environ.get(m["api_key_env"])
         if not key and not optional_local_key(m):

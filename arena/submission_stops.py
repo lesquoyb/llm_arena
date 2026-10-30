@@ -17,6 +17,7 @@ def restore_interrupted_streak(state):
 
 def interrupted_response(state, response):
     """Keep the received output and usage without treating truncation as a stop."""
+    import time
     reason=response.get('stop_reason') or response.get('finish_reason')
     state.update(status='provider_unavailable',pending=None,cursor=0,in_flight=False)
     state['failure']={'message':
@@ -24,7 +25,7 @@ def interrupted_response(state, response):
         f'(finish reason: {reason if reason is not None else "missing"}). '
         'The response and its reported usage are saved. Retry continues the same preparation session; '
         'this interruption does not count toward submission reminders.',
-        'phase':'provider response','retryable':True,'uncertain':False,
+        'phase':'provider response','retryable':True,'uncertain':False,'at':time.time(),
         'incomplete_response':True,'stop_reason':reason}
     return {'error':state['failure']['message'],'retryable':True,'uncertain':False,'stop_reason':reason}
 

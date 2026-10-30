@@ -1773,7 +1773,8 @@ async function launchDialog(draftId = null, runId = null) {
 }
 function retryButton(session) {
   if (!session || S.detail.archived) return '';
-  const retryControl=session.submission?'':btn(session.automatic_retries_paused?'Enable automatic retries':'Pause automatic retries','toggle-automatic-retries',`data-session="${e(session.id)}" data-paused="${session.automatic_retries_paused?'false':'true'}"`);
+  const manual=session.submission?'':btn(session.conversation_paused?'Conversation paused':'Pause conversation','pause-conversation',`data-session="${e(session.id)}" ${session.conversation_paused?'disabled':''}`)+btn('Resume / send message','resume-conversation',`data-session="${e(session.id)}"`);
+  const retryControl=manual+(session.submission?'':btn(session.automatic_retries_paused?'Enable automatic retries':'Pause automatic retries','toggle-automatic-retries',`data-session="${e(session.id)}" data-paused="${session.automatic_retries_paused?'false':'true'}"`));
   if (session.reconciliation_required && !activeJobs().some(j=>j.run===S.run))
     return retryControl+btn('Resolve billing','reconcile-session',`data-session="${e(session.id)}"`);
   if(session.finalize_allowed)return retryControl+btn('Finalize saved files','recover-conversation',`data-session="${e(session.id)}"`);
@@ -4008,6 +4009,13 @@ document.addEventListener("click", async (event) => {
     }
     else if (a === "resume") await launchDialog(null, S.run);
     else if (a === "reconcile-session") reconciliationDialog(node.dataset.session);
+    else if (a === 'pause-conversation') {
+      await api('/api/conversation/recover',{run:S.run,session:node.dataset.session,action:'pause'},true);
+      toast('Pause requested. Saved files and history are retained.');await refreshBoot();
+    }
+    else if (a === 'resume-conversation') {
+      openDialog('Resume conversation',strategyName(node.dataset.session),`<form data-form="resume-conversation" data-session="${e(node.dataset.session)}"><label>Optional continuation message<textarea name="message" maxlength="12000" placeholder="Continue from your saved files, use the tools, and submit your strategy."></textarea></label><p>Continues the same history and workspace within the remaining budgets. An active request finishes before the message is sent. Use Pause first to interrupt a stalled request.</p><div class="form-footer">${btn('Cancel','close-dialog')}<button type="submit" class="button primary">Resume</button></div></form>`);
+    }
     else if (a === 'recover-conversation' || a === 'restart-conversation') {
       if (a==='restart-conversation') {
         openDialog('Restart preparation',strategyName(node.dataset.session),`<p>Start a fresh conversation with an empty workspace for this round. Previous exchanges and files are archived. Active preparation statistics and session limits start afresh. Previous attempts remain archived; their API charges still count toward the shared spending limit. Other participants and completed competition fights are kept.</p><form data-form="restart-conversation" data-session="${e(node.dataset.session)}"><div class="form-footer">${btn('Cancel','close-dialog')}<button type="submit" class="button primary">Restart preparation</button></div></form>`);
@@ -4241,6 +4249,14 @@ document.addEventListener("click", async (event) => {
   }
 });
 document.addEventListener("submit", async (event) => {
+  if(event.target.dataset.form==='resume-conversation') {
+    event.preventDefault();
+    try {
+      await api('/api/conversation/recover',{run:S.run,session:event.target.dataset.session,action:'continue',message:new FormData(event.target).get('message')},true);
+      $('#dialog').close();toast('Continuation queued.');await refreshBoot();
+    } catch(error) {toast(error.message,true);}
+    return;
+  }
   if(event.target.dataset.form==='restart-conversation') {
     event.preventDefault();
     try {

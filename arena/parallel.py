@@ -68,7 +68,10 @@ class Requests:
                 try:write_json(status_path,{**receipt,'phase':phase,'updated_at':time.time()})
                 except OSError:pass
         publish('waiting')
+        from .provider_watchdog import RequestControl, request_control
+        context['control']=RequestControl()
         def respond():
+            token=request_control.set(context['control'])
             phase='completed'
             try:
                 return context['provider'].respond(context['history'],context['session_tools'],context['output_limit'])
@@ -76,6 +79,7 @@ class Requests:
                 phase='failed'
                 raise
             finally:
+                request_control.reset(token)
                 context['completed_at']=time.monotonic()
                 publish(phase)
         context['future']=self.pool.submit(respond)
@@ -165,7 +169,8 @@ def _prepare(tasks, config, out, journal, engine, interrupt=None, on_progress=No
         for sid,paused in apply(out,journal):
             if not paused and sid in models:schedule_retry(sid,models[sid])
         for sid in list(retry_waiting):
-            if journal.metadata(sid).get(sid,{}).get('automatic_retries_paused'):retry_waiting.pop(sid,None)
+            state=journal.metadata(sid).get(sid,{})
+            if state.get('automatic_retries_paused') or state.get('conversation_paused'):retry_waiting.pop(sid,None)
         # A manual command can target a failed conversation from a later round.
         # Admit its saved task now instead of waiting for old fight queues to drain.
         from .core import read_json
@@ -184,7 +189,7 @@ def _prepare(tasks, config, out, journal, engine, interrupt=None, on_progress=No
         for sid,(model,due) in list(retry_waiting.items()):
             if time.time()<due:continue
             state=journal.state(sid)
-            if state and state.get('status')=='provider_unavailable':
+            if state and state.get('status') in {'provider_unavailable','no_submission'}:
                 recover(sid,state,config,out,journal,automatic=True)
                 dispatcher.finished.discard(sid)
                 if sid not in {item[0] for item in queue}:queue.append((sid,model))
@@ -218,7 +223,7 @@ def _prepare(tasks, config, out, journal, engine, interrupt=None, on_progress=No
     last_retry_progress=0
     next_idle_progress=0
     try:
-        while queue or dispatcher.pending or retry_waiting:
+        while queue or dispatcher.pending or retry_waiting or any((out/'recovery-commands').glob('*.json')):
             queue_recoveries()
             from .execution_control import poll as poll_execution
             poll_execution(out,config.get('_parallel_fights',config.get('parallel_fights',1)))
@@ -236,6 +241,15 @@ def _prepare(tasks, config, out, journal, engine, interrupt=None, on_progress=No
                         'queued_sessions':[sid for sid,_ in queue],'counters_preserved':True})
             for _ in range(len(queue)):
                 sid,model=queue.popleft()
+                if journal.metadata(sid).get(sid,{}).get('conversation_paused'):
+                    if sid in dispatcher.pending:
+                        if dispatcher.ready(sid):
+                            state=journal.state(sid)
+                            provider_response(sid,state,model,config,journal)
+                        else:continue
+                    dispatcher.release(sid)
+                    retry_waiting.pop(sid,None)
+                    continue
                 if sid in dispatcher.pending and not dispatcher.ready(sid):continue
                 if sid not in dispatcher.pending and (not dispatcher.can_start(sid,model) or (sid in dispatcher.deferred and dispatcher.pending)):
                     queue.append((sid,model));continue

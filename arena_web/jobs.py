@@ -184,8 +184,10 @@ class Jobs:
             self.watcher.start()
             return row
 
-    def recover_conversation(self, run_id, sid, action='continue'):
-        if action not in {'continue','restart'}:raise ArenaError('Unknown recovery action')
+    def recover_conversation(self, run_id, sid, action='continue', message=None):
+        if action not in {'continue','restart','pause'}:raise ArenaError('Unknown recovery action')
+        if message is not None and (not isinstance(message,str) or len(message)>12000):raise ArenaError('Resume message must be text of at most 12000 characters')
+        message=message.strip() if message else None
         with self.lock:
             root=self.store.run_path(run_id)
             state=self.store.session(run_id,sid)
@@ -202,7 +204,11 @@ class Jobs:
             if zero_cost_requests(model) and needs_reconciliation(state) and amount(state.get('money_reserved','0'))==0:
                 state={**state,'in_flight':False,'money_reserved':'0',
                        'status':'running' if state.get('pending') else 'provider_unavailable'}
+            if state.get('submission'):raise ArenaError('This conversation already has a frozen submission')
+            running=self.process and self.process.poll() is None
+            live=running and self.current['run']==run_id and self.current['status']=='running'
             reason=retry_reason(state,{} if action=='restart' else config['budget_per_session'],parent)
+            if action=='pause' or (action=='continue' and state.get('status')=='running' and (live or not state.get('in_flight'))):reason=None
             from arena.budget_context import tool_budget_exhausted
             if reason and (action=='restart' or not tool_budget_exhausted(state,config['budget_per_session'])):raise ArenaError(reason)
             if not active(config,state):raise ArenaError('Reactivate this participant before retrying it')
@@ -210,8 +216,9 @@ class Jobs:
             if running and (self.current['run']!=run_id or self.current['status']!='running'):
                 raise ArenaError('Another competition is running or this one is stopping')
             identifier=uuid4().hex
-            write_json(root/'recovery-commands'/(identifier+'.json'),{'id':identifier,'session':sid,'action':action,'requested_at':time.time()})
-            if not running:
+            write_json(root/'recovery-commands'/(identifier+'.json'),{'id':identifier,'session':sid,'action':action,'message':message,'requested_at':time.time()})
+            write_json(root/'conversation-controls'/(sid+'.json'),{'paused':action=='pause','requested_at':time.time()})
+            if not running and action!='pause':
                 try:self.launch(run_id=run_id,confirm_paid=True,allow_updated_runner=True)
                 except BaseException:
                     (root/'recovery-commands'/(identifier+'.json')).unlink(missing_ok=True)

@@ -48,6 +48,17 @@ class ProviderWatchdogTests(unittest.TestCase):
         self.assertEqual(caught.exception.diagnostics['network_error'],'provider_inactivity_timeout')
         self.assertTrue(caught.exception.uncertain)
         self.assertNotIn('http_status',caught.exception.diagnostics)
+    def test_manual_pause_closes_only_the_current_stream(self):
+        from arena.provider_watchdog import RequestControl,request_control
+        control=RequestControl();token=request_control.set(control)
+        timer=threading.Timer(.2,control.cancel);timer.start()
+        try:
+            with self.assertRaises(ProviderFailure) as caught:
+                stream_json(self.url,{'mode':'idle'},{},3,Progress(),inactivity_timeout=5)
+            self.assertEqual(caught.exception.diagnostics['network_error'],'conversation_paused')
+            self.assertTrue(caught.exception.uncertain)
+        finally:
+            timer.cancel();timer.join();request_control.reset(token)
     def test_active_output_can_run_longer_than_the_inactivity_threshold(self):
         result,_=stream_json(self.url,{'mode':'active'},{},3,Progress(),inactivity_timeout=.5)
         self.assertEqual(result['choices'][0]['message']['content'],'xxxxxxxx')

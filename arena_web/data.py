@@ -507,7 +507,7 @@ class Store(Workspaces):
         withdrawn = set((roster or {}).get('withdrawn', []))
         sessions = []
         keys = ("model", "participant_revision", "replicate", "generation", "condition", "parent", "parent_checkpoint_sha256",
-                "status", "validity", "automatic_retries_paused", "automatic_retry_at", "automatic_retry_attempts", "calls", "completed_calls", "failure", "context_recoveries", "manual_frozen", "steps", "test_matches", "replay_reads", "wall_seconds", "cost_spent",
+                "status", "validity", "conversation_paused", "automatic_retries_paused", "automatic_retry_at", "automatic_retry_attempts", "calls", "completed_calls", "failure", "context_recoveries", "manual_frozen", "steps", "test_matches", "replay_reads", "wall_seconds", "cost_spent",
                 "money_reserved", "token_usage_known", "input_tokens", "output_tokens", "submission", "in_flight", "reserved", "retry_count", "continuation_identity", "provider_parameter_overrides")
         from arena.retries import retry_reason
         from arena.budget_context import tool_budget_exhausted
@@ -520,6 +520,8 @@ class Store(Workspaces):
             if sid in states:
                 states[sid]['automatic_retries_paused']=policy['paused']
                 if policy['paused']:states[sid].pop('automatic_retry_at',None)
+        for path in (root/'conversation-controls').glob('*.json'):
+            if path.stem in states:states[path.stem]['conversation_paused']=self.json(path,{}).get('paused',False)
         receipts = self.usage_receipts(root)
         if any('completed_calls' not in state for state in states.values()):
             with closing(sqlite3.connect((root / 'journal.sqlite').as_uri() + '?mode=ro', uri=True, timeout=2)) as connection:

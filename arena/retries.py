@@ -13,7 +13,7 @@ def retry_reason(state, budget=None, parent=None):
         return 'Reconcile the previous request and its billing before retrying an unknown outcome'
     if state.get('submission'):
         return 'This conversation already has a frozen submission'
-    if state.get('status') not in {'provider_unavailable', 'generation_failed', 'no_submission'}:
+    if state.get('status') not in {'provider_unavailable', 'generation_failed', 'no_submission'} and not (state.get('conversation_paused') and state.get('status')=='running'):
         return 'Only failed conversations without a submission can be retried'
     if state.get('parent') and not (parent or {}).get('submission'):
         return 'Recover the initial strategy before retrying its improvement conversation'
@@ -69,6 +69,7 @@ def prepare_retry(journal, sid, config, reasoning_effort=None):
             f'Submission reminders already issued in this streak: {previous_stop_streak}. '
             'This interruption does not count as a completed model turn.'})
     if original['status'] == 'no_submission':
+        state['consecutive_submission_reminders']=0
         state['history'].append({'role':'user', 'content':
             'Continue from your existing files and conversation. The previous attempt did not produce a submission. '
             'Fix any tool errors and finish with submit. The scenario and preparation limits are unchanged.'})
