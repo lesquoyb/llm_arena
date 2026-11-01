@@ -74,6 +74,10 @@ class Store(Workspaces):
         from collections import OrderedDict
         self._session_metadata_cache = OrderedDict()
         self._session_cache=OrderedDict()
+        from .fight_index import FightIndex
+        from .receipt_cache import ReceiptCache
+        self.fight_index=FightIndex(self.state)
+        self.receipts=ReceiptCache(self.state)
 
     @measure('json')
     def json(self, path, default=None):
@@ -388,40 +392,62 @@ class Store(Workspaces):
         # Callers can annotate their view without changing a cached checkpoint.
         return copy.deepcopy(cached)
 
+    @staticmethod
+    def report_summary(report):
+        """The few report fields the competition lists need, plus a change token."""
+        evolution=report.get('evolution') or {}
+        completed=((report.get('completed') or 0)+((report.get('tournament') or {}).get('completed') or 0)
+                   +((evolution.get('contemporaries') or {}).get('completed') or 0)
+                   +sum(row.get('completed',0) for row in evolution.get('rows',[]) if row.get('panel')=='all'))
+        return {'sessions':report.get('sessions'),'cost_usd':report.get('cost_usd'),'incomplete':report.get('incomplete'),
+                'simulated':report.get('simulated'),'completed_total':completed}
+
+    def _listing_row(self, path, identifier):
+        stamps=[]
+        for name in ('experiment.json','report.json','journal.sqlite','journal.sqlite-wal','export.json'):
+            try:stat=(path/name).stat();stamps.append((name,stat.st_mtime_ns,stat.st_size))
+            except FileNotFoundError:stamps.append((name,None))
+        with self.lock:cached=getattr(self,'_listing_rows',{}).get(identifier)
+        if cached and cached[0]==stamps:return cached[1]
+        try:
+            metadata = self.json(path / "experiment.json")
+            config = metadata.get("config", metadata.get("manifest", {}))
+            if 'config' in metadata:
+                from arena.roster import effective
+                config = effective(path, config)
+            from arena.roster import snapshot
+            withdrawn=set((snapshot(path) or {}).get('withdrawn',[]))
+            report = self.json(path / "report.json", {})
+            row={"id": identifier, "name": config.get("name", identifier),
+                 "kind": "experiment" if "config" in metadata else "tournament",
+                 "created_at": (path / "experiment.json").stat().st_mtime,
+                 "archived": (path / "export.json").exists(),
+                 "simulated": all(m.get("provider") == "mock" for m in config.get("models", []))
+                              if "models" in config else None,
+                 "models": sum(model['id'] not in withdrawn for model in config['models']) if 'models' in config else len(config.get('strategies',[])),
+                 "withdrawn_models":len(withdrawn),
+                 "replicates": config.get("replicates"), "report": self.report_summary(report),
+                 "report_sha256": digest(report),
+                 "complete": bool(report) and not any(report.get(k) for k in
+                      ("incomplete", "failed", "pending", "assessment_failures", "unresolved_sessions"))
+                             and not (report.get("evolution") or {}).get("incomplete")}
+        except (OSError, ValueError, sqlite3.Error) as error:
+            row={"id": identifier, "name": identifier, "error": str(error), "complete": False}
+        with self.lock:
+            if not hasattr(self,'_listing_rows'):self._listing_rows={}
+            self._listing_rows[identifier]=(stamps,row)
+        return row
+
     @measure('listing')
     def listing(self):
-        rows = []
-        for path in self.run_paths():
-            identifier = path.relative_to(self.runs).as_posix()
-            try:
-                metadata = self.json(path / "experiment.json")
-                config = metadata.get("config", metadata.get("manifest", {}))
-                if 'config' in metadata:
-                    from arena.roster import effective
-                    config = effective(path, config)
-                from arena.roster import snapshot
-                withdrawn=set((snapshot(path) or {}).get('withdrawn',[]))
-                report = self.json(path / "report.json", {})
-                rows.append({"id": identifier, "name": config.get("name", identifier),
-                             "kind": "experiment" if "config" in metadata else "tournament",
-                             "created_at": (path / "experiment.json").stat().st_mtime,
-                             "archived": (path / "export.json").exists(),
-                             "simulated": all(m.get("provider") == "mock" for m in config.get("models", []))
-                                          if "models" in config else None,
-                             "models": sum(model['id'] not in withdrawn for model in config['models']) if 'models' in config else len(config.get('strategies',[])),
-                             "withdrawn_models":len(withdrawn),
-                             "replicates": config.get("replicates"), "report": report,
-                             "complete": bool(report) and not any(report.get(k) for k in
-                                  ("incomplete", "failed", "pending", "assessment_failures", "unresolved_sessions"))
-                                         and not (report.get("evolution") or {}).get("incomplete")})
-            except (OSError, ValueError, sqlite3.Error) as error:
-                rows.append({"id": identifier, "name": identifier, "error": str(error), "complete": False})
+        rows = [self._listing_row(path, path.relative_to(self.runs).as_posix()) for path in self.run_paths()]
         memberships=self.workspace_index()['runs']
         return sorted([{**row,'workspace_id':memberships.get(row['id'])} for row in rows], key=lambda r: r.get("created_at", 0), reverse=True)
 
     @measure('revision')
     @request_cached
     def revision(self, root, *, include_records=True, include_events=True, include_reports=True):
+        """Cheap change token: journal position, fight index version and report stamps."""
         event_id = 0
         database = root / 'journal.sqlite'
         if database.is_file():
@@ -429,22 +455,13 @@ class Store(Workspaces):
                 if connection.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='events'").fetchone():
                     event_id = connection.execute('SELECT coalesce(max(id),0) FROM events'+('' if include_events else " WHERE kind='participants_updated'")).fetchone()[0]
         files = [root/'report.json', root/'analysis.json'] if include_records and include_reports else [root/'experiment.json']
-        stamps=[];prefix=len(str(root))+1
-        if include_records:
-            for base in (root, root/'tournament', *sorted(root.glob('g*-tournament')), *sorted((root/'evaluations').glob('g*-panel')), *sorted((root/'evaluations').glob('g*-previous'))):
-                try:
-                    with os.scandir(base/'records') as entries:
-                        for entry in entries:
-                            if entry.name.endswith('.json') and entry.is_file(follow_symlinks=False):
-                                stat=entry.stat(follow_symlinks=False)
-                                stamps.append((entry.path[prefix:],stat.st_mtime_ns,stat.st_ctime_ns,stat.st_size))
-                except FileNotFoundError:pass
-            files.extend((root/'sessions').glob('*/tools/**/result.json'))
+        stamps=[]
         for path in files:
             try:stat=path.stat()
             except FileNotFoundError:continue
-            stamps.append((str(path)[prefix:],stat.st_mtime_ns,stat.st_ctime_ns,stat.st_size))
-        return digest({'event_id':event_id, 'files':sorted(stamps)})
+            stamps.append((path.name,stat.st_mtime_ns,stat.st_size))
+        fights=self.fight_index.version(root) if include_records else None
+        return digest({'event_id':event_id,'files':stamps,'fights':fights,'index':id(self.fight_index)})
 
     @measure('usage_receipts')
     def usage_receipts(self, root):
@@ -464,24 +481,11 @@ class Store(Workspaces):
             metadata = {**metadata, 'config':effective(root,metadata['config'])}
         models = {m['id']: m for m in metadata.get('config', {}).get('models', [])}
         states = self.states(root, ('model', 'provider_parameter_overrides'))
-        for sid, reference in rows:
-            reference = json.loads(reference)
-            artifact = safe_path(root, reference['artifact'])
-            # Cache only the small usage receipt, not full model output, on live refresh.
-            stamp = (artifact.stat().st_mtime_ns, artifact.stat().st_size)
-            key = ('usage', artifact)
-            with self.lock:
-                cached = self._usage_cache.get(key)
-            if cached and cached[0] == stamp:
-                receipt = cached[1]
-            else:
-                raw = artifact.read_bytes()
-                if hashlib.sha256(raw).hexdigest() != reference['sha256']:
-                    raise ArenaError('The usage artifact hash no longer matches the journal')
-                value = json.loads(raw)
-                receipt = {field: value.get(field) for field in ('usage', 'cost_usd')}
-                with self.lock:
-                    self._usage_cache[key] = (stamp, receipt)
+        decoded = [(sid, json.loads(reference)) for sid, reference in rows]
+        receipts = self.receipts.many('usage', [(reference['sha256'], lambda reference=reference: safe_path(root, reference['artifact'])) for _, reference in decoded],
+                                      lambda value: {field: value.get(field) for field in ('usage', 'cost_usd')})
+        for sid, reference in decoded:
+            receipt = receipts[reference['sha256']]
             receipt = copy.deepcopy(receipt)
             model = models.get(states.get(sid, {}).get('model'), {})
             usage = receipt.get('usage') or {}
@@ -546,7 +550,8 @@ class Store(Workspaces):
             if session.get('cost_spent') is not None:
                 session['cost_spent'] = str(Decimal(session['cost_spent']) + Decimal(adjustment))
         sessions.sort(key=lambda s:(s.get('model',''),s.get('replicate',0),s.get('generation',0),s.get('condition','')))
-        return {"id": identifier, "revision": self.revision(root) if include_revision else None, "metadata": metadata, "roster":{key:value for key,value in roster.items() if key!='models'} if roster else None, "report": self.json(root / "report.json", {}),
+        report=self.json(root / "report.json", {})
+        return {"id": identifier, "revision": self.revision(root) if include_revision else None, "metadata": metadata, "roster":{key:value for key,value in roster.items() if key!='models'} if roster else None, "report": report, "report_sha256": digest(report),
                 'model_metadata':{m['id']:{'model_size_billion':self.model_size(m)} for m in metadata.get('config',{}).get('models',[])},
                 "analysis": self.json(root / "analysis.json"), "sessions": sessions,
                 "g0": self.json(root / "tournament/report.json"),
@@ -611,8 +616,15 @@ class Store(Workspaces):
             raise ArenaError('Submission assessment was modified')
         validity = assessment.get('status') if assessment is not None else state.get('validity')
         assessment_problem = validity is not None and validity != 'valid'
-        matches = [m for m in self.matches(identifier)['matches'] if sid in m['sides']]
+        matches = self.session_fights(root, sid)
         failed = [m for m in matches if m['result'].get('status') != 'completed']
+        for match in matches:
+            if match['result'].get('status') == 'completed':match.pop('record',None)
+        for match in failed:
+            # Only failed fights need their full result for the error message.
+            record = self.json(safe_path(root, match.pop('record'))) if match.get('record') else None
+            stored = (record or {}).get('result') or self.json(safe_path(root, match['path'] + '/result.json'), {}) or {}
+            match['result'] = {**stored, **match['result']}
         problems = []
         if state.get('failure'):
             problems.append({'phase': 'generation', 'status': state['status'], **state['failure']})
@@ -652,6 +664,21 @@ class Store(Workspaces):
                             'failed': sum(m['kind'] != 'training' for m in failed),
                             'preparation_completed': sum(m['result'].get('status') == 'completed' for m in matches if m['kind'] == 'training')},
                 'schedule_note': 'Submitted strategies are frozen. Available fights run progressively; the next round waits for all participants. Preparation tests are separate and unscored.'}
+
+    def session_fights(self, root, sid):
+        from .fight_index import COLUMNS
+        states=self.states(root,('attempt_started_at',))
+        cutoff=states.get(sid,{}).get('attempt_started_at',0)
+        rows=[]
+        for kind,stage,name,modified,*values in self.fight_index.query(root,'SELECT kind,stage,name,modified,'+','.join(COLUMNS)+' FROM fights WHERE run=? AND (a=? OR b=?)',(sid,sid)):
+            row=dict(zip(COLUMNS,values))
+            if kind=='training' and modified<cutoff:continue
+            metrics={'0':{'errors':row['errors_a'] or 0,'operation_limit_hits':row['limits_a'] or 0},
+                     '1':{'errors':row['errors_b'] or 0,'operation_limit_hits':row['limits_b'] or 0}}
+            rows.append({'path':row['work'],'stage':stage,'kind':kind,'sides':[row['a'],row['b']],'seed':row['seed'],
+                         'mirror':bool(row['mirror']),'result':{'status':row['status'],'winner_side':row['winner'],'team_metrics':metrics},
+                         'record':None if kind=='training' else ('' if stage=='.' else stage+'/')+'records/'+name})
+        return rows
 
     def message(self, identifier, sid, index):
         history = self.session(identifier, sid).get("history", [])
@@ -907,6 +934,8 @@ class Store(Workspaces):
     @measure('matches')
     def matches(self, identifier, *, compact=False):
         root = self.run_path(identifier)
+        if compact:
+            return self.indexed_matches(identifier)
         states=self.states(root,('model','generation','condition','replicate','parent','attempt_started_at'))
         revision=digest({'files':self.revision(root,include_events=False,include_reports=False),
                          'versions':{sid:{key:value for key,value in row.items() if key!='messages'} for sid,row in states.items()}}) if compact else None
@@ -977,6 +1006,81 @@ class Store(Workspaces):
                 self._match_index_cache[identifier]=(revision,copy.deepcopy(result))
                 while len(self._match_index_cache)>4:self._match_index_cache.pop(next(iter(self._match_index_cache)))
         return result
+
+    def _fight_context(self, identifier):
+        root=self.run_path(identifier)
+        states=self.states(root,('model','generation','condition','replicate','parent','attempt_started_at'))
+        metadata=self.json(root/'experiment.json',{})
+        from arena.roster import effective
+        config=effective(root,metadata['config']) if 'config' in metadata else metadata.get('manifest',{})
+        models={model['id']:model for model in config.get('models',[])}
+        return root,states,models,config,metadata
+
+    @measure('fight_groups_route')
+    def fight_groups(self, identifier):
+        from .fights import groups, expand
+        from .progression import summarize
+        root,states,models,config,metadata=self._fight_context(identifier)
+        value=groups(self,root,states,models)
+        value['progression']=summarize(states,models,list(expand(value)))
+        value['revision']=self.revision(root)
+        value['indexing']=self.fight_index.indexing(root)
+        return value
+
+    @measure('fight_page')
+    def fight_page(self, identifier, filters, scope):
+        from .fights import listing
+        root,states,models,config,metadata=self._fight_context(identifier)
+        sessions=[{'id':sid,**state} for sid,state in states.items()]
+        value=listing(self,root,states,models,sessions,metadata.get('manifest',{}).get('strategies',[]),
+                       {key:value for key,value in filters.items() if value},{key:value for key,value in scope.items() if value})
+        value['indexing']=self.fight_index.indexing(root)
+        return value
+
+    @measure('fight_fixtures_route')
+    def fight_fixtures(self, identifier, source, stage=None):
+        from .fights import fixtures
+        root,states,models,config,metadata=self._fight_context(identifier)
+        return fixtures(self,root,states,models,source,stage)
+
+    @measure('fight_lengths_route')
+    def fight_lengths(self, identifier):
+        from .fights import lengths
+        root,states,models,config,metadata=self._fight_context(identifier)
+        sessions=[{'id':sid,**state} for sid,state in states.items()]
+        return lengths(self,root,sessions,metadata.get('manifest',{}).get('strategies',[]),(config.get('scenario') or {}).get('max_turns'))
+
+    @measure('indexed_matches')
+    def indexed_matches(self, identifier):
+        """Every fight as a compact row, read from the incremental index."""
+        root = self.run_path(identifier)
+        states=self.states(root,('model','generation','condition','replicate','parent','attempt_started_at'))
+        metadata=self.json(root/'experiment.json',{})
+        from arena.roster import effective
+        models={model['id']:model for model in effective(root,metadata['config']).get('models',[])} if 'config' in metadata else {}
+        rows=[]
+        from .fight_index import COLUMNS
+        fetched=self.fight_index.query(root,'SELECT kind,stage,modified,'+','.join(COLUMNS)+" FROM fights WHERE run=? ORDER BY CASE kind WHEN 'training' THEN 1 ELSE 0 END,rowid")
+        for kind,stage,modified,*values in fetched:
+            row=dict(zip(COLUMNS,values))
+            sides=[row['a'],row['b']]
+            if kind=='training' and modified<states.get(row['a'] if row['a'] in states else row['b'],{}).get('attempt_started_at',0):continue
+            result={'status':row['status'],'winner_side':row['winner']}
+            if row['cache_hit']:result['reference_cache']={'hit':True}
+            result['team_metrics']={'0':{'errors':row['errors_a'] or 0,'operation_limit_hits':row['limits_a'] or 0},
+                                    '1':{'errors':row['errors_b'] or 0,'operation_limit_hits':row['limits_b'] or 0}}
+            entry={'path':row['work'],'stage':stage,'sides':sides,'candidate':row['candidate'],'candidate_side':row['candidate_side'],
+                   'seed':row['seed'],'mirror':bool(row['mirror']),'result':result,'timings':json.loads(row['timings']) if row['timings'] else {},'kind':kind}
+            if kind=='training':entry.pop('candidate');entry.pop('candidate_side');entry.pop('timings')
+            rows.append(entry)
+        from .fights import previous_round
+        for row in rows:
+            candidate=states.get(row.get('candidate'),{})
+            opponent=next((states.get(sid,{}) for sid in row['sides'] if sid!=row.get('candidate')),{})
+            row['previous_round_comparison']=previous_round(row['kind'],candidate,opponent,models)
+            row['counts_toward_standings']=row['kind']=='competition' and not row.get('mirror')
+        from .progression import summarize
+        return {"matches":rows,"progression":summarize(states,models,rows)}
 
     def match(self, identifier, name):
         root = self.run_path(identifier)

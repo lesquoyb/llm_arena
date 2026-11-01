@@ -9,6 +9,7 @@ import secrets
 import shutil
 import sqlite3
 import threading
+import time
 from urllib.parse import parse_qs, urlsplit, quote
 import webbrowser
 
@@ -26,13 +27,30 @@ class Application:
         self.jobs = Jobs(self.store)
         self.token = secrets.token_urlsafe(32)
 
-    def bootstrap(self):
+    def engine_status(self):
+        """Engine readiness, recomputed only when its build record changes.
+
+        Checking it starts a Java process and hashes the runner sources, which
+        made every page load wait several seconds."""
+        from arena.core import STATE_ROOT
         from arena.engine import Engine
-        from arena.providers import PROFILES
+        try:
+            stat = (STATE_ROOT / "engine.json").stat();stamp = (stat.st_mtime_ns, stat.st_size)
+        except OSError:
+            stamp = None
+        cached = getattr(self, "_engine_status", None)
+        if cached and cached[0] == stamp and time.monotonic() - cached[1] < 600:
+            return cached[2]
         try:
             engine = {"ready": True, "identity": Engine().identity}
         except (ArenaError, OSError) as error:
             engine = {"ready": False, "error": str(error)}
+        self._engine_status = (stamp, time.monotonic(), engine)
+        return engine
+
+    def bootstrap(self):
+        from arena.providers import PROFILES
+        engine = self.engine_status()
         from arena.presets import simple_scenario, participant_scenario
         demo = self.store.json(ROOT / "configs/offline-complete.json")
         config = {**demo, "name": "New competition", "scenario": simple_scenario()}
@@ -130,7 +148,17 @@ class Application:
         if route == "/api/statistics":
             return store.statistics(run)
         if route == "/api/matches":
+            if value("page") == "1":
+                return store.fight_page(run, {key: value(key) for key in ("kind", "stage", "scored", "exclude_same_model", "entrant_model",
+                                                                          "opponent_model", "round", "track", "entrant", "opponent", "search", "outcome")},
+                                        {key: value("scope_" + key) for key in ("model", "round", "track", "replicate")})
             return store.matches(run,compact=value("compact")=="1")
+        if route == "/api/fight-groups":
+            return store.fight_groups(run)
+        if route == "/api/fight-fixtures":
+            return store.fight_fixtures(run, value("source") or "competition", value("stage"))
+        if route == "/api/fight-lengths":
+            return store.fight_lengths(run)
         if route == "/api/match":
             from .replay import describe
             result = store.match(run, value("path"))
@@ -305,7 +333,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def json_response(self, status, value):
         with performance_stage('json_serialization'):
-            body = json.dumps(value, ensure_ascii=False).encode("utf-8")
+            body = json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
         performance_response(status,len(body))
         try:
             self.headers_for(status, "application/json; charset=utf-8", len(body))
@@ -378,7 +406,7 @@ class Handler(BaseHTTPRequestHandler):
             elif parsed.path.startswith("/api/"):
                 self.json_response(200, app.get(parsed.path, query))
             else:
-                names = {"/": "index.html", "/app.js": "app.js", "/live-dom.js":"live-dom.js", "/repetition-stats.js":"repetition-stats.js", "/repetition-chart.js":"repetition-chart.js", "/style.css": "style.css", "/workspace.css": "workspace.css", "/favicon.png": "favicon.png"}
+                names = {"/": "index.html", "/app.js": "app.js", "/live-dom.js":"live-dom.js", "/repetition-stats.js":"repetition-stats.js", "/repetition-chart.js":"repetition-chart.js", "/fight-charts.js":"fight-charts.js", "/style.css": "style.css", "/workspace.css": "workspace.css", "/favicon.png": "favicon.png"}
                 if parsed.path not in names:
                     self.json_response(404, {"error": "Page not found"})
                     return
@@ -425,6 +453,8 @@ def serve(port=8765, runs=None, open_browser=False):
     app = Application(Store(runs=runs))
     with file_lock(app.store.state / "server.lock"):
         server = Server(("127.0.0.1", port), app)
+        # Prepare fight overviews before the first page asks for them.
+        app.store.fight_index.warm(sorted(app.store.run_paths(), key=lambda path: path.name, reverse=True))
         url = f"http://127.0.0.1:{server.server_port}"
         print(f"LLM Arena: {url}\nCtrl+C to stop the server.", flush=True)
         if open_browser:

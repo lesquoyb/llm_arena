@@ -29,12 +29,16 @@ def summarize(states, models, matches):
         for name,include in selected.items():
             if not include:continue
             row=groups[key(candidate)][name]
-            identity=(match.get('path'),sid,match.get('seed'),side,oid)
-            if identity in row['seen']:continue
-            row['seen'].add(identity);row['opponents'].add(oid)
+            # Grouped rows (with a count) are already distinct fights.
+            if 'count' not in match:
+                identity=(match.get('path'),sid,match.get('seed'),side,oid)
+                if identity in row['seen']:continue
+                row['seen'].add(identity)
+            row['opponents'].add(oid)
+            weight=match.get('count',1)
             result=match.get('result',{});winner=result.get('winner_side')
-            if result.get('status')!='completed' or winner not in (-1,0,1):row['failures']+=1
-            else:row['draws' if winner==-1 else 'wins' if winner==side else 'losses']+=1
+            if result.get('status')!='completed' or winner not in (-1,0,1):row['failures']+=weight
+            else:row['draws' if winner==-1 else 'wins' if winner==side else 'losses']+=weight
     result=[]
     for (model,generation,condition),comparisons in sorted(groups.items()):
         values={}

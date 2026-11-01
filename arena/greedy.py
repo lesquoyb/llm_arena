@@ -27,18 +27,18 @@ def evaluate(engine, config, out, journal, generation=0, *, final=False):
     priority={source['id'] for source in ready if source['model'] in reference_models}
     from .core import digest
     signature=digest({'manifest':manifest,'withdrawn':config.get('_withdrawn_models',[])})
-    cached=getattr(journal,'_ready_evaluations',{}).get(generation)
+    from .run_memory import shared
+    evaluations=shared(out,'ready_evaluations')
+    cached=evaluations.get(generation)
     expected=len(ready)*(len(ready)-1)*len(manifest['seeds'])+(len(ready)*len(manifest['seeds']) if manifest['include_mirrors'] else 0)
     if final and cached and cached[1].get('failed'):
-        journal._ready_evaluations.pop(generation,None);cached=None
+        evaluations.pop(generation,None);cached=None
     if cached and cached[0]==signature and sum(cached[1].get(key,0) for key in ('completed','failed','pending','cancelled'))==expected:
         return cached[1]
-    if not hasattr(journal,'_verified_tournament_records'):journal._verified_tournament_records={}
-    verified_cache=journal._verified_tournament_records.setdefault(str(root),{})
+    verified_cache=shared(out,'verified_tournament_records').setdefault(str(root),{})
     from .activity import operation
     with operation(out,'checking_fights',generation=generation,participants=[s['id'] for s in ready]):
         result=run_tournament(engine,manifest,root,root.exists(),allow_extend=True,priority_ids=priority,reference_ids=priority,parallel_fights=config.get("_parallel_fights",config.get("parallel_fights",1)),verified_cache=verified_cache)
     if not result.get('deferred') and not result.get('pending') and not result.get('retry_pending') and retry_epoch==getattr(journal,'_fight_retry_epoch',0):
-        if not hasattr(journal,'_ready_evaluations'):journal._ready_evaluations={}
-        journal._ready_evaluations[generation]=(signature,result)
+        evaluations[generation]=(signature,result)
     return result

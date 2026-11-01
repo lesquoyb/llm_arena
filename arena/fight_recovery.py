@@ -57,8 +57,8 @@ def run(directory, *, engine=None, journal=None, cooperative=False, include_read
                     tournaments[root.name]=read_json(root/'report.json');continue
                 frozen=read_json(root/'experiment.json');manifest=frozen['manifest']
                 manifest={**manifest,'strategies':[{**source,'path':str(root/'submissions'/source['id'])} for source in manifest['strategies']]}
-                caches=getattr(journal,'_verified_tournament_records',{})
-                journal._verified_tournament_records=caches
+                from .run_memory import shared
+                caches=shared(out,'verified_tournament_records')
                 tournaments[root.name]=run_tournament(engine,manifest,root,resume=True,parallel_fights=parallel_fights,verified_cache=caches.setdefault(str(root),{}))
                 value=tournaments[root.name]
                 if value.get('deferred') or (cooperative and (value.get('pending') or value.get('retry_pending'))):return {'deferred':True,'no_model_requests':True,'remaining_failed':0}

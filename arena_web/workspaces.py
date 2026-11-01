@@ -208,26 +208,26 @@ class Workspaces:
                 'prompts':metadata.get('prompts_sha256',metadata.get('prompt_sha256')),
                 'catalogs':metadata.get('catalogs'),
                 'continuations':sorted({digest(s['continuation_identity']) for s in sessions.values() if s.get('continuation_identity')})}
-            matches=self.matches(run['id'],compact=True)['matches']
+            from .fights import groups as fight_groups, expand
+            run_states=self.states(run_root,('model','generation','condition','replicate','attempt_started_at'))
+            grouped=fight_groups(self,run_root,run_states,models)
+            matches=list(expand(grouped))
             panels=defaultdict(set);pools=defaultdict(set)
             for match in matches:
                 if match['kind']!='training':pools[match['stage']].update(match['sides'])
                 if match['kind'] not in {'evaluation','progression'}:continue
-                provenance=run_root/match['path']/'provenance.json'
-                sources=self.workspace_artifact(provenance,'provenance').get('submissions',[]) if provenance.is_file() else []
                 side=match.get('candidate_side')
-                opponent=sources[1-side].get('sha256') if side in (0,1) and len(sources)==2 else None
-                panels[match['stage']].add(opponent or 'unknown:'+run['id'])
+                opponent_id=match['sides'][1-side] if side in (0,1) else None
+                opponent=(sessions.get(opponent_id,{}).get('submission') or frozen.get(opponent_id,{}).get('submission') or {}).get('sha256') if opponent_id else None
+                panels[match['stage']].add(opponent or ('fixed:'+opponent_id if opponent_id else 'unknown:'+run['id']))
             stage_pools={stage:sorted([descriptor(sid) | {'replicate':sessions.get(sid,{}).get('replicate'),
                 'round':sessions.get(sid,{}).get('generation',0),'condition':sessions.get(sid,{}).get('condition','frozen')}
                 for sid in sides],key=digest) for stage,sides in pools.items()}
             group_keys={}
+            totals['preparation_matches']+=grouped['training_matches']
             for match in matches:
-                result=match['result'];done=result.get('status')=='completed'
-                if match['kind']=='training':
-                    totals['preparation_matches']+=done
-                    continue
-                totals['completed_matches']+=done;totals['failed_matches']+=not done
+                result=match['result'];done=result.get('status')=='completed';weight=match['count']
+                totals['completed_matches']+=done*weight;totals['failed_matches']+=(not done)*weight
                 if match.get('mirror'):continue
                 candidates=[(side,sid) for side,sid in enumerate(match['sides']) if sid in sessions or sid in frozen]
                 if match['kind'] in {'evaluation','progression'}: candidates=[(side,sid) for side,sid in candidates if sid==match.get('candidate')]
@@ -244,7 +244,7 @@ class Workspaces:
                 for side,sid in candidates:
                     opponent=match['sides'][1-side]
                     if match['kind']=='competition' and (opponent in sessions or opponent in frozen) and participant_key(sid)==participant_key(opponent):
-                        if side==0:group['internal_matches']+=1
+                        if side==0:group['internal_matches']+=weight
                         continue
                     state=sessions.get(sid,{})
                     round_number,condition=track(sid)
@@ -255,11 +255,11 @@ class Workspaces:
                         'model_size_billion':model_size(sid),
                         'wins':0,'draws':0,'losses':0,'failed':0,'conversations':defaultdict(lambda:[0,0,None,None,None,None,None])})
                     if row['model_size_billion']!=model_size(sid):row['model_size_billion']=None
-                    if not done:row['failed']+=1;continue
+                    if not done:row['failed']+=weight;continue
                     outcome='draws' if result.get('winner_side')==-1 else 'wins' if result.get('winner_side')==side else 'losses'
-                    row[outcome]+=1
+                    row[outcome]+=weight
                     point=.5 if outcome=='draws' else 1 if outcome=='wins' else 0
-                    entry=row['conversations'][(run['id'],sid)];entry[0]+=point;entry[1]+=1
+                    entry=row['conversations'][(run['id'],sid)];entry[0]+=point*weight;entry[1]+=weight
                     if sid in sessions:
                         entry[2]=float(state.get('cost_spent') or '0') if not state.get('reconciliation_required') and not float(state.get('money_reserved') or '0') else None
                         entry[3]=state.get('wall_seconds')

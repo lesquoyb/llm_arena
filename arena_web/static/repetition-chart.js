@@ -1,4 +1,22 @@
-/* Render the same compact overview data; no extra fight/replay requests. */
+/* Repetition dispersion; score fixtures come from /api/fight-fixtures. */
+async function loadRepetitionFixtures(key,args) {
+  if(S.repetitionFixturesPending===key)return;
+  S.repetitionFixturesPending=key;
+  try {
+    const value=await runResource('/api/fight-fixtures',args);
+    const observations=[],rows=value.rows,ids=value.ids;
+    for(let index=0;index<rows.length;index+=5) {
+      const side=rows[index+3],outcome=rows[index+4];
+      observations.push({session:ids[rows[index]],opponent:ids[rows[index+1]],seed:rows[index+2],side,
+        status:outcome===3?'failed':'completed',winner:outcome===1?-1:outcome===2?side:outcome===0?1-side:null});
+    }
+    S.repetitionFixtures={key,observations};
+    const node=$('#repetition-variance');
+    if(node&&S.tab==='summary'&&S.detail)LiveDOM.replace(node,repetitionVariance(S.detail,overviewData(S.detail)));
+  } catch(error) {
+    if(error.name!=='AbortError')toast(error.message,true);
+  } finally {if(S.repetitionFixturesPending===key)S.repetitionFixturesPending=null;}
+}
 function repetitionVariance(d,data) {
   const metric=S.repetitionMetric||'score';
   const specs=new Map((d.metadata.config?.models||[]).map(model=>[model.id,model]));
@@ -9,11 +27,17 @@ function repetitionVariance(d,data) {
       tools:number(session.steps),time:number(session.wall_seconds)===null?null:Number(session.wall_seconds)/60,
       tokens:usage.complete&&Number.isFinite(usage.input_tokens)&&Number.isFinite(usage.output_tokens)?usage.input_tokens+usage.output_tokens:null}};
   });
-  const observations=[];
-  for(const {match,entries} of data.selected)for(const entry of entries) {
-    const opponent=match.sides[1-entry.side];
-    if(data.scope.source!=='progression'&&overviewIdentity(opponent).model===entry.model)continue;
-    observations.push({session:entry.id,opponent,seed:match.seed,side:entry.side,status:match.result.status,winner:match.result.winner_side});
+  // Score dispersion needs exact fixtures (opponent, seed, side). The server
+  // sends them as a compact integer array for the selected category only.
+  let observations=[];
+  if(metric==='score') {
+    const stage=data.scope.round?.startsWith('stage:')?data.scope.round.slice(6):undefined;
+    const key=JSON.stringify([S.run,data.scope.source,stage||null]);
+    if(S.repetitionFixtures?.key!==key) {
+      loadRepetitionFixtures(key,{run:S.run,source:data.scope.source,stage});
+      return `<section class="overview-card" id="repetition-variance"><div class="overview-section-head"><h2>Variation between repetitions</h2></div><p class="muted">Loading repetition fixtures…</p></section>`;
+    }
+    observations=S.repetitionFixtures.observations;
   }
   const byRound=RepetitionStats.summarize(sessions,observations,metric);
   const rows=S.repetitionRounds==='pooled'?RepetitionStats.poolRounds(byRound):byRound;

@@ -36,7 +36,7 @@ class WebLoadingTests(unittest.TestCase):
             self.assertEqual(before['incidents'][0]['message'],'Level limit exceeded')
             write_json(out/'tournament/records/fight.json',{'match':{'sides':[sid,'opponent'],'seed':1},
                 'directory':'matches/fight','result':{'status':'completed','winner_side':0,'team_metrics':{'0':{'errors':3}}}})
-            with patch('arena_web.faults.receipt',side_effect=AssertionError('Replayed unchanged authoring receipt')):
+            with patch('arena_web.receipt_cache.ReceiptCache.many',side_effect=AssertionError('Replayed unchanged authoring receipt')):
                 after=report(store,'run')
             self.assertEqual(after['sessions'][0]['runtime_errors'],3)
             self.assertEqual(after['sessions'][0]['invalid_teams'],1)

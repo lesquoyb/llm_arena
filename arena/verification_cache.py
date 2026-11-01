@@ -6,6 +6,7 @@ from pathlib import Path
 import sqlite3
 import stat
 import threading
+import weakref
 from functools import lru_cache
 import time
 from contextlib import closing
@@ -49,7 +50,26 @@ def fingerprint(path, directory=False):
     return (value.st_dev,value.st_ino,value.st_size,value.st_mtime_ns,changed)
 
 
+_shared=weakref.WeakValueDictionary()
+_shared_lock=threading.Lock()
+
+
 class VerificationCache:
+    @classmethod
+    def for_run(cls, root):
+        """One in-memory cache per run and process while any journal uses it.
+
+        The conversation coordinator, the fight coordinator and the submission
+        validator each open a journal. Loading a separate copy of a large
+        derived cache for each multiplied memory use and startup time.
+        """
+        key=str(Path(root).resolve())
+        with _shared_lock:
+            cache=_shared.get(key)
+            if cache is None or cache.force!=(os.environ.get('ARENA_FULL_AUDIT')=='1'):
+                cache=cls(root);_shared[key]=cache
+            return cache
+
     def __init__(self, root):
         self.root=Path(root).absolute();self.path=self.root/'.verification-cache.sqlite'
         self.entries={};self.dirty={};self.records={};self.sessions={};self.dirty_sessions={};self._record_reads={};self.dirty_records={};self.receipts={};self.dirty_receipts={};self.receipt_hits=0;self.record_hits=0;self.session_hits=0;self.lock=threading.Lock();self.hits=0;self.misses=0;self.bytes_read=0;self.errors=0;self.last_flush=0

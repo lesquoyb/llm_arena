@@ -20,7 +20,8 @@ def poll(out, default=1):
                 journal._execution_revision=revision
         requests=list((out/'fight-retry-requests').glob('*.json'))
         if requests:
-            journal._ready_evaluations={}
+            from .run_memory import reset
+            reset(out,'ready_evaluations',{})
             journal._fight_retry_epoch=getattr(journal,'_fight_retry_epoch',0)+1
             journal._manual_fight_retry_pending=True
             journal._manual_recovery_done=set()

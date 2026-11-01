@@ -10,6 +10,7 @@
     <script src="/live-dom.js" defer></script>
     <script src="/repetition-stats.js" defer></script>
     <script src="/repetition-chart.js" defer></script>
+    <script src="/fight-charts.js" defer></script>
     <script src="/app.js" defer></script>
   </head>
   <body>
@@ -52,26 +53,10 @@
       <a class="help-link" href="#view=help">Help & documentation</a>
     </aside>
     <div class="workspace">
-      <header class="topbar">
-        <span id="breadcrumb">Overview</span>
-        <div>
-          <span id="engine-status" class="badge">Connecting...</span
-          ><button
-            class="icon-button"
-            data-action="refresh"
-            title="Refresh"
-            aria-label="Refresh"
-          >
-            ↻
-          </button>
-        </div>
-      </header>
+      <div id="engine-alert" role="alert" hidden></div>
       <main id="main" tabindex="-1">
         <div class="empty">Loading...</div>
       </main>
-      <footer>
-        LLM Arena <span>LeekScript 4 · official Leek Wars engine</span>
-      </footer>
     </div>
     <dialog id="dialog" aria-labelledby="dialog-title"><div id="dialog-content"></div></dialog>
     <div id="toast" role="status" aria-live="polite"></div>

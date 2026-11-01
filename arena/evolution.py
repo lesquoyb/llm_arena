@@ -20,8 +20,8 @@ def references(engine, config, out, journal, entrants, label, panel, *, incremen
     def fixed(source):
         if source.get('model') in models:return models[source['model']].get('provider')=='mock'
         return source['id'] in {'fixed-rush','fixed-single-shot','fixed-passive'}
-    if not hasattr(journal,'_verified_reference_records'):journal._verified_reference_records={}
-    verified=journal._verified_reference_records
+    from .run_memory import shared
+    verified=shared(out,'verified_reference_records')
     from .scenario_cache import ScenarioCache
     scenarios=ScenarioCache(config['scenario'])
     from .core import verify_source_files
@@ -64,7 +64,17 @@ def references(engine, config, out, journal, entrants, label, panel, *, incremen
             files=[work/name for name in ('outcome.json','result.json','scenario.json','provenance.json')]
             files.extend(work/'strategies'/str(index)/name for index,source in enumerate(sources,1) for name in source['submission']['files'])
             hashes.remember_receipt(work,binding,files,directories,engine=provenance['engine'])
-    results = read_json(root / 'results.json') if incremental and (root / 'results.json').exists() else {}
+    # results.json mirrors every record of this evaluation (tens of MB on long
+    # runs). Keep it in process memory and rewrite it only when it changes.
+    mirrors=shared(out,'reference_results')
+    if incremental:
+        saved=mirrors.get(label)
+        results=dict(saved) if saved is not None else read_json(root / 'results.json') if (root / 'results.json').exists() else {}
+    else:results={}
+    def stamp(path):
+        try:value=path.stat()
+        except FileNotFoundError:return None
+        return value.st_mtime_ns,value.st_size
     progress={'label':label,'total':len(entrants)*len(panel)*len(config['final_seeds'])*2,
               'checked':0,'reused':0,'completed':0,'failed':0}
     def jobs():
@@ -80,11 +90,17 @@ def references(engine, config, out, journal, entrants, label, panel, *, incremen
                         progress['checked']+=1
                         record={}
                         cached = root / "records" / (key + ".json")
+                        memo=verified.get(str(cached))
+                        if isinstance(memo,tuple) and memo[1]==stamp(cached):
+                            # Verified earlier in this process and unchanged on disk.
+                            results[key]=memo[2]
+                            progress['reused']+=1
+                            continue
                         if cached.exists():
                             record = hashes.read_record(cached) if hashes else read_json(cached)
                             work = out / record["artifact_dir"]
                             if (record['session'],record['opponent'],record['seed'],record['side'])!=(entrant['id'],opponent['id'],seed,side):raise ArenaError('Reference match metadata changed')
-                            if record["result"]["status"] == "completed" and verified.get(str(cached))==digest(record):
+                            if record["result"]["status"] == "completed" and (memo[0] if isinstance(memo,tuple) else memo)==digest(record):
                                 results[key]=record
                                 progress['reused']+=1
                                 continue
@@ -97,7 +113,7 @@ def references(engine, config, out, journal, entrants, label, panel, *, incremen
                             else:
                                 cached = None
                         if cached and cached.exists():
-                            verified[str(cached)]=digest(record)
+                            verified[str(cached)]=(digest(record),stamp(cached),record)
                             results[key]=record
                             progress['reused']+=1
                             continue
@@ -127,7 +143,7 @@ def references(engine, config, out, journal, entrants, label, panel, *, incremen
         record_path=root/'records'/(job['key']+'.json')
         write_json(record_path,record)
         if result['status']=='completed':
-            verified[str(record_path)]=digest(record)
+            verified[str(record_path)]=(digest(record),stamp(record_path),record)
             if hashes:hashes.remember_record(record_path,record)
         published=time.monotonic()
         journal.record(job['entrant']['id'],'progression_match' if label.endswith('-previous') else 'reference_match',record)
@@ -145,7 +161,9 @@ def references(engine, config, out, journal, entrants, label, panel, *, incremen
     run_fights(jobs(),execute,save,limit=config.get('_parallel_fights',config.get('parallel_fights',1)),out=out,
                kind='previous_round_fight' if label.endswith('-previous') else 'reference_fight',
                generation=max((entrant.get('generation',0) for entrant in entrants),default=0),retry=retry_job,batch_progress=progress)
-    write_json(root / "results.json", results)
+    if mirrors.get(label)!=results or not (root / "results.json").exists():
+        write_json(root / "results.json", results)
+    mirrors[label]=dict(results)
     if hashes:
         hashes.flush()
         if not incremental:hashes.release(root,records=False)
@@ -267,7 +285,29 @@ def run_generation(config, out, journal, engine, initial, interrupt=None, retry_
             if permitted:tasks.append((sid,models[parent_state['model']]))
             candidates.append(sid)
     from .parallel import prepare
-    prepare(tasks,config,out,journal,engine,interrupt,evaluate_available,independent_fights=True,independent_validation=True)
+    compare_previous=config.get('_compare_previous_round',config.get('compare_previous_round',False)) and generation>=2
+    def submitted(fight_journal):
+        states=fight_journal.metadata()
+        return [{'id':sid,'path':out/'sessions'/sid/'submission','submission':states[sid]['submission'],'model':states[sid]['model'],
+                 'replicate':states[sid]['replicate'],'parent':states[sid]['parent'],'generation':generation,'condition':states[sid]['condition']}
+                for sid in candidates if (states.get(sid) or {}).get('submission')]
+    def round_signature(fight_journal):
+        from .core import digest
+        return digest(sorted((source['id'],source['submission']['sha256']) for source in submitted(fight_journal)))
+    def round_fights(fight_journal):
+        # Same engine work as below, run on the fight coordinator while
+        # conversations stay recoverable. The main thread then only reuses it.
+        evaluate_ready(engine, config, out, fight_journal, generation, final=True)
+        references(engine, config, out, fight_journal, roots, "g0-panel", panel)
+        current=submitted(fight_journal)
+        references(engine, config, out, fight_journal, current, f"g{generation}-panel", panel)
+        if compare_previous:
+            learned=[source for source in initial if models[source['model']]['provider']!='mock']
+            contenders=[source for source in current if models[source['model']]['provider']!='mock']
+            if contenders and learned:
+                references(engine,config,out,fight_journal,contenders,f'g{generation}-previous',learned,incremental=True)
+    prepare(tasks,config,out,journal,engine,interrupt,evaluate_available,independent_fights=True,independent_validation=True,
+            round_fights=(round_fights,round_signature))
     evaluate_ready(engine, config, out, journal, generation)
     baseline = references(engine, config, out, journal, roots, "g0-panel", panel)
     for sid in candidates:
@@ -294,9 +334,11 @@ def run_generation(config, out, journal, engine, initial, interrupt=None, retry_
             branches.append({"id": sid, "path": out / "sessions" / sid / "submission",
                              "submission": state["submission"], "model": state["model"],
                              "replicate": state["replicate"], "parent": state["parent"], "generation": generation, "condition": state["condition"]})
-    for parent_sid, parent_state in list(journal.states().items()):
-        if not active(config,parent_state) or parent_state.get("generation", 0) != generation-1 or "submission" in parent_state:
+    for parent_sid, parent_summary in list(journal.metadata().items()):
+        # Metadata is enough to select parents; only missing branches need a full checkpoint.
+        if not active(config,parent_summary) or parent_summary.get("generation", 0) != generation-1 or "submission" in parent_summary:
             continue
+        parent_state = journal.state(parent_sid)
         for condition in config["improvement_conditions"]:
             if generation > 1 and condition != parent_state.get('condition'): continue
             root = parent_state.get('lineage_root', parent_sid)

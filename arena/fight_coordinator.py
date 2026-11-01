@@ -4,8 +4,13 @@ import threading
 
 
 class FightCoordinator:
-    def __init__(self, out, config, engine, callback=None, *, validate_frozen=None):
+    def __init__(self, out, config, engine, callback=None, *, validate_frozen=None, round_fights=None):
         self.out=out;self.config=copy.deepcopy(config);self.engine=engine;self.callback=callback
+        # End-of-round engine work (final tournament, reference panels) runs
+        # here, so the conversation coordinator keeps serving recovery
+        # commands instead of blocking behind an hour of fights.
+        self.round_fights=round_fights;self.round_requested=None;self.round_done=None
+        self.round_finished=threading.Event()
         self.wake=threading.Event();self.stop=threading.Event();self.error=None
         self.finish=threading.Event()
         self.thread=threading.Thread(target=self.run,name='arena-fight-coordinator',daemon=True)
@@ -19,6 +24,14 @@ class FightCoordinator:
 
     def notify(self):
         self.check();self.wake.set()
+
+    def request_round(self, signature):
+        """Ask for the end-of-round fights of this exact set of submissions."""
+        if self.round_requested!=signature:
+            self.round_requested=signature;self.round_finished.clear();self.wake.set()
+
+    def round_complete(self, signature):
+        return self.round_fights is None or self.round_done==signature
 
     def check(self):
         if self.error is not None:raise self.error
@@ -51,6 +64,12 @@ class FightCoordinator:
                     if self.stop.is_set():break
                     evaluate(self.engine,self.config,self.out,journal,generation)
                 if self.callback and not self.stop.is_set():self.callback(journal)
+                requested=self.round_requested
+                if self.round_fights and requested is not None and requested!=self.round_done and not self.stop.is_set():
+                    self.round_fights(journal)
+                    if not self.stop.is_set():
+                        self.round_done=requested;self.round_finished.set()
+                    continue
                 if final_pass:break
                 self.wake.wait(.5)
         except BaseException as error:

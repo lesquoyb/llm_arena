@@ -533,3 +533,65 @@ body[data-run-tab=conversation] #conversation-live-status { height:30px; min-hei
 .activity-check-progress { display:grid; gap:6px; margin:0 0 18px; }
 .activity-check-progress progress { width:100%; height:8px; accent-color:var(--blue); }
 @media(max-width:1100px) { .activity-columns { grid-template-columns:1fr; } .activity-scoreboard { grid-template-columns:repeat(2,minmax(0,1fr)); } .activity-page-heading { flex-wrap:wrap; } }
+
+/* Refonte: no top bar or footer; engine problems surface as an alert. */
+main { min-height: 100vh; }
+#engine-alert { margin: 16px 38px 0; padding: 12px 16px; border: 1px solid #f0c48a; background: #fff7ec; border-radius: 10px; color: #7a4a10; display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+#engine-alert[hidden] { display: none; }
+.engine-summary p { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 0; }
+.action-menu > summary { display: inline-flex; align-items: center; gap: 6px; }
+.menu-chevron { flex: none; transition: transform .15s ease; }
+.action-menu[open] .menu-chevron { transform: rotate(180deg); }
+
+/* Dialogs: fixed frame, scrolling body, header and actions always reachable. */
+#dialog[open] { padding: 0; overflow: hidden; display: flex; flex-direction: column; max-height: min(90vh, 900px); }
+#dialog-content { overflow: auto; min-height: 0; padding: 0 27px 22px; overscroll-behavior: contain; }
+#dialog .dialog-head { position: sticky; top: 0; z-index: 3; background: #fff; margin: 0 -27px 16px; padding: 22px 27px 14px; border-bottom: 1px solid var(--border); }
+#dialog .form-footer { position: sticky; bottom: -22px; z-index: 3; background: #fff; margin: 18px -27px -22px; padding: 14px 27px; border-top: 1px solid var(--border); }
+#dialog .table-scroll, #dialog .overview-matrix-wrap { max-height: min(55vh, 520px); overflow: auto; }
+#dialog .table-scroll thead th { position: sticky; top: 0; background: #fff; z-index: 1; }
+dialog:has(form[data-form=participant]) .dialog-head, dialog:has(form[data-form=participant]) .form-footer { margin-left: -27px; margin-right: -27px; }
+@media (max-width: 700px) {
+  #dialog-content { padding: 0 18px 18px; }
+  #dialog .dialog-head { margin: 0 -18px 14px; padding: 18px 18px 12px; }
+  #dialog .form-footer { bottom: -18px; margin: 16px -18px -18px; padding: 12px 18px; }
+}
+/* Wide tables outside dialogs keep their horizontal scrollbar in view. */
+.overview-matrix-wrap { max-height: 75vh; overflow: auto; }
+
+/* Fight length and lineage charts */
+.length-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin: 12px 0; }
+.length-kpis > div { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; display: flex; flex-direction: column; gap: 2px; }
+.length-kpis span, .length-kpis small { color: var(--muted); font-size: 11px; }
+.length-kpis strong { font-size: 18px; }
+.length-histogram, .lineage-chart { width: 100%; height: auto; font-size: 11px; fill: var(--muted); }
+.length-rows { display: grid; gap: 6px; max-height: 520px; overflow: auto; }
+.length-row { display: grid; grid-template-columns: minmax(140px, 220px) minmax(160px, 1fr) 140px minmax(170px, auto); align-items: center; gap: 12px; padding: 6px 8px; border-radius: 8px; }
+.length-row:hover, .length-row:focus { background: #f2f6f4; }
+.length-row strong { display: flex; align-items: center; gap: 6px; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.length-row svg { width: 100%; height: 34px; }
+.length-row > span { font-size: 11px; color: var(--muted); white-space: nowrap; }
+.length-share { display: flex; height: 10px; border-radius: 5px; overflow: hidden; background: #edf1ef; }
+.length-share span { display: block; height: 100%; }
+@media (max-width: 900px) {
+  .length-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .length-row { grid-template-columns: 1fr; }
+}
+
+/* Compact conversation roster in Activity */
+.preparation-grid { display: grid; gap: 4px; margin: 6px 0 4px; }
+.preparation-row { display: grid; grid-template-columns: minmax(150px, 240px) 1fr; align-items: center; gap: 10px; }
+.preparation-row > span { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.preparation-row > div { display: flex; flex-wrap: wrap; gap: 3px; }
+.preparation-cell { min-width: 30px; height: 22px; padding: 0 4px; border-radius: 5px; border: 1px solid var(--border); background: #fff; font-size: 10px; font-weight: 600; cursor: pointer; color: var(--ink); }
+.preparation-cell.ready { background: #e7f4ef; border-color: #b9dccd; }
+.preparation-cell.active { background: #e8effc; border-color: #9fb7e6; }
+.preparation-cell.attention { background: #fdecea; border-color: #eba59d; color: #8a2b20; }
+.preparation-cell.waiting { background: #f4f4f1; }
+.activity-roster-group > summary { cursor: pointer; list-style: revert; }
+.activity-roster-group[data-phase=attention] > strong { color: #8a2b20; }
+#competition-activity.activity-inline { min-height: 44px; }
+.activity-roster-group, details.activity-roster-group { display: block; margin-top: 10px; }
+.activity-roster-group > strong, .activity-roster-group > summary { display: block; margin-bottom: 6px; }
+.preparation-row > div { flex-wrap: wrap; }
+.activity-roster-group > .preparation-grid, .activity-roster-group .preparation-grid { display: grid; width: 100%; }

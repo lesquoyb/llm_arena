@@ -109,7 +109,10 @@ def ordered_tasks(tasks, order='models', *, serial=False):
     return result
 
 
-def prepare(tasks, config, out, journal, engine, interrupt=None, on_progress=None, *, independent_fights=False, independent_validation=False):
+def prepare(tasks, config, out, journal, engine, interrupt=None, on_progress=None, *, independent_fights=False, independent_validation=False, round_fights=None):
+    """round_fights: optional (work(journal), signature(journal)) run by the fight
+    coordinator once every conversation is idle. Recovery commands stay live
+    while it runs; a changed signature (new submission) schedules it again."""
     """Expose dispatch/recovery before starting tools, transports or fight work."""
     from .activity import operation
     from .experiment import TERMINAL
@@ -142,14 +145,14 @@ def prepare(tasks, config, out, journal, engine, interrupt=None, on_progress=Non
             from .fight_coordinator import FightCoordinator
             from .execution_control import _journal
             frozen=[sid for sid,state in states.items() if state.get('submission')] if independent_validation else None
-            with FightCoordinator(out,config,engine,on_progress,validate_frozen=frozen) as fights:
+            with FightCoordinator(out,config,engine,on_progress,validate_frozen=frozen,round_fights=round_fights[0] if round_fights else None) as fights:
                 token=_journal.set(None)
-                try:return _prepare(tasks,config,out,journal,engine,interrupt,primary_generations=primary_generations,fight_coordinator=fights)
+                try:return _prepare(tasks,config,out,journal,engine,interrupt,primary_generations=primary_generations,fight_coordinator=fights,round_signature=round_fights[1] if round_fights else None)
                 finally:_journal.reset(token)
         return _prepare(tasks,config,out,journal,engine,interrupt,on_progress,primary_generations=primary_generations)
 
 
-def _prepare(tasks, config, out, journal, engine, interrupt=None, on_progress=None, *, primary_generations=None, fight_coordinator=None):
+def _prepare(tasks, config, out, journal, engine, interrupt=None, on_progress=None, *, primary_generations=None, fight_coordinator=None, round_signature=None):
     """Finish one round before its caller starts the next round's preparation."""
     from .experiment import run_session, TERMINAL, provider_response
     limit=config.get('_parallel_requests',config.get('parallel_requests',1))
@@ -236,8 +239,19 @@ def _prepare(tasks, config, out, journal, engine, interrupt=None, on_progress=No
     initial_progress=True
     last_retry_progress=0
     next_idle_progress=0
+    def round_pending():
+        # Conversations are idle: hand end-of-round fights to the engine
+        # coordinator and keep this loop alive for recovery commands.
+        if round_signature is None or fight_coordinator is None or queue or dispatcher.pending or retry_waiting:return False
+        signature=round_signature(journal)
+        if fight_coordinator.round_complete(signature):return False
+        fight_coordinator.request_round(signature)
+        from .runner_diagnostics import pulse
+        pulse('round_fights',signature=signature)
+        fight_coordinator.round_finished.wait(.2)
+        return True
     try:
-        while queue or dispatcher.pending or retry_waiting or any((out/'recovery-commands').glob('*.json')):
+        while queue or dispatcher.pending or retry_waiting or any((out/'recovery-commands').glob('*.json')) or round_pending():
             if fight_coordinator is not None:fight_coordinator.check()
             from .runner_diagnostics import pulse
             pulse('scheduling_preparations',queued=len(queue),requests=len(dispatcher.pending),

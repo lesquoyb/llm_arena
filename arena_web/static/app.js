@@ -200,6 +200,8 @@ const FIELD_HELP = {
     "Shared mode fixes every member and item. Participant mode lets each AI choose its members, scripts and equipment under the same rules.",
   max_turns:
     "Maximum match rounds. This limits the game, not how long the model can prepare its strategy.",
+  stall_turns:
+    "Stalemate rule: the fight ends as a draw when no leek loses or recovers life for this many consecutive turns. Participants are told. Leave empty to always play until the turn limit.",
   input_price:
     "USD per one million input tokens. Used to calculate cost from returned usage; this is a price, not a spending limit.",
   output_price:
@@ -538,7 +540,7 @@ function competitionActivity(activity=S.activity) {
   const op=activity.operation||{},busy=op.kind&&op.kind!=='idle';
   const title=!activity.running ? text(activity.job_status || 'Paused') : labels[op.kind] || (activity.active.length?'Model preparation in progress':'Scheduling next work');
   const actor=sid=>{const info=activity.labels?.[sid];const label=info?`${info.model} · R${info.round}${info.condition!=='initial'?' · '+text(info.condition):''}${info.replicate?' · Repetition '+(info.replicate+1):''}`:sid;return info?btn(e(label),'session-conversation',`data-session="${e(sid)}"`):`<span>${e(label)}</span>`;};
-  const phases=[['active','Preparing now'],['ready','Preparation finished'],['attention','Needs attention'],['waiting','Waiting']];
+  const phases=[['attention','Needs attention'],['active','Preparing now'],['waiting','Waiting'],['ready','Preparation finished']];
   const fightPhases={starting_jvm:'Starting reusable JVM',preparing:'Preparing scenario and source files',staging_data:'Preparing engine data',engine:'Java process',computing:'Engine',reading_result:'Reading and hashing output',cleanup_data:'Cleaning engine data',archiving_result:'Saving engine result',waiting_reference_cache:'Waiting for identical reference cache entry',reference_cache:'Checking reference cache',materializing_cache:'Copying cached replay',publishing_cache:'Saving reference cache',verifying_result:'Verifying result',ready_to_save:'Finished; waiting for publication'};
   const computingFights=(op.fights||[]).filter(fight=>!fight.phase||fight.phase==='computing'||fight.phase==='engine').length;
   const verifyingFights=(op.fights||[]).filter(fight=>fight.phase==='verifying_result').length;
@@ -548,7 +550,11 @@ function competitionActivity(activity=S.activity) {
     const items=(activity.preparations||[]).filter(item=>item.phase===phase);
     const pending=phase==='waiting'?(activity.waiting_preparations||[]):[];
     if(!items.length&&!pending.length)return '';
-    return `<div class="activity-roster-group"><strong>${label} · ${items.length+pending.reduce((sum,item)=>sum+item.count,0)}</strong><div>${items.map(item=>actor(item.session)).join('')}${pending.map(item=>`<span class="badge">${e(item.model)}${item.count>1?' × '+item.count:''}</span>`).join('')}</div></div>`;
+    const count=items.length+pending.reduce((sum,item)=>sum+item.count,0);
+    const body=preparationGrid(items,activity,phase)+(pending.length?`<div class="activity-pending">${pending.map(item=>`<span class="badge">${e(item.model)}${item.count>1?' × '+item.count:''}</span>`).join('')}</div>`:'');
+    // Finished preparations are the long, uneventful list: fold it away.
+    return phase==='ready'?`<details class="activity-roster-group"><summary><strong>${label} · ${count}</strong></summary>${body}</details>`
+      :`<div class="activity-roster-group" data-phase="${phase}"><strong>${label} · ${count}</strong>${body}</div>`;
   }).join('');
   const breakdown=activity.submission_breakdown||[];
   const generated=breakdown.filter(row=>!row.fixed).reduce((sum,row)=>sum+row.expected,0);
@@ -566,6 +572,20 @@ function competitionActivity(activity=S.activity) {
     <div class="activity-columns"><section class="activity-section"><header><h3>Conversations</h3><span>${currentRequests.filter(item=>item.kind==='model_request').length} / ${activity.parallel_requests||1} requests in flight</span></header>${currentRequests.length?table(['Participant','Work','Elapsed',''],currentRequests.map(item=>`<tr><td>${e(item.model||activity.labels?.[item.session]?.model||item.session)}</td><td>${e(item.kind==='model_request'?'Provider request':item.name||'Preparation tool')}</td><td>${item.started_at?activityClock(item.started_at):'—'}</td><td>${btn('Open','session-conversation',`data-session="${e(item.session)}"`)}</td></tr>`)):'<p class="activity-empty">No request in flight.</p>'}${preparationList}</section>
     <section class="activity-section"><header><h3>Fight queue</h3><span>${computingFights} running · ${verifyingFights} verifying · ${finishedFights} saving</span></header><dl class="activity-queue"><div><dt>Available, not scheduled</dt><dd>${fmt(activity.tournament_unscheduled_available||0)}</dd></div><div><dt>Awaiting submissions</dt><dd>${fmt(activity.tournament_waiting_submissions||0)}</dd></div><div><dt>Cache hits in the last minute</dt><dd>${fmt(activity.throughput?.cache_per_minute||0)}</dd></div></dl>${fightList||'<p class="activity-empty">No engine fight in progress.</p>'}</section></div>
     <section class="activity-section"><header><h3>Execution settings and records</h3></header>${submissionDetails}<p class="muted">${op.parallel_fights&&activity.requested_parallel_fights!==op.parallel_fights?'Requested workers: '+activity.requested_parallel_fights+'; current batch: '+op.parallel_fights+'. ':''}${op.jvm_starts||op.jvm_reuses?'JVM starts: '+(op.jvm_starts||0)+' · reused: '+(op.jvm_reuses||0)+'. ':''}${op.publishing_seconds!=null?'Publication: '+fmt(op.publishing_seconds,2)+' s. ':''}Updated ${new Date(activity.observed_at*1000).toLocaleTimeString()}</p>${activity.job_note?`<p>${e(activity.job_note)}</p>`:''}</section></section>`;
+}
+// One row per model, one small cell per conversation: long rosters stay compact.
+function preparationGrid(items,activity,phase) {
+  const rows=new Map();
+  for(const item of items) {
+    const info=activity.labels?.[item.session]||{model:item.session,round:'',condition:'initial',replicate:0};
+    if(!rows.has(info.model))rows.set(info.model,[]);
+    rows.get(info.model).push({...info,session:item.session});
+  }
+  const track={initial:'I',control:'N',feedback:'F'};
+  return `<div class="preparation-grid">${[...rows].sort(([a],[b])=>a.localeCompare(b)).map(([model,cells])=>`<div class="preparation-row"><span title="${e(model)}">${e(model)}</span><div>${cells.sort((a,b)=>(a.replicate-b.replicate)||String(a.condition).localeCompare(String(b.condition))).map(cell=>{
+    const label=`${model} · R${cell.round}${cell.condition!=='initial'?' · '+text(cell.condition):''} · Repetition ${(cell.replicate||0)+1}`;
+    return `<button class="preparation-cell ${phase}" data-action="session-conversation" data-session="${e(cell.session)}" title="${e(label)}" aria-label="${e(label)}">${track[cell.condition]||'?'}${(cell.replicate||0)+1}</button>`;
+  }).join('')}</div></div>`).join('')}</div><small class="muted">Cells: I initial, N without feedback, F with feedback, followed by the repetition number.</small>`;
 }
 let activityRequest=null;
 async function refreshCompetitionActivity(epoch=S.epoch) {
@@ -606,15 +626,10 @@ function updateChrome() {
       picker.dataset.options=pretty(options);
   }
   if(picker.value!==S.workspace)picker.value=S.workspace;
-  const ready = S.boot.engine.ready;
-  $("#engine-status").className = "badge " + (ready ? "green" : "orange");
-  $("#engine-status").textContent = ready
-    ? "● Engine ready"
-    : "Engine check failed";
-  $("#engine-status").title = ready
-    ? "Engine validated for new matches."
-    : (S.boot.engine.error || "Engine validation failed.") +
-      " Existing match results remain readable. Refresh to recheck.";
+  // The engine is only worth mentioning when it cannot run new fights.
+  const alert=$('#engine-alert');
+  alert.hidden=!!S.boot.engine.ready;
+  if(!S.boot.engine.ready)alert.innerHTML=`<strong>Engine check failed.</strong> ${e(S.boot.engine.error||'New fights cannot start.')} Existing results remain readable. ${btn('Recheck engine','refresh')}`;
   $("#active-count").textContent = activeJobs().length || "";
   $$("[data-nav]").forEach((n) => {
     const current = n.dataset.nav === (S.view === "run" || S.view === "editor" ? "competitions" : S.view);
@@ -625,18 +640,6 @@ function updateChrome() {
         (S.view === "run" || S.view === "editor" ? "competitions" : S.view),
     );
   });
-  $("#breadcrumb").textContent =
-    "" +
-    ({
-      dashboard: "Overview",
-      workspaces: "Workspaces",
-      participants: "Participants",
-      competitions: "Competitions",
-      run: "Exploration",
-      editor: "Configuration",
-      compare: "Comparison",
-      help: "Guide",
-    }[S.view] || "Overview");
 }
 async function renderRoute() {
   hideHelp();clearChartHover();
@@ -715,6 +718,7 @@ async function renderRoute() {
 }
 function completed(report) {
   if (!report) return 0;
+  if (report.completed_total !== undefined) return report.completed_total;
   return (
     (report.completed || 0) +
     (report.tournament?.completed || 0) +
@@ -952,7 +956,7 @@ function resourceScatter(points, metric='size') {
     ${[0,.5,1].map(v=>`<line x1="${L}" x2="${R}" y1="${y(v)}" y2="${y(v)}" stroke="#e0e7e4"/><text x="${L-8}" y="${y(v)+4}" text-anchor="end">${v*100}%</text>`).join('')}
     ${[0,.25,.5,.75,1].map(v=>`<text x="${x(v*max)}" y="${B+20}" text-anchor="middle">${fmt(v*max,metric==='cost'?4:2)}</text>`).join('')}
     <text x="${(L+R)/2}" y="${H-5}" text-anchor="middle">${e(labels[metric])}</text>
-    ${valid.map((p,i)=>`<circle cx="${x(p[metric])}" cy="${y(p.score)}" r="6" fill="${p.color||seriesColor(i)}" stroke="white" stroke-width="1.5" tabindex="0" data-chart-model="${e(p.model||p.label)}" data-chart-label="${e(p.label)} · ${pct(p.score)} · ${fmt(p[metric],metric==='cost'?6:2)} ${e(labels[metric])}"><title>${e(p.label)}: ${pct(p.score)} · ${fmt(p[metric],metric==='cost'?6:3)}${metric==='size'?'B':metric==='time'?' min':metric==='tools'?' tool calls':metric==='tests'?' preparation fights':metric==='replays'?' replay reads':' USD'}</title></circle>`).join('')}</svg>
+    ${valid.map((p,i)=>`<circle cx="${x(p[metric])}" cy="${y(p.score)}" r="6" fill="${p.color||seriesColor(i)}" stroke="white" stroke-width="1.5" tabindex="0" data-chart-model="${e(p.model||p.label)}" data-chart-label="${e(p.label)} · ${pct(p.score)} · ${fmt(p[metric],metric==='cost'?6:2)} ${e(labels[metric])}${toolTotalText(p)}"><title>${e(p.label)}: ${pct(p.score)} · ${fmt(p[metric],metric==='cost'?6:3)}${metric==='size'?'B':metric==='time'?' min':metric==='tools'?' tool calls':metric==='tests'?' preparation fights':metric==='replays'?' replay reads':' USD'}</title></circle>`).join('')}</svg>
     <div class="chart-legend">${valid.map((p,i)=>`<span tabindex="0" data-chart-model="${e(p.model||p.label)}" data-chart-label="${e(p.label)} · ${pct(p.score)}"><i class="dot" style="background:${p.color||seriesColor(i)}"></i>${e(p.label)} · ${pct(p.score)} · ${metric==='cost'?money(p.cost):fmt(p[metric],3)+(metric==='size'?'B':metric==='tools'?' tool calls':metric==='tests'?' preparation fights':metric==='replays'?' replay reads':' min')}</span>`).join('')}</div>
     ${valid.length<eligible.length?`<p class="muted">${eligible.length-valid.length} entries with missing measurements excluded from this chart.</p>`:''}`;
 }
@@ -967,7 +971,7 @@ function resourceBars(points,metric) {
   const maximum=Math.max(...rows.map(p=>p.efficiency))||1;
   return `<p class="muted">Score points per ${e(unit)} = score (0–100) ÷ ${e(RESOURCE_LABELS[metric].toLowerCase())}. Higher is better.</p><div class="resource-bar-head"><span>Model</span><span>Resource / strategy</span><span>Points / ${e(unit)} ↓</span></div><div class="resource-bar-list" role="region" aria-label="Performance per ${e(unit)}" tabindex="0">${rows.map(row=>{
     const value=fmt(row.efficiency,metric==='cost'?2:3);
-    const label=`${row.label} · ${value} score points / ${unit} · score ${pct(row.score)} · ${RESOURCE_LABELS[metric]}: ${fmt(row[metric],metric==='cost'?6:2)}`;
+    const label=`${row.label} · ${value} score points / ${unit} · score ${pct(row.score)} · ${RESOURCE_LABELS[metric]}: ${fmt(row[metric],metric==='cost'?6:2)}${toolTotalText(row)}`;
     return `<div class="resource-score-row" data-chart-model="${e(row.model||row.label)}" data-chart-label="${e(label)}" tabindex="0"><strong>${e(row.label)}</strong><span>${metric==='cost'?money(row[metric]):fmt(row[metric],2)}</span><div class="resource-score"><div class="workspace-bar-track"><span style="width:${100*row.efficiency/maximum}%;background:${row.color}"></span></div><b>${value}</b></div></div>`;
   }).join('')}</div><div class="chart-legend">${[...new Map(rows.map(row=>[row.model||row.label,row])).values()].map(row=>`<span tabindex="0" data-chart-model="${e(row.model||row.label)}"><i class="dot" style="background:${row.color}"></i>${e(row.model||row.label)}</span>`).join('')}</div>${rows.length<eligible.length?`<small>${eligible.length-rows.length} entries with missing or zero resource measurements excluded; division by zero is undefined.</small>`:''}`;
 }
@@ -980,7 +984,7 @@ function resourcePanel(points, context) {
   points=points.map(p=>({...p,color:p.color||seriesColor(names.indexOf(p.model||p.label))}));
   S.resourcePoints ||= {};S.resourcePoints[context]=points;
   const metric=S.resourceMetric||'tools';
-  return `<div class="resource-chart" data-chart-key="resource:${e(context)}:${e(context==='workspace'?S.workspace:S.run)}"><div class="overview-section-head"><h3>Performance vs resources</h3><div class="chart-controls">${chartFullScreenButton()}<label class="field">Display<select data-resource-view="${context}" aria-label="Resource chart display"><option value="bars" ${S.resourceView!=='points'?'selected':''}>Bars</option><option value="points" ${S.resourceView==='points'?'selected':''}>Points</option></select></label><label class="field">Compare by<select data-resource-axis="${context}">${[['size','Model size'],['cost','Preparation cost'],['time','Preparation time'],['tools','Tool calls'],['tests','Preparation fights'],['replays','Replay reads']].map(([id,name])=>`<option value="${id}" ${id===metric?'selected':''}>${name}</option>`).join('')}</select></label></div></div><div class="resource-pair"><section><h4>Total tool calls</h4>${toolCallTotals(points)}<p class="muted">Each tool invocation counts, including failures. Preparation fights count both starting sides. Replay reads count read_replay and read_past_fight calls, including pagination; they are not distinct replays.</p></section><section><h4>Performance by resource</h4><div id="${context}-resource-chart">${renderResourceChart(context)}</div></section></div></div>`;
+  return `<div class="resource-chart" data-chart-key="resource:${e(context)}:${e(context==='workspace'?S.workspace:S.run)}"><div class="overview-section-head"><h3>Performance vs resources</h3><div class="chart-controls">${chartFullScreenButton()}<label class="field">Display<select data-resource-view="${context}" aria-label="Resource chart display"><option value="bars" ${S.resourceView!=='points'?'selected':''}>Bars</option><option value="points" ${S.resourceView==='points'?'selected':''}>Points</option></select></label><label class="field">Compare by<select data-resource-axis="${context}">${[['size','Model size'],['cost','Preparation cost'],['time','Preparation time'],['tools','Tool calls'],['tests','Preparation fights'],['replays','Replay reads']].map(([id,name])=>`<option value="${id}" ${id===metric?'selected':''}>${name}</option>`).join('')}</select></label></div></div><div id="${context}-resource-chart">${renderResourceChart(context)}</div><p class="muted">Tool calls count every invocation, including failures; hover a model for its total. Preparation fights count both starting sides. Replay reads count read_replay and read_past_fight calls, including pagination.</p></div>`;
 }
 function overviewModelSize(d, id) {
   const pinned=d.model_metadata?.[id]?.model_size_billion;
@@ -1004,6 +1008,7 @@ function overviewResourcePoints(d,data) {
       time:sessions.length&&sessions.every(session=>session.wall_seconds!=null)?sessions.reduce((sum,session)=>sum+session.wall_seconds,0)/sessions.length/60:null};
   });
 }
+function toolTotalText(point) {return Number.isFinite(point.toolTotal)?` · ${fmt(point.toolTotal)} tool calls in total`:'';}
 function toolCallTotals(points) {
   const rows=points.filter(point=>!point.reference&&Number.isFinite(point.toolTotal)).sort((a,b)=>b.toolTotal-a.toolTotal);
   const max=Math.max(1,...rows.map(row=>row.toolTotal));
@@ -1656,7 +1661,7 @@ function competitionEditor() {
      ["participant", "Participants choose teams and equipment"],
    ],
    c.scenario.team_selection ? "participant" : "fixed",
- )}${field("Team size", "team_size", c.scenario.team_size, "number", "Exact size in shared mode; maximum size when participants choose.", 'required min="1" max="8"')}${field("Maximum turns", "max_turns", c.scenario.max_turns, "number", "", 'required min="1" max="1000"')}${field("Round 1 combat seeds", "seeds", c.seeds.join(", "), "text", "Comma-separated seeds, for example 101, 202. Every pair plays each seed on both starting sides.", "required")}${field("Round 2+ combat seeds", "final_seeds", (c.final_seeds || []).join(", "), "text", "Reused for every later round. May match Round 1 seeds for the same maps; use different seeds for other maps. Seed 17 is reserved for preparation.")}</div><div id="team-selection-rules" ${c.scenario.team_selection ? "" : "hidden"}><p class="muted">Each LLM freely chooses 1–4 leeks: levels from 1 to 301, names, scripts, capital allocations, weapons, chips, components and alterations. Only official game rules apply. Character stats below are not imposed on its team. Preparation tests use a separate fixed reference team.</p></div><label class="check" style="margin-top:15px"><input type="checkbox" name="include_mirrors" ${c.include_mirrors ? "checked" : ""}>Add self-play diagnostics (A vs an identical A)</label><small class="self-play-help">Same strategy and team on both sides. Useful for inspecting side advantages and runtime behavior; excluded from standings and model feedback. Side-swapped A/B matches are already included above.</small><fieldset id="fixed-roster" style="border:0;padding:0;margin-top:15px" ${c.scenario.team_selection ? "hidden disabled" : ""}><details class="roster-disclosure"><summary><strong>Character builds & equipment</strong><small>${c.scenario.team_size} leek${c.scenario.team_size === 1 ? "" : "s"} · customize stats, weapons, chips & components</small></summary>${statsEditor(c.scenario)}</details></fieldset><details><summary>Custom map</summary><div class="form-grid" style="margin-top:15px"><label class="field full">Custom map (JSON, optional)<textarea name="map" class="mono">${c.scenario.map ? e(pretty(c.scenario.map)) : ""}</textarea><small>Without a custom map, the seed determines the map and starting positions.</small></label></div></details></section>
+ )}${field("Team size", "team_size", c.scenario.team_size, "number", "Exact size in shared mode; maximum size when participants choose.", 'required min="1" max="8"')}${field("Maximum turns", "max_turns", c.scenario.max_turns, "number", "", 'required min="1" max="1000"')}${field("Stalemate draw after", "stall_turns", c.scenario.stall_turns ?? "", "number", "Turns without any life change. Empty: off.", 'min="10" max="1000" placeholder="Off"')}${field("Round 1 combat seeds", "seeds", c.seeds.join(", "), "text", "Comma-separated seeds, for example 101, 202. Every pair plays each seed on both starting sides.", "required")}${field("Round 2+ combat seeds", "final_seeds", (c.final_seeds || []).join(", "), "text", "Reused for every later round. May match Round 1 seeds for the same maps; use different seeds for other maps. Seed 17 is reserved for preparation.")}</div><div id="team-selection-rules" ${c.scenario.team_selection ? "" : "hidden"}><p class="muted">Each LLM freely chooses 1–4 leeks: levels from 1 to 301, names, scripts, capital allocations, weapons, chips, components and alterations. Only official game rules apply. Character stats below are not imposed on its team. Preparation tests use a separate fixed reference team.</p></div><label class="check" style="margin-top:15px"><input type="checkbox" name="include_mirrors" ${c.include_mirrors ? "checked" : ""}>Add self-play diagnostics (A vs an identical A)</label><small class="self-play-help">Same strategy and team on both sides. Useful for inspecting side advantages and runtime behavior; excluded from standings and model feedback. Side-swapped A/B matches are already included above.</small><fieldset id="fixed-roster" style="border:0;padding:0;margin-top:15px" ${c.scenario.team_selection ? "hidden disabled" : ""}><details class="roster-disclosure"><summary><strong>Character builds & equipment</strong><small>${c.scenario.team_size} leek${c.scenario.team_size === 1 ? "" : "s"} · customize stats, weapons, chips & components</small></summary>${statsEditor(c.scenario)}</details></fieldset><details><summary>Custom map</summary><div class="form-grid" style="margin-top:15px"><label class="field full">Custom map (JSON, optional)<textarea name="map" class="mono">${c.scenario.map ? e(pretty(c.scenario.map)) : ""}</textarea><small>Without a custom map, the seed determines the map and starting positions.</small></label></div></details></section>
  <details class="panel editor-disclosure" id="editor-limits" ${Object.keys(b).length ? "open" : ""}><summary><span class="section-heading"><span>04</span><strong>Optional limits</strong></span><small>Tokens, time & spending</small></summary><p class="muted">Leave blank to let each model work until submission. Calls, tools, matches, tokens, elapsed time and costs are recorded regardless. Improvement branches use the same optional limits.</p><div class="form-grid">${field("Model calls", "max_calls", b.max_calls ?? "", "number", "Maximum API responses, including responses after tool results. Blank means unlimited.", 'min="1"')}${field("Tool calls", "max_agent_steps", b.max_agent_steps ?? "", "number", "Maximum tool invocations. Blank means unlimited.", 'min="1"')}${field("Preparation matches", "max_test_matches", b.max_test_matches ?? "", "number", "One test runs two matches, one per side. Blank means unlimited.", 'min="0"')}${field("Preparation time (seconds)", "max_wall_seconds", b.max_wall_seconds ?? "", "number", "Blank means no session time limit.", 'min="1"')}${field("Total input tokens", "max_input_tokens", b.max_input_tokens ?? "", "number", "Optional. Blank means no conversation token limit.", 'min="1"')}${field("Total output tokens", "max_output_tokens", b.max_output_tokens ?? "", "number", "Optional. Blank means no conversation token limit.", 'min="1"')}${field("API spending limit per conversation ($)", "max_cost_usd", b.max_cost_usd ?? "", "number", "Blank means no financial limit.", 'min="0" step="any"')}${field("API spending limit for the experiment ($)", "max_total_usd", c.models.every((m) => m.provider === "mock") ? "" : (c.spending.max_total_usd ?? ""), "number", "Includes all branches. Blank means no financial limit.", 'min="0" step="any"')}</div><small>Financial limits are checked between calls. Without an output cap, a call can exceed the configured limit.</small></details>
  <section class="panel"><details><summary>Import a JSON configuration</summary><textarea id="import-config" class="mono" style="width:100%;margin-top:12px" placeholder="Paste an experiment manifest"></textarea><div style="margin-top:10px">${btn("Apply configuration", "import-config")}</div></details></section></div>
  <aside class="panel sticky editor-review"><h2>Competition setup</h2><nav class="editor-section-nav" aria-label="Configuration sections"><button type="button" data-action="editor-section" data-section="editor-participants"><span>01</span> Participants & rounds</button><button type="button" data-action="editor-section" data-section="editor-scenario"><span>02</span> Scenario</button><button type="button" data-action="editor-section" data-section="editor-rules"><span>03</span> Match rules & roster</button><button type="button" data-action="editor-section" data-section="editor-limits"><span>04</span> Optional limits</button></nav><div class="divider"></div><h3>Schedule preview</h3><div id="plan-preview">${notice("Each round freezes submissions before scoring. Later rounds split into feedback and no-feedback tracks.")}</div>${btn("Calculate schedule", "preview-plan")}</aside></div></form><div class="competition-savebar"><div><strong id="competition-selection-count" aria-live="polite">${c.models.length} participants selected</strong><small>Saving does not start a run.</small></div><label class="check"><input form="competition-form" type="checkbox" name="allow_paid_calls" ${c.spending.allow_paid_calls ? "checked" : ""}>Allow API calls</label><button form="competition-form" type="submit" class="button primary">Save configuration</button></div>`
@@ -1690,11 +1695,14 @@ function readCompetition(form) {
   base.include_mirrors = f.has("include_mirrors");
   base.scenario.team_size = n("team_size");
   base.scenario.max_turns = n("max_turns");
+  const stall = String(f.get("stall_turns") || "").trim();
+  if (stall) base.scenario.stall_turns = Number(stall); else delete base.scenario.stall_turns;
   const participantTeams = f.get("team_mode") === "participant";
   if (participantTeams) {
     // Reference opponents are separate from each LLM's independently chosen build.
     base.scenario = structuredClone(S.boot.participant_scenario);
     base.scenario.max_turns = n("max_turns");
+    if (stall) base.scenario.stall_turns = Number(stall);
     base.scenario.team_selection = {
       mode: "participant",
       require_capital: true,
@@ -1896,8 +1904,12 @@ function competitionRecovery(d) {
   const recovery = problems.length ? `<details class="recovery-panel" data-recovery-run="${e(S.run)}" ${S.tab==='activity'||S.recoveryOpen?.[S.run] ? "open" : ""}><summary><span class="recovery-count">${problems.length}</span><strong>Conversations need attention</strong><span>Review & recover</span></summary><div>${problems.map(s=>`<div class="recovery-row"><div><strong>${e(s.model)}</strong><small>${e(sessionLabel(s))}</small>${s.failure?.message ? `<small class="provider-error">${e(s.failure.message)}</small>` : `<small>${e(text(s.status))}</small>`}${!s.retry_allowed && !s.reconciliation_required && !active ? `<small>${e(s.retry_reason || "Retry unavailable")}</small>` : ""}</div><div class="actions">${btn("Open conversation","session-conversation",`data-session="${e(s.id)}"`)}${retryButton(s)}</div></div>`).join("")}</div></details>` : "";
   return recovery;
 }
+function engineSummary() {
+  const engine=S.boot.engine||{},lock=engine.identity?.lock||{};
+  return `<section class="panel engine-summary"><div class="panel-head"><h2>Game engine</h2>${btn('Recheck engine','refresh')}</div><p>${engine.ready?badge('Ready','green'):badge('Check failed','orange')} ${engine.ready?`Leek Wars generator <span class="mono">${e(String(lock.commit||'').slice(0,10))}</span> · LeekScript ${e(lock.language_version??'')} · Java ${e(lock.java_major??'')}`:e(engine.error||'')}</p></section>`;
+}
 function activityPage(d) {
-  return '<div id="activity-page">'+competitionActivity()+competitionRecovery(d)+
+  return '<div id="activity-page">'+competitionActivity()+competitionRecovery(d)+engineSummary()+
     (d.roster?`<details class="panel"><summary>Participant changes · revision ${d.roster.revision}</summary><p>${d.roster.active.length} active · ${d.roster.withdrawn.length} withdrawn</p>${btn('Edit participants','edit-run-participants')}</details>`:'')+'</div>';
 }
 function runHeader(d) {
@@ -1907,7 +1919,7 @@ function runHeader(d) {
     job = S.boot.jobs.find((j) => j.run === S.run),
     active = job && ["running", "stopping"].includes(job.status),
     experiment = !!d.metadata.config;
-  return `<a class="back-link" href="#view=competitions">← Competitions</a>` + head(config.name, "", `${active ? btn("■ Stop", "stop-job", `data-id="${e(job.id)}"`) : experiment && !d.archived ? btn("Resume", "resume", "", true) : ""}<details class="action-menu"><summary class="button">More <span aria-hidden="true">⌄</span></summary><div>${experiment && !d.archived ? btn("Edit participants","edit-run-participants")+btn("Execution & metrics","run-metric-collection") : ""}${btn('Load diagnostics','load-diagnostics')}${experiment?btn('Engine performance','engine-performance')+btn('Copy scheduling diagnostics','copy-scheduling-diagnostics'):''}${btn("Move to workspace","move-workspace",`data-run="${e(S.run)}"`)}<a class="button" href="/api/results.csv?${query({run:S.run})}" download>Download results CSV</a><a class="button" href="/api/results.csv?${query({run:S.run,table:"fights"})}" download>Download match results CSV</a><a class="button" href="/api/results.csv?${query({run:S.run,table:"sessions"})}" download>Download sessions CSV</a>${experiment ? btn("Clone configuration", "clone-run") + btn("Export competition", "export-run") : ""}</div></details>`) +
+  return `<a class="back-link" href="#view=competitions">← Competitions</a>` + head(config.name, "", `${active ? btn("■ Stop", "stop-job", `data-id="${e(job.id)}"`) : experiment && !d.archived ? btn("Resume", "resume", "", true) : ""}<details class="action-menu"><summary class="button">More <svg class="menu-chevron" viewBox="0 0 12 12" width="12" height="12" aria-hidden="true"><path d="M2.5 4.5 6 8l3.5-3.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></summary><div>${experiment && !d.archived ? btn("Edit participants","edit-run-participants")+btn("Execution & metrics","run-metric-collection") : ""}${btn('Load diagnostics','load-diagnostics')}${experiment?btn('Engine performance','engine-performance')+btn('Copy scheduling diagnostics','copy-scheduling-diagnostics'):''}${btn("Move to workspace","move-workspace",`data-run="${e(S.run)}"`)}<a class="button" href="/api/results.csv?${query({run:S.run})}" download>Download results CSV</a><a class="button" href="/api/results.csv?${query({run:S.run,table:"fights"})}" download>Download match results CSV</a><a class="button" href="/api/results.csv?${query({run:S.run,table:"sessions"})}" download>Download sessions CSV</a>${experiment ? btn("Clone configuration", "clone-run") + btn("Export competition", "export-run") : ""}</div></details>`) +
     `<div class="toolbar run-toolbar">${job ? status(job.status === "failed" && d.report?.incomplete ? "incomplete" : job.status) : ""}${job?.mode==='retry_fights'?badge('Engine recovery · no model calls'):''}${config.models ? badge(config.models.every(m=>m.provider==="mock") ? "Built-in strategies" : "Model competition") : badge("Provided strategies")}${d.archived ? badge("Exported copy", "orange") : ""}<span class="run-id mono" title="Competition ID">${e(S.run)}</span><span class="spacer"></span><label class="check live-toggle"><input id="follow-live" type="checkbox" ${S.follow ? "checked" : ""}>Live</label>${job ? btn("Run log", "job-log", `data-id="${e(job.id)}"`) : ""}</div>` + (S.tab==='activity'?'':competitionActivity()) +
     `<nav class="tabs" aria-label="Competition views">${TABS.map(([key,label])=>`<button class="tab ${S.tab===key ? "active" : ""}" ${S.tab===key ? 'aria-current="page"' : ""} data-action="tab" data-tab="${key}">${label}</button>`).join("")}</nav>`;
 }
@@ -1915,7 +1927,7 @@ function configurationView(d) {
   const c = d.metadata.config;
   if (!c) return `<section class="panel"><h2>Competition configuration</h2>${raw(d.metadata,"Full configuration")}</section>`;
   const activeModels=c.models.filter(model=>!d.roster?.withdrawn.includes(model.id));
-  return `<div class="grid two"><section class="panel"><h2>Format</h2><dl class="configuration-facts"><div><dt>Rounds</dt><dd>${c.generations === null ? "Until manual stop" : c.generations || 1}</dd></div><div><dt>Repetitions per generated model</dt><dd>${c.replicates}</dd></div><div><dt>Repetitions per fixed reference</dt><dd>${d.metadata.fixed_reference_repetitions??c.replicates}</dd></div><div><dt>Learning-progress data</dt><dd>${(d.roster?.compare_previous_round??c.compare_previous_round)?"Extra previous-round comparisons":"Standard comparisons only"}</dd></div><div><dt>Parallel model requests</dt><dd>${d.roster?.parallel_requests??c.parallel_requests??1}</dd></div><div><dt>Request scheduling preference</dt><dd>${(d.roster?.request_order??c.request_order??"models")==="models"?"Different models first":"Repetitions first"}</dd></div><div><dt>Simultaneous fights</dt><dd>${d.execution_control?.parallel_fights??d.roster?.parallel_fights??c.parallel_fights??1}</dd></div><div><dt>Team size</dt><dd>${c.scenario.team_size}</dd></div><div><dt>Maximum turns</dt><dd>${fmt(c.scenario.max_turns)}</dd></div><div><dt>Team selection</dt><dd>${c.scenario.team_selection ? "Chosen by each model" : "Shared roster"}</dd></div></dl></section><section class="panel"><h2>Participants (${activeModels.length} active)</h2><div class="configuration-models">${activeModels.map(m=>`<div><strong>${e(m.id)}</strong><small>${e(PROVIDER_NAMES[m.provider] || m.provider)} · ${e(m.model || m.profile)}</small></div>`).join("")}</div></section></div><section class="panel"><div class="panel-title"><div><h2>Saved settings</h2><p class="muted">Scenario and budgets remain fixed. Participant and metric-collection changes are audited; historical profiles remain in the full record.</p></div>${`<a class="button" href="/api/results.csv?${query({run:S.run})}" download>Download results CSV</a><a class="button" href="/api/results.csv?${query({run:S.run,table:"fights"})}" download>Download match results CSV</a><a class="button" href="/api/results.csv?${query({run:S.run,table:"sessions"})}" download>Download sessions CSV</a>`}${btn("Clone configuration", "clone-run")}</div>${raw(d.metadata,"Full JSON & provenance")}</section>`;
+  return `<div class="grid two"><section class="panel"><h2>Format</h2><dl class="configuration-facts"><div><dt>Rounds</dt><dd>${c.generations === null ? "Until manual stop" : c.generations || 1}</dd></div><div><dt>Repetitions per generated model</dt><dd>${c.replicates}</dd></div><div><dt>Repetitions per fixed reference</dt><dd>${d.metadata.fixed_reference_repetitions??c.replicates}</dd></div><div><dt>Learning-progress data</dt><dd>${(d.roster?.compare_previous_round??c.compare_previous_round)?"Extra previous-round comparisons":"Standard comparisons only"}</dd></div><div><dt>Parallel model requests</dt><dd>${d.roster?.parallel_requests??c.parallel_requests??1}</dd></div><div><dt>Request scheduling preference</dt><dd>${(d.roster?.request_order??c.request_order??"models")==="models"?"Different models first":"Repetitions first"}</dd></div><div><dt>Simultaneous fights</dt><dd>${d.execution_control?.parallel_fights??d.roster?.parallel_fights??c.parallel_fights??1}</dd></div><div><dt>Team size</dt><dd>${c.scenario.team_size}</dd></div><div><dt>Maximum turns</dt><dd>${fmt(c.scenario.max_turns)}</dd></div><div><dt>Stalemate draw</dt><dd>${c.scenario.stall_turns?`After ${fmt(c.scenario.stall_turns)} turns without life change`:"Off"}</dd></div><div><dt>Team selection</dt><dd>${c.scenario.team_selection ? "Chosen by each model" : "Shared roster"}</dd></div></dl></section><section class="panel"><h2>Participants (${activeModels.length} active)</h2><div class="configuration-models">${activeModels.map(m=>`<div><strong>${e(m.id)}</strong><small>${e(PROVIDER_NAMES[m.provider] || m.provider)} · ${e(m.model || m.profile)}</small></div>`).join("")}</div></section></div><section class="panel"><div class="panel-title"><div><h2>Saved settings</h2><p class="muted">Scenario and budgets remain fixed. Participant and metric-collection changes are audited; historical profiles remain in the full record.</p></div>${`<a class="button" href="/api/results.csv?${query({run:S.run})}" download>Download results CSV</a><a class="button" href="/api/results.csv?${query({run:S.run,table:"fights"})}" download>Download match results CSV</a><a class="button" href="/api/results.csv?${query({run:S.run,table:"sessions"})}" download>Download sessions CSV</a>`}${btn("Clone configuration", "clone-run")}</div>${raw(d.metadata,"Full JSON & provenance")}</section>`;
 }
 function runModels(d) {
   const configured = d.metadata?.config?.models || [];
@@ -1986,10 +1998,11 @@ async function renderRun(epoch, liveUpdate=false) {
     body=activityPage(d);
   } else if (S.tab === "summary") {
     const refreshFaults=S.overviewFaultRun!==S.run || Date.now()-(S.overviewFaultTime||0)>10000 || !activeJobs().some(job=>job.run===S.run);
-    const fights=await runResource('/api/matches',{run:S.run,compact:'1'});
-    const statistics={training_matches:fights.matches.filter(m=>m.kind==='training').length};
+    const fights=await runResource('/api/fight-groups',{run:S.run});
+    const statistics={training_matches:fights.training_matches||0};
     if (epoch !== S.epoch) return;
-    S.overviewMatches = fights.matches;
+    S.overviewMatches = expandFightGroups(fights);
+    S.overviewIndexing = fights.indexing;
     S.overviewProgression=fights.progression||[];
     if(refreshFaults) {
       const run=S.run;
@@ -2087,7 +2100,10 @@ async function renderRun(epoch, liveUpdate=false) {
       sourceChanged=previousVersion!==S.version;
     }
   } else if (S.tab === "matches") {
-    S.matches = (await runResource("/api/matches", {run:S.run,compact:'1'})).matches;
+    normalizeMatchFilters();
+    S.matchPage = await runResource("/api/matches", matchPageArgs());
+    if (epoch !== S.epoch) return;
+    S.matches = S.matchPage.matches;
     body = matchesPage();
   } else if (S.tab === 'faults') {
     const data=await runResource('/api/faults',{run:S.run});
@@ -2277,6 +2293,23 @@ function overviewAccept(item, scope) {
       overviewRoundKey(item) === scope.round)
   );
 }
+// Fight groups from /api/fight-groups: one pseudo-fight per stored outcome, with a count.
+function expandFightGroups(value) {
+  const rows=[],{kinds,stages,ids}=value;
+  for(const [kind,stage,mirror,a,b,candidate,side,winsA,winsB,draws,failures,cached,previous] of value.rows) {
+    const base={kind:kinds[kind],stage:stages[stage],mirror:!!mirror,sides:[ids[a],ids[b]],
+      candidate:candidate>=0?ids[candidate]:null,candidate_side:side>=0?side:null,previous_round_comparison:!!previous};
+    const outcomes=[[winsA,{status:'completed',winner_side:0}],[winsB,{status:'completed',winner_side:1}],
+      [draws,{status:'completed',winner_side:-1}],[failures,{status:'failed'}]];
+    for(const [count,result] of outcomes)if(count)rows.push({...base,count,result:cached?{...result,reference_cache:{hit:true}}:result});
+  }
+  return rows;
+}
+function indexingNotice(progress) {
+  if(!progress)return '';
+  return notice(`Indexing fight records for fast overviews${progress.stages?` (${progress.stages_done||0}/${progress.stages} folders)`:''}. Counts are partial until it finishes; this happens once per competition.`);
+}
+function fightCount(selected) {return selected.reduce((sum,value)=>sum+((value.match||value).count||1),0);}
 function overviewData(d, scope=overviewSettings()) {
   const all = (S.overviewMatches || []).filter(
       (m) =>
@@ -2296,8 +2329,8 @@ function overviewData(d, scope=overviewSettings()) {
     matrix = new Map(),
     history = new Map();
   const add = (row, match, side) => {
-    const result = match.result;
-    if (result.status !== "completed") row.failures++;
+    const result = match.result, weight = match.count || 1;
+    if (result.status !== "completed") row.failures += weight;
     else {
       const outcome =
         result.winner_side === -1
@@ -2305,7 +2338,7 @@ function overviewData(d, scope=overviewSettings()) {
           : result.winner_side === side
             ? "wins"
             : "losses";
-      row[outcome]++;
+      row[outcome] += weight;
     }
   };
   const blank = () => ({ wins: 0, draws: 0, losses: 0, failures: 0 });
@@ -2368,7 +2401,7 @@ function overviewData(d, scope=overviewSettings()) {
 }
 function overviewFilters(d,data) {
   const options=(rows,value)=>rows.map(([id,label])=>`<option value="${e(id)}" ${id===value?'selected':''}>${e(label)}</option>`).join('');
-  return `<div class="overview-filters" role="group" aria-label="Chart options"><label>Matches<select data-overview-filter="source" aria-label="Overview matches">${options([['competition','Tournament'],['evaluation','Fixed baseline (unscored)'],['progression','Previous-round comparisons (unscored)']],data.scope.source)}</select></label><label>Matrix grouping<select data-overview-filter="matrix" aria-label="Matrix grouping">${options([['models','By model'],['versions','By strategy version']],data.scope.matrix||'models')}</select></label><span class="overview-scope">${data.selected.length} fights · ${data.models.length} models</span></div>`;
+  return `<div class="overview-filters" role="group" aria-label="Chart options"><label>Matches<select data-overview-filter="source" aria-label="Overview matches">${options([['competition','Tournament'],['evaluation','Fixed baseline (unscored)'],['progression','Previous-round comparisons (unscored)']],data.scope.source)}</select></label><label>Matrix grouping<select data-overview-filter="matrix" aria-label="Matrix grouping">${options([['models','By model'],['versions','By strategy version']],data.scope.matrix||'models')}</select></label><span class="overview-scope">${fmt(fightCount(data.selected))} fights · ${data.models.length} models</span></div>`;
 }
 function chartFullScreenButton() {return btn(document.fullscreenElement||$('.chart-expanded')?'Exit full screen':'Full screen','expand-chart');}
 async function toggleChartFullScreen(node) {
@@ -2403,6 +2436,20 @@ function overviewEvolution(data) {
   const mode=overviewSettings().evolution||'bars';
   return `<div class="evolution-view"><label class="chart-view-choice">Display<select data-evolution-view aria-label="Evolution display"><option value="bars" ${mode==='bars'?'selected':''}>Grouped bars</option><option value="lines" ${mode==='lines'?'selected':''}>Lines</option></select></label><div id="overview-evolution-chart">${mode==='lines'?overviewEvolutionLines(data):overviewEvolutionBars(data)}</div></div>`;
 }
+// Reference strategies never evolve: their two "tracks" are the same frozen
+// code, so charts show one series combining both.
+function isReferenceModel(model) {
+  if(String(model).startsWith('fixed-'))return true;
+  return (S.detail?.metadata.config?.models||[]).some(row=>row.id===model&&row.provider==='mock');
+}
+function mergedReferenceRow(rows,model,round) {
+  const parts=['control','feedback'].map(condition=>rows.get(JSON.stringify([model,round,condition]))).filter(Boolean);
+  if(!parts.length)return null;
+  if(parts.length===1||parts.some(row=>row.wins===undefined))return {...parts[0],condition:'reference'};
+  const sum=key=>parts.reduce((total,row)=>total+(row[key]||0),0);
+  const wins=sum('wins'),draws=sum('draws'),losses=sum('losses'),completed=wins+draws+losses;
+  return {...parts[0],condition:'reference',wins,draws,losses,failures:sum('failures'),completed,score:completed?(wins+.5*draws)/completed:null,tooltip:null};
+}
 function overviewEvolutionBars(data) {
   if(!data.history.length)return '<div class="overview-empty">Evolution appears as rounds finish.</div>';
   const models=[...new Set(data.history.map(row=>row.model))].sort();
@@ -2417,11 +2464,13 @@ function overviewEvolutionBars(data) {
   const marks=rounds.map((round,index)=>{
     const start=L+index*step+(step-models.length*band)/2;
     return `<text data-bar-round-label="${round}" x="${L+(index+.5)*step}" y="${B+25}" text-anchor="middle">Round ${round+1}</text>`+models.map((model,mi)=>{
-      const conditions=round===0?['initial']:['control','feedback'];
+      const reference=round>0&&isReferenceModel(model)&&!data.signed;
+      const conditions=round===0?['initial']:reference?['reference']:['control','feedback'];
       return conditions.map((condition,ci)=>{
-        const row=rows.get(JSON.stringify([model,round,condition]));if(row?.score==null)return '';
-        const width=round===0?band-6:Math.floor((band-4)/2),x=start+mi*band+(round===0?3:ci*(width+2)+1),color=overviewColor(model);
-        const label=row.tooltip||`${model} · ${overviewRound(condition,round)} · ${pct(row.score)} · ${row.wins}W / ${row.draws}D / ${row.losses}L · ${row.completed} appearances`;
+        const row=condition==='reference'?mergedReferenceRow(rows,model,round):rows.get(JSON.stringify([model,round,condition]));if(row?.score==null)return '';
+        const single=round===0||reference;
+        const width=single?band-6:Math.floor((band-4)/2),x=start+mi*band+(single?3:ci*(width+2)+1),color=overviewColor(model);
+        const label=row.tooltip||`${model} · ${condition==='reference'?`Round ${round+1} · fixed reference`:overviewRound(condition,round)} · ${pct(row.score)} · ${row.wins}W / ${row.draws}D / ${row.losses}L · ${row.completed} appearances`;
         return `<rect data-bar-round="${round}" data-bar-condition="${condition}" x="${x}" y="${Math.min(y(row.score),origin)-(row.score===0?2:0)}" width="${width}" height="${Math.max(2,Math.abs(origin-y(row.score)))}" fill="${color}" fill-opacity="${condition==='control'?.35:1}" stroke="${color}" stroke-width=".6" tabindex="0" aria-label="${e(label)}" data-chart-model="${e(model)}" data-chart-label="${e(label)}"/>`;
       }).join('');
     }).join('');
@@ -2452,6 +2501,13 @@ function overviewEvolutionLines(data) {
     .map((model) => {
       const rows = data.history.filter((r) => r.model === model),
         color = overviewColor(model);
+      if (isReferenceModel(model) && !data.signed) {
+        const indexed=new Map(rows.map(row=>[JSON.stringify([row.model,row.generation,row.condition]),row]));
+        const track=[...new Set(rows.map(row=>row.generation))].sort((a,b)=>a-b)
+          .map(round=>round===0?indexed.get(JSON.stringify([model,0,'initial'])):mergedReferenceRow(indexed,model,round)).filter(row=>row?.score!=null);
+        return track.map((r,i)=>{const prev=track[i-1];const label=`${model} · Round ${r.generation+1} · fixed reference · ${pct(r.score)} (${r.completed} appearances)`;
+          return `${prev?`<path d="M${x(prev.generation)},${y(prev.score)} L${x(r.generation)},${y(r.score)}" fill="none" stroke="${color}" stroke-width="2" data-chart-model="${e(model)}" data-chart-label="${e(model)} · fixed reference"/>`:''}<circle cx="${x(r.generation)}" cy="${y(r.score)}" r="4" fill="${color}" tabindex="0" data-chart-model="${e(model)}" data-chart-label="${e(label)}"><title>${e(label)}</title></circle>`;}).join('');
+      }
       return ["control", "feedback"]
         .map((condition) => {
           const track = rows
@@ -2599,7 +2655,7 @@ function overviewDetails(d, data, statistics) {
   const recorded = (S.overviewMatches || []).filter(
     (m) => m.result.status === "completed",
   );
-  const count = (predicate) => recorded.filter(predicate).length;
+  const count = (predicate) => recorded.filter(predicate).reduce((sum, match) => sum + (match.count || 1), 0);
 
   const totals = new Map();
   for (const { match, entries } of data.selected)
@@ -2680,8 +2736,10 @@ function summary(d, statistics = null) {
         Number(s.money_reserved || 0) > 0,
     ),
     cost = sessions.reduce((n, s) => n + Number(s.cost_spent || 0), 0);
-  return `<div class="competition-overview">${overviewFilters(d, data)}${data.scope.source==='progression'?notice('Unscored progression diagnostic: current LLM versions face the preceding round. This includes same-model historical opponents; results do not change tournament standings or model feedback.'):''}${failures.length ? `<div class="overview-alert">${failures.length} conversation${failures.length === 1 ? "" : "s"} need attention. <button class="table-button" data-action="overview-failures">Review & retry</button></div>` : ""}<div class="overview-kpis"><div><span>Completed fights</span><strong>${fmt(data.selected.filter((v) => v.match.result.status === "completed").length)}</strong><small>${data.selected.filter((v) => v.match.result.status !== "completed").length} failed</small></div><div><span>Submitted strategies</span><strong>${sessions.length ? sessions.filter((s) => s.submission || s.status === "submitted").length : d.metadata.manifest?.strategies?.filter(s=>overviewAccept(overviewIdentity(s.id),data.scope)).length ?? data.models.length}${sessions.length ? `<small> / ${sessions.length}</small>` : ""}</strong><small>${d.metadata.config ? d.metadata.config.models.filter(model=>!d.roster?.withdrawn.includes(model.id)&&(!data.scope.model||data.scope.model===model.id)).length : data.models.length} active participants</small></div><div><span>Estimated API cost</span><strong>${sessions.length ? (costUnknown ? "Unknown" : money(cost)) : "N/A"}</strong><small>Selected versions</small></div><div><span>Tokens · selected versions</span><strong>${known.length ? fmt(tokens) : real.length ? "Unknown" : "N/A"}</strong><small>${known.length ? (known.length < real.length || known.some(u=>!u.complete) ? "Partial reported usage" : "Input + output") : real.length ? "Not reported by provider" : "No measured LLM usage"}</small></div></div>
+  return `<div class="competition-overview">${indexingNotice(S.overviewIndexing)}${overviewFilters(d, data)}${data.scope.source==='progression'?notice('Unscored progression diagnostic: current LLM versions face the preceding round. This includes same-model historical opponents; results do not change tournament standings or model feedback.'):''}${failures.length ? `<div class="overview-alert">${failures.length} conversation${failures.length === 1 ? "" : "s"} need attention. <button class="table-button" data-action="overview-failures">Review & retry</button></div>` : ""}<div class="overview-kpis"><div><span>Completed fights</span><strong>${fmt(fightCount(data.selected.filter((v) => v.match.result.status === "completed")))}</strong><small>${fmt(fightCount(data.selected.filter((v) => v.match.result.status !== "completed")))} failed</small></div><div><span>Submitted strategies</span><strong>${sessions.length ? sessions.filter((s) => s.submission || s.status === "submitted").length : d.metadata.manifest?.strategies?.filter(s=>overviewAccept(overviewIdentity(s.id),data.scope)).length ?? data.models.length}${sessions.length ? `<small> / ${sessions.length}</small>` : ""}</strong><small>${d.metadata.config ? d.metadata.config.models.filter(model=>!d.roster?.withdrawn.includes(model.id)&&(!data.scope.model||data.scope.model===model.id)).length : data.models.length} active participants</small></div><div><span>Estimated API cost</span><strong>${sessions.length ? (costUnknown ? "Unknown" : money(cost)) : "N/A"}</strong><small>Selected versions</small></div><div><span>Tokens · selected versions</span><strong>${known.length ? fmt(tokens) : real.length ? "Unknown" : "N/A"}</strong><small>${known.length ? (known.length < real.length || known.some(u=>!u.complete) ? "Partial reported usage" : "Input + output") : real.length ? "Not reported by provider" : "No measured LLM usage"}</small></div></div>
   <div class="overview-charts"><section class="overview-card"><div class="overview-section-head"><h2>Model ranking</h2>${chartFullScreenButton()}</div>${overviewRanking(data)}</section><section class="overview-card"><div class="overview-section-head"><h2>Evolution</h2>${chartFullScreenButton()}</div>${overviewEvolution(data)}</section></div><section class="overview-card">${resourcePanel(overviewResourcePoints(d,data),"overview")}</section>
+  ${lineageChart(d,data)}
+  ${fightLengthCard(d,data)}
   ${repetitionVariance(d,data)}
   ${learningProgression(d)}
   ${overviewErrors(d,data)}
@@ -3319,65 +3377,17 @@ function matchCategory(match,kind) {
   if(kind==='progression')return match.kind==='progression'||match.previous_round_comparison;
   return match.kind===(kind||'competition');
 }
-function matchSubset() {
-  const f = S.matchFilters || {};
-  return S.matches.filter((m) => {
-    const kind =
-      m.kind ||
-      (m.stage === "training" || m.stage === "préparation"
-        ? "training"
-        : m.stage.startsWith("evaluations/")
-          ? "evaluation"
-          : "competition");
-    if (!matchCategory({...m,kind},f.kind)) return false;
-    if (f.stage && m.stage !== f.stage) return false;
-    if (f.scored && m.mirror) return false;
-    if (f.exclude_same_model && overviewIdentity(m.sides[0]).model===overviewIdentity(m.sides[1]).model) return false;
-    let scopedSide = null;
-    if (scopeActive() || f.entrant_model || f.opponent_model || f.round || f.track) {
-      const candidates = overviewEntries(m).filter(
-        (item) => scopeAccept(item) &&
-          (!f.entrant_model || item.model===f.entrant_model) &&
-          (!f.round || f.round==='all' || item.generation+1===Number(f.round)) &&
-          (!f.track || item.condition===f.track) &&
-          (kind!=='training' || S.detail.sessions.some(session=>session.id===item.id)) &&
-          (!f.opponent_model ||
-            overviewIdentity(m.sides[1 - item.side]).model ===
-              f.opponent_model),
-      );
-      if (!candidates.length) return false;
-      scopedSide = candidates[0].side;
-    }
-    if (f.entrant && !m.sides.includes(f.entrant)) return false;
-    if (
-      f.opponent &&
-      (!m.sides.includes(f.opponent) ||
-        (f.entrant && !m.sides.some((id, side)=>id===f.entrant && m.sides[1-side]===f.opponent)))
-    )
-      return false;
-    if (
-      f.search &&
-      !`${m.sides.join(" ")} ${m.seed}`
-        .toLowerCase()
-        .includes(f.search.toLowerCase())
-    )
-      return false;
-    const completed = m.result.status === "completed",
-      side = scopedSide ?? (f.entrant ? (m.candidate === f.entrant && m.candidate_side != null ? m.candidate_side : m.sides.indexOf(f.entrant)) : 0);
-    if (f.outcome === "failure") return !completed;
-    if (f.outcome === "completed") return completed;
-    if (f.outcome === "draw") return completed && m.result.winner_side === -1;
-    if (f.outcome === "win") return completed && m.result.winner_side === side;
-    if (f.outcome === "loss")
-      return (
-        completed &&
-        m.result.winner_side !== -1 &&
-        m.result.winner_side !== side
-      );
-    return true;
-  });
+// Fights are filtered and paginated by /api/matches?page=1 (same rules as before).
+function matchPageArgs() {
+  const f=S.matchFilters||{},scope=runScope();
+  const args={run:S.run,page:'1'};
+  for(const key of ['kind','stage','scored','exclude_same_model','entrant_model','opponent_model','round','track','entrant','opponent','search','outcome'])
+    if(f[key])args[key]=f[key];
+  for(const key of ['model','round','track','replicate'])if(scope[key])args['scope_'+key]=scope[key];
+  return args;
 }
-function matchesPage() {
+function matchSubset() {return S.matchPage?.matches||[];}
+function normalizeMatchFilters() {
   const f = S.matchFilters ||= {};
   if(String(f.round||'').startsWith('stage:')) {f.stage=f.round.slice(6);f.round='all';}
   // Preserve precise old matrix links, while exposing independent model/round filters.
@@ -3390,16 +3400,18 @@ function matchesPage() {
   if(f.stage) {const stage=String(f.stage).match(/g(\d+)-(?:tournament|panel)/);if(!f.round)f.round=stage?String(Number(stage[1])+1):'all';}
   if(f.entrant && !f.entrant_model) {const identity=overviewIdentity(f.entrant);f.entrant_model=identity.model;if(!f.round)f.round=String(identity.generation+1);}
   if(f.opponent && !f.opponent_model)f.opponent_model=overviewIdentity(f.opponent).model;
-  const participants=[...new Set(S.matches.flatMap(match=>match.sides).map(id=>overviewIdentity(id).model))].sort();
-  const rounds=[...new Set([...S.detail.sessions.map(session=>Number(session.generation||0)+1),...S.matches.flatMap(match=>match.sides.map(id=>overviewIdentity(id).generation+1))])].sort((a,b)=>a-b);
+  return f;
+}
+function matchesPage() {
+  const f = normalizeMatchFilters();
+  const page=S.matchPage||{matches:[],total:0,category_total:0,participants:[],rounds:[],training_matches:0};
+  const participants=page.participants;
   const rows = matchSubset();
-  const categoryTotal = S.matches.filter(
-    (m) => matchCategory(m,f.kind),
-  ).length;
-  const trainingCount = S.matches.filter((m) => m.kind === "training").length;
+  const categoryTotal = page.category_total;
+  const trainingCount = page.training_matches;
   S.matchPath =
     rows.find((m) => m.path === S.matchPath)?.path || rows[0]?.path || null;
-  return `<details class="fight-category-guide"><summary>Which fights count toward standings?</summary>${fightPurposeGuide()}<p>Self-play means the same strategy and team on both sides (A vs A); it is a diagnostic. Swapping two different strategies (A vs B, then B vs A) is standard tournament play and both fights count. Engine failures (process timeout, crash or unreadable output) are unscored and retried when the fight pool runs again, including Resume. Their logs are available in the fight details. Preparation tests are separate and unscored. Self-play outcome filters refer to the blue side.</p></details>${trainingCount ? `<p id="training-count">${trainingCount} preparation tests stored separately. ${btn("View preparation tests", "show-training")}</p>` : ""}${selectField(
+  return `${indexingNotice(page.indexing)}<details class="fight-category-guide"><summary>Which fights count toward standings?</summary>${fightPurposeGuide()}<p>Self-play means the same strategy and team on both sides (A vs A); it is a diagnostic. Swapping two different strategies (A vs B, then B vs A) is standard tournament play and both fights count. Engine failures (process timeout, crash or unreadable output) are unscored and retried when the fight pool runs again, including Resume. Their logs are available in the fight details. Preparation tests are separate and unscored. Self-play outcome filters refer to the blue side.</p></details>${trainingCount ? `<p id="training-count">${trainingCount} preparation tests stored separately. ${btn("View preparation tests", "show-training")}</p>` : ""}${selectField(
     "Match category",
     "match-kind",
     [
@@ -3423,7 +3435,7 @@ function matchesPage() {
       ["completed", "Completed"],
     ],
     f.outcome || "",
-  )}<div class="actions">${btn("Reset fight options", "clear-match-filters")}<span id="match-filter-count" class="muted">${rows.length} / ${categoryTotal} matches in this category</span></div></div>${S.matches.length ? `<div class="match-layout"><div id="match-list" class="match-list">${matchButtons(rows)}</div><section class="panel" id="match-detail" data-live-preserve>${rows.length ? "Loading match..." : !categoryTotal && f.kind==='selfplay'?empty("No self-play diagnostics", "No optional A-vs-A diagnostics were recorded for this competition.") : !categoryTotal && (!f.kind || f.kind === "competition") ? empty("No competition matches yet", "Models may still be preparing their strategies.", btn("View preparation tests", "show-training")) : empty("No matches found", "Change or clear the filters.")}</section></div>` : empty("No competition matches yet", "Models may still be preparing their strategies.", btn("View preparation tests", "show-training"))}`;
+  )}<div class="actions">${btn("Reset fight options", "clear-match-filters")}<span id="match-filter-count" class="muted">${matchCountText(page)}</span></div></div>${categoryTotal || rows.length ? `<div class="match-layout"><div id="match-list" class="match-list">${matchButtons(rows)}</div><section class="panel" id="match-detail" data-live-preserve>${rows.length ? "Loading match..." : !categoryTotal && f.kind==='selfplay'?empty("No self-play diagnostics", "No optional A-vs-A diagnostics were recorded for this competition.") : !categoryTotal && (!f.kind || f.kind === "competition") ? empty("No competition matches yet", "Models may still be preparing their strategies.", btn("View preparation tests", "show-training")) : empty("No matches found", "Change or clear the filters.")}</section></div>` : empty("No competition matches yet", "Models may still be preparing their strategies.", btn("View preparation tests", "show-training"))}`;
 }
 function matchButtons(rows) {
   return (
@@ -3434,7 +3446,7 @@ function matchButtons(rows) {
           `<button class="match-card ${m.path === S.matchPath ? "active" : ""}" data-action="match" data-path="${e(m.path)}"><span class="badge ${m.stage.includes("panel") ? "blue" : ""}">${e(stageText(m.stage))}</span>${m.result.reference_cache?.hit?badge("Cached reference","green"):""}${m.mirror?badge("Self-play · unscored","orange"):m.kind==='evaluation'?badge("Fixed baseline · unscored","blue"):m.kind==='progression'?badge("Previous round · unscored","blue"):m.kind === "training" ? badge("Preparation · unscored", "orange") : ""}<strong>${e(strategyName(m.sides[0]))}<br><span class="muted">vs</span> ${e(strategyName(m.sides[1]))}</strong><small>Seed ${e(m.seed)} · ${m.result.status === "completed" ? (m.result.winner_side === -1 ? "Draw" : "Winner: " + (m.mirror?(m.result.winner_side===0?"Blue side":"Orange side"):e(strategyName(m.sides[m.result.winner_side])))) : e(text(m.result.status))}</small></button>`,
       )
       .join("") +
-    (rows.length > 800 ? "<small>Filter to find more matches.</small>" : "")
+    ((S.matchPage?.total||rows.length) > rows.length ? `<small>Showing the first ${rows.length} of ${fmt(S.matchPage.total)} matches. Filter to find others.</small>` : "")
   );
 }
 async function matchSourceDialog(path,side) {
@@ -4524,6 +4536,9 @@ document.addEventListener("change", async (event) => {
     } else if(n.matches('[data-learning-mode],[data-learning-view]')) {
       const key=n.matches('[data-learning-mode]')?'progressionMode':'progressionView';overviewSettings()[key]=n.value;clearChartHover();
       LiveDOM.replace($('#learning-progress'),learningProgression(S.detail));
+    } else if(n.matches('[data-length-setting]')) {
+      overviewSettings()[n.dataset.lengthSetting]=n.value;clearChartHover();
+      LiveDOM.replace($('#fight-lengths'),fightLengthCard(S.detail,overviewData(S.detail)));
     } else if(n.matches('[data-evolution-view]')) {
       overviewSettings().evolution=n.value;clearChartHover();$('#overview-evolution-chart').innerHTML=n.value==='lines'?overviewEvolutionLines(overviewData(S.detail)):overviewEvolutionBars(overviewData(S.detail));
     } else if(n.name==='participant_group_filter') {
@@ -4751,7 +4766,7 @@ document.addEventListener("input", (event) => {
   if (n.id === 'run-participant-search') {
     for(const row of $$('[data-run-profile]')) row.hidden=!row.dataset.runProfile.includes(n.value.toLowerCase());
   }
-  if (n.id === "match-search") filterMatches().catch(showError);
+  if (n.id === "match-search") {clearTimeout(S.matchSearchTimer);S.matchSearchTimer=setTimeout(()=>filterMatches().catch(showError),250);}
   if (n.id === "replay-range") renderReplay(Number(n.value));
 });
 $("#dialog").addEventListener("close", () => {
@@ -4819,7 +4834,7 @@ setInterval(async () => {
       (activeJobs().some((j) => j.run === S.run) ||
         S.boot.runs.some(
           (r) =>
-            r.id === S.run && pretty(r.report) !== pretty(S.detail?.report),
+            r.id === S.run && r.report_sha256 !== S.detail?.report_sha256,
         ) ||
         S.renderedJobState !== S.boot.jobs.find((j) => j.run === S.run)?.status)
     ) {
@@ -5109,9 +5124,13 @@ async function filterMatches(clear = false) {
     "",
     "#" + query({view:"run",run:S.run,tab:"matches",...scopeURL(),...filters}),
   );
+  const epoch=S.epoch,token=(S.matchFilterToken||0)+1;S.matchFilterToken=token;
+  normalizeMatchFilters();
+  const page=await runResource('/api/matches',matchPageArgs());
+  if(epoch!==S.epoch||token!==S.matchFilterToken)return;
+  S.matchPage=page;S.matches=page.matches;
   const rows = matchSubset();
-  $("#match-filter-count").textContent =
-    `${rows.length} / ${S.matches.filter((m) => matchCategory(m,S.matchFilters.kind)).length} matches in this category`;
+  $("#match-filter-count").textContent = matchCountText(page);
   if (!$("#match-list")) return;
   $("#match-list").innerHTML = matchButtons(rows);
   const path =
@@ -5130,6 +5149,7 @@ async function filterMatches(clear = false) {
     await loadMatch();
   }
 }
+function matchCountText(page) {return `${fmt(page.total)} / ${fmt(page.category_total)} matches in this category`;}
 function countLabel(count, noun, plural = noun + "s") {
   return `${count} ${count === 1 ? noun : plural}`;
 }

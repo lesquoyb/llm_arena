@@ -24,13 +24,13 @@ def report(store, identifier):
         cached=getattr(store,'_fault_cache',{}).get(identifier)
     if cached and cached[0]==revision:return copy.deepcopy(cached[1])
     rows,incidents=authoring(store,root,states,signature)
-    for fight in store.matches(identifier,compact=True)['matches']:
-        for side,sid in enumerate(fight['sides']):
-            if sid not in rows or (fight['kind'] in {'evaluation','progression'} and fight.get('candidate')!=sid):continue
-            metrics=fight['result'].get('team_metrics',{}).get(str(side),{})
-            field='preparation_runtime_errors' if fight['kind']=='training' else 'progression_runtime_errors' if fight['kind']=='progression' else 'runtime_errors'
-            rows[sid][field]+=metrics.get('errors',0)
-            rows[sid]['operation_limit_hits']+=metrics.get('operation_limit_hits',0)
+    from .fights import side_metrics
+    cutoffs={sid:state.get('attempt_started_at',0) for sid,state in store.states(root,('attempt_started_at',)).items()}
+    for (sid,kind),(errors,limits) in side_metrics(store,root,cutoffs).items():
+        if sid not in rows:continue
+        field='preparation_runtime_errors' if kind=='training' else 'progression_runtime_errors' if kind=='progression' else 'runtime_errors'
+        rows[sid][field]+=errors
+        rows[sid]['operation_limit_hits']+=limits
     for row in rows.values():
         row['tool_error_rate']=row['tool_errors']/row['tool_calls'] if row['tool_calls'] else None
         row['compile_failure_rate']=row['failed_analyses']/row['completed_analyses'] if row['completed_analyses'] else None
@@ -55,10 +55,13 @@ def authoring(store,root,states,signature):
     path=root/'journal.sqlite'
     with closing(sqlite3.connect(path.as_uri()+'?mode=ro',uri=True)) as db:
         events=db.execute("WITH restarts AS (SELECT session,max(id) AS cutoff FROM events WHERE kind='conversation_restarted' GROUP BY session) SELECT e.id,e.session,e.kind,e.payload FROM events e LEFT JOIN restarts r ON r.session=e.session WHERE e.id > coalesce(r.cutoff,0) AND e.kind IN ('tool_reserved','tool_result','provider_failure','malformed_provider_response') ORDER BY e.id").fetchall()
-    for event,sid,kind,reference in events:
-        if sid not in rows:continue
-        reference=json.loads(reference)
-        value=receipt(store,root,event,kind,reference);row=rows[sid]
+    decoded=[(event,sid,kind,json.loads(reference)) for event,sid,kind,reference in events if sid in rows]
+    projected={}
+    for projection,kinds in (('tool_name',{'tool_reserved'}),('fault',{'tool_result','provider_failure','malformed_provider_response'})):
+        refs=[(reference['sha256'],lambda reference=reference:safe_path(root,reference['artifact'])) for _,_,kind,reference in decoded if kind in kinds]
+        projected[projection]=store.receipts.many(projection,refs,project_tool_name if projection=='tool_name' else project_fault)
+    for event,sid,kind,reference in decoded:
+        value=projected['tool_name' if kind=='tool_reserved' else 'fault'][reference['sha256']];row=rows[sid]
         if kind=='tool_reserved':pending[sid]=value;continue
         incident={'event':event,'session':sid,'model':row['model'],'round':row['round'],'condition':row['condition'],'at':reference.get('at')}
         if kind=='malformed_provider_response':
@@ -97,21 +100,11 @@ def authoring(store,root,states,signature):
     return result
 
 
-@measure('fault_receipt')
-def receipt(store,root,event,kind,reference):
-    key=(str(root),event,reference['sha256'])
-    with store.lock:cached=getattr(store,'_fault_receipts',{}).get(key)
-    if cached is not None:return cached
-    path=safe_path(root,reference['artifact']);raw=path.read_bytes()
-    if hashlib.sha256(raw).hexdigest()!=reference['sha256']:raise ArenaError('Tool receipt changed')
-    value=json.loads(raw)
-    if kind=='tool_reserved':value={'name':value.get('name','unknown')}
-    else:
-        from arena.compiler_diagnostics import compilation_rows
-        value={**{field:value[field] for field in ('error','errors','valid','status','error_type') if field in value},
-               'diagnostic_messages':value.get('diagnostic_messages',compilation_rows(value))}
-    with store.lock:
-        if not hasattr(store,'_fault_receipts'):store._fault_receipts={}
-        store._fault_receipts[key]=value
-        while len(store._fault_receipts)>8192:store._fault_receipts.pop(next(iter(store._fault_receipts)))
-    return value
+def project_tool_name(value):
+    return {'name':value.get('name','unknown')}
+
+
+def project_fault(value):
+    from arena.compiler_diagnostics import compilation_rows
+    return {**{field:value[field] for field in ('error','errors','valid','status','error_type') if field in value},
+            'diagnostic_messages':value.get('diagnostic_messages',compilation_rows(value))}

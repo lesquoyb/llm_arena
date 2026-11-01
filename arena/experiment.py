@@ -211,7 +211,7 @@ class Journal:
         self.db.execute("PRAGMA user_version=2")
         self.db.commit()
         from .verification_cache import VerificationCache
-        self.verification=VerificationCache(out)
+        self.verification=VerificationCache.for_run(out)
 
     def state(self, sid):
         row = self.db.execute("SELECT state FROM sessions WHERE id=?", (sid,)).fetchone()
@@ -1010,7 +1010,11 @@ def run(config: dict, out: Path, resume=False, interrupt=None, prepare_only=Fals
             from .parallel import prepare
             tasks=[(f"{model['id']}-r{replicate}",model) for model in config['models']
                    for replicate in range(repetitions(config,model)) if active(config,model) and (not retry_session or f"{model['id']}-r{replicate}"==retry_session)]
-            prepare(tasks,config,out,journal,engine,interrupt,independent_fights=True,independent_validation=True)
+            def initial_signature(fight_journal):
+                return digest(sorted((sid,state['submission']['sha256']) for sid,state in fight_journal.metadata().items()
+                                     if state.get('generation',0)==0 and state.get('submission')))
+            prepare(tasks,config,out,journal,engine,interrupt,independent_fights=True,independent_validation=True,
+                    round_fights=(lambda fight_journal:evaluate_ready(engine,config,out,fight_journal,final=True),initial_signature))
             # Drain every fixture supported by frozen submissions before slower
             # final compiler assessments, even if another participant failed.
             tournament = evaluate_ready(engine, config, out, journal, final=True)
