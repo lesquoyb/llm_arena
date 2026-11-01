@@ -3,16 +3,26 @@ from .core import ArenaError, digest
 from .usage import amount
 
 
+def adapter_equivalent(previous, current):
+    """An adapter revision declared to run old scenarios identically (new rules are opt-in)."""
+    from .core import ROOT, read_json
+    path=ROOT/'engine'/'adapter-compatibility.json'
+    if not previous or not current or not path.is_file():return False
+    return previous in read_json(path).get('equivalents',{}).get(current,{}).get('previous',[])
+
+
 def engine_compatible(previous, current):
     # Application updates and host runtime changes do not replace the game engine.
     ignored = {'runner_sha256', 'java_version', 'python_version', 'platform', 'worker_execution', 'worker_transport_sha256',
                'worker_jvm_profile', 'worker_jvm_options', 'worker_jvm_recycle_matches'}
     # An added JVM transport changes the bridge directory hash, while the game
     # adapter, pinned jar and build overlay remain byte-for-byte unchanged.
-    if (previous.get('adapter_sha256') and previous.get('adapter_sha256')==current.get('adapter_sha256')
+    same_adapter=previous.get('adapter_sha256') and previous.get('adapter_sha256')==current.get('adapter_sha256')
+    if ((same_adapter or adapter_equivalent(previous.get('adapter_sha256'),current.get('adapter_sha256')))
             and previous.get('jar_sha256')==current.get('jar_sha256')
             and previous.get('build_script_sha256')==current.get('build_script_sha256')):
         ignored.add('bridge_sha256')
+        if not same_adapter:ignored.add('adapter_sha256')
     return ({k:v for k,v in previous.items() if k not in ignored} ==
             {k:v for k,v in current.items() if k not in ignored})
 

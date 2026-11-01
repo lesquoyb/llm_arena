@@ -16,6 +16,13 @@ def references(engine, config, out, journal, entrants, label, panel, *, incremen
     """Both positions, identical reference opponents and final seeds for each branch."""
     root = out / "evaluations" / label
     root.mkdir(parents=True, exist_ok=True)
+    from .fight_store import FightStore
+    store=FightStore.at(root,create=True)
+    stage=root.relative_to(out).as_posix()
+    def inner(artifact_dir):
+        # Records keep run-relative artifact paths; the store is stage-relative.
+        if not artifact_dir.startswith(stage+'/'):raise ArenaError('Invalid stored fight path')
+        return artifact_dir[len(stage)+1:]
     models={model['id']:model for model in config.get('models',[])}
     def fixed(source):
         if source.get('model') in models:return models[source['model']].get('provider')=='mock'
@@ -39,6 +46,13 @@ def references(engine, config, out, journal, entrants, label, panel, *, incremen
     scenario_binding=digest(config['scenario'])
     def validate_record(record,sources,seed):
         work=out/record['artifact_dir'];infos=[source['submission'] for source in sources]
+        name=inner(record['artifact_dir'])
+        if store.exists(name+'/result.json'):
+            from .fight_store import verify_stored_fight
+            scenario,scenario_hash=scenarios.get(infos,seed)
+            verify_stored_fight(store,name,record['result'],infos,scenario,scenario_hash,
+                                lambda provenance:accepts_engine(digest(provenance),provenance))
+            return
         binding=digest({'validation_version':2,'record':{key:record[key] for key in ('session','opponent','seed','side','result','artifact_dir')},
                         'sources':[(info['entrypoint'],info['sha256']) for info in infos],'scenario_config':scenario_binding})
         if hashes and hashes.checked_receipt(work,binding,engine_accepts=accepts_engine):return
@@ -90,14 +104,16 @@ def references(engine, config, out, journal, entrants, label, panel, *, incremen
                         progress['checked']+=1
                         record={}
                         cached = root / "records" / (key + ".json")
+                        stored_name='records/'+key+'.json'
+                        stored_sha=store.sha256(stored_name)
                         memo=verified.get(str(cached))
-                        if isinstance(memo,tuple) and memo[1]==stamp(cached):
+                        if isinstance(memo,tuple) and memo[1]==(stored_sha or stamp(cached)):
                             # Verified earlier in this process and unchanged on disk.
                             results[key]=memo[2]
                             progress['reused']+=1
                             continue
-                        if cached.exists():
-                            record = hashes.read_record(cached) if hashes else read_json(cached)
+                        if stored_sha or cached.exists():
+                            record = store.get_json(stored_name) if stored_sha else hashes.read_record(cached) if hashes else read_json(cached)
                             work = out / record["artifact_dir"]
                             if (record['session'],record['opponent'],record['seed'],record['side'])!=(entrant['id'],opponent['id'],seed,side):raise ArenaError('Reference match metadata changed')
                             if record["result"]["status"] == "completed" and (memo[0] if isinstance(memo,tuple) else memo)==digest(record):
@@ -106,18 +122,19 @@ def references(engine, config, out, journal, entrants, label, panel, *, incremen
                                 continue
                             if record["result"]["status"] == "completed":
                                 validate_record(record,sources,seed)
-                                if hashes:hashes.remember_record(cached,record)
-                                if reference_only:
+                                if hashes and not stored_sha:hashes.remember_record(cached,record)
+                                if reference_only and not stored_sha:
                                     from .reference_cache import seed as seed_reference
                                     seed_reference(engine,[source['submission'] for source in sources],config['scenario'],seed,work)
                             else:
                                 cached = None
-                        if cached and cached.exists():
-                            verified[str(cached)]=(digest(record),stamp(cached),record)
+                        if cached and (stored_sha or cached.exists()):
+                            verified[str(cached)]=(digest(record),stored_sha or stamp(cached),record)
                             results[key]=record
                             progress['reused']+=1
                             continue
-                        work=Preparation._attempt(root/'matches'/key)
+                        from .fight_store import attempt_path
+                        work=attempt_path(store,root,root/'matches'/key)
                         yield {'entrant':entrant,'opponent':opponent,'sources':sources,'reference_only':reference_only,
                                'key':key,'work':work,'side':side,'seed':seed,
                                '_retry':record.get('retry_attempt',0)+1 if cached is None and record.get('retry_pending') else 0,'participants':[source['id'] for source in sources]}
@@ -129,8 +146,12 @@ def references(engine, config, out, journal, entrants, label, panel, *, incremen
         token=callback.set(update)
         try:
             fight=cached_reference_fight if job['reference_only'] else lambda engine,*args:engine.fight(*args)
-            result=fight(engine,[Path(source['path']) for source in job['sources']],
-                         [source['submission'] for source in job['sources']],config['scenario'],job['seed'],job['work'])
+            from .fight_store import scratch
+            with scratch() as folder:
+                result=fight(engine,[Path(source['path']) for source in job['sources']],
+                             [source['submission'] for source in job['sources']],config['scenario'],job['seed'],folder)
+                update('archiving_result')
+                store.ingest(job['work'].relative_to(root).as_posix(),folder)
             if result['status']=='completed':
                 update('verifying_result')
                 validate_record({'session':job['entrant']['id'],'opponent':job['opponent']['id'],'seed':job['seed'],'side':job['side'],'result':result,'artifact_dir':job['work'].relative_to(out).as_posix()},job['sources'],job['seed'])
@@ -141,13 +162,11 @@ def references(engine, config, out, journal, entrants, label, panel, *, incremen
                 'side':job['side'],'result':result,'artifact_dir':job['work'].relative_to(out).as_posix(),
                 'retry_attempt':job.get('_retry',0),'retry_pending':result.get('status') in {'timeout','engine_error'} and job.get('_retry',0)<2}
         record_path=root/'records'/(job['key']+'.json')
-        write_json(record_path,record)
+        store.put_json('records/'+job['key']+'.json',record)
         if result['status']=='completed':
-            verified[str(record_path)]=(digest(record),stamp(record_path),record)
-            if hashes:hashes.remember_record(record_path,record)
-        published=time.monotonic()
-        journal.record(job['entrant']['id'],'progression_match' if label.endswith('-previous') else 'reference_match',record)
-        job.setdefault('timings',{})['journal_publication_seconds']=time.monotonic()-published
+            verified[str(record_path)]=(digest(record),store.sha256('records/'+job['key']+'.json'),record)
+        # The record is stored with its content hash. Journaling a copy of
+        # every fight as a separate artifact file doubled the evidence on disk.
         previous=results.get(job['key'])
         if previous and job.get('_published_in_batch'):
             progress['completed' if previous['result']['status']=='completed' else 'failed']-=1
@@ -155,8 +174,9 @@ def references(engine, config, out, journal, entrants, label, panel, *, incremen
         progress['completed' if result['status']=='completed' else 'failed']+=1
         results[job['key']]=record
     def retry_job(job):
+        from .fight_store import attempt_path
         base=job.get('_attempt_base',job['work'])
-        return {**job,'work':Preparation._attempt(base),'_attempt_base':base,'phase':'preparing'}
+        return {**job,'work':attempt_path(store,root,base),'_attempt_base':base,'phase':'preparing'}
     from .fight_pool import run as run_fights
     run_fights(jobs(),execute,save,limit=config.get('_parallel_fights',config.get('parallel_fights',1)),out=out,
                kind='previous_round_fight' if label.endswith('-previous') else 'reference_fight',
@@ -164,6 +184,8 @@ def references(engine, config, out, journal, entrants, label, panel, *, incremen
     if mirrors.get(label)!=results or not (root / "results.json").exists():
         write_json(root / "results.json", results)
     mirrors[label]=dict(results)
+    from .fight_store import release
+    release(root)
     if hashes:
         hashes.flush()
         if not incremental:hashes.release(root,records=False)

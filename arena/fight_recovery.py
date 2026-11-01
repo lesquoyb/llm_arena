@@ -64,27 +64,37 @@ def run(directory, *, engine=None, journal=None, cooperative=False, include_read
                 if value.get('deferred') or (cooperative and (value.get('pending') or value.get('retry_pending'))):return {'deferred':True,'no_model_requests':True,'remaining_failed':0}
                 done.add(str(root))
             jobs=[]
+            from .fight_store import FightStore, attempt_path, scratch, stage_records, stored_sources
             for root in sorted((out/'evaluations').glob('g*-*')):
-                for path in sorted((root/'records').glob('*.json')):
+                store,entries=stage_records(root)
+                stage=root.relative_to(out).as_posix()
+                for key,(location,record) in entries.items():
+                    path=root/'records'/(key+'.json')
                     if cooperative and str(path) in done:continue
                     from .activity import provider_work_ready
                     if provider_work_ready():return {'deferred':True,'no_model_requests':True,'remaining_failed':0}
                     if str(path) in pending_jobs:continue
-                    record=read_json(path)
                     if record['result'].get('status')=='completed':
                         done.add(str(path));continue
                     sid=record['session']
                     if states.get(sid,{}).get('model') in withdrawn:continue
                     work=(out/record['artifact_dir']).resolve()
                     if not work.is_relative_to(out):raise ArenaError('Invalid stored fight path')
-                    provenance=read_json(work/'provenance.json');infos=provenance['submissions']
+                    inner=record['artifact_dir'][len(stage)+1:] if record['artifact_dir'].startswith(stage+'/') else None
+                    stored=store is not None and inner is not None and store.exists(inner+'/provenance.json')
+                    provenance=store.get_json(inner+'/provenance.json') if stored else read_json(work/'provenance.json');infos=provenance['submissions']
                     for side,info in enumerate(infos,1):
-                        if submission(work/'strategies'/str(side),info['entrypoint'])!=info:raise ArenaError('Frozen fight source changed')
+                        if stored:
+                            hashes,_=stored_sources(store,f'{inner}/strategies/{side}')
+                            if hashes!=info['files']:raise ArenaError('Frozen fight source changed')
+                        elif submission(work/'strategies'/str(side),info['entrypoint'])!=info:raise ArenaError('Frozen fight source changed')
                     scenario=make_scenario(config['scenario'],[info['entrypoint'] for info in infos],record['seed'],[info.get('team') for info in infos])
-                    if read_json(work/'scenario.json')!=scenario or provenance['scenario_sha256']!=digest(scenario):raise ArenaError('Frozen fight scenario changed')
-                    from .preparation import Preparation
-                    target=Preparation._attempt(work)
-                    pending_jobs[str(path)]={'record':record,'record_path':path,'infos':infos,'source':work,'work':target,
+                    saved=store.get_json(inner+'/scenario.json') if stored else read_json(work/'scenario.json')
+                    if saved!=scenario or provenance['scenario_sha256']!=digest(scenario):raise ArenaError('Frozen fight scenario changed')
+                    stage_store=store or FightStore.at(root,create=True)
+                    pending_jobs[str(path)]={'record':record,'record_path':path,'legacy_record':None if isinstance(location,str) else location,
+                                 'infos':infos,'source':work,'source_inner':inner if stored else None,'store':stage_store,'stage':root,
+                                 'work':attempt_path(stage_store,root,work),
                                  'generation':states.get(sid,{}).get('generation',int(root.name.split('-')[0][1:])),
                                  'seed':record['seed'],'participants':[sid,record['opponent']]}
             jobs=list(pending_jobs.values())
@@ -92,24 +102,33 @@ def run(directory, *, engine=None, journal=None, cooperative=False, include_read
                 from .fight_phases import callback
                 def update(name):job.update(phase=name,phase_started_at=time.time())
                 token=callback.set(update)
-                try:return engine.fight([job['source']/'strategies'/str(side) for side in (1,2)],job['infos'],config['scenario'],job['seed'],job['work'])
+                try:
+                    with scratch() as folder, scratch() as sources:
+                        if job['source_inner']:
+                            # Stored fights: materialize the executed sources again.
+                            for side in (1,2):job['store'].materialize(f"{job['source_inner']}/strategies/{side}",sources/str(side))
+                            paths=[sources/str(side) for side in (1,2)]
+                        else:paths=[job['source']/'strategies'/str(side) for side in (1,2)]
+                        result=engine.fight(paths,job['infos'],config['scenario'],job['seed'],folder)
+                        job['store'].ingest(job['work'].relative_to(job['stage']).as_posix(),folder)
+                        return result
                 finally:callback.reset(token)
             def save(job,result):
                 record={**job['record'],'result':result,'artifact_dir':job['work'].relative_to(out).as_posix(),
                         'retry_attempt':job.get('_retry',0),'retry_pending':result.get('status') in {'timeout','engine_error'} and job.get('_retry',0)<2}
-                write_json(job['record_path'],record)
+                job['store'].put_json('records/'+job['record_path'].name,record)
+                # The stored record supersedes the legacy file, as an overwrite did.
+                if job.get('legacy_record'):Path(job['legacy_record']).unlink(missing_ok=True)
                 key=str(job['record_path'])
                 if result.get('status')=='completed' or job.get('_retry',0)>=2:
                     done.add(key);pending_jobs.pop(key,None);failures[key]=result.get('status')!='completed'
                 else:
-                    from .preparation import Preparation
-                    pending_jobs[key]={**job,'work':Preparation._attempt(job.get('_attempt_base',job['work'])),'_retry':job.get('_retry',0)+1}
+                    pending_jobs[key]={**job,'work':attempt_path(job['store'],job['stage'],job.get('_attempt_base',job['work'])),'_retry':job.get('_retry',0)+1,'legacy_record':None}
                 sid=record['session']
                 if sid in states:journal.record(sid,'engine_fixture_retried',record)
             def retry(job):
-                from .preparation import Preparation
                 base=job.get('_attempt_base',job['work'])
-                return {**job,'work':Preparation._attempt(base),'_attempt_base':base}
+                return {**job,'work':attempt_path(job['store'],job['stage'],base),'_attempt_base':base}
             from .fight_pool import run as run_fights
             for generation in sorted({job['generation'] for job in jobs}):
                 run_fights([job for job in jobs if job['generation']==generation],execute,save,
@@ -125,7 +144,7 @@ def run(directory, *, engine=None, journal=None, cooperative=False, include_read
             remaining=sum(report.get('failed',0) for report in tournaments.values())
             panels={}
             for root in sorted((out/'evaluations').glob('g*-*')):
-                records={path.stem:read_json(path) for path in sorted((root/'records').glob('*.json'))}
+                records={key:record for key,(location,record) in stage_records(root)[1].items()}
                 if records:
                     write_json(root/'results.json',records);panels[root.name]=records
                     remaining+=sum(record['result'].get('status')!='completed' for record in records.values())
@@ -161,5 +180,7 @@ def run(directory, *, engine=None, journal=None, cooperative=False, include_read
         finally:
             if validator and validator.thread.is_alive():validator.close(cancel=True)
             if recovery_yielder is not None:_provider_yielder.reset(recovery_yielder)
+            from .fight_store import release
+            release(out/'evaluations')
             _journal.reset(token)
             if owns_journal:journal.db.close()

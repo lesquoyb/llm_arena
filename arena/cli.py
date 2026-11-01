@@ -20,6 +20,10 @@ def parser():
     c.add_argument("--runs", type=Path, help="Directory of competition artifacts (default: runs)")
     c.add_argument("--open", action="store_true", dest="open_browser")
     commands.add_parser("doctor", help="Check engine artifact hashes and Java runtime")
+    c = commands.add_parser("storage", help="Show disk usage or compact fight folders into SQLite stores")
+    c.add_argument("action", choices=["report", "compact"])
+    c.add_argument("runs", type=Path, nargs="+", help="Competition folders")
+    c.add_argument("--keep-files", action="store_true", help="Store fights but keep the original folders")
     c = commands.add_parser("docs", help="Export a frozen API reference from the compiled engine")
     c.add_argument("--out", type=Path, required=True)
     c = commands.add_parser("plan", help="Validate a tournament and show its match count")
@@ -104,6 +108,24 @@ def main(argv=None):
             if not 0 <= args.port <= 65535:
                 raise ArenaError("Port must be between 0 and 65535")
             serve(args.port, args.runs, args.open_browser)
+            return 0
+        if args.command == "storage":
+            from .storage import compact, report as usage_report
+            for run in args.runs:
+                if args.action == "report":
+                    rows = usage_report(run.absolute())
+                    print(run.name)
+                    for name, files, size in rows:
+                        print(f"  {name:40s} {files:>10} files {size / 1e9:8.2f} GB")
+                else:
+                    last = [0]
+                    def progress(stage, stored):
+                        if stored - last[0] >= 20000:
+                            last[0] = stored
+                            print(f"  {stage.name}: {stored} files stored", flush=True)
+                    result = compact(run.absolute(), delete=not args.keep_files, progress=progress)
+                    print(f"{run.name}: {result['files_stored']} files stored; "
+                          f"{result['bytes_before'] / 1e9:.2f} GB -> {result['bytes_after'] / 1e9:.2f} GB", flush=True)
             return 0
         if args.command == "calibrate":
             from .calibration import defaults, study

@@ -113,6 +113,28 @@ SHA-256 hashes and reports. Engine winners are 0 or 1 for the two sides and -1
 for a draw; replay teams are numbered 1 and 2. The arena records duration up to the requested `max_turns` limit.
 New UI competitions use the [Simple duel preset and character sheets](docs/ui.md#scenario-presets-and-character-sheets).
 
+Optional `stall_turns` (10 to 1000) ends a fight as a draw when no entity
+loses or recovers life for that many consecutive turns. Participants are told
+the rule. It is off unless a scenario sets it; the Simple duel preset uses 100.
+Decisive fights replay identically with or without it.
+
+## Storage
+
+Each stage (`tournament`, `gN-tournament`, `evaluations/gN-*`) keeps its fight
+records and artifacts in one `fights.sqlite` file: contents are compressed,
+deduplicated and addressed by SHA-256, and reads check that hash. Records keep
+their original relative paths. Older competitions still read their per-fight
+folders; to move them into the store and reclaim space (about 20x on real
+runs), stop the competition and run:
+
+```bash
+python -m arena storage report runs/<competition>
+python -m arena storage compact runs/<competition>
+```
+
+`--keep-files` stores everything but keeps the folders. CSV exports remain
+available from the interface.
+
 ## Validation and documentation
 
 ```bash

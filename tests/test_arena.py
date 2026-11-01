@@ -164,12 +164,15 @@ class EngineIntegrationTests(unittest.TestCase):
         manifest["strategies"] = [manifest["strategies"][0], manifest["strategies"][2]]
         manifest["seeds"] = [101]
         out = self.root / "tournament"
+        from arena.fight_store import FightStore
+        attempts = lambda: sorted({name.rsplit('/', 1)[0] for name in FightStore.at(out).list('matches') if name.endswith('/outcome.json')})
         with contextlib.redirect_stdout(io.StringIO()):
             first = run_tournament(self.engine, manifest, out)
-            paths = sorted((out / "matches").glob("*/attempt-*"))
+            paths = attempts()
             second = run_tournament(self.engine, manifest, out, resume=True)
         self.assertEqual(first, second)
-        self.assertEqual(paths, sorted((out / "matches").glob("*/attempt-*")))
+        self.assertEqual(paths, attempts())
+        self.assertFalse((out / "matches").exists())
         self.assertEqual(first["completed"], 4)
         self.assertEqual(first["standings"][0]["played"], 2)
         self.assertEqual(len(first["mirrors"]), 2)
@@ -177,8 +180,8 @@ class EngineIntegrationTests(unittest.TestCase):
         altered["seeds"] = [202]
         with self.assertRaises(ArenaError):
             run_tournament(self.engine, altered, out, resume=True)
-        outcome = paths[0] / "outcome.json"
-        outcome.write_text("{}")
+        # A changed stored replay no longer matches its recorded hash.
+        FightStore.at(out).put(paths[0] + "/outcome.json", b"{}")
         with self.assertRaises(ArenaError):
             report(out)
 

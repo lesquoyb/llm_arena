@@ -10,7 +10,7 @@ def participant_scenario(scenario):
     # Explicit allowlist: imported farmer profiles, fight history and source hashes
     # belong to provenance and must never enter the participant's context.
     return copy.deepcopy({key: scenario[key] for key in
-        ('preset', 'team_size', 'max_turns', 'stats_mode', 'entity', 'member_stats', 'team_selection', 'map')
+        ('preset', 'team_size', 'max_turns', 'stall_turns', 'stats_mode', 'entity', 'member_stats', 'team_selection', 'map')
         if key in scenario})
 
 

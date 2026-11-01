@@ -1,0 +1,13 @@
+{
+  "note": "Adapter revisions that run fights exactly like an earlier one unless a scenario opts into a new field. Resuming an older competition with a listed successor keeps its results comparable.",
+  "equivalents": {
+    "294d79b1661f8b2d9ff49fe5e35fa796315b92fb40de03af3115eb83e8d25bdb": {
+      "previous": [
+        "cb01879b1e7c848fdb0f9d9ea78c8093fd8cdf75f8990b874ce3e3f0c7b84073"
+      ],
+      "opt_in_fields": [
+        "stall_turns"
+      ]
+    }
+  }
+}

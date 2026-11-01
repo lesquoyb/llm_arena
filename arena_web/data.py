@@ -937,24 +937,13 @@ class Store(Workspaces):
         if compact:
             return self.indexed_matches(identifier)
         states=self.states(root,('model','generation','condition','replicate','parent','attempt_started_at'))
-        revision=digest({'files':self.revision(root,include_events=False,include_reports=False),
-                         'versions':{sid:{key:value for key,value in row.items() if key!='messages'} for sid,row in states.items()}}) if compact else None
-        if compact:
-            with self.lock:cached=getattr(self,'_match_index_cache',{}).get(identifier)
-            if cached and cached[0]==revision:return copy.deepcopy(cached[1])
         rows = []
+        # Full records (legacy callers and exports); overviews use indexed_matches.
+        from arena.fight_store import stage_records
         bases=(root, root/'tournament', *sorted(root.glob('g*-tournament')), *sorted((root/'evaluations').glob('g*-panel')), *sorted((root/'evaluations').glob('g*-previous')))
-        record_paths={base:sorted((base/'records').glob('*.json')) for base in bases}
-        if compact:
-            from .match_index import MatchIndex
-            with self.lock:
-                if not hasattr(self,'_persistent_match_index'):self._persistent_match_index=MatchIndex(self.state)
-            for base,paths in record_paths.items():
-                if paths:safe_path(root,paths[0].parent.relative_to(root).as_posix())
-            projections=self._persistent_match_index.read(root,[path for paths in record_paths.values() for path in paths],lambda path,kind:self.workspace_artifact(path,kind,validated_parent=True))
         for base in bases:
-            for path in record_paths[base]:
-                record = projections[path] if compact else self.json(path)
+            if not ((base/'records').is_dir() or (base/'fights.sqlite').is_file()):continue
+            for key,(location,record) in sorted(stage_records(base)[1].items()):
                 relative = base.relative_to(root).as_posix()
                 match = record.get("match", {})
                 sides = match.get("sides")
@@ -962,16 +951,9 @@ class Store(Workspaces):
                     sides = [record.get("session"), record.get("opponent")]
                     if record.get("side") == 1:
                         sides.reverse()
-                if compact:
-                    # Overview returns an artifact identifier, without opening it.
-                    # Full path/link validation happens when the replay is read.
-                    work_name=(base/record['directory']).relative_to(root).as_posix() if 'directory' in record else record['artifact_dir']
-                    parts=PureWindowsPath(work_name)
-                    if parts.anchor or '..' in parts.parts or ':' in work_name:raise ArenaError('Invalid fight artifact path')
-                else:
-                    work = base / record["directory"] if "directory" in record else safe_path(root, record["artifact_dir"])
-                    safe_path(root, work.relative_to(root).as_posix())
-                    work_name=work.relative_to(root).as_posix()
+                work = base / record["directory"] if "directory" in record else safe_path(root, record["artifact_dir"])
+                safe_path(root, work.relative_to(root).as_posix())
+                work_name=work.relative_to(root).as_posix()
                 rows.append({"path": work_name, "stage": relative,
                              "sides": sides, "candidate": record.get("session"), "candidate_side": record.get("side"), "seed": match.get("seed", record.get("seed")),
                              "mirror": match.get("mirror", False), "result": record["result"], "timings":record.get("timings",{})})
@@ -1082,26 +1064,40 @@ class Store(Workspaces):
         from .progression import summarize
         return {"matches":rows,"progression":summarize(states,models,rows)}
 
+    def artifact_json(self, path):
+        """A fight artifact from its stage's fight store, or a legacy file."""
+        from arena.fight_store import stage_of
+        store, name = stage_of(path)
+        if store is not None:
+            value = store.get_json(name)
+            if value is not None:
+                return value
+        return self.json(path)
+
     def match(self, identifier, name):
         root = self.run_path(identifier)
         work = safe_path(root, name)
-        result = self.json(work / "result.json")
+        result = self.artifact_json(work / "result.json")
         if result is None:
             raise ArenaError("Combat introuvable")
-        return {"result": result, "scenario": self.json(work / "scenario.json"),
-                "provenance": self.json(work / "provenance.json"),
-                "outcome": self.json(work / "outcome.json")}
+        return {"result": result, "scenario": self.artifact_json(work / "scenario.json"),
+                "provenance": self.artifact_json(work / "provenance.json"),
+                "outcome": self.artifact_json(work / "outcome.json")}
 
     def match_sources(self, identifier, name):
         root=self.run_path(identifier)
         work=safe_path(root,name)
-        if not (work/'result.json').is_file():raise ArenaError('Match not found')
-        provenance=self.json(work/'provenance.json',{})
+        from arena.fight_store import stage_of
+        store,stored=stage_of(work/'result.json')
+        stored=store is not None and store.exists(stored)
+        if not stored and not (work/'result.json').is_file():raise ArenaError('Match not found')
+        provenance=self.artifact_json(work/'provenance.json') or {}
         result=[]
         for side,info in enumerate(provenance.get('submissions',[])[:2]):
             directory=safe_path(root,(work/'strategies'/str(side+1)).relative_to(root).as_posix())
+            available=bool(store.list(stage_of(directory/'x')[1].rsplit('/',1)[0])) if stored else directory.is_dir()
             result.append({'side':side,'entrypoint':info.get('entrypoint'),'files':sorted(info.get('files',{})),
-                           'sha256':info.get('sha256'),'available':directory.is_dir()})
+                           'sha256':info.get('sha256'),'available':available})
         return result
 
     def match_source(self, identifier, name, side, filename=None):
@@ -1112,9 +1108,10 @@ class Store(Workspaces):
         filename=filename or info['entrypoint']
         if filename not in info['files']:raise ArenaError('File is not part of the executed submission')
         root=self.run_path(identifier);work=safe_path(root,name)
-        provenance=self.json(work/'provenance.json',{})['submissions'][side]
+        provenance=(self.artifact_json(work/'provenance.json') or {})['submissions'][side]
         path=safe_path(root,(work/'strategies'/str(side+1)/filename).relative_to(root).as_posix())
-        with path.open('rb') as stream:content=stream.read(2_000_001)
+        from arena.fight_store import read_bytes
+        content=read_bytes(path)[:2_000_001]
         if len(content)>2_000_000:raise ArenaError('Source file exceeds preview limit')
         if hashlib.sha256(content).hexdigest()!=provenance['files'][filename]:raise ArenaError('Executed source fingerprint changed')
         return {'side':side,'path':filename,'content':content.decode('utf-8'),

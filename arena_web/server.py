@@ -153,6 +153,9 @@ class Application:
                                                                           "opponent_model", "round", "track", "entrant", "opponent", "search", "outcome")},
                                         {key: value("scope_" + key) for key in ("model", "round", "track", "replicate")})
             return store.matches(run,compact=value("compact")=="1")
+        if route == "/api/storage":
+            from arena.storage import status as storage_status
+            return storage_status(store.run_path(run))
         if route == "/api/fight-groups":
             return store.fight_groups(run)
         if route == "/api/fight-fixtures":
@@ -271,6 +274,8 @@ class Application:
             return self.jobs.recover_conversation(data['run'],data['session'],data.get('action','continue'),data.get('message'))
         if route == '/api/run/execution':
             return self.jobs.execution_control(data['run'],data['parallel_fights'])
+        if route == '/api/run/compact-storage':
+            return self.jobs.compact_storage(data['run'])
         if route == '/api/run/retry-fights':
             return self.jobs.retry_fights(data['run'])
         if route == '/api/run/run-fights':

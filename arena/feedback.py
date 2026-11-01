@@ -69,8 +69,9 @@ class PastFights:
                 key='fight-' + digest({'parent': parent, 'record': path.name})[:20]
                 if identifier is not None and key!=identifier:continue
                 if identifiers is not None and key not in identifiers:continue
-                if not path.is_file():continue
-                record = read_json(path)
+                from .fight_store import exists as artifact_exists, read_json as read_artifact
+                if not artifact_exists(path):continue
+                record = read_artifact(path)
                 match = record['match']
                 if match.get('mirror') or parent not in match['sides']:
                     continue
@@ -95,7 +96,8 @@ class PastFights:
                     parent=version['session']
                     paths=sorted(local_path(root/'records',match['id']+'.json') for match in schedule
                                  if not match.get('mirror') and parent in match['sides'])
-                    identifiers.extend('fight-'+digest({'parent':parent,'record':path.name})[:20] for path in paths if path.is_file())
+                    from .fight_store import exists as artifact_exists
+                    identifiers.extend('fight-'+digest({'parent':parent,'record':path.name})[:20] for path in paths if artifact_exists(path))
                 selected=identifiers[offset:offset+limit]
                 records=self.records(number=number,identifiers=set(selected)) if selected else {}
                 return [self.overview(key,records[key]) for key in selected if key in records],len(identifiers)
@@ -161,9 +163,10 @@ class PastFights:
         else:
             from .preparation import local_path
             replay_path = local_path(record.get('_root', self.root), record['directory']) / 'outcome.json'
-            if not replay_path.is_file():
+            from .fight_store import exists as artifact_exists, read_json as read_artifact
+            if not artifact_exists(replay_path):
                 raise ArenaError('No replay was recorded for this fight; read overview for its status')
-            outcome = read_json(replay_path)
+            outcome = read_artifact(replay_path)
             if not isinstance(outcome, dict):
                 raise ArenaError('No replay was recorded for this fight; read overview for its status')
             side = view['own_side']

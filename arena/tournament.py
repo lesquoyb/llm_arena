@@ -38,7 +38,9 @@ def verification_context(root, experiment=None):
             raise ArenaError('Archived submission changed: '+name)
     from .verification_cache import VerificationCache
     from .scenario_cache import ScenarioCache
-    return {'experiment':experiment,'engines':engines,'strategies':strategies,'hashes':VerificationCache(root),'scenarios':ScenarioCache(experiment['manifest']['scenario']),'engine_binding':digest(engines),'scenario_binding':digest(experiment['manifest']['scenario'])}
+    from .fight_store import FightStore
+    return {'experiment':experiment,'engines':engines,'strategies':strategies,'hashes':VerificationCache(root),'scenarios':ScenarioCache(experiment['manifest']['scenario']),'engine_binding':digest(engines),'scenario_binding':digest(experiment['manifest']['scenario']),
+            'store':FightStore.at(root)}
 
 
 def verify_record(root: Path, record: dict, *, context=None):
@@ -46,6 +48,15 @@ def verify_record(root: Path, record: dict, *, context=None):
     context=context or verification_context(root)
     work=root/record['directory']
     expected=[context['strategies'][s]['submission'] for s in record['match']['sides']]
+    store=context.get('store')
+    if store is not None and store.exists(record['directory']+'/result.json'):
+        if 'scenarios' in context:scenario,scenario_hash=context['scenarios'].get(expected,record['match']['seed'])
+        else:
+            scenario=make_scenario(context['experiment']['manifest']['scenario'],[s['entrypoint'] for s in expected],record['match']['seed'],[s.get('team') for s in expected])
+            scenario_hash=digest(scenario)
+        from .fight_store import verify_stored_fight
+        verify_stored_fight(store,record['directory'],record['result'],expected,scenario,scenario_hash,lambda engine:engine in context['engines'])
+        return
     hashes=context.get('hashes')
     binding=digest({'validation_version':2,'match':record['match'],'result':record['result'],'sources':[(info['entrypoint'],info['sha256']) for info in expected],
                     'scenario_config':context.get('scenario_binding') or digest(context['experiment']['manifest']['scenario'])})
@@ -88,8 +99,12 @@ def scoring_record(record):
 
 
 def run_tournament(engine: Engine, manifest: dict, out: Path, resume: bool = False, *, allow_extend=False, priority_ids=None, reference_ids=None, parallel_fights=1, verified_cache=None) -> dict:
+    from .fight_store import release
     with file_lock(out.parent / ("." + out.name + ".lock")):
-        return _run_tournament(engine, manifest, out, resume, allow_extend=allow_extend, priority_ids=priority_ids, reference_ids=reference_ids, parallel_fights=parallel_fights, verified_cache=verified_cache)
+        try:
+            return _run_tournament(engine, manifest, out, resume, allow_extend=allow_extend, priority_ids=priority_ids, reference_ids=reference_ids, parallel_fights=parallel_fights, verified_cache=verified_cache)
+        finally:
+            release(out)
 
 
 def _run_tournament(engine: Engine, manifest: dict, out: Path, resume: bool = False, *, allow_extend=False, priority_ids=None, reference_ids=None, parallel_fights=1, verified_cache=None) -> dict:
@@ -160,7 +175,11 @@ def _run_tournament(engine: Engine, manifest: dict, out: Path, resume: bool = Fa
         value=read_json(out/'report.json') if (out/'report.json').exists() else {'completed':0,'failed':0,'pending':len(matches)}
         return {**value,'deferred':True}
     audit_started=time.time();last_audit=0;checked=0
+    from .fight_store import FightStore
+    store=FightStore.at(out,create=True)
+    if verification.get('store') is None:verification['store']=store
     paths={path.stem:path for path in (out/'records').glob('*.json')}
+    paths.update({Path(name).stem:name for name in store.list('records')})
     audits=[]
     for match in execution:
         cached=verified_cache.get(match['id'])
@@ -169,11 +188,12 @@ def _run_tournament(engine: Engine, manifest: dict, out: Path, resume: bool = Fa
         elif match['id'] in paths:audits.append((match,paths[match['id']]))
         else:checked+=1
     def check(item):
-        match,path=item;record=verification['hashes'].read_record(path)
+        match,path=item;stored=isinstance(path,str)
+        record=store.get_json(path) if stored else verification['hashes'].read_record(path)
         if record['match']!=match:raise ArenaError('Stored match metadata mismatch')
         verify_record(out,record,context=verification)
-        if record['result']['status']=='completed':verification['hashes'].remember_record(path,record)
-        if record['result']['status']=='completed' and all(side in reference_ids for side in match['sides']):
+        if record['result']['status']=='completed' and not stored:verification['hashes'].remember_record(path,record)
+        if not stored and record['result']['status']=='completed' and all(side in reference_ids for side in match['sides']):
             from .reference_cache import seed as seed_reference
             seed_reference(engine,[strategies[side]['submission'] for side in match['sides']],manifest['scenario'],match['seed'],out/record['directory'])
         return match,record
@@ -201,7 +221,7 @@ def _run_tournament(engine: Engine, manifest: dict, out: Path, resume: bool = Fa
             poll_provider_failures()
             if match['id'] in completed or any(side in excluded for side in match['sides']):continue
             base=out/'matches'/match['id'];attempt=1
-            while (base/f'attempt-{attempt}').exists():attempt+=1
+            while (base/f'attempt-{attempt}').exists() or store.list(f"matches/{match['id']}/attempt-{attempt}"):attempt+=1
             print(f"[{index}/{len(matches)}] {match['sides'][0]} vs {match['sides'][1]}, seed {match['seed']}",flush=True)
             yield {'match':match,'work':base/f'attempt-{attempt}','record_path':out/'records'/f"{match['id']}.json",
                    'participants':match['sides'],'seed':match['seed'],'_retry':retry_counts.get(match['id'],0)}
@@ -218,8 +238,12 @@ def _run_tournament(engine: Engine, manifest: dict, out: Path, resume: bool = Fa
         try:
             sides=job['participants']
             fight=cached_reference_fight if all(side in reference_ids for side in sides) else lambda engine,*args:engine.fight(*args)
-            result=fight(engine,[out/'submissions'/side for side in sides],
-                         [strategies[side]['submission'] for side in sides],manifest['scenario'],job['seed'],job['work'])
+            from .fight_store import scratch
+            with scratch() as folder:
+                result=fight(engine,[out/'submissions'/side for side in sides],
+                             [strategies[side]['submission'] for side in sides],manifest['scenario'],job['seed'],folder)
+                phase('archiving_result')
+                store.ingest(job['work'].relative_to(out).as_posix(),folder)
             work_seconds=time.monotonic()-started
             phase('verifying_result');verification_started=time.monotonic()
             verify_record(out,record_for(job,result),context=verification)
@@ -228,9 +252,9 @@ def _run_tournament(engine: Engine, manifest: dict, out: Path, resume: bool = Fa
             return result
         finally:callback.reset(token)
     def retry_job(job):
-        from .preparation import Preparation
+        from .fight_store import attempt_path
         base=job.get('_attempt_base',job['work'])
-        return {**job,'work':Preparation._attempt(base),'_attempt_base':base,'phase':'preparing','phase_started_at':time.time()}
+        return {**job,'work':attempt_path(store,out,base),'_attempt_base':base,'phase':'preparing','phase_started_at':time.time()}
     last_report=0
     def publish(markdown=False,timing=None):
         started=time.monotonic();verification['hashes'].flush()
@@ -241,9 +265,8 @@ def _run_tournament(engine: Engine, manifest: dict, out: Path, resume: bool = Fa
     def save(job,result):
         nonlocal last_report
         record=record_for(job,result)
-        started=time.monotonic();write_json(job['record_path'],record)
+        started=time.monotonic();store.put_json('records/'+job['record_path'].name,record)
         job.setdefault('timings',{})['record_write_seconds']=time.monotonic()-started
-        if result['status']=='completed':verification['hashes'].remember_record(job['record_path'],record)
         known[job['match']['id']]=scoring_record(record)
         if result['status']=='completed':
             verified_cache[job['match']['id']]=known[job['match']['id']]
@@ -275,8 +298,11 @@ def report(out: Path, *, verified_records=None, experiment=None, markdown=True) 
     missing = failed = completed = cancelled = retry_pending = 0
     for match in experiment["schedule"]:
         if verified_records is None:
+            from .fight_store import FightStore
+            stored=FightStore.at(out)
+            record=stored.get_json(f"records/{match['id']}.json") if stored else None
             path=out/'records'/f"{match['id']}.json"
-            record=read_json(path) if path.exists() else None
+            if record is None:record=read_json(path) if path.exists() else None
         else:record=verified_records.get(match['id'])
         if any(side in excluded for side in match['sides']) and (record is None or record['result']['status']!='completed'):
             cancelled+=1;continue

@@ -8,7 +8,7 @@ def simple_scenario():
     stats = realistic_stats(300, capital)
     # Pistol, magnum, rifle and rhino: direct damage, simple targeting.
     weapons = [37, 45, 151, 153]
-    return {'preset': 'simple', 'team_size': 1, 'max_turns': 1000,
+    return {'preset': 'simple', 'team_size': 1, 'max_turns': 1000, 'stall_turns': 100,
             'stats_mode': 'realistic-v1',
             'entity': {'level': 300, **stats, 'weapons': weapons, 'chips': []},
             'member_stats': [{'name': 'Gunner', 'capital': capital, 'weapons': weapons, 'chips': []}]}

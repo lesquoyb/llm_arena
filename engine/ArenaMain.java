@@ -3,6 +3,8 @@ package arena.bridge;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.io.FileNotFoundException;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
 
@@ -25,6 +27,7 @@ import leekscript.runner.LeekConstants;
 import tools.jackson.databind.node.ObjectNode;
 import tools.jackson.databind.node.ArrayNode;
 import com.leekwars.generator.fight.Fight;
+import com.leekwars.generator.fight.FightListener;
 import com.leekwars.generator.attack.DamageType;
 import com.leekwars.generator.effect.Effect;
 
@@ -65,6 +68,8 @@ public final class ArenaMain {
     static final class Metrics extends LocalTrophyManager {
         final ObjectNode teams = Json.createObject();
         final Map<String, ObjectNode> turns = new TreeMap<>();
+        /** Damage and healing events with a non-zero amount (stalemate rule). */
+        long lifeEvents = 0;
         ObjectNode row(Entity e) {
             int turn = ((Fight) e.getFight()).getTurn();
             return turns.computeIfAbsent(turn + ":" + e.getFId(), ignored -> {
@@ -79,11 +84,13 @@ public final class ArenaMain {
             var row = row(e); row.put(key, row.get(key).longValue() + value);
         }
         @Override public void damage(Entity target, Entity attacker, int damage, DamageType type, Effect effect) {
+            if (damage > 0) lifeEvents++;
             String prefix = type == DamageType.NOVA ? "erosion" : "damage";
             increment(target, prefix + "_taken", damage);
             increment(attacker, prefix + "_dealt", damage);
         }
         @Override public void heal(Entity healer, Entity target, int life) {
+            if (life > 0) lifeEvents++;
             increment(healer, "healing_given", life); increment(target, "healing_received", life);
         }
         ArrayNode exportTurns() {
@@ -113,6 +120,47 @@ public final class ArenaMain {
         @Override public void error(Entity e) { add(e, "errors", 1); increment(e, "errors", 1); }
         @Override public void tooMuchOperations(Entity e) { add(e, "operation_limit_hits", 1); increment(e, "operation_limit_hits", 1); }
         @Override public void stackOverflow(Entity e) { add(e, "stack_overflows", 1); increment(e, "stack_overflows", 1); }
+    }
+
+    /**
+     * Optional stalemate rule (scenario field "stall_turns").
+     *
+     * Activity means any life change: a damage or healing event reported by
+     * the engine (counted even when damage and healing cancel out within a
+     * turn), or a change in the exact list of entities with their current and
+     * maximum life (deaths, summons, erosion). Every entity of every team is
+     * included, alive or dead. When no activity happened for stall_turns
+     * consecutive turns, the fight stops as a draw. Without the field, the
+     * listener is not installed and fights run exactly as before.
+     */
+    static final class StallWatch implements FightListener {
+        private final int limit;
+        private final Metrics metrics;
+        private List<Integer> lastLives = null;
+        private long lastLifeEvents = -1;
+        private int lastActivityTurn = 1;
+        boolean stopped = false;
+
+        StallWatch(int limit, Metrics metrics) { this.limit = limit; this.metrics = metrics; }
+
+        @Override public void newTurn(Fight fight) {
+            // Called at the start of every entity turn; the turn number is shared.
+            var lives = new ArrayList<Integer>();
+            for (var entity : fight.getState().getAllEntities(true)) {
+                lives.add(entity.getFId());
+                lives.add(entity.getLife());
+                lives.add(entity.getTotalLife());
+            }
+            int turn = fight.getTurn();
+            if (!lives.equals(lastLives) || metrics.lifeEvents != lastLifeEvents) {
+                lastLives = lives;
+                lastLifeEvents = metrics.lifeEvents;
+                lastActivityTurn = turn;
+            } else if (!stopped && turn - lastActivityTurn >= limit) {
+                stopped = true;
+                fight.finishFight();
+            }
+        }
     }
 
     public static void main(String[] args) throws Exception {
@@ -168,19 +216,25 @@ public final class ArenaMain {
                         entity.ai_strict = false;
                     }
                 }
-                var metrics = new Metrics();
                 // Registers are empty at the start of every match; no database access.
                 var registers = new RegisterManager() {
                     public String getRegisters(int id) { return null; }
                     public void saveRegisters(int id, String value, boolean isNew) {}
                 };
-                var outcome = generator.runScenario(scenario, null, registers, metrics);
+                int stallTurns = config.hasNonNull("stall_turns") ? config.get("stall_turns").asInt() : 0;
+                var metrics = new Metrics();
+                var stall = stallTurns > 0 ? new StallWatch(stallTurns, metrics) : null;
+                var outcome = generator.runScenario(scenario, stall, registers, metrics);
                 if (outcome.exception != null) throw outcome.exception;
                 if (outcome.fight == null) throw new IllegalStateException("No fight outcome");
                 result = outcome.toJson();
                 result.put("duration", Math.min(outcome.duration, scenario.maxTurns));
                 result.set("team_metrics", metrics.teams);
                 result.set("turn_metrics", metrics.exportTurns());
+                if (stall != null) {
+                    result.put("stall_turns", stallTurns);
+                    result.put("stopped_by_stall", stall.stopped);
+                }
                 long commonLimit = -1;
                 boolean differentLimits = false;
                 for (var team : scenario.entities) {

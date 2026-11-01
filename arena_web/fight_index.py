@@ -28,7 +28,7 @@ def stages(root: Path):
     """Record directories in display order: (stage label, base directory)."""
     bases = [root, root / 'tournament', *sorted(root.glob('g*-tournament')),
              *sorted((root / 'evaluations').glob('g*-panel')), *sorted((root / 'evaluations').glob('g*-previous'))]
-    return [(base.relative_to(root).as_posix(), base) for base in bases if (base / 'records').is_dir()]
+    return [(base.relative_to(root).as_posix(), base) for base in bases if (base / 'records').is_dir() or (base / 'fights.sqlite').is_file()]
 
 
 def kind_of(stage: str) -> str:
@@ -183,13 +183,19 @@ class FightIndex:
             for number, (stage, base) in enumerate(found):
                 present.add(stage)
                 records = base / 'records'
-                stat = records.stat()
-                stamp = f'{stat.st_mtime_ns}:{stat.st_size}'
+                from arena.fight_store import FightStore
+                store = FightStore.at(base)
+                stat = records.stat() if records.is_dir() else None
+                seq = store.last_seq() if store else 0
+                stamp = f'{stat.st_mtime_ns if stat else 0}:{stat.st_size if stat else 0}:{seq}'
                 if not full and saved.get(stage) == stamp:
                     continue
                 if saved.get(stage) is None:
                     self.progress[run] = {'stage': stage, 'stages_done': number, 'stages': len(found)}
-                changed |= self._scan(db, run, stage, base, root, records)
+                if stat is not None:
+                    changed |= self._scan(db, run, stage, base, root, records)
+                if store is not None:
+                    changed |= self._scan_store(db, run, stage, base, root, store)
                 db.execute('INSERT OR REPLACE INTO directories VALUES (?,?,?)', (run, stage, stamp))
                 db.commit()
             for stage in set(saved) - present:
@@ -212,7 +218,8 @@ class FightIndex:
             self.checked[('full', run)] = time.monotonic()
 
     def _scan(self, db, run, stage, base, root, records):
-        known = dict(db.execute('SELECT name,stamp FROM fights WHERE run=? AND stage=?', (run, stage)))
+        # Rows indexed from a fight store carry a 'sha:' stamp; they are not files.
+        known = dict(db.execute("SELECT name,stamp FROM fights WHERE run=? AND stage=? AND stamp NOT LIKE 'sha:%'", (run, stage)))
         seen = set();updates = []
         with os.scandir(records) as entries:
             for entry in entries:
@@ -237,6 +244,26 @@ class FightIndex:
         if removed:
             db.executemany('DELETE FROM fights WHERE run=? AND stage=? AND name=?', removed)
         return bool(updates or removed)
+
+    def _scan_store(self, db, run, stage, base, root, store):
+        """Records published to the stage's fight store since the last scan."""
+        db.execute('CREATE TABLE IF NOT EXISTS store_seq (run TEXT, stage TEXT, seq INTEGER, PRIMARY KEY(run,stage))')
+        row = db.execute('SELECT seq FROM store_seq WHERE run=? AND stage=?', (run, stage)).fetchone()
+        after = row[0] if row else 0
+        updates = [];last = after
+        for seq, path, sha, modified in store.changes(after, 'records'):
+            last = max(last, seq)
+            try:
+                record = json.loads(store.blob(sha))
+            except (ValueError, ArenaError):
+                continue
+            projected = project(stage, base, root, record)
+            updates.append((run, stage, kind_of(stage), round_of(stage), Path(path).name, 'sha:' + sha,
+                            *(projected[column] for column in COLUMNS), modified))
+        if updates:
+            db.executemany(f'INSERT OR REPLACE INTO fights VALUES ({",".join("?" * (6 + len(COLUMNS) + 1))})', updates)
+        db.execute('INSERT OR REPLACE INTO store_seq VALUES (?,?,?)', (run, stage, last))
+        return bool(updates)
 
     def _scan_training(self, db, run, root, full):
         """Preparation tests: sessions/<sid>/tools/<call>/**/result.json next to scenario.json."""

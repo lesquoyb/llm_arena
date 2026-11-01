@@ -6,6 +6,16 @@ from arena.reference_strategies import repetitions
 from arena.tournament import schedule
 
 
+def stored_tail(path, log_tail):
+    """Last lines of an engine log, whether stored in a fight store or on disk."""
+    from arena.fight_store import stage_of
+    fight_store, name = stage_of(path)
+    content = fight_store.get(name) if fight_store is not None else None
+    if content is None:
+        return log_tail(path)
+    return content[-4000:].decode('utf-8', errors='replace')
+
+
 def audit(store, identifier, generation=None):
     root=store.run_path(identifier);metadata=store.json(root/'experiment.json',{})
     config=effective(root,metadata.get('config',{}))
@@ -24,13 +34,16 @@ def audit(store, identifier, generation=None):
     frozen=store.json(tournament/'experiment.json',{})
     planned_ids={match['id'] for match in frozen.get('schedule',[])}
     recorded={};invalid=[];failure_groups=Counter();failure_samples=[]
-    for path in sorted((tournament/'records').glob('*.json')):
+    from arena.fight_store import stage_records, read_bytes
+    fight_store,entries=stage_records(tournament) if tournament.is_dir() else (None,{})
+    for key_name,(location,full) in entries.items():
+        path=tournament/'records'/(key_name+'.json')
         try:
-            value=store.workspace_artifact(path,'record');match=value['match']
+            value=full;match=value['match']
             key=match.get('id') or digest({'sides':match['sides'],'seed':match['seed'],'mirror':match.get('mirror',False)})[:20]
             recorded[key]=value
             if value['result'].get('status')!='completed':
-                full=store.json(path);result=full['result']
+                result=full['result']
                 signature=(result.get('status','unknown'),str(result.get('error','No recorded engine error')))
                 failure_groups[signature]+=1
                 if len(failure_samples)<8 and not any((sample['status'],sample['error'])==signature for sample in failure_samples):
@@ -39,8 +52,8 @@ def audit(store, identifier, generation=None):
                     work=safe_path(root,(tournament/full['directory']).relative_to(root).as_posix())
                     failure_samples.append({'record':path.relative_to(root).as_posix(),'status':signature[0],'error':signature[1],
                         'failure_details':result.get('failure_details'), 'timings':result.get('timings',{}),
-                        'stderr_tail':log_tail(safe_path(root,(work/'stderr.log').relative_to(root).as_posix())),
-                        'stdout_tail':log_tail(safe_path(root,(work/'stdout.log').relative_to(root).as_posix()))})
+                        'stderr_tail':stored_tail(work/'stderr.log',log_tail),
+                        'stdout_tail':stored_tail(work/'stdout.log',log_tail)})
         except (ArenaError,OSError,ValueError,KeyError,TypeError) as error:
             invalid.append({'record':path.name,'error':str(error)})
     config['_fixed_reference_repetitions']=metadata.get('fixed_reference_repetitions',config.get('replicates',1))

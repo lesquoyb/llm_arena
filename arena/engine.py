@@ -330,6 +330,8 @@ class Engine:
             "replay_sha256": digest(replay),
             "outcome_sha256": outcome_hash,
         }
+        if outcome.get("stopped_by_stall"):
+            result["stopped_by_stall"] = True
         timings['script_execution_seconds']=sum(row.get('turn_elapsed_ns',0) for row in outcome.get('team_metrics',{}).values())/1_000_000_000
         timings['result_read_seconds']=time.monotonic()-reading
         return result

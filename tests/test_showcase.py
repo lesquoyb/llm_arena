@@ -16,10 +16,13 @@ class ShowcaseTests(unittest.TestCase):
         self.assertNotIn('1', catalogs['weapons'])
         with scratch_directory() as tmp:
             run_tournament(Engine(), load_manifest(ROOT / 'examples/showcase/tournament.json'), tmp / 'run')
-            outcomes = list((tmp / 'run').rglob('outcome.json'))
+            from arena.fight_store import FightStore, release
+            store = FightStore.at(tmp / 'run')
+            outcomes = [name for name in store.list('matches') if name.endswith('/outcome.json')]
             self.assertEqual(len(outcomes), 2)
+            self.assertFalse(list((tmp / 'run').rglob('outcome.json')))
             for path in outcomes:
-                outcome = read_json(path)
+                outcome = store.get_json(path)
                 fight = outcome['fight']
                 actions = fight['actions']
                 self.assertFalse(any(a[0] in (1000, 1002) for a in actions))

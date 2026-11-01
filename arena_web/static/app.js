@@ -510,12 +510,21 @@ function activityDuration(started) {
   return seconds<60?`${seconds}s`:`${Math.floor(seconds/60)}m ${seconds%60}s`;
 }
 const activityClock=start=>`<span data-activity-clock="${start||''}">${activityDuration(start)}</span>`;
+// Internal evaluation labels (g1-panel, g2-previous) as readable descriptions.
+function batchLabel(label) {
+  const match=String(label).match(/^g(\d+)-(panel|previous)$/);
+  if(!match)return label;
+  const round=Number(match[1])+1;
+  return match[2]==='panel'
+    ?`Round ${round} strategies vs the fixed reference panel (Round 1 strategies + built-in scripts, unscored)`
+    :`Round ${round} strategies vs Round ${round-1} strategies (unscored progression check)`;
+}
 function batchProgressMarkup(progress) {
   if(!progress || !Number.isFinite(progress.total) || !progress.label)return '';
   const count=value=>Number.isFinite(value)?Math.max(0,value):0;
   const total=count(progress.total),reused=count(progress.reused),completed=count(progress.completed),failed=count(progress.failed);
   const resolved=reused+completed+failed;
-  return `<p class="activity-batch-progress"><strong>${e(progress.label)}: ${fmt(resolved)} / ${fmt(total)} resolved</strong> · ${fmt(reused)} reused · ${fmt(completed)} completed now · ${fmt(failed)} failed · ${fmt(Math.max(0,total-resolved))} remaining · ${fmt(count(progress.checked))} fixtures checked</p>`;
+  return `<p class="activity-batch-progress"><strong>${e(batchLabel(progress.label))}: ${fmt(resolved)} / ${fmt(total)} resolved</strong> · ${fmt(reused)} reused · ${fmt(completed)} completed now · ${fmt(failed)} failed · ${fmt(Math.max(0,total-resolved))} remaining · ${fmt(count(progress.checked))} fixtures checked</p>`;
 }
 function runtimeDuration(value) {
   const seconds=Math.max(0,Math.floor(Number.isFinite(value)?value:0));
@@ -1908,8 +1917,18 @@ function engineSummary() {
   const engine=S.boot.engine||{},lock=engine.identity?.lock||{};
   return `<section class="panel engine-summary"><div class="panel-head"><h2>Game engine</h2>${btn('Recheck engine','refresh')}</div><p>${engine.ready?badge('Ready','green'):badge('Check failed','orange')} ${engine.ready?`Leek Wars generator <span class="mono">${e(String(lock.commit||'').slice(0,10))}</span> · LeekScript ${e(lock.language_version??'')} · Java ${e(lock.java_major??'')}`:e(engine.error||'')}</p></section>`;
 }
+function storagePanel() {
+  const value=S.storageStatus?.run===S.run?S.storageStatus.value:null;
+  if(!value) {
+    runResource('/api/storage',{run:S.run}).then(result=>{S.storageStatus={run:S.run,value:result};const node=$('#storage-panel');if(node)LiveDOM.replace(node,storagePanel());}).catch(()=>{});
+    return '<section class="panel" id="storage-panel"><h2>Storage</h2><p class="muted">Checking storage…</p></section>';
+  }
+  const stored=value.stages.reduce((sum,row)=>sum+row.store_bytes,0),legacy=value.stages.filter(row=>row.legacy_folders);
+  const running=activeJobs().some(job=>job.run===S.run);
+  return `<section class="panel" id="storage-panel"><div class="panel-head"><h2>Storage</h2>${legacy.length&&!S.detail?.archived?btn('Compact storage','compact-storage',running?'disabled title="Stop the competition first"':''):''}</div><p>${fmt(stored/1e6,1)} MB in compressed fight stores.${legacy.length?` ${legacy.length} stage${legacy.length===1?'':'s'} still keep one folder per fight (${legacy.map(row=>e(row.stage)).join(', ')}). Compaction typically frees about 95% of that space.`:' Every stage uses the compact store.'}</p></section>`;
+}
 function activityPage(d) {
-  return '<div id="activity-page">'+competitionActivity()+competitionRecovery(d)+engineSummary()+
+  return '<div id="activity-page">'+competitionActivity()+competitionRecovery(d)+engineSummary()+storagePanel()+
     (d.roster?`<details class="panel"><summary>Participant changes · revision ${d.roster.revision}</summary><p>${d.roster.active.length} active · ${d.roster.withdrawn.length} withdrawn</p>${btn('Edit participants','edit-run-participants')}</details>`:'')+'</div>';
 }
 function runHeader(d) {
@@ -4061,6 +4080,10 @@ document.addEventListener("click", async (event) => {
     }
     else if (a === 'run-remaining-fights') {
       await api('/api/run/run-fights',{run:S.run},true);toast('Remaining fights requested from frozen submissions. No model requests will be sent.');await refreshBoot();
+    }
+    else if (a === 'compact-storage') {
+      if(!confirm('Move this competition\'s fight folders into compressed SQLite stores? Each stored file is checked before its folder is deleted. The competition must stay stopped until it finishes.'))return;
+      await api('/api/run/compact-storage',{run:S.run},true);toast('Storage compaction started. Follow it in the run log.');await refreshBoot();
     }
     else if (a === 'retry-failed-fights') {
       await api('/api/run/retry-fights',{run:S.run},true);toast('Engine fight retries requested. Model conversations are not restarted.');await refreshBoot();

@@ -84,6 +84,9 @@ def scratch_directory():
         resolved = path.resolve()
         if resolved.parent != base or is_link(path):
             raise ArenaError(f"Refusing to clean up unexpected temporary path: {path}")
+        # Fight stores keep a SQLite handle open; Windows cannot delete it otherwise.
+        from .fight_store import release
+        release(resolved)
         shutil.rmtree(resolved)
 
 
@@ -206,7 +209,7 @@ def integer(value, low: int, high: int | None, label: str):
 def validate_scenario(config: dict):
     if not isinstance(config, dict):
         raise ArenaError("scenario must be an object")
-    unknown = set(config) - {"team_size", "max_turns", "entity", "map", "team_selection", "stats_mode", "member_stats", "preset", "source"}
+    unknown = set(config) - {"team_size", "max_turns", "stall_turns", "entity", "map", "team_selection", "stats_mode", "member_stats", "preset", "source"}
     if unknown:
         raise ArenaError(f"Unsupported scenario fields: {sorted(unknown)}")
     if config.get("preset") is not None and config["preset"] not in ("simple", "dream-team", "llm-team", "custom"):
@@ -219,6 +222,9 @@ def validate_scenario(config: dict):
     validate_rules(config)
     integer(config.get("team_size"), 1, 8, "team_size")
     integer(config.get("max_turns"), 1, 1000, "max_turns")
+    if config.get("stall_turns") is not None:
+        # Stalemate rule: a fight with no life change for this many turns is a draw.
+        integer(config["stall_turns"], 10, 1000, "stall_turns")
     entity = config.get("entity", {})
     allowed = {"level", "life", "strength", "agility", "frequency", "tp", "mp", "cores", "ram", "weapons", "chips", "wisdom", "resistance", "science", "magic"}
     if not isinstance(entity, dict) or set(entity) - allowed:
@@ -274,6 +280,9 @@ def make_scenario(config: dict, entries: list[str], seed: int, teams=None) -> di
         "random_seed": seed, "max_turns": config["max_turns"],
         "farmers": [], "teams": [], "entities": [],
     }
+    # Absent unless configured, so existing scenarios keep their exact hashes.
+    if config.get("stall_turns") is not None:
+        result["stall_turns"] = config["stall_turns"]
     if config.get("map") is not None:
         result["map"] = {k: (list(v) if isinstance(v, list) else v) for k, v in config["map"].items()}
     from .stats import member_stats

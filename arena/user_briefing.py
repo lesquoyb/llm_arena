@@ -7,7 +7,8 @@ def render(message):
     scenario=message.get('scenario') or {};brief=message.get('briefing') or {}
     rules=scenario.get('team_selection') or {};selected=bool(rules)
     sections=[message.get('content','').strip(),'## Scenario',brief.get('game','LeekWars: turn-based tactical combat on a grid.'),
-              f"Defeat the opposing team. Eliminating all enemies wins; no winner after {scenario.get('max_turns','the configured limit')} turns is a draw. Win=1, draw=0.5, loss=0."]
+              f"Defeat the opposing team. Eliminating all enemies wins; no winner after {scenario.get('max_turns','the configured limit')} turns is a draw. Win=1, draw=0.5, loss=0."
+              + (f" A fight also ends as a draw when no entity loses or recovers life for {scenario['stall_turns']} consecutive turns." if scenario.get('stall_turns') else '')]
     if not selected and not any(member.get('chips') for member in brief.get('roster',[])):
         sections=[part.replace(' Summons run their own callback scripts.','') for part in sections]
     if selected:

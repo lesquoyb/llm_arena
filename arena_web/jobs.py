@@ -1,4 +1,4 @@
-"""Supervise one local experiment at a time, using the existing CLI checkpoints."""
+"""Supervise local experiments (one process per competition), using the CLI checkpoints."""
 from __future__ import annotations
 
 import os
@@ -19,8 +19,12 @@ class Jobs:
     def __init__(self, store):
         self.store = store
         self.lock = threading.RLock()
+        # Several competitions may run at once; each owns its own process.
+        # process/current keep the most recently started one for callers that
+        # only follow a single job.
         self.process = None
         self.current = None
+        self.active = {}
         self.watcher = None
         self.path = store.state / "jobs.json"
         self.rows = read_json(self.path) if self.path.exists() else []
@@ -28,6 +32,19 @@ class Jobs:
             if row["status"] in {"running", "stopping"}:
                 row["status"] = "interrupted"
                 row["note"] = "The server was interrupted. Check the log before resuming."
+
+    def _entries(self):
+        entries = list(getattr(self, "active", {}).values())
+        if self.process is not None and self.current is not None and all(process is not self.process for process, _ in entries):
+            entries.append((self.process, self.current))
+        return entries
+
+    def running(self, run_id=None):
+        """(process, row) of the live job of a competition, or of any competition."""
+        for process, row in self._entries():
+            if process.poll() is None and (run_id is None or row.get('run') == run_id):
+                return process, row
+        return None, None
 
     def listing(self):
         with self.lock:
@@ -40,8 +57,8 @@ class Jobs:
         with self.lock:
             if (draft_id is None) == (run_id is None):
                 raise ArenaError("Choose a configuration or a competition to resume")
-            if self.process and self.process.poll() is None:
-                raise ArenaError("A competition is already running. Wait for it or stop it.")
+            if run_id is not None and self.running(run_id)[0] is not None:
+                raise ArenaError("This competition is already running. Wait for it or stop it.")
             if run_id is not None:
                 out = self.store.run_path(run_id)
                 metadata = read_json(out / "experiment.json")
@@ -178,6 +195,7 @@ class Jobs:
                                                 env=env, stdin=subprocess.DEVNULL, stdout=log,
                                                 stderr=subprocess.STDOUT, **options)
             self.current = row
+            self.active[run_id] = (self.process, row)
             self.rows.append(row)
             self._save()
             self.watcher = threading.Thread(target=self._watch, args=(self.process, row), daemon=True)
@@ -205,16 +223,18 @@ class Jobs:
                 state={**state,'in_flight':False,'money_reserved':'0',
                        'status':'running' if state.get('pending') else 'provider_unavailable'}
             if state.get('submission'):raise ArenaError('This conversation already has a frozen submission')
-            running=self.process and self.process.poll() is None
-            live=running and self.current['run']==run_id and self.current['status']=='running'
+            process,current=self.running(run_id)
+            running=process is not None
+            live=running and current['status']=='running'
             reason=retry_reason(state,{} if action=='restart' else config['budget_per_session'],parent)
             if action=='pause' or (action=='continue' and state.get('status')=='running' and (live or not state.get('in_flight'))):reason=None
             from arena.budget_context import tool_budget_exhausted
             if reason and (action=='restart' or not tool_budget_exhausted(state,config['budget_per_session'])):raise ArenaError(reason)
             if not active(config,state):raise ArenaError('Reactivate this participant before retrying it')
-            running=self.process and self.process.poll() is None
-            if running and (self.current['run']!=run_id or self.current['status']!='running'):
-                raise ArenaError('Another competition is running or this one is stopping')
+            process,current=self.running(run_id)
+            running=process is not None
+            if running and current['status']!='running':
+                raise ArenaError('This competition is stopping')
             identifier=uuid4().hex
             write_json(root/'recovery-commands'/(identifier+'.json'),{'id':identifier,'session':sid,'action':action,'message':message,'requested_at':time.time()})
             write_json(root/'conversation-controls'/(sid+'.json'),{'paused':action=='pause','requested_at':time.time()})
@@ -268,9 +288,10 @@ class Jobs:
             root=self.store.run_path(run_id)
             if (root/'export.json').exists():raise ArenaError('Exported archives are read-only')
             if 'config' not in read_json(root/'experiment.json'):raise ArenaError('Only managed model competitions support this action')
-            if self.process and self.process.poll() is None:
-                if not self.current or self.current['run']!=run_id or self.current['status']!='running':
-                    raise ArenaError('Another competition is running or this one is stopping')
+            process,current=self.running(run_id)
+            if process is not None:
+                if current['status']!='running':
+                    raise ArenaError('This competition is stopping')
                 command={'id':uuid4().hex,'requested_at':time.time(),'include_ready':include_ready}
                 write_json(root/'fight-retry-requests'/(command['id']+'.json'),command)
                 return {'status':'queued','no_model_requests':True}
@@ -286,7 +307,26 @@ class Jobs:
             with (logs/row['log']).open('wb') as log:
                 self.process=subprocess.Popen([sys.executable,'-m','arena_web.worker','experiment','retry-fights',str(root),*(['--include-ready'] if include_ready else [])],
                     cwd=ROOT,env=env,stdin=subprocess.DEVNULL,stdout=log,stderr=subprocess.STDOUT,**options)
-            self.current=row;self.rows.append(row);self._save()
+            self.current=row;self.active[run_id]=(self.process,row);self.rows.append(row);self._save()
+            self.watcher=threading.Thread(target=self._watch,args=(self.process,row),daemon=True);self.watcher.start()
+            return row
+
+    def compact_storage(self, run_id):
+        """Move a stopped competition's fight folders into its SQLite stores."""
+        with self.lock:
+            root=self.store.run_path(run_id)
+            if (root/'export.json').exists():raise ArenaError('Exported archives are read-only')
+            if self.running(run_id)[0] is not None:raise ArenaError('Stop the competition before compacting its storage')
+            identifier=uuid4().hex[:12];logs=self.store.state/'jobs';logs.mkdir(exist_ok=True)
+            env=dict(os.environ);env.update(PYTHONUTF8='1',ARENA_PROJECT_ROOT=str(ROOT))
+            options={'start_new_session':True} if os.name=='posix' else {'creationflags':subprocess.CREATE_NEW_PROCESS_GROUP}
+            metadata=read_json(root/'experiment.json')
+            row={'id':identifier,'run':run_id,'name':metadata.get('config',metadata.get('manifest',{})).get('name',run_id),'started_at':time.time(),
+                 'status':'running','mode':'compact_storage','log':identifier+'.log'}
+            with (logs/row['log']).open('wb') as log:
+                self.process=subprocess.Popen([sys.executable,'-m','arena','storage','compact',str(root)],
+                    cwd=ROOT,env=env,stdin=subprocess.DEVNULL,stdout=log,stderr=subprocess.STDOUT,**options)
+            self.current=row;self.active[run_id]=(self.process,row);self.rows.append(row);self._save()
             self.watcher=threading.Thread(target=self._watch,args=(self.process,row),daemon=True);self.watcher.start()
             return row
 
@@ -295,7 +335,7 @@ class Jobs:
         from arena.experiment import Journal, experiment_lock
         from arena.roster import update
         with self.lock:
-            if self.process and self.process.poll() is None:
+            if self.running(run_id)[0] is not None:
                 raise ArenaError('Stop the running competition before changing participant or metric-collection settings; checkpoints are retained')
             root = self.store.run_path(run_id)
             if (root / 'export.json').exists(): raise ArenaError('Exported archives are read-only')
@@ -314,7 +354,7 @@ class Jobs:
         from arena.experiment import Journal, experiment_lock
         from arena.recovery import reconcile
         with self.lock:
-            if self.process and self.process.poll() is None:
+            if self.running(run_id)[0] is not None:
                 raise ArenaError('Stop the running competition before reconciling a request')
             root = self.store.run_path(run_id)
             if (root / 'export.json').exists():
@@ -335,7 +375,10 @@ class Jobs:
             blocked = report.get('waiting_for_recovery') or report.get('incomplete')
             row.update(status="stopped" if row["status"] == "stopping" else "blocked" if code == 0 and blocked else "completed" if code == 0 else "failed",
                        returncode=code, finished_at=time.time())
-            if row.get('mode')=='retry_fights':
+            if row.get('mode')=='compact_storage':
+                row['status']='stopped' if row['status']=='stopped' else 'completed' if code==0 else 'failed'
+                row['note']='Fight folders moved into SQLite stores.' if code==0 else 'Compaction stopped; stored fights are kept and the command can be run again.'
+            elif row.get('mode')=='retry_fights':
                 if row['status']!='stopped':row['status']='completed' if code==0 else 'failed'
                 row['note']='Engine fight recovery finished; model conversations were not resumed.'
             if row['status'] == 'blocked' and row.get('mode')!='retry_fights':
@@ -344,27 +387,31 @@ class Jobs:
                                else 'Waiting for failed conversations to be recovered. Saved submissions and fights are retained.')
             self._save()
             root=self.store.runs/row['run']
-            if self.process is process and row['status']!='stopped' and any((root/'fight-retry-requests').glob('*.json')):
+            owner=self.active.get(row['run'],(None,None))[0]
+            if owner is process:self.active.pop(row['run'],None)
+            if (owner is process or self.process is process) and row['status']!='stopped' and any((root/'fight-retry-requests').glob('*.json')):
                 self.retry_fights(row['run'],include_ready=any(read_json(path).get('include_ready') for path in (root/'fight-retry-requests').glob('*.json')))
-            elif self.process is process and row['status']!='stopped' and code==0 and any((root/'recovery-commands').glob('*.json')):
+            elif (owner is process or self.process is process) and row['status']!='stopped' and code==0 and any((root/'recovery-commands').glob('*.json')):
                 metadata=read_json(root/'experiment.json')
                 self.launch(run_id=row['run'],confirm_paid=True,ceiling=metadata.get('config',{}).get('spending',{}).get('max_total_usd'),allow_updated_runner=True)
 
     def stop(self, identifier):
         with self.lock:
-            if not self.current or self.current["id"] != identifier or self.process.poll() is not None:
+            process, row = next(((process, row) for process, row in self._entries()
+                                 if row.get('id') == identifier and process.poll() is None), (None, None))
+            if process is None:
                 raise ArenaError("This run is no longer active")
-            self.current["status"] = "stopping"
+            row["status"] = "stopping"
             self._save()
             if os.name == "nt":
                 try:
-                    self.process.send_signal(signal.CTRL_BREAK_EVENT)
+                    process.send_signal(signal.CTRL_BREAK_EVENT)
                 except OSError:
                     from arena.engine import stop_worker
-                    stop_worker(self.process)
+                    stop_worker(process)
             else:
-                self.process.send_signal(signal.SIGINT)
-            return self.current
+                process.send_signal(signal.SIGINT)
+            return row
 
     def log(self, identifier):
         row = next((r for r in self.rows if r["id"] == identifier), None)
@@ -387,13 +434,14 @@ class Jobs:
 
     def close(self):
         with self.lock:
-            active = self.current if self.process and self.process.poll() is None else None
-        if active:
-            self.stop(active["id"])
+            active = [(process, row) for process, row in self._entries() if process.poll() is None]
+        for process, row in active:
+            self.stop(row["id"])
+        for process, row in active:
             try:
-                self.process.wait(timeout=10)
+                process.wait(timeout=10)
             except subprocess.TimeoutExpired:
                 from arena.engine import stop_worker
-                stop_worker(self.process)
+                stop_worker(process)
         if self.watcher:
             self.watcher.join(timeout=5)

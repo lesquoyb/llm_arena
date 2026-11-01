@@ -31,7 +31,8 @@ class FeedbackAccessTests(unittest.TestCase):
             schedule=[{**read_json(path)['match'],'id':path.stem} for path in sorted((stage/'records').glob('*.json'))]
             write_json(stage/'experiment.json',{'schedule':schedule})
             access=PastFights(out,'parent-r0',versions=[{'round':1,'session':'parent-r0'},{'round':2,'session':'later'}])
-            with mock.patch('arena.feedback.read_json',wraps=read_json) as reader:
+            from arena import fight_store
+            with mock.patch('arena.fight_store.read_bytes',wraps=fight_store.read_bytes) as reader:
                 listing=access.call('list_past_fights',{'round':1,'limit':1})
                 opened=[call.args[0] for call in reader.call_args_list]
                 self.assertEqual(listing['total'],18)
@@ -39,7 +40,7 @@ class FeedbackAccessTests(unittest.TestCase):
                 self.assertNotIn(stage/'records/mirror.json',opened)
                 self.assertFalse(any('g1-tournament' in path.parts for path in opened))
                 self.assertEqual(sum(path.parent.name=='records' for path in opened),1)
-            with mock.patch('arena.feedback.read_json',wraps=read_json) as reader:
+            with mock.patch('arena.fight_store.read_bytes',wraps=fight_store.read_bytes) as reader:
                 access.call('read_past_fight',{'fight_id':listing['matches'][0]['fight_id']})
                 results=[call.args[0] for call in reader.call_args_list if call.args[0].parent.name=='records']
                 self.assertEqual(len(results),1)
