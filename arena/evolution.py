@@ -29,19 +29,14 @@ def references(engine, config, out, journal, entrants, label, panel, *, incremen
     # A completed evaluation is sealed: the same entrants, panel, seeds and
     # rules over an unchanged set of records reuse results.json instead of
     # re-checking every fight on each resume.
-    import os
     from .core import file_hash
     from .run_memory import shared
     seal_path=root/'seal.json'
-    def listing():
-        entries=[]
-        if (root/'records').is_dir():
-            with os.scandir(root/'records') as items:
-                for item in items:
-                    stat=item.stat();entries.append((item.name,stat.st_size,stat.st_mtime_ns))
-        return digest({'files':sorted(entries),'store':store.last_seq()})
-    seal_signature=digest({'version':1,'entrants':sorted((s['id'],s['submission']['sha256']) for s in entrants),
-                           'panel':sorted((s['id'],s['submission']['sha256']) for s in panel),
+    from .fight_store import stage_fingerprint
+    listing=lambda:stage_fingerprint(root)
+    fingerprint=lambda s:s['submission'].get('sha256') or digest(s['submission'])
+    seal_signature=digest({'version':1,'entrants':sorted((s['id'],fingerprint(s)) for s in entrants),
+                           'panel':sorted((s['id'],fingerprint(s)) for s in panel),
                            'seeds':config['final_seeds'],'scenario':scenario_config,'incremental':incremental})
     if seal_path.is_file() and (root/'results.json').is_file():
         seal=read_json(seal_path)

@@ -322,6 +322,21 @@ def stage_records(stage: Path):
     return store, result
 
 
+def stage_fingerprint(root):
+    """Cheap identity of a stage's records: legacy record files (name, size,
+    mtime) plus the store's last sequence number. Any new, retried or edited
+    fight changes it, so a seal over it is invalidated."""
+    from .core import digest
+    root = Path(root)
+    entries = []
+    if (root / 'records').is_dir():
+        with os.scandir(root / 'records') as items:
+            for item in items:
+                stat = item.stat(); entries.append((item.name, stat.st_size, stat.st_mtime_ns))
+    store = FightStore.at(root) if (root / NAME).is_file() else None
+    return digest({'files': sorted(entries), 'store': store.last_seq() if store else 0})
+
+
 def release(directory):
     """Close and forget every store at or below a directory (before deleting it)."""
     directory = Path(directory).resolve()

@@ -200,6 +200,34 @@ class EvaluationSealTests(unittest.TestCase):
             release(out)
 
 
+class TournamentSealTests(unittest.TestCase):
+    def test_finished_round_is_not_rechecked_after_a_restart(self):
+        from types import SimpleNamespace
+        from unittest import mock
+        from arena import greedy
+        from arena.run_memory import forget
+        config = read_json(ROOT / 'configs/offline-complete.json')
+        states = {sid: {'model': 'm', 'replicate': 0, 'generation': 1, 'parent': 'p', 'submission': {'entrypoint': 'main.leek', 'sha256': sid}}
+                  for sid in ('a', 'b')}
+        journal = SimpleNamespace(metadata=lambda: states)
+        expected = 2 * len(config['final_seeds']) + (2 * len(config['final_seeds']) if config['include_mirrors'] else 0)
+        done = {'completed': expected, 'failed': 0, 'pending': 0}
+        with scratch_directory() as out:
+            (out / 'g1-tournament').mkdir()
+            with mock.patch('arena.greedy.run_tournament', return_value=done):
+                self.assertEqual(greedy.evaluate(None, config, out, journal, 1), done)
+            self.assertTrue((out / 'g1-tournament/seal.json').is_file())
+            forget(out)  # A new process: only the seal can skip the checks.
+            with mock.patch('arena.greedy.run_tournament', side_effect=AssertionError('re-checked a sealed round')):
+                self.assertEqual(greedy.evaluate(None, config, out, journal, 1), done)
+            # A new or retried fight record breaks the seal.
+            forget(out)
+            write_json(out / 'g1-tournament/records/x.json', {})
+            with mock.patch('arena.greedy.run_tournament', return_value=done) as tournament:
+                greedy.evaluate(None, config, out, journal, 1)
+                self.assertTrue(tournament.called)
+
+
 class SimpleJournal:
     """Evaluation runs only append evidence through the journal."""
     def __init__(self, out):

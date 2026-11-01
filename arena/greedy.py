@@ -1,5 +1,6 @@
 """Evaluate the immutable submissions already available in the current round."""
 from .scenario_rules import scenario_for
+from .fight_store import stage_fingerprint
 from .tournament import run_tournament
 
 
@@ -36,10 +37,24 @@ def evaluate(engine, config, out, journal, generation=0, *, final=False):
         evaluations.pop(generation,None);cached=None
     if cached and cached[0]==signature and sum(cached[1].get(key,0) for key in ('completed','failed','pending','cancelled'))==expected:
         return cached[1]
+    # A finished round is sealed: on resume, the same entrants over unchanged
+    # stored records reuse its result instead of re-hashing every fight.
+    seal_path=root/'seal.json'
+    finished=lambda value:(not value.get('deferred') and not value.get('pending') and not value.get('retry_pending')
+                           and not value.get('failed') and value.get('completed',0)+value.get('cancelled',0)==expected)
+    if not cached and seal_path.is_file():
+        from .core import read_json
+        seal=read_json(seal_path)
+        if seal.get('signature')==signature and seal.get('records')==stage_fingerprint(root) and finished(seal.get('result',{})):
+            evaluations[generation]=(signature,seal['result'])
+            return seal['result']
     verified_cache=shared(out,'verified_tournament_records').setdefault(str(root),{})
     from .activity import operation
     with operation(out,'checking_fights',generation=generation,participants=[s['id'] for s in ready]):
         result=run_tournament(engine,manifest,root,root.exists(),allow_extend=True,priority_ids=priority,reference_ids=priority,parallel_fights=config.get("_parallel_fights",config.get("parallel_fights",1)),verified_cache=verified_cache)
     if not result.get('deferred') and not result.get('pending') and not result.get('retry_pending') and retry_epoch==getattr(journal,'_fight_retry_epoch',0):
         evaluations[generation]=(signature,result)
+        if finished(result):
+            from .core import write_json
+            write_json(seal_path,{'signature':signature,'records':stage_fingerprint(root),'result':result})
     return result
