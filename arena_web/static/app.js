@@ -87,9 +87,10 @@ function compactGroupedBars(scope) {
       const start=L+index*step+(step-order.length*band)/2;
       set(label,'x',L+(index+.5)*step);
       for(const bar of active) {
-        const initial=Number(round)===0,width=initial?band-6:Math.floor((band-4)/2);
+        // Round 1 and merged reference bars fill the model's whole slot.
+        const single=Number(round)===0||bar.dataset.barCondition==='reference',width=single?band-6:Math.floor((band-4)/2);
         const slot=order.indexOf(bar.dataset.chartModel),condition=bar.dataset.barCondition==='feedback'?1:0;
-        set(bar,'x',start+slot*band+(initial?3:condition*(width+2)+1));
+        set(bar,'x',start+slot*band+(single?3:condition*(width+2)+1));
         set(bar,'width',width);
       }
     }
