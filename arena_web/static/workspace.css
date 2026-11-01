@@ -411,6 +411,7 @@ body[data-view=editor] main { padding-bottom:140px; }
 .activity-inline { display:flex; align-items:center; gap:12px; padding:7px 12px; background:var(--paper); border:1px solid var(--border); border-radius:8px; font-size:12px; }
 .activity-inline > strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .activity-inline > .button:last-child { margin-left:auto; padding:4px 9px; font-size:12px; }
+.activity-inline > .activity-error { color:#b42318; min-width:0; overflow-wrap:anywhere; }
 #activity-page { max-width:1440px; margin:auto; }
 #activity-page .competition-activity { margin-top:0; }
 .matrix-axis { text-align:left; color:var(--ink); white-space:nowrap; }

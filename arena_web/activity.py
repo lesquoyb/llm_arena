@@ -18,6 +18,14 @@ def planning_snapshot(store, path):
     return compact
 
 
+def job_note(store, job):
+    # Jobs that failed before the reason was recorded read it from their log.
+    if job and job.get('status')=='failed' and not job.get('note') and job.get('log'):
+        from .jobs import failure_reason
+        return failure_reason(store.state/'jobs'/job['log'])
+    return (job or {}).get('note')
+
+
 def status(store, identifier, job=None):
     root=store.run_path(identifier)
     metadata=store.json(root/'experiment.json',{})
@@ -132,7 +140,7 @@ def status(store, identifier, job=None):
         preparations.append({'session':sid,'model':state['model'],'phase':phase})
     waiting=[{'model':model,'count':max(0,per_model[model]-sum(state['model']==model for state in current.values()))} for model in models]
     waiting=[item for item in waiting if item['count']]
-    return {'labels':{sid:{'model':state['model'],'round':state.get('generation',0)+1,'condition':state.get('condition','initial'),'replicate':state.get('replicate',0)} for sid,state in states.items()}, 'running':running,'job_status':(job or {}).get('status'),'job_note':(job or {}).get('note'),
+    return {'labels':{sid:{'model':state['model'],'round':state.get('generation',0)+1,'condition':state.get('condition','initial'),'replicate':state.get('replicate',0)} for sid,state in states.items()}, 'running':running,'job_status':(job or {}).get('status'),'job_note':job_note(store,job),
             'requested_parallel_fights':store.json(root/'execution-control.json',{}).get('parallel_fights',roster.get('parallel_fights',config.get('parallel_fights',1))),
             'parallel_requests':roster.get('parallel_requests',config.get('parallel_requests',1)),'round':generation+1,'work_round':work_generation+1 if work_generation is not None else None,'rounds':config.get('generations',1),'participants':len(models),
             'withdrawn':len(withdrawn),'ready_participants':ready_models,'strategies_ready':ready,

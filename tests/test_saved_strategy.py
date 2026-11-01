@@ -38,6 +38,26 @@ class SavedStrategyTests(TestCase):
             with self.assertRaisesRegex(ArenaError,'already exists'):
                 store.import_strategy('source','fixed-r0','copy')
 
+    def test_round_rule_change_keeps_saved_strategy_bound_to_frozen_scenario(self):
+        from arena.core import write_json
+        with scratch_directory() as root:
+            scenario=simple_scenario();scenario.pop('stall_turns',None)
+            model=participant('turret','fixed',scenario)
+            config=read_json(ROOT/'configs/offline-demo.json')
+            config.update(models=[model],scenario=scenario,_scenario_changes=[{'from_generation':1,'stall_turns':100}])
+            out=root/'runs'/'source';out.mkdir(parents=True)
+            write_json(out/'experiment.json',{'config':config})
+            journal=Journal(out)
+            try:
+                from arena.experiment import initial_state
+                state=initial_state('fixed-r0-g1-feedback',model,config);state['generation']=1
+                journal.save('fixed-r0-g1-feedback',state,'fixture')
+                with mock.patch('arena.experiment.provider_response',side_effect=AssertionError('No inference')):
+                    run_session('fixed-r0-g1-feedback',model,config,out,journal,None)
+                self.assertEqual(journal.state('fixed-r0-g1-feedback')['status'],'submitted')
+            finally:
+                journal.db.close()
+
     def test_fingerprint_and_scenario_changes_are_rejected_before_launch(self):
         config=read_json(ROOT/'configs/offline-demo.json')
         config['scenario']=simple_scenario()

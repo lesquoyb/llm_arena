@@ -744,7 +744,7 @@ def run_session(sid, model, config, out, journal, engine, interrupt=None):
         return
     if model.get("profile") == "saved-strategy" and model.get("provider") == "mock":
         from .saved_strategy import restore
-        restore(model, tools, state, sid, journal)
+        restore(model, tools, state, sid, journal, config["scenario"])
         return
     verify_workspace(state, tools)
     budget = config["budget_per_session"]

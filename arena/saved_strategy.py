@@ -32,8 +32,10 @@ def validate(model, scenario=None):
     return value
 
 
-def restore(model, tools, state, sid, journal):
-    value=validate(model,tools.scenario)
+def restore(model, tools, state, sid, journal, original_scenario=None):
+    # The strategy is bound to the competition's frozen scenario; audited
+    # per-round rule changes (tools.scenario) do not unbind it.
+    value=validate(model,tools.scenario if original_scenario is None else original_scenario)
     from .experiment import workspace_files
     existing=workspace_files(tools.workspace)
     if any(value['submission']['files'].get(name)!=sha for name,sha in existing.items()):

@@ -109,6 +109,18 @@ class IndexedOverviewTests(unittest.TestCase):
             release(run)
 
 
+class FailedJobReasonTests(unittest.TestCase):
+    def test_failed_job_reports_the_error_that_ended_it(self):
+        from arena_web.jobs import failure_reason
+        with scratch_directory() as root:
+            log=root/'job.log'
+            log.write_text('[arena] phase=idle\nArena error: Saved strategy x requires its original scenario.\n',encoding='utf-8')
+            self.assertEqual(failure_reason(log),'Arena error: Saved strategy x requires its original scenario.')
+            log.write_text('Traceback (most recent call last):\n  File "a.py", line 1 in run\nKeyError: \'scenario\'\n',encoding='utf-8')
+            self.assertEqual(failure_reason(log),"Runner error: KeyError: 'scenario'")
+            self.assertIn('run log',failure_reason(root/'missing.log'))
+
+
 class StallRuleTests(unittest.TestCase):
     def test_scenario_field_is_optional_bounded_and_briefed(self):
         from arena.core import DEFAULT_SCENARIO, make_scenario, validate_scenario

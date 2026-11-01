@@ -15,6 +15,24 @@ from arena.experiment import validate_config
 from arena.usage import amount
 
 
+def failure_reason(log_path):
+    """The error that ended a failed job, read from the end of its run log."""
+    try:
+        with open(log_path, 'rb') as handle:
+            handle.seek(0, os.SEEK_END); handle.seek(max(0, handle.tell() - 20000))
+            lines = [line.strip() for line in handle.read().decode('utf-8', 'replace').splitlines() if line.strip()]
+    except OSError:
+        return 'The runner stopped with an error; see the run log.'
+    for line in reversed(lines):
+        if line.startswith('Arena error:'):
+            return line
+    # An unexpected exception ends with "Type: message" after its traceback.
+    for line in reversed(lines):
+        if not line.startswith(('[arena]', 'File ', 'Thread ', 'Traceback')) and ':' in line:
+            return 'Runner error: ' + line[:500]
+    return 'The runner stopped with an error; see the run log.'
+
+
 class Jobs:
     def __init__(self, store):
         self.store = store
@@ -385,6 +403,8 @@ class Jobs:
             elif row.get('mode')=='retry_fights':
                 if row['status']!='stopped':row['status']='completed' if code==0 else 'failed'
                 row['note']='Engine fight recovery finished; model conversations were not resumed.'
+            if row['status'] == 'failed' and not row.get('note'):
+                row['note'] = failure_reason(self.store.state / 'jobs' / row['log'])
             if row['status'] == 'blocked' and row.get('mode')!='retry_fights':
                 row['note'] = ('Engine fights remain incomplete. Retry failed fights, then resume to continue the next round.'
                                if not report.get('blocked_sessions') and ((report.get('tournament') or {}).get('failed') or ((report.get('evolution') or {}).get('contemporaries') or {}).get('failed'))
