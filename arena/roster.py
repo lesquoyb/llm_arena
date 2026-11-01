@@ -48,7 +48,7 @@ def validate_effective(config, withdrawn):
     return config
 
 
-def update(out, journal, original, catalog, selected, frozen_tracks=None, compare_previous_round=None, parallel_fights=None, request_order=None, parallel_requests=None):
+def update(out, journal, original, catalog, selected, frozen_tracks=None, compare_previous_round=None, parallel_fights=None, request_order=None, parallel_requests=None, rule_change=None):
     if not isinstance(selected, list) or not selected or any(not isinstance(value,str) for value in selected) or len(set(selected)) != len(selected):
         raise ArenaError('Select at least one participant, without duplicates')
     previous = snapshot(out)
@@ -85,7 +85,15 @@ def update(out, journal, original, catalog, selected, frozen_tracks=None, compar
     if request_order not in ('models','repetitions'):raise ArenaError('Request order must be models or repetitions')
     if parallel_requests is None:parallel_requests=(previous or {}).get('parallel_requests',original.get('parallel_requests',1))
     integer(parallel_requests,1,20,'parallel_requests')
-    change = {'parallel_requests':parallel_requests,'request_order':request_order,'parallel_fights':parallel_fights,'compare_previous_round':compare_previous_round, 'frozen_tracks':frozen_tracks, 'revision':(previous or {}).get('revision',0)+1, 'models':models,
+    # Game-rule changes apply from the next round that has no checkpoint yet,
+    # so every existing fight keeps the scenario it was played and verified with.
+    scenario_changes=list((previous or {}).get('scenario_changes',[]))
+    if rule_change is not None:
+        from .scenario_rules import validated_change
+        next_round=max(state.get('generation',0) for state in states.values())+1
+        entry=validated_change(rule_change,next_round)
+        scenario_changes=[row for row in scenario_changes if row['from_generation']!=next_round]+[entry]
+    change = {'scenario_changes':scenario_changes,'parallel_requests':parallel_requests,'request_order':request_order,'parallel_fights':parallel_fights,'compare_previous_round':compare_previous_round, 'frozen_tracks':frozen_tracks, 'revision':(previous or {}).get('revision',0)+1, 'models':models,
               'active':selected, 'withdrawn':withdrawn,
               'added':sorted(set(selected)-old_active), 'removed':sorted(old_active-set(selected)),
               'at_round':max(state.get('generation',0) for state in states.values())+1,

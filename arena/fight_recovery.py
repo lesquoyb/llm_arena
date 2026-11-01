@@ -26,6 +26,8 @@ def run(directory, *, engine=None, journal=None, cooperative=False, include_read
         try:
             if owns_journal and provider_work_ready():return {'deferred':True,'no_model_requests':True,'remaining_failed':0}
             config=effective(out,metadata['config']);roster=snapshot(out) or {}
+            config['_scenario_changes']=roster.get('scenario_changes',[])
+            from .scenario_rules import generation_of, scenario_for
             withdrawn=set(roster.get('withdrawn',[]))
             parallel_fights=roster.get('parallel_fights',config.get('_parallel_fights',config.get('parallel_fights',1)))
             from .execution_control import poll
@@ -88,12 +90,13 @@ def run(directory, *, engine=None, journal=None, cooperative=False, include_read
                             hashes,_=stored_sources(store,f'{inner}/strategies/{side}')
                             if hashes!=info['files']:raise ArenaError('Frozen fight source changed')
                         elif submission(work/'strategies'/str(side),info['entrypoint'])!=info:raise ArenaError('Frozen fight source changed')
-                    scenario=make_scenario(config['scenario'],[info['entrypoint'] for info in infos],record['seed'],[info.get('team') for info in infos])
+                    stage_scenario=scenario_for(config,generation_of(root.name))
+                    scenario=make_scenario(stage_scenario,[info['entrypoint'] for info in infos],record['seed'],[info.get('team') for info in infos])
                     saved=store.get_json(inner+'/scenario.json') if stored else read_json(work/'scenario.json')
                     if saved!=scenario or provenance['scenario_sha256']!=digest(scenario):raise ArenaError('Frozen fight scenario changed')
                     stage_store=store or FightStore.at(root,create=True)
                     pending_jobs[str(path)]={'record':record,'record_path':path,'legacy_record':None if isinstance(location,str) else location,
-                                 'infos':infos,'source':work,'source_inner':inner if stored else None,'store':stage_store,'stage':root,
+                                 'infos':infos,'source':work,'source_inner':inner if stored else None,'store':stage_store,'stage':root,'scenario':stage_scenario,
                                  'work':attempt_path(stage_store,root,work),
                                  'generation':states.get(sid,{}).get('generation',int(root.name.split('-')[0][1:])),
                                  'seed':record['seed'],'participants':[sid,record['opponent']]}
@@ -109,7 +112,7 @@ def run(directory, *, engine=None, journal=None, cooperative=False, include_read
                             for side in (1,2):job['store'].materialize(f"{job['source_inner']}/strategies/{side}",sources/str(side))
                             paths=[sources/str(side) for side in (1,2)]
                         else:paths=[job['source']/'strategies'/str(side) for side in (1,2)]
-                        result=engine.fight(paths,job['infos'],config['scenario'],job['seed'],folder)
+                        result=engine.fight(paths,job['infos'],job['scenario'],job['seed'],folder)
                         job['store'].ingest(job['work'].relative_to(job['stage']).as_posix(),folder)
                         return result
                 finally:callback.reset(token)

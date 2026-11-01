@@ -16,6 +16,9 @@ def references(engine, config, out, journal, entrants, label, panel, *, incremen
     """Both positions, identical reference opponents and final seeds for each branch."""
     root = out / "evaluations" / label
     root.mkdir(parents=True, exist_ok=True)
+    from .scenario_rules import generation_of, scenario_for
+    # g0-panel keeps the original rules; later evaluations use their round's rules.
+    scenario_config=scenario_for(config,generation_of(label))
     from .fight_store import FightStore
     store=FightStore.at(root,create=True)
     stage=root.relative_to(out).as_posix()
@@ -30,7 +33,7 @@ def references(engine, config, out, journal, entrants, label, panel, *, incremen
     from .run_memory import shared
     verified=shared(out,'verified_reference_records')
     from .scenario_cache import ScenarioCache
-    scenarios=ScenarioCache(config['scenario'])
+    scenarios=ScenarioCache(scenario_config)
     from .core import verify_source_files
     from .core import file_hash
     from .verification_cache import VerificationCache
@@ -43,7 +46,7 @@ def references(engine, config, out, journal, entrants, label, panel, *, incremen
         if key not in accepted_engines:
             accepted_engines[key]=provenance==engine.identity or (getattr(engine,'allow_updated_runner',False) and engine_compatible(provenance,engine.identity))
         return accepted_engines[key]
-    scenario_binding=digest(config['scenario'])
+    scenario_binding=digest(scenario_config)
     def validate_record(record,sources,seed):
         work=out/record['artifact_dir'];infos=[source['submission'] for source in sources]
         name=inner(record['artifact_dir'])
@@ -125,7 +128,7 @@ def references(engine, config, out, journal, entrants, label, panel, *, incremen
                                 if hashes and not stored_sha:hashes.remember_record(cached,record)
                                 if reference_only and not stored_sha:
                                     from .reference_cache import seed as seed_reference
-                                    seed_reference(engine,[source['submission'] for source in sources],config['scenario'],seed,work)
+                                    seed_reference(engine,[source['submission'] for source in sources],scenario_config,seed,work)
                             else:
                                 cached = None
                         if cached and (stored_sha or cached.exists()):
@@ -149,7 +152,7 @@ def references(engine, config, out, journal, entrants, label, panel, *, incremen
             from .fight_store import scratch
             with scratch() as folder:
                 result=fight(engine,[Path(source['path']) for source in job['sources']],
-                             [source['submission'] for source in job['sources']],config['scenario'],job['seed'],folder)
+                             [source['submission'] for source in job['sources']],scenario_config,job['seed'],folder)
                 update('archiving_result')
                 store.ingest(job['work'].relative_to(root).as_posix(),folder)
             if result['status']=='completed':
@@ -246,7 +249,9 @@ def run_generation(config, out, journal, engine, initial, interrupt=None, retry_
                              calls=0, completed_calls=0, steps=0, test_matches=0, wall_seconds=0, pending=None, cursor=0,
                              discarded_attempt_cost_usd="0", attempt=0,
                              in_flight=False, money_reserved="0", reservation_unbounded=False, cost_spent="0", input_tokens=0, output_tokens=0, diagnostic_calls=0, diagnostic_cost_usd="0")
-                state['history'] = initial_state(sid, models[parent_state['model']], config)['history']
+                from .scenario_rules import round_config
+                # The briefing states the rules in force for this round.
+                state['history'] = initial_state(sid, models[parent_state['model']], round_config(config, generation))['history']
                 state['message_times'] = []
                 state['history_policy'] = 'fresh-round'
                 state.pop('request_history_start', None)

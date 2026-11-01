@@ -726,7 +726,8 @@ def run_session(sid, model, config, out, journal, engine, interrupt=None):
     directory = out / "sessions" / sid
     from .feedback import access_for
     from .submitted_versions import OwnSubmissions
-    tools = Preparation(directory, out / "corpus", engine, config["scenario"], feedback=access_for(out, state),
+    from .scenario_rules import scenario_for
+    tools = Preparation(directory, out / "corpus", engine, scenario_for(config, state.get("generation", 0)), feedback=access_for(out, state),
                         allowed_tools=state.get("calibration", {}).get("tools"), versions=OwnSubmissions(out,state))
     if tool_budget_exhausted(state,config['budget_per_session']):
         verify_workspace(state,tools)
@@ -965,6 +966,7 @@ def run(config: dict, out: Path, resume=False, interrupt=None, prepare_only=Fals
             config['_frozen_tracks'] = (roster or {}).get('frozen_tracks', {})
             config['_roster_revision'] = (roster or {}).get('revision',0)
             config['_compare_previous_round'] = (roster or {}).get('compare_previous_round',config.get('compare_previous_round',False))
+            config['_scenario_changes'] = (roster or {}).get('scenario_changes',[])
             if resume:
                 from .recovery import needs_reconciliation, recover_zero_cost_requests
                 recover_zero_cost_requests(journal,config["models"])

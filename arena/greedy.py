@@ -1,4 +1,5 @@
 """Evaluate the immutable submissions already available in the current round."""
+from .scenario_rules import scenario_for
 from .tournament import run_tournament
 
 
@@ -20,7 +21,7 @@ def evaluate(engine, config, out, journal, generation=0, *, final=False):
     root = out/('tournament' if generation == 0 else f'g{generation}-tournament')
     manifest = {'name':config['name'] if generation == 0 else config['name']+f'-round-{generation+1}',
                 'seeds':config['seeds'] if generation == 0 else config['final_seeds'],
-                'scenario':config['scenario'], 'include_mirrors':config['include_mirrors'], 'strategies':ready}
+                'scenario':scenario_for(config,generation), 'include_mirrors':config['include_mirrors'], 'strategies':ready}
     # Append-only entrants: archived submissions, seeds and completed fixtures
     # are verified by run_tournament before any new fixtures are admitted.
     reference_models={model['id'] for model in config['models'] if model.get('provider')=='mock'}

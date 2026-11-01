@@ -265,7 +265,7 @@ class Application:
             config = data['config'] if data.get('frozen') else self.store.resolve_models(data['config'])
             return {**plan(validate_config(config)), 'config':config, 'config_sha256':digest(config)}
         if route == '/api/run/participants':
-            return self.jobs.participants(data['run'], data.get('participants'), data.get('frozen_tracks'), data.get('compare_previous_round'), data.get('parallel_fights'), data.get('request_order'), data.get('parallel_requests'))
+            return self.jobs.participants(data['run'], data.get('participants'), data.get('frozen_tracks'), data.get('compare_previous_round'), data.get('parallel_fights'), data.get('request_order'), data.get('parallel_requests'), data.get('rule_change'))
         if route == '/api/run/provider-limits':
             return self.jobs.provider_limits(data['run'],data['endpoint_limits'])
         if route == '/api/conversation/retry-policy':
