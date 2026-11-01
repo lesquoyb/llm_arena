@@ -156,3 +156,41 @@ class ParallelJobsTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class EvaluationSealTests(unittest.TestCase):
+    def test_completed_evaluation_is_reused_until_its_records_change(self):
+        from unittest import mock
+        from arena.core import copy_submission, submission
+        from arena.evolution import references
+        from test_roster import FixtureEngine
+        config = {**read_json(ROOT / 'configs/offline-complete.json'), 'final_seeds': [101]}
+        with scratch_directory() as out:
+            sources = []
+            for name in ('rush', 'passive'):
+                info = submission(ROOT / 'examples/strategies' / name)
+                copy_submission(ROOT / 'examples/strategies' / name, out / 'sources' / name, info)
+                sources.append({'id': name, 'path': out / 'sources' / name, 'submission': info})
+            journal = SimpleJournal(out)
+            first = references(FixtureEngine(), config, out, journal, sources[:1], 'g1-panel', sources[1:])
+            self.assertTrue((out / 'evaluations/g1-panel/seal.json').is_file())
+            with mock.patch('arena.fight_store.verify_stored_fight', side_effect=AssertionError('re-checked a sealed fight')):
+                self.assertEqual(references(FixtureEngine(), config, out, journal, sources[:1], 'g1-panel', sources[1:]), first)
+            # Any record change (here a retry publishing a new record) breaks the seal.
+            store = FightStore.at(out / 'evaluations/g1-panel', create=True)
+            name = store.list('records')[0]
+            store.put(name, store.get(name))
+            from arena.run_memory import forget
+            forget(out)  # A new process: only the seal could skip the checks.
+            with mock.patch('arena.fight_store.verify_stored_fight') as verify:
+                references(FixtureEngine(), config, out, journal, sources[:1], 'g1-panel', sources[1:])
+                self.assertTrue(verify.called)
+            release(out)
+
+
+class SimpleJournal:
+    """Evaluation runs only append evidence through the journal."""
+    def __init__(self, out):
+        self.out = out
+    def record(self, *args):
+        pass

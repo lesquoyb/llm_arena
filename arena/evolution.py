@@ -26,6 +26,33 @@ def references(engine, config, out, journal, entrants, label, panel, *, incremen
         # Records keep run-relative artifact paths; the store is stage-relative.
         if not artifact_dir.startswith(stage+'/'):raise ArenaError('Invalid stored fight path')
         return artifact_dir[len(stage)+1:]
+    # A completed evaluation is sealed: the same entrants, panel, seeds and
+    # rules over an unchanged set of records reuse results.json instead of
+    # re-checking every fight on each resume.
+    import os
+    from .core import file_hash
+    from .run_memory import shared
+    seal_path=root/'seal.json'
+    def listing():
+        entries=[]
+        if (root/'records').is_dir():
+            with os.scandir(root/'records') as items:
+                for item in items:
+                    stat=item.stat();entries.append((item.name,stat.st_size,stat.st_mtime_ns))
+        return digest({'files':sorted(entries),'store':store.last_seq()})
+    seal_signature=digest({'version':1,'entrants':sorted((s['id'],s['submission']['sha256']) for s in entrants),
+                           'panel':sorted((s['id'],s['submission']['sha256']) for s in panel),
+                           'seeds':config['final_seeds'],'scenario':scenario_config,'incremental':incremental})
+    if seal_path.is_file() and (root/'results.json').is_file():
+        seal=read_json(seal_path)
+        if (seal.get('signature')==seal_signature and seal.get('records')==listing()
+                and seal.get('results_sha256')==file_hash(root/'results.json')):
+            sealed=read_json(root/'results.json')
+            shared(out,'reference_results')[label]=dict(sealed)
+            from .fight_store import release
+            release(root)
+            return sealed
+    expected_keys=set()
     models={model['id']:model for model in config.get('models',[])}
     def fixed(source):
         if source.get('model') in models:return models[source['model']].get('provider')=='mock'
@@ -104,6 +131,7 @@ def references(engine, config, out, journal, entrants, label, panel, *, incremen
                         sources = [entrant, opponent] if side == 0 else [opponent, entrant]
                         reference_only=all(fixed(source) for source in sources)
                         key = digest({"entrant": entrant["id"], "opponent": opponent["id"], "seed": seed, "side": side})[:24]
+                        expected_keys.add(key)
                         progress['checked']+=1
                         record={}
                         cached = root / "records" / (key + ".json")
@@ -187,6 +215,9 @@ def references(engine, config, out, journal, entrants, label, panel, *, incremen
     if mirrors.get(label)!=results or not (root / "results.json").exists():
         write_json(root / "results.json", results)
     mirrors[label]=dict(results)
+    if expected_keys and all((results.get(key) or {}).get('result',{}).get('status')=='completed' for key in expected_keys):
+        write_json(seal_path,{'signature':seal_signature,'records':listing(),'results_sha256':file_hash(root/'results.json'),
+                              'fights':len(expected_keys)})
     from .fight_store import release
     release(root)
     if hashes:

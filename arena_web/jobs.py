@@ -179,6 +179,8 @@ class Jobs:
             if draft_id is None and allow_updated_runner:
                 args.append("--allow-updated-runner")
             env["PYTHONUTF8"] = "1"
+            # Progress lines must reach the run log as they are printed.
+            env["PYTHONUNBUFFERED"] = "1"
             env["ARENA_PROJECT_ROOT"] = str(ROOT)
             env["ARENA_STATE_ROOT"] = str(Path(engine.metadata["classes"]).parent)
             options = {"start_new_session": True} if os.name == "posix" else {
@@ -300,7 +302,7 @@ class Jobs:
             engine=Engine();metadata=read_json(root/'experiment.json')
             if not engine_compatible(metadata['engine'],engine.identity):raise ArenaError('Restore the original game engine before retrying fights')
             identifier=uuid4().hex[:12];logs=self.store.state/'jobs';logs.mkdir(exist_ok=True)
-            env=dict(os.environ);env.update(PYTHONUTF8='1',ARENA_PROJECT_ROOT=str(ROOT),ARENA_STATE_ROOT=str(Path(engine.metadata['classes']).parent))
+            env=dict(os.environ);env.update(PYTHONUTF8='1',PYTHONUNBUFFERED='1',ARENA_PROJECT_ROOT=str(ROOT),ARENA_STATE_ROOT=str(Path(engine.metadata['classes']).parent))
             options={'start_new_session':True} if os.name=='posix' else {'creationflags':subprocess.CREATE_NEW_PROCESS_GROUP}
             row={'id':identifier,'run':run_id,'name':metadata.get('config',{}).get('name',run_id),'started_at':time.time(),
                  'status':'running','mode':'retry_fights','log':identifier+'.log'}
@@ -318,7 +320,7 @@ class Jobs:
             if (root/'export.json').exists():raise ArenaError('Exported archives are read-only')
             if self.running(run_id)[0] is not None:raise ArenaError('Stop the competition before compacting its storage')
             identifier=uuid4().hex[:12];logs=self.store.state/'jobs';logs.mkdir(exist_ok=True)
-            env=dict(os.environ);env.update(PYTHONUTF8='1',ARENA_PROJECT_ROOT=str(ROOT))
+            env=dict(os.environ);env.update(PYTHONUTF8='1',PYTHONUNBUFFERED='1',ARENA_PROJECT_ROOT=str(ROOT))
             options={'start_new_session':True} if os.name=='posix' else {'creationflags':subprocess.CREATE_NEW_PROCESS_GROUP}
             metadata=read_json(root/'experiment.json')
             row={'id':identifier,'run':run_id,'name':metadata.get('config',metadata.get('manifest',{})).get('name',run_id),'started_at':time.time(),
