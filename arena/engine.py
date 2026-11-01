@@ -124,10 +124,22 @@ def setup(gradle: str | None = None):
     if f"Gradle {lock['gradle_version']}" not in version:
         raise ArenaError(f"Gradle {lock['gradle_version']} is required for the pinned build")
     command([*gradle_args, f"-Dorg.gradle.java.home={home}", "--no-daemon", "--init-script", ROOT / "engine/leekscript.init.gradle", "jar"], vendor)
+    return build_bridge(lock, home)
+
+
+def build_bridge(lock=None, home=None):
+    """Compile the arena adapter against the pinned jar and record engine metadata."""
+    lock = lock or read_json(ROOT / "engine.lock.json")
+    home = home or java_home()
+    vendor = ROOT / "vendor" / "leek-wars-generator"
     state = STATE_ROOT
     classes = state / "bridge"
-    classes.mkdir(parents=True, exist_ok=True)
     jar = vendor / "generator.jar"
+    if not jar.is_file():
+        raise ArenaError("Engine jar is missing. Run: python -m arena setup")
+    # Stale classes from an earlier adapter would change the bridge hash.
+    shutil.rmtree(classes, ignore_errors=True)
+    classes.mkdir(parents=True, exist_ok=True)
     command([home / "bin" / ("javac.exe" if os.name == "nt" else "javac"), "-encoding", "UTF-8", "-cp", jar, "-d", classes, ROOT / "engine/ArenaMain.java", ROOT / "engine/ArenaWorker.java"])
     metadata = {
         "lock": lock, "java": str(home / "bin" / ("java.exe" if os.name == "nt" else "java")),
@@ -182,16 +194,19 @@ class Engine:
                 not re.fullmatch(r"(?:[^\s]+@)?sha256:[a-f0-9]{64}", self.worker_image)):
             raise ArenaError("Docker worker requires a pinned ARENA_WORKER_IMAGE digest")
         self.identity["worker_backend"] = {"name": self.backend, "image": self.worker_image if self.backend == "docker" else None}
-        mode=os.environ.get('ARENA_JVM_MODE','pooled')
-        if mode not in {'pooled','isolated'}:raise ArenaError('ARENA_JVM_MODE must be pooled or isolated')
+        # warm: one engine classloader and compiled-strategy cache per JVM slot;
+        # pooled: fresh classloader per fight; isolated: one JVM per fight.
+        mode=os.environ.get('ARENA_JVM_MODE','warm')
+        if mode not in {'warm','pooled','isolated'}:raise ArenaError('ARENA_JVM_MODE must be warm, pooled or isolated')
         available=(Path(self.metadata['classes'])/'arena/bridge/ArenaWorker.class').is_file()
         self._jvm_pool=None
-        self.identity['worker_execution']='pooled-classloader' if mode=='pooled' and available and self.backend=='process' else 'isolated'
+        pooled=mode in {'warm','pooled'} and available and self.backend=='process'
+        self.identity['worker_execution']=('warm-classloader' if mode=='warm' else 'pooled-classloader') if pooled else 'isolated'
         from .jvm_options import settings
-        profile,self.worker_options,recycle=settings(self.identity['worker_execution']=='pooled-classloader')
+        profile,self.worker_options,recycle=settings(pooled,warm=pooled and mode=='warm')
         self.identity.update(worker_jvm_profile=profile,worker_jvm_options=self.worker_options,
-                             worker_jvm_recycle_matches=recycle if self.identity['worker_execution']=='pooled-classloader' else None)
-        if self.identity['worker_execution']=='pooled-classloader':
+                             worker_jvm_recycle_matches=recycle if pooled else None)
+        if pooled:
             from .jvm_pool import Pool
             self._jvm_pool=Pool(self,recycle=recycle)
         self.scientific_identity = {k: v for k, v in self.identity.items()

@@ -5,6 +5,26 @@ The native pooled default is now `throughput`: `-Xms32m -Xmx512m
 configurable with `ARENA_JVM_RECYCLE_MATCHES`. Idle slots still close after
 30 seconds. Isolated processes retain the previous startup preset.
 
+## Warm workers (default)
+
+Profiling showed that about 95% of a typical fight's JVM CPU went to per-fight
+setup rather than gameplay: reloading the engine in a fresh classloader and
+compiling both strategies (LeekScript to Java, then javac). Warm workers keep the
+engine loaded and reuse compiled strategies; see [the UI notes](../ui.md#reusable-jvm-workers)
+for the safeguards.
+
+Windows 11, 8 cores / 16 threads, Temurin 25.0.2, nine slots, `throughput` profile,
+400 `mixed` benchmark fights (`scripts/benchmark_engine.py --workers 9 --matches 400`):
+
+| Mode | Fights/min | Java CPU seconds | Peak JVM RSS, total |
+|---|---:|---:|---:|
+| `pooled` (fresh classloader per fight) | 830 | 274 | 5.3 GB |
+| `warm` | 3,537 | 40 | 1.3 GB |
+
+In one JVM replaying 30 stored round fights, steady-state CPU per fight fell from
+about 425 ms to 21 ms. With engine CPU this low, the Python side that schedules,
+verifies and stores fights becomes the next limit in a competition.
+
 ## Measurements
 
 Measured on Linux x86-64, Oracle HotSpot 25.0.5.0.3, with four CPU cores available

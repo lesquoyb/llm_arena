@@ -25,6 +25,15 @@ class JVMOptionTests(unittest.TestCase):
             with self.assertRaises(ArenaError):settings(True,{'ARENA_JVM_RECYCLE_MATCHES':value})
         with self.assertRaises(ArenaError):settings(True,{'ARENA_JVM_PROFILE':'invalid'})
 
+    def test_warm_workers_reuse_the_engine_and_live_longer(self):
+        profile,options,recycle=settings(True,{},warm=True)
+        self.assertEqual(profile,'throughput')
+        self.assertIn('-Darena.sharedEngine=true',options)
+        self.assertIn('-Darena.aiCache=true',options)
+        self.assertEqual(recycle,1000)
+        self.assertEqual(settings(True,{'ARENA_JVM_RECYCLE_MATCHES':'64'},warm=True)[2],64)
+        self.assertNotIn('-Darena.sharedEngine=true',settings(True,{})[1])
+
     def test_runtime_tuning_can_resume_but_game_changes_cannot(self):
         before={'lock':'same-game','worker_jvm_profile':'startup'}
         after={**before,'worker_jvm_profile':'throughput','worker_jvm_options':['-Xms32m'],'worker_jvm_recycle_matches':256}

@@ -1296,13 +1296,24 @@ Without the rebuilt transport, existing installations retain isolated execution.
 Docker workers remain isolated. `ARENA_JVM_MODE=isolated` explicitly selects the
 previous implementation for comparisons.
 
-Every request has fresh game/compiler classes, source directories, metrics and
-registers. Pinned static data are copied once per JVM. Slots recycle after 32
-requests by default (`ARENA_JVM_RECYCLE_MATCHES` can override this) and close after 30 seconds idle. A timeout destroys the affected slot;
-the next request starts a new JVM. Experiment shutdown closes retained workers.
-This preserves per-match source isolation rather than relying on mutable engine
-statics being reset by convention. Runtime compilation resolves its AI base
-classes through the current request's classloader.
+By default (`ARENA_JVM_MODE=warm`) a slot keeps the engine classes loaded and
+reuses each strategy's compiled bytecode while its sources are unchanged, through
+upstream's own compiled-AI cache keyed by a SHA-256 of each source file. Every
+request still has fresh source directories, metrics and registers. Strategies are
+compiled before the fight and the generated `.java`/`.lines` files removed, so RAM
+accounting and error logs stay those of a cache-free fight; a strategy compiled
+during the fight itself is reported as an engine error and retried. A failed
+request discards the shared classloader. This mode relies on the engine not
+carrying state between fights: replays of 651 stored competition fights were
+byte-identical to the per-fight mode, logs included (9 other fights already vary
+between two runs of the per-fight mode). Warm slots recycle after 1000 requests.
+
+`ARENA_JVM_MODE=pooled` restores fresh game/compiler classes per request, recycled
+after 32 requests. In both modes slots close after 30 seconds idle
+(`ARENA_JVM_RECYCLE_MATCHES` overrides recycling). A timeout destroys the
+affected slot; the next request starts a new JVM. Experiment shutdown closes
+retained workers. After updating the adapter, `python -m arena setup --bridge-only`
+recompiles it against the existing pinned jar.
 
 Execution details record the process ID, whether its JVM was reused, and measured
 Java CPU seconds where available. The activity details show new/reused JVM counts.

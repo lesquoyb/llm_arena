@@ -61,8 +61,91 @@ public final class ArenaMain {
         }
         @Override public AIFile findFile(String name, Folder folder) throws FileNotFoundException {
             if (!name.endsWith(".leek") || !allowed(name, folder)) throw new FileNotFoundException(name);
-            return super.findFile(name, folder);
+            var file = super.findFile(name, folder);
+            if (CACHE) {
+                // Upstream keys its compiled-AI cache on class name (AI_<id>) and
+                // file timestamps. Sources are copied fresh for every fight, so
+                // both become content fingerprints: the cache hits exactly when
+                // the same source set compiles again.
+                long fingerprint = fingerprint(file.getPath(), file.getCode());
+                file = new AIFile(file.getPath(), file.getCode(), fingerprint, file.getVersion(), file.getFolder(),
+                    file.getOwner(), (int) (fingerprint >>> 8) & 0xfffffff, file.isStrict());
+            }
+            return file;
         }
+        @Override public long getAITimestamp(AIFile ai) {
+            if (!CACHE) return super.getAITimestamp(ai);
+            try {
+                var path = Path.of(ai.getFolder().getName()).resolve(ai.getName());
+                return fingerprint(ai.getPath(), Files.readString(path));
+            } catch (Exception e) { return 0; }
+        }
+    }
+
+    /** Compiled AIs are reused across fights of one worker JVM (see ArenaWorker). */
+    static final boolean CACHE = Boolean.getBoolean("arena.aiCache");
+
+    /**
+     * With the cache, upstream writes the generated .java and .lines next to
+     * the bytecode, and an AI compiled during the fight would count the .java
+     * size as used RAM and map error lines, unlike the cache-free runs of
+     * earlier rounds. Strategies are therefore compiled here first, those two
+     * files removed, and the fight itself only loads cached bytecode: RAM
+     * accounting and error logs stay exactly those of a cache-free fight.
+     */
+    static void precompile(Scenario scenario) throws Exception {
+        for (var team : scenario.entities) {
+            for (var entity : team) {
+                try {
+                    var file = LeekScript.getFileSystem().getRoot(entity.aiOwner).resolve(entity.ai_path);
+                    synchronized (file) {
+                        file.setVersion(entity.ai_version, entity.ai_strict);
+                        file.setJavaClass("AI_" + file.getId());
+                        file.setRootClass("com.leekwars.generator.fight.entity.EntityAI");
+                        file.compile(new leekscript.compiler.Options(file.getVersion(), file.isStrict(), true, true, null, true));
+                    }
+                } catch (Exception invalid) {
+                    // The fight reports this strategy's error exactly as without the cache.
+                }
+            }
+        }
+        removeSources();
+    }
+
+    static void removeSources() throws Exception {
+        var root = Path.of(leekscript.compiler.JavaCompiler.IA_PATH);
+        if (!Files.isDirectory(root)) return;
+        try (var files = Files.list(root)) {
+            for (var file : files.toList()) {
+                var name = file.getFileName().toString();
+                if (name.endsWith(".java") || name.endsWith(".lines")) Files.delete(file);
+            }
+        }
+    }
+
+    /** Bytecode files with their modification times, to detect a compilation during the fight. */
+    static Map<String, Long> compiledClasses() throws Exception {
+        var result = new TreeMap<String, Long>();
+        var root = Path.of(leekscript.compiler.JavaCompiler.IA_PATH);
+        if (!Files.isDirectory(root)) return result;
+        try (var files = Files.list(root)) {
+            for (var file : files.toList()) {
+                if (file.getFileName().toString().endsWith(".class")) result.put(file.getFileName().toString(), Files.getLastModifiedTime(file).toMillis());
+            }
+        }
+        return result;
+    }
+
+    /** Positive, non-zero 63-bit SHA-256 prefix of an AI's relative path and source. */
+    static long fingerprint(String path, String code) {
+        try {
+            var digest = java.security.MessageDigest.getInstance("SHA-256");
+            digest.update(path.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            digest.update((byte) 0);
+            digest.update(code.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            long value = java.nio.ByteBuffer.wrap(digest.digest()).getLong() & Long.MAX_VALUE;
+            return value == 0 ? 1 : value;
+        } catch (java.security.NoSuchAlgorithmException e) { throw new IllegalStateException(e); }
     }
 
     static final class Metrics extends LocalTrophyManager {
@@ -169,7 +252,7 @@ public final class ArenaMain {
             Log.enable(false);
             LeekScript.setFileSystem(new SubmissionFileSystem());
             var generator = new Generator();
-            generator.setCache(false);
+            generator.setCache(CACHE);
             if (args[0].equals("api")) {
                 var functions = Json.createObject();
                 var all = new TreeMap<String, LeekFunctions>(LeekFunctions.getStandardFunctions());
@@ -224,7 +307,15 @@ public final class ArenaMain {
                 int stallTurns = config.hasNonNull("stall_turns") ? config.get("stall_turns").asInt() : 0;
                 var metrics = new Metrics();
                 var stall = stallTurns > 0 ? new StallWatch(stallTurns, metrics) : null;
+                Map<String, Long> compiled = null;
+                if (CACHE) { precompile(scenario); compiled = compiledClasses(); }
                 var outcome = generator.runScenario(scenario, stall, registers, metrics);
+                if (CACHE) {
+                    // A strategy compiled inside the fight would not match a cache-free run.
+                    boolean recompiled = !compiledClasses().equals(compiled);
+                    removeSources();
+                    if (recompiled) throw new IllegalStateException("A strategy was compiled during the fight instead of being loaded from the compiled-AI cache");
+                }
                 if (outcome.exception != null) throw outcome.exception;
                 if (outcome.fight == null) throw new IllegalStateException("No fight outcome");
                 result = outcome.toJson();

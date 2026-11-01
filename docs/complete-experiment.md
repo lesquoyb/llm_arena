@@ -85,7 +85,9 @@ Native pooled workers use the measured `throughput` preset (Serial GC, 32 MiB
 initial heap, C1 JIT). Isolated workers keep the previous `startup` preset.
 `ARENA_JVM_PROFILE=optimizing` enables full JIT with bounded compiler threads;
 `full` uses the previous full HotSpot defaults. `ARENA_JVM_RECYCLE_MATCHES` sets the
-positive request count before recycling a pooled JVM (default 32). Actual options
+positive request count before recycling a pooled JVM (default 1000 for warm workers,
+which reuse the loaded engine and compiled strategies, and 32 with
+`ARENA_JVM_MODE=pooled`). Actual options
 are recorded as runtime provenance; tuning can change on resume without replacing
 the game engine. See [JVM measurements and reproduction](performance/jvm-tuning.md).
 

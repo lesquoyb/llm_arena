@@ -15,6 +15,7 @@ def parser():
     commands = p.add_subparsers(dest="command", required=True)
     c = commands.add_parser("setup", help="Fetch the pinned engine, build its jar and the arena adapter")
     c.add_argument("--gradle")
+    c.add_argument("--bridge-only", action="store_true", help="Recompile only the arena adapter against the existing pinned jar")
     c = commands.add_parser("ui", help="Open the local browser interface")
     c.add_argument("--port", type=int, default=8765)
     c.add_argument("--runs", type=Path, help="Directory of competition artifacts (default: runs)")
@@ -174,8 +175,13 @@ def main(argv=None):
                        or bool(result.get("unresolved_sessions")) or bool(result.get("incomplete"))
                        or bool((result.get("evolution") or {}).get("incomplete")))
         if args.command == "setup":
-            setup(args.gradle)
-            print("Engine built. Run: python -m arena doctor")
+            if args.bridge_only:
+                from .engine import build_bridge
+                build_bridge()
+                print("Arena adapter rebuilt. Run: python -m arena doctor")
+            else:
+                setup(args.gradle)
+                print("Engine built. Run: python -m arena doctor")
             return 0
         if args.command == "doctor":
             engine = Engine()

@@ -52,11 +52,11 @@ def main():
     parser.add_argument('--matches',type=int,default=64,help='Fights per profile, including cold start')
     parser.add_argument('--workers',type=int,default=min(4,os.cpu_count() or 1))
     parser.add_argument('--workload',choices=['mixed','short','long','compute'],default='mixed')
-    parser.add_argument('--recycle',type=int,default=32)
+    parser.add_argument('--recycle',type=int,default=None,help='Fights per JVM before restarting it (default: 1000 warm, 32 otherwise)')
     parser.add_argument('--fight-artifact',type=Path,help='Repeat an archived competition fight with its frozen sources and seed, without provider calls')
     parser.add_argument('--out',type=Path)
     args=parser.parse_args()
-    if min(args.matches,args.workers,args.recycle)<1:parser.error('matches, workers and recycle must be positive')
+    if min(args.matches,args.workers,args.recycle or 1)<1:parser.error('matches, workers and recycle must be positive')
     stamp=datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%d-%H%M%S')
     root=(args.out or STATE_ROOT/'benchmarks'/('jvm-'+stamp+'-'+str(os.getpid()))).resolve()
     if root.exists():parser.error('Choose a new output directory to preserve previous benchmark records')
@@ -91,7 +91,7 @@ def main():
         engine=Engine()
         try:
             if not engine._jvm_pool:raise ArenaError('Rebuild native ArenaWorker with python -m arena setup before benchmarking')
-            _,engine.worker_options,recycle=settings(True,{'ARENA_JVM_PROFILE':profile,'ARENA_JVM_RECYCLE_MATCHES':str(args.recycle)})
+            _,engine.worker_options,recycle=settings(True,{'ARENA_JVM_PROFILE':profile,**({'ARENA_JVM_RECYCLE_MATCHES':str(args.recycle)} if args.recycle else {})},warm=engine.identity['worker_execution']=='warm-classloader')
             engine._jvm_pool.recycle=recycle
             engine.identity.update(worker_jvm_profile=profile,worker_jvm_options=engine.worker_options,worker_jvm_recycle_matches=recycle)
             peak=[None];started=time.perf_counter();python_started=time.process_time()

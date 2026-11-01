@@ -8,7 +8,9 @@ The game rules are the original ones, with one small addition in the arena's
 engine adapter: an optional stall watcher that ends a fight early as a draw
 once nothing happens for a set number of turns (see `stall_turns` below).
 Idle fights then stop instead of running to the turn limit, which lets the
-arena handle much larger fight volumes.
+arena handle much larger fight volumes. Worker JVMs also keep the engine loaded
+and reuse compiled strategies between fights through upstream's own compiled-AI
+cache; game rules and replays are unchanged ([details](docs/performance/jvm-tuning.md)).
 
 Participants write code through a shared tool interface. The runner records
 prompts, source versions, usage and match results. Experiments can compare an
