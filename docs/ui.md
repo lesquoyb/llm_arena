@@ -1305,8 +1305,10 @@ accounting and error logs stay those of a cache-free fight; a strategy compiled
 during the fight itself is reported as an engine error and retried. A failed
 request discards the shared classloader. This mode relies on the engine not
 carrying state between fights: replays of 651 stored competition fights were
-byte-identical to the per-fight mode, logs included (9 other fights already vary
-between two runs of the per-fight mode). Warm slots recycle after 1000 requests.
+byte-identical to the per-fight mode, logs included. The 9 other fights in the
+sample vary between two runs of the per-fight mode too: a strategy overflows the
+Java stack, and only operation counts differ (see "Strategies and results" in
+the README). Warm slots recycle after 1000 requests.
 
 `ARENA_JVM_MODE=pooled` restores fresh game/compiler classes per request, recycled
 after 32 requests. In both modes slots close after 30 seconds idle

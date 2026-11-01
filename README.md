@@ -118,6 +118,18 @@ the whole worker process, not one turn. Recorded timings are elapsed time, not C
 Results include frozen sources, scenarios, raw outcomes, logs, compact results,
 SHA-256 hashes and reports. Engine winners are 0 or 1 for the two sides and -1
 for a draw; replay teams are numbered 1 and 2. The arena records duration up to the requested `max_turns` limit.
+
+A fight is replayed exactly from its seed, with one known exception inherited
+from the engine. When a strategy overflows the Java stack (typically unbounded
+recursion), the engine logs a `STACKOVERFLOW` error and ends that AI's turn.
+How deep the recursion gets first depends on JVM stack frame sizes, which vary
+with JIT compilation state, so the operations counted before the overflow can
+differ between runs. Actions, winner and duration stay the same; operation
+counts and the replay hash, which includes them, may not. In a sample of 660
+stored fights, 13 had stack overflows and all 13 varied this way. The 647 others
+replayed byte-identical. Stored fights are verified by hash, not re-run, so
+this does not affect resuming. Making it exact would require a deterministic
+recursion limit in the upstream engine, which the arena does not modify.
 New UI competitions use the [Simple duel preset and character sheets](docs/ui.md#scenario-presets-and-character-sheets).
 
 Optional `stall_turns` (10 to 1000) ends a fight as a draw when no entity
