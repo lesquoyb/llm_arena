@@ -36,6 +36,7 @@ class FightStoreTests(unittest.TestCase):
         manifest = load_manifest(ROOT / 'examples/tournament.json')
         manifest['strategies'] = manifest['strategies'][:2]
         manifest['seeds'] = [101]
+        manifest['include_mirrors'] = False
         with scratch_directory() as root, contextlib.redirect_stdout(io.StringIO()):
             out = root / 'tournament'
             first = run_tournament(Engine(), manifest, out)
@@ -95,8 +96,9 @@ class IndexedOverviewTests(unittest.TestCase):
             fights.put_json('records/two.json', {**legacy, 'match': {**legacy['match'], 'seed': 2}, 'directory': 'matches/two/attempt-1',
                                                  'result': {'status': 'completed', 'winner_side': -1, 'turns': 1000}})
             groups = store.fight_groups('run')
+            # A-vs-B fights of one pair fold into one group: one win for a, one draw.
             counts = [row[7:11] for row in groups['rows']]
-            self.assertEqual(sorted(map(tuple, counts)), [(0, 0, 1, 0), (1, 0, 0, 0)])
+            self.assertEqual(sorted(map(tuple, counts)), [(1, 0, 1, 0)])
             page = store.fight_page('run', {'kind': 'competition', 'outcome': 'draw'}, {})
             self.assertEqual([row['seed'] for row in page['matches']], [2])
             # A later stored record appears without rescanning legacy folders.

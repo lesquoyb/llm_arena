@@ -166,6 +166,8 @@ class FightIndex:
                 return False
         total = 0
         for _, base in stages(root):
+            if not (base / 'records').is_dir():
+                continue
             with os.scandir(base / 'records') as entries:
                 for _ in entries:
                     total += 1

@@ -299,8 +299,8 @@ def verify_stored_fight(store, work, result, expected, scenario, scenario_hash, 
     if store.get_json(work + '/result.json') != result:
         raise ArenaError(f'Stored result was modified: {work}')
     provenance = store.get_json(work + '/provenance.json')
-    if (not engine_accepted(provenance['engine']) or provenance['submissions'] != expected
-            or provenance['scenario_sha256'] != scenario_hash or store.get_json(work + '/scenario.json') != scenario):
+    if (not engine_accepted(provenance.get('engine')) or provenance.get('submissions') != expected
+            or provenance.get('scenario_sha256') != scenario_hash or store.get_json(work + '/scenario.json') != scenario):
         raise ArenaError('Stored match provenance or scenario was modified')
     for side, info in enumerate(expected, 1):
         hashes, size = stored_sources(store, f'{work}/strategies/{side}')

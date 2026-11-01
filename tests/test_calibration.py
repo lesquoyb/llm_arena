@@ -361,8 +361,14 @@ class NativeCalibrationTests(TestCase):
             self.assertEqual(report['status'],'completed')
             self.assertTrue(report['trials'][0]['report']['final_valid'])
             self.assertTrue(report['trials'][0]['report']['converged'])
-            records=list(out.glob('trials/000/evaluations/*/records/*.json'))
+            from arena.fight_store import FightStore, release, stage_records
+            stages=sorted(out.glob('trials/000/evaluations/*'))
+            records=[key for stage in stages for key in stage_records(stage)[1]]
             self.assertEqual(len(records),20) # 12 fixed-panel fights, six against prior versions, two audit
-            before={p.relative_to(out).as_posix():(p.stat().st_mtime_ns,p.read_bytes()) for p in out.glob('**/outcome.json')}
+            # Resuming must not store anything new: each store's change sequence is unchanged.
+            sequences=lambda:{stage.as_posix():FightStore.at(stage).last_seq() for stage in stages if FightStore.at(stage)}
+            before=sequences()
+            self.assertTrue(before)
             self.assertEqual(study(value,out),report)
-            self.assertEqual(before,{p.relative_to(out).as_posix():(p.stat().st_mtime_ns,p.read_bytes()) for p in out.glob('**/outcome.json')})
+            self.assertEqual(before,sequences())
+            release(out)
