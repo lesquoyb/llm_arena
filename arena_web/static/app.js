@@ -422,6 +422,27 @@ async function requestApi(path, args = {}, post = false, options = {}) {
   return value;
 }
 
+// Visible progress for actions: the button shows a spinner, and a notice
+// appears when the server takes more than two seconds.
+function startBusy(button, {quiet=false}={}) {
+  let shown=false;
+  const delay=quiet?600:0;
+  const mark=setTimeout(()=>{
+    if(!button||!button.isConnected)return;
+    shown=true;button.setAttribute('aria-busy','true');button.classList.add('is-busy');
+  },delay);
+  const slow=setTimeout(()=>{
+    const host=document.querySelector('#dialog[open] .form-footer')||null;
+    const text='Still working: the server is processing this request…';
+    if(host&&!host.querySelector('.busy-note')){const note=document.createElement('span');note.className='busy-note';note.setAttribute('role','status');note.textContent=text;host.prepend(note);}
+    else if(!host)toast(text);
+  },quiet?5000:2000);
+  return ()=>{
+    clearTimeout(mark);clearTimeout(slow);
+    document.querySelectorAll('.busy-note').forEach(node=>node.remove());
+    if(button&&shown){button.removeAttribute('aria-busy');button.classList.remove('is-busy');}
+  };
+}
 function toast(message, error = false) {
   const node = $("#toast");
   const dialog = $("#dialog");
@@ -1931,18 +1952,22 @@ function engineSummary() {
   const engine=S.boot.engine||{},lock=engine.identity?.lock||{};
   return `<section class="panel engine-summary"><div class="panel-head"><h2>Game engine</h2>${btn('Recheck engine','refresh')}</div><p>${engine.ready?badge('Ready','green'):badge('Check failed','orange')} ${engine.ready?`Leek Wars generator <span class="mono">${e(String(lock.commit||'').slice(0,10))}</span> · LeekScript ${e(lock.language_version??'')} · Java ${e(lock.java_major??'')}`:e(engine.error||'')}</p></section>`;
 }
-function storagePanel() {
-  const value=S.storageStatus?.run===S.run?S.storageStatus.value:null;
-  if(!value) {
-    runResource('/api/storage',{run:S.run}).then(result=>{S.storageStatus={run:S.run,value:result};const node=$('#storage-panel');if(node)LiveDOM.replace(node,storagePanel());}).catch(()=>{});
-    return '<section class="panel" id="storage-panel"><h2>Storage</h2><p class="muted">Checking storage…</p></section>';
+// Compaction only converts fights recorded before the SQLite store existed,
+// so the action appears only for competitions that still have such folders.
+function storageMenuItem(d) {
+  if(d.archived||!d.metadata.config)return '';
+  if(S.storageStatus?.run!==S.run) {
+    const run=S.run;
+    runResource('/api/storage',{run}).then(value=>{
+      S.storageStatus={run,value};
+      if(value.needs_compaction&&run===S.run){const menu=$('.action-menu > div');if(menu&&!menu.querySelector('[data-action="compact-storage"]'))menu.insertAdjacentHTML('beforeend',storageMenuItem(S.detail));}
+    }).catch(()=>{});
+    return '';
   }
-  const stored=value.stages.reduce((sum,row)=>sum+row.store_bytes,0),legacy=value.stages.filter(row=>row.legacy_folders);
-  const running=activeJobs().some(job=>job.run===S.run);
-  return `<section class="panel" id="storage-panel"><div class="panel-head"><h2>Storage</h2>${legacy.length&&!S.detail?.archived?btn('Compact storage','compact-storage',running?'disabled title="Stop the competition first"':''):''}</div><p>${fmt(stored/1e6,1)} MB in compressed fight stores.${legacy.length?` ${legacy.length} stage${legacy.length===1?'':'s'} still keep one folder per fight (${legacy.map(row=>e(row.stage)).join(', ')}). Compaction typically frees about 95% of that space.`:' Every stage uses the compact store.'}</p></section>`;
+  return S.storageStatus.value.needs_compaction?btn('Compact older fight storage','compact-storage',activeJobs().some(job=>job.run===S.run)?'disabled title="Stop the competition first"':''):'';
 }
 function activityPage(d) {
-  return '<div id="activity-page">'+competitionActivity()+competitionRecovery(d)+engineSummary()+storagePanel()+
+  return '<div id="activity-page">'+competitionActivity()+competitionRecovery(d)+engineSummary()+
     (d.roster?`<details class="panel"><summary>Participant changes · revision ${d.roster.revision}</summary><p>${d.roster.active.length} active · ${d.roster.withdrawn.length} withdrawn</p>${btn('Edit participants','edit-run-participants')}</details>`:'')+'</div>';
 }
 function runHeader(d) {
@@ -1952,7 +1977,7 @@ function runHeader(d) {
     job = S.boot.jobs.find((j) => j.run === S.run),
     active = job && ["running", "stopping"].includes(job.status),
     experiment = !!d.metadata.config;
-  return `<a class="back-link" href="#view=competitions">← Competitions</a>` + head(config.name, "", `${active ? btn("■ Stop", "stop-job", `data-id="${e(job.id)}"`) : experiment && !d.archived ? btn("Resume", "resume", "", true) : ""}<details class="action-menu"><summary class="button">More <svg class="menu-chevron" viewBox="0 0 12 12" width="12" height="12" aria-hidden="true"><path d="M2.5 4.5 6 8l3.5-3.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></summary><div>${experiment && !d.archived ? btn("Edit participants","edit-run-participants")+btn("Execution & metrics","run-metric-collection") : ""}${btn('Load diagnostics','load-diagnostics')}${experiment?btn('Engine performance','engine-performance')+btn('Copy scheduling diagnostics','copy-scheduling-diagnostics'):''}${btn("Move to workspace","move-workspace",`data-run="${e(S.run)}"`)}<a class="button" href="/api/results.csv?${query({run:S.run})}" download>Download results CSV</a><a class="button" href="/api/results.csv?${query({run:S.run,table:"fights"})}" download>Download match results CSV</a><a class="button" href="/api/results.csv?${query({run:S.run,table:"sessions"})}" download>Download sessions CSV</a>${experiment ? btn("Clone configuration", "clone-run") + btn("Export competition", "export-run") : ""}</div></details>`) +
+  return `<a class="back-link" href="#view=competitions">← Competitions</a>` + head(config.name, "", `${active ? btn("■ Stop", "stop-job", `data-id="${e(job.id)}"`) : experiment && !d.archived ? btn("Resume", "resume", "", true) : ""}<details class="action-menu"><summary class="button">More <svg class="menu-chevron" viewBox="0 0 12 12" width="12" height="12" aria-hidden="true"><path d="M2.5 4.5 6 8l3.5-3.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></summary><div>${experiment && !d.archived ? btn("Edit participants","edit-run-participants")+btn("Execution & metrics","run-metric-collection") : ""}${btn('Load diagnostics','load-diagnostics')}${experiment?btn('Engine performance','engine-performance')+btn('Copy scheduling diagnostics','copy-scheduling-diagnostics'):''}${btn("Move to workspace","move-workspace",`data-run="${e(S.run)}"`)}<a class="button" href="/api/results.csv?${query({run:S.run})}" download>Download results CSV</a><a class="button" href="/api/results.csv?${query({run:S.run,table:"fights"})}" download>Download match results CSV</a><a class="button" href="/api/results.csv?${query({run:S.run,table:"sessions"})}" download>Download sessions CSV</a>${experiment ? btn("Clone configuration", "clone-run") + btn("Export competition", "export-run") : ""}${storageMenuItem(d)}</div></details>`) +
     `<div class="toolbar run-toolbar">${job ? status(job.status === "failed" && d.report?.incomplete ? "incomplete" : job.status) : ""}${job?.mode==='retry_fights'?badge('Engine recovery · no model calls'):''}${config.models ? badge(config.models.every(m=>m.provider==="mock") ? "Built-in strategies" : "Model competition") : badge("Provided strategies")}${d.archived ? badge("Exported copy", "orange") : ""}<span class="run-id mono" title="Competition ID">${e(S.run)}</span><span class="spacer"></span><label class="check live-toggle"><input id="follow-live" type="checkbox" ${S.follow ? "checked" : ""}>Live</label>${job ? btn("Run log", "job-log", `data-id="${e(job.id)}"`) : ""}</div>` + (S.tab==='activity'?'':competitionActivity()) +
     `<nav class="tabs" aria-label="Competition views">${TABS.map(([key,label])=>`<button class="tab ${S.tab===key ? "active" : ""}" ${S.tab===key ? 'aria-current="page"' : ""} data-action="tab" data-tab="${key}">${label}</button>`).join("")}</nav>`;
 }
@@ -3881,6 +3906,7 @@ document.addEventListener("click", async (event) => {
   if (!node || node.disabled) return;
   event.preventDefault();
   const a = node.dataset.action;
+  const busy = startBusy(node.matches('button')?node:null, {quiet:true});
   try {
     if (a === 'participant-groups' || a === 'new-participant-group') participantGroupDialog();
     else if (a === 'edit-participant-group') participantGroupDialog(node.dataset.id);
@@ -4096,7 +4122,7 @@ document.addEventListener("click", async (event) => {
       await api('/api/run/run-fights',{run:S.run},true);toast('Remaining fights requested from frozen submissions. No model requests will be sent.');await refreshBoot();
     }
     else if (a === 'compact-storage') {
-      if(!confirm('Move this competition\'s fight folders into compressed SQLite stores? Each stored file is checked before its folder is deleted. The competition must stay stopped until it finishes.'))return;
+      if(!confirm('Fights recorded before the compact store still use one folder each. Move them into the compressed store (about 20x smaller)? Each file is checked before its folder is deleted. Newer fights are already stored compactly. Keep the competition stopped until this finishes: it can take hours on large runs.'))return;
       await api('/api/run/compact-storage',{run:S.run},true);toast('Storage compaction started. Follow it in the run log.');await refreshBoot();
     }
     else if (a === 'retry-failed-fights') {
@@ -4351,6 +4377,7 @@ document.addEventListener("click", async (event) => {
   } catch (error) {
     showError(error);
   } finally {
+    busy();
     node.disabled = false;
   }
 });
@@ -4377,6 +4404,7 @@ document.addEventListener("submit", async (event) => {
   event.preventDefault();
   const submit = event.submitter || $("button[type=submit]", form);
   if (submit) submit.disabled = true;
+  const busy = startBusy(submit);
   try {
     const f = new FormData(form),
       type = form.dataset.form;
@@ -4548,6 +4576,7 @@ document.addEventListener("submit", async (event) => {
   } catch (error) {
     showError(error);
   } finally {
+    busy();
     if (submit) submit.disabled = false;
   }
 });

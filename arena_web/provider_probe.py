@@ -17,7 +17,7 @@ def probe(jobs, run_id, sid, mode, confirm_paid):
     if confirm_paid is not True: raise ArenaError('Authorize this billed diagnostic request')
     if mode not in {'minimal','current'}: raise ArenaError('Choose minimal or current request')
     with jobs.lock:
-        if jobs.process and jobs.process.poll() is None: raise ArenaError('Stop the competition before testing its provider')
+        if jobs.running(run_id)[0] is not None: raise ArenaError('Stop the competition before testing its provider')
         root = jobs.store.run_path(run_id)
         if (root/'export.json').exists(): raise ArenaError('Exported archives are read-only')
         metadata = jobs.store.json(root/'experiment.json')
@@ -26,9 +26,8 @@ def probe(jobs, run_id, sid, mode, confirm_paid):
         if not config['spending'].get('allow_paid_calls'):
             raise ArenaError('API calls are not enabled for this competition')
         with experiment_lock(root):
-            journal = Journal(root)
+            journal = Journal(root, audit_cache=False)
             with closing(journal.db):
-                journal.verify()
                 original = journal.state(sid)
                 if not original: raise ArenaError('Conversation not found')
                 if original.get('submission') or needs_reconciliation(original) or original.get('pending') or original.get('status') != 'provider_unavailable':

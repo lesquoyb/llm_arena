@@ -595,3 +595,9 @@ dialog:has(form[data-form=participant]) .dialog-head, dialog:has(form[data-form=
 .activity-roster-group > strong, .activity-roster-group > summary { display: block; margin-bottom: 6px; }
 .preparation-row > div { flex-wrap: wrap; }
 .activity-roster-group > .preparation-grid, .activity-roster-group .preparation-grid { display: grid; width: 100%; }
+
+/* Busy state for slow actions */
+.is-busy { position: relative; color: transparent !important; pointer-events: none; }
+.is-busy::after { content: ""; position: absolute; inset: 0; margin: auto; width: 14px; height: 14px; border-radius: 50%; border: 2px solid currentColor; border-color: #9fb3ad #9fb3ad transparent transparent; animation: busy-spin .8s linear infinite; }
+@keyframes busy-spin { to { transform: rotate(360deg); } }
+.busy-note { margin-right: auto; font-size: 12px; color: var(--muted); }

@@ -342,9 +342,10 @@ class Jobs:
             metadata = read_json(root / 'experiment.json')
             if 'config' not in metadata: raise ArenaError('Only model competitions support participant changes')
             with experiment_lock(root):
-                journal = Journal(root)
+                journal = Journal(root, audit_cache=False)
                 with closing(journal.db):
-                    journal.verify()
+                # The runner audits the whole journal when it resumes; repeating
+                # that here made a settings change wait up to a minute.
                     change = update(root, journal, metadata['config'], self.store.catalog(), selected, frozen_tracks, compare_previous_round, parallel_fights, request_order, parallel_requests, rule_change)
             if parallel_fights is not None:self.execution_control(run_id,parallel_fights)
             return change
@@ -360,9 +361,10 @@ class Jobs:
             if (root / 'export.json').exists():
                 raise ArenaError('Exported archives are read-only')
             with experiment_lock(root):
-                journal = Journal(root)
+                journal = Journal(root, audit_cache=False)
                 with closing(journal.db):
-                    journal.verify()
+                # The runner audits the whole journal when it resumes; repeating
+                # that here made a settings change wait up to a minute.
                     state = reconcile(journal, sid, cost, note)
             return {'session':sid, 'status':state['status']}
 

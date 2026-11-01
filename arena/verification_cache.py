@@ -70,12 +70,14 @@ class VerificationCache:
                 cache=cls(root);_shared[key]=cache
             return cache
 
-    def __init__(self, root):
+    def __init__(self, root, preload=True):
         self.root=Path(root).absolute();self.path=self.root/'.verification-cache.sqlite'
         self.entries={};self.dirty={};self.records={};self.sessions={};self.dirty_sessions={};self._record_reads={};self.dirty_records={};self.receipts={};self.dirty_receipts={};self.receipt_hits=0;self.record_hits=0;self.session_hits=0;self.lock=threading.Lock();self.hits=0;self.misses=0;self.bytes_read=0;self.errors=0;self.last_flush=0
         self.force=os.environ.get('ARENA_FULL_AUDIT')=='1';self._discard=False
         self.engines={};self.dirty_engines={}
-        if self.path.is_file() and not self.path.is_symlink():
+        # preload=False: start empty and only hash what this process touches.
+        # Appending one journal event must not load millions of fingerprints.
+        if preload and self.path.is_file() and not self.path.is_symlink():
             try:
                 with closing(connect(self.path.as_uri()+'?mode=ro',uri=True,timeout=2)) as db:
                     tables={row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}

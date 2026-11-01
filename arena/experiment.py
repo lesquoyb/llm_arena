@@ -194,7 +194,7 @@ def experiment_lock(out: Path):
 
 
 class Journal:
-    def __init__(self, out):
+    def __init__(self, out, *, audit_cache=True):
         self.out = out
         from .sqlite_metrics import connect
         self.db = connect(out / "journal.sqlite")
@@ -211,7 +211,9 @@ class Journal:
         self.db.execute("PRAGMA user_version=2")
         self.db.commit()
         from .verification_cache import VerificationCache
-        self.verification=VerificationCache.for_run(out)
+        # The interface appends single settings events: it does not need the
+        # run's derived fingerprints, which the runner loads to audit on resume.
+        self.verification=VerificationCache.for_run(out) if audit_cache else VerificationCache(out,preload=False)
 
     def state(self, sid):
         row = self.db.execute("SELECT state FROM sessions WHERE id=?", (sid,)).fetchone()
