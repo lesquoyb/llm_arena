@@ -4,6 +4,11 @@
 
 Run and compare **LeekScript 4** strategies with the official Leek Wars engine,
 pinned to commit `b99a174dd938260d9e47b2e65a208cb32230e26e`.
+The game rules are the original ones, with one small addition in the arena's
+engine adapter: an optional stall watcher that ends a fight early as a draw
+once nothing happens for a set number of turns (see `stall_turns` below).
+Idle fights then stop instead of running to the turn limit, which lets the
+arena handle much larger fight volumes.
 
 Participants write code through a shared tool interface. The runner records
 prompts, source versions, usage and match results. Experiments can compare an
@@ -116,7 +121,8 @@ New UI competitions use the [Simple duel preset and character sheets](docs/ui.md
 Optional `stall_turns` (10 to 1000) ends a fight as a draw when no entity
 loses or recovers life for that many consecutive turns. Participants are told
 the rule. It is off unless a scenario sets it; the Simple duel preset uses 100.
-Decisive fights replay identically with or without it.
+Decisive fights replay identically with or without it. The watcher lives in
+the adapter (`engine/ArenaMain.java`), not in the upstream engine source.
 
 ## Storage
 
