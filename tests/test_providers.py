@@ -244,6 +244,23 @@ class ProviderContractTests(unittest.TestCase):
                 APIProvider(model(), unknown).respond([], TOOLS, 1)
         self.assertEqual(len(attempts), 1)
 
+    def test_malformed_ollama_tool_call_500_is_certain_and_retryable(self):
+        import io
+        from urllib import error
+        from arena.api_providers import raise_http_error
+        def http(code, body):
+            return error.HTTPError('http://localhost:11434/v1/chat/completions', code, 'err', {}, io.BytesIO(body.encode()))
+        body = '{"error":{"message":"XML syntax error on line 5: element <function> closed by </parameter>","type":"api_error"}}'
+        with self.assertRaises(ProviderFailure) as caught:
+            raise_http_error(http(500, body), 'http://localhost:11434/v1/chat/completions', {})
+        self.assertTrue(caught.exception.retryable)
+        self.assertFalse(caught.exception.uncertain)
+        self.assertEqual(caught.exception.diagnostics['failure_kind'], 'malformed_tool_call')
+        with self.assertRaises(ProviderFailure) as caught:
+            raise_http_error(http(500, '{"error":"boom"}'), 'http://localhost:11434/v1/chat/completions', {})
+        self.assertFalse(caught.exception.retryable)
+        self.assertTrue(caught.exception.uncertain)
+
     def test_optional_tokens_omit_api_caps_and_preserve_unknown_call_reservation(self):
         descriptor = model()
         descriptor.pop("max_input_tokens_per_call")

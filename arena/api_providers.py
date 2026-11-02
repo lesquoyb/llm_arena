@@ -123,8 +123,19 @@ def raise_http_error(exc,url,headers,*,read_timeout=60):
     diagnostics = {'http_status':exc.code, 'endpoint':parse.urlunsplit((parsed.scheme, parsed.netloc, parsed.path, '', '')),
                    'request_id':(exc.headers or {}).get('x-request-id') or (exc.headers or {}).get('request-id'),
                    'provider_detail':detail or 'No public error detail was returned by the endpoint'}
-    raise ProviderFailure(f"Provider HTTP {exc.code}" + (": " + detail if detail else ""), uncertain=exc.code >= 500,
-                          retryable=exc.code == 429, diagnostics=diagnostics) from None
+    malformed=exc.code>=500 and malformed_tool_call(detail)
+    if malformed:diagnostics['failure_kind']='malformed_tool_call'
+    # A malformed generated tool call is rejected by the server before any response exists: random, free to repeat.
+    raise ProviderFailure(f"Provider HTTP {exc.code}" + (": " + detail if detail else ""), uncertain=exc.code >= 500 and not malformed,
+                          retryable=exc.code == 429 or malformed, diagnostics=diagnostics) from None
+
+
+MALFORMED_TOOL_CALL=re.compile(r'(?i)xml syntax error|error parsing tool call|failed to parse tool call|invalid tool call|unexpected end element')
+
+
+def malformed_tool_call(detail):
+    """Ollama returns HTTP 500 when the model's XML/JSON tool call cannot be parsed."""
+    return bool(MALFORMED_TOOL_CALL.search(detail or ''))
 
 
 class APIProvider:
