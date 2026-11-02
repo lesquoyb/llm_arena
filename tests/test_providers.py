@@ -25,7 +25,7 @@ class ProviderContractTests(unittest.TestCase):
         config["spending"] = {"allow_paid_calls": True, "max_total_usd": "1"}
         config["budget_per_session"].update(max_input_tokens=1000000, max_output_tokens=1000, max_cost_usd="1")
         response = {"role": "assistant", "native": {"role": "assistant", "content": "done"},
-                    "tool_calls": [], "usage": {"input_tokens": 1, "output_tokens": 1},
+                    "tool_calls": [], "stop_reason": "end_turn", "usage": {"input_tokens": 1, "output_tokens": 1},
                     "cost_usd": "0.00001", "request_id": "fixture"}
         with scratch_directory() as tmp:
             journal = Journal(tmp)

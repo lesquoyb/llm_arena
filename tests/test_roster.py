@@ -102,7 +102,8 @@ class RosterProgressionTests(unittest.TestCase):
         config.update(generations=3,include_mirrors=False,budget_per_session={'max_calls':8,'max_agent_steps':20,'max_test_matches':0})
         config['models']=[{'id':'healthy','provider':'mock','profile':'single-shot'},
                           {'id':'gemma','provider':'mock','profile':'rate-limit'}]
-        with scratch_directory() as root, mock.patch('arena.experiment.Engine',FixtureEngine):
+        # Automatic retries (2-5 minute backoff) would re-run the failing participant; this test needs it to stay failed.
+        with scratch_directory() as root, mock.patch('arena.experiment.Engine',FixtureEngine), mock.patch('arena.conversation_recovery.automatic_due',return_value=None):
             out=root/'run'
             self.assertTrue(run(config,out)['waiting_for_recovery'])
             original=(out/'experiment.json').read_bytes()
