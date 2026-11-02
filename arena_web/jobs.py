@@ -350,7 +350,7 @@ class Jobs:
             self.watcher=threading.Thread(target=self._watch,args=(self.process,row),daemon=True);self.watcher.start()
             return row
 
-    def participants(self, run_id, selected, frozen_tracks=None, compare_previous_round=None, parallel_fights=None, request_order=None, parallel_requests=None, rule_change=None):
+    def participants(self, run_id, selected, frozen_tracks=None, compare_previous_round=None, parallel_fights=None, request_order=None, parallel_requests=None, rule_change=None, max_retries=None):
         from contextlib import closing
         from arena.experiment import Journal, experiment_lock
         from arena.roster import update
@@ -366,7 +366,7 @@ class Jobs:
                 with closing(journal.db):
                 # The runner audits the whole journal when it resumes; repeating
                 # that here made a settings change wait up to a minute.
-                    change = update(root, journal, metadata['config'], self.store.catalog(), selected, frozen_tracks, compare_previous_round, parallel_fights, request_order, parallel_requests, rule_change)
+                    change = update(root, journal, metadata['config'], self.store.catalog(), selected, frozen_tracks, compare_previous_round, parallel_fights, request_order, parallel_requests, rule_change, max_retries)
             if parallel_fights is not None:self.execution_control(run_id,parallel_fights)
             return change
 

@@ -41,6 +41,22 @@ class RosterTests(unittest.TestCase):
                 self.assertEqual(snapshot(root)['revision'],2)
                 journal.verify()
 
+    def test_competition_max_retries_overrides_every_participant_and_persists(self):
+        config=read_json(ROOT/'configs/offline-complete.json')
+        with scratch_directory() as root:
+            journal=Journal(root)
+            with closing(journal.db):
+                model=config['models'][0];sid=model['id']+'-r0'
+                journal.save(sid,initial_state(sid,model,config),'session_created')
+                selected=[m['id'] for m in config['models']]
+                update(root,journal,config,[],selected,max_retries=3)
+                self.assertTrue(all(m['max_retries']==3 for m in effective(root,config)['models']))
+                update(root,journal,config,[],selected,parallel_requests=1)
+                self.assertEqual(snapshot(root)['max_retries'],3)
+                with self.assertRaises(ArenaError):update(root,journal,config,[],selected,max_retries=4)
+                update(root,journal,config,[],selected,max_retries=0)
+                self.assertTrue(all(m['max_retries']==0 for m in effective(root,config)['models']))
+
     def test_invalid_changes_are_atomic_and_freezing_requires_a_submission(self):
         config=read_json(ROOT/'configs/offline-complete.json')
         with scratch_directory() as root:
