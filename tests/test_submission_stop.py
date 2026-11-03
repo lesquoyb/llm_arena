@@ -1,4 +1,4 @@
-"""A provider stop is not an explicit submission, even when files already exist."""
+"""Provider stops receive reminders, then close preparation without losing saved work."""
 from unittest import TestCase, mock
 
 from arena.core import ROOT, scratch_directory
@@ -40,15 +40,30 @@ class SubmissionStopTests(TestCase):
             self.assertTrue(any(m['role']=='user' and 'not submitted' in m.get('content','') for m in state['history']))
         self.run_responses(responses, check)
 
-    def test_repeated_stops_never_implicitly_submit_existing_files(self):
+    def test_repeated_stops_freeze_existing_files_for_unattended_evaluation(self):
         responses = [{'tool_calls':[{'name':'write_file','arguments':{'path':'main.leek','content':'// strategy'}}]}]
         responses += [{'tool_calls':[], 'finish_reason':'stop'} for _ in range(4)]
         def check(state):
-            self.assertEqual(state['status'], 'no_submission')
-            self.assertNotIn('submission', state)
+            self.assertEqual(state['status'], 'submitted')
+            self.assertIn('submission', state)
+            self.assertTrue(state['automatic_submission'])
             self.assertEqual(state['submission_reminders'], 3)
-            self.assertIn('three reminders', state['failure']['message'])
-            self.assertIn('Arena stopped', state['history'][-1]['content'])
+        self.run_responses(responses, check)
+
+    def test_tool_turns_reset_consecutive_stop_limit(self):
+        responses = []
+        for _ in range(4):
+            responses.extend([{'tool_calls':[], 'finish_reason':'stop'},
+                              {'tool_calls':[{'name':'list_files','arguments':{}}]}])
+        responses.extend([
+            {'tool_calls':[{'name':'write_file','arguments':{'path':'main.leek','content':'// saved'}}]},
+            {'tool_calls':[{'name':'submit','arguments':{}}]},
+        ])
+        def check(state):
+            self.assertEqual(state['status'], 'submitted')
+            self.assertEqual(state['calls'], len(responses))
+            self.assertEqual(state['submission_reminders'], 4)
+            self.assertNotIn('automatic_submission', state)
         self.run_responses(responses, check)
 
     def test_interrupted_response_resumes_with_one_reminder_and_no_repeated_call(self):

@@ -40,6 +40,21 @@ A `getaddrinfo failed` error during download means a DNS lookup failed.
 Check the connection, VPN and proxy. Gradle downloads can redirect through
 GitHub and `release-assets.githubusercontent.com`.
 
+## Store API keys locally
+
+Copy the example once, then edit `.env` in your editor:
+
+```powershell
+Copy-Item .env.example .env
+notepad .env
+```
+
+Uncomment the providers you use and replace the placeholders with your keys.
+The file is ignored by Git and loaded whenever Arena or the calibration workshop
+starts. In each saved provider, use the matching variable name such as
+`ARENA_GROQ_KEY`. Restart the application after editing the file. Never share
+`.env`; it contains your keys in plaintext.
+
 ## Start the interface
 
 ```powershell

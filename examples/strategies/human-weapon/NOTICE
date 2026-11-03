@@ -1,0 +1,5 @@
+Adapted from smarlhens/leekwars-scripts, weapon.lks, getBestWeapon and getWeaponAverageDamage.
+Author: smarlhens and upstream contributors. Apache License 2.0.
+Source: https://github.com/smarlhens/leekwars-scripts/blob/0f58ff9641b0573f2757a93b5300b86ca3ab04cf/weapon.lks
+Local modifications: standalone LeekScript 4, dynamic equipped weapons, canUseWeapon checks, move toward nearest enemy, select expected burst damage repeatedly; removed logging, deprecated API and unrelated team/chip logic.
+This is a port of one heuristic, not the complete human AI or a certified difficulty level.

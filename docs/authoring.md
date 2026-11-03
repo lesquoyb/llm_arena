@@ -31,24 +31,31 @@ Action points (`getTP()`), movement points (`getMP()`) and operations
 `min(2147483647, cores * 1000000)` per turn. The default 10 cores give 10 million
 operations. Return control before exhausting that budget.
 
-Example tested with the demo equipment:
+Small language examples, independent of any combat strategy:
 
 ```javascript
-var enemy = getNearestEnemy()
-if (enemy >= 0 && isAlive(enemy)) {
-    setWeapon(getWeapons()[0])
-    moveToward(enemy)
-    while (getWeaponCost() >= 0 && getTP() >= getWeaponCost() && isAlive(enemy)) {
-        if (useWeapon(enemy) != USE_SUCCESS) break
-    }
+var total = 0
+for (var value in [1, 2, 3]) {
+    total += value
 }
+debug(total)
 ```
+
+```javascript
+function doubled(value) {
+    return value * 2
+}
+debug(doubled(3))
+```
+
+These illustrate iteration, functions and debugging. Design and implement your
+own targeting, equipment, movement and resource decisions using the API reference.
 
 `getNearestEnemy()` returns -1 when there is no enemy; do not assume null.
 `getWeapons()` lists equipped weapons. `setWeapon` selects one; `moveToward`
 spends movement points; `useWeapon` attempts a shot. Check `USE_SUCCESS` to
-avoid looping on an out-of-range or blocked shot. This example assumes at least
-one equipped weapon.
+avoid looping on an out-of-range or blocked shot. Check equipped weapons before
+selecting one.
 
 Support files must be part of the same submission. For example,
 `include("lib/targeting.leek")` loads an internal file. The resolver refuses

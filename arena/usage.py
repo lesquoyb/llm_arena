@@ -15,6 +15,10 @@ def amount(value):
 
 def normalize(provider, raw):
     raw = raw or {}
+    if provider == 'openai-responses':
+        mapped = {'prompt_tokens':raw.get('input_tokens'), 'completion_tokens':raw.get('output_tokens'),
+                  'prompt_tokens_details':raw.get('input_tokens_details'), 'completion_tokens_details':raw.get('output_tokens_details')}
+        return {**normalize('openai', mapped), 'raw':raw}
     if provider == "gemini":
         fields = ("promptTokenCount", "candidatesTokenCount", "thoughtsTokenCount", "cachedContentTokenCount")
         for key in fields:
@@ -37,13 +41,25 @@ def normalize(provider, raw):
                 "cached_input_tokens": parts[1], "cache_creation_input_tokens": parts[2],
                 "reasoning_tokens": None, "raw": raw}
     for mapping in (raw.get("prompt_tokens_details") or {}, raw.get("completion_tokens_details") or {}):
-        for key in ("cached_tokens", "reasoning_tokens"):
+        for key in ("cached_tokens", "cache_write_tokens", "reasoning_tokens"):
             if mapping.get(key) is not None and (type(mapping[key]) is not int or mapping[key] < 0):
                 raise ArenaError("Invalid provider token detail")
     return {"input_tokens": raw.get("prompt_tokens"), "output_tokens": raw.get("completion_tokens"),
             "cached_input_tokens": (raw.get("prompt_tokens_details") or {}).get("cached_tokens"),
-            "cache_creation_input_tokens": None,
+            "cache_creation_input_tokens": (raw.get("prompt_tokens_details") or {}).get("cache_write_tokens"),
             "reasoning_tokens": (raw.get("completion_tokens_details") or {}).get("reasoning_tokens"), "raw": raw}
+
+
+def effective_pricing(model):
+    """Explicit prices win; the documented GPT-6.1 cache-write multiplier is 1.25."""
+    pricing = model.get('pricing')
+    if pricing is None:
+        return None
+    pricing = dict(pricing)
+    if (model.get('provider') in {'openai', 'openai-compatible'} and
+            model.get('model') == 'gpt-6.1-sol' and 'cache_creation_per_million' not in pricing):
+        pricing['cache_creation_per_million'] = str(amount(pricing['input_per_million']) * Decimal('1.25'))
+    return pricing
 
 
 def cost(usage, pricing):
@@ -64,6 +80,12 @@ def cost(usage, pricing):
     return str(total)
 
 
+class InputAdmissionError(ArenaError):
+    def __init__(self, request_bytes, limit):
+        super().__init__(f'Request requires {request_bytes:,} UTF-8 bytes; the configured conservative input admission limit is {limit:,}. This is a byte-based upper bound, not a measured token count.')
+        self.admission={'code':'input_admission','request_bytes':request_bytes,'configured_limit':limit}
+
+
 def reservation(model, history, tools, remaining_output):
     # Configured upper bounds, not a tokenizer-independent claim of strict billing.
     import json
@@ -76,11 +98,12 @@ def reservation(model, history, tools, remaining_output):
     request_bytes = len(json.dumps(payload, ensure_ascii=False).encode())
     input_bound = model.get("max_input_tokens_per_call", request_bytes)
     if "max_input_tokens_per_call" in model and request_bytes > input_bound:
-        raise ArenaError("Request exceeds conservative UTF-8 input admission bound")
-    p = model["pricing"]
+        raise InputAdmissionError(request_bytes,input_bound)
+    p = effective_pricing(model)
     input_rate = max(amount(p.get(key, p["input_per_million"])) for key in
                      ("input_per_million", "cached_input_per_million", "cache_creation_per_million"))
-    bound = ((input_bound * input_rate + output_bound * amount(p["output_per_million"])) / Decimal(1_000_000)
-             if output_bound is not None else None)
+    output_rate=amount(p['output_per_million'])
+    bound = ((input_bound * input_rate + (output_bound or 0) * output_rate) / Decimal(1_000_000)
+             if output_bound is not None or output_rate==0 else None)
     return {"input_bound": input_bound, "output_bound": output_bound, "cost_bound": str(bound) if bound is not None else None,
             "strict": False, "basis": "configured input bound or serialized UTF-8 bytes; unlimited output reserves remaining funds; provider billing not independently confirmed"}

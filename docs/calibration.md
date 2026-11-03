@@ -36,7 +36,10 @@ conversations, code, evaluation records and costs.
    dispatcher, including when the model guesses a tool name.
 3. Choose a scenario, fixed opponents, seeds, replicates and round settings.
    The included opponents are deterministic scripted strategies: `passive`,
-   `single-shot` and `rush`. Scenario JSON remains editable.
+   `single-shot`, `rush` and `evasive`. The evasive target never attacks, flees
+   at most two cells when an enemy is nearby and rests every fourth turn, so
+   it can still be caught. Existing studies keep their frozen opponent panel.
+   Scenario JSON remains editable.
 4. Run the calibration. Each replicate starts independently. Each strategy round uses a fresh conversation with the system prompt, scenario, explicit phase instruction and a short previous-round training summary; previous model messages are not resent. The previous submitted code stays in the workspace. The model
    prepares and submits one strategy per round. That frozen strategy plays both
    sides against the fixed panel; only then can the model revise it next round.
@@ -52,6 +55,45 @@ conversations, code, evaluation records and costs.
 Mock participants let you test the workflow offline. Their fixed responses do
 not measure learning or real model quality. Mock token usage is not measured.
 
+## Reopen and export a previous calibration
+
+Start `python -m arena calibrate serve --open` from the same repository. The study
+list reads the saved `calibrations/` directory, including studies created through
+the CLI. Click the study name, select a **Candidate**, then a **Round or analyst
+session**. **Conversation**, **Journal**, **Saved files** and **Fights** inspect the
+saved records without resuming the run or making model calls. Avoid **Resume** if
+you only want to inspect it.
+
+If you used another output location, pass its parent collection directory:
+
+```powershell
+.\.venv\Scripts\python.exe -m arena calibrate serve --out "D:\experiments\calibrations" --open
+```
+
+Each immediate child containing `input.json` or `study.json` is a study. Keep the
+whole study folder; the SQLite journal alone does not contain every code/replay
+artifact. Files in `calibrations/` are local and are not pushed to GitHub.
+
+**Export conversation JSON** downloads the selected session's complete committed
+conversation, including system/user prompts, model outputs, tool calls/results,
+timestamps, and a separate readable-reasoning array. It exports every page, not
+just the currently visible messages. Duplicated transport requests are excluded.
+**Inspect available reasoning** shows message/character counts and the actual
+readable reasoning without inference. Character counts are not token estimates.
+
+To measure what Laya actually reads from that export, install `.[calibration]`
+and run (adjust the downloaded filename):
+
+```powershell
+.\.venv\Scripts\python.exe -m arena calibrate score-conversation "conversation.json" --out "laya-review"
+```
+
+The command runs local Laya on readable reasoning only, reports score, input
+tokens, token windows and inference duration, and saves the detailed receipt in
+`laya-review/judge/conversation.json`. It makes no target/analyst calls, runs no
+fights and leaves the original study unchanged. Different exports need separate
+review output directories. OpenAI encrypted reasoning cannot be scored this way.
+
 ## Scores, convergence and held-out fights
 
 Each win earns 1 point, each draw 0.5 and each loss 0. Scores average the two
@@ -59,7 +101,7 @@ starting sides and all opponents/seeds. A script that fails compilation forfeits
 its evaluation and scores zero. Its diagnostics return to the next round.
 
 Training results return to the target in readable text. Enabled past-fight tools
-can inspect only the previous training round, labeled in every response, in the same replicate and candidate. Source-version tools can read your own earlier submissions by round, without exposing results.
+can inspect any completed earlier training round in the same replicate and candidate. Omit `round` in `list_past_fights` for the previous round, or pass a round number from `available_rounds`. Every response identifies the round and provides the matching `read_submitted_file` call. Source-version tools can read your own earlier submissions by round, without exposing results.
 Validation and audit records remain inaccessible through those tools.
 Optional fights against earlier versions show whether the model beats its own
 older strategies; they do not change the fixed-panel training score.
@@ -92,38 +134,91 @@ feed prompt editing or selection. Replicates use independent conversations;
 when a model seed is configured, its replicate offset stays the same across
 candidates. Provider seeds do not guarantee identical remote outputs.
 
-## Automatic prompt editing
+## Automatic optimization
 
-Select **Automatic prompt editing** and an analyst participant. The analyst
-receives the incumbent prompt, permitted tools, training trajectory and bounded
-conversation evidence. It proposes a replacement prompt, tool set and rationale.
-It cannot change opponents, evaluation seeds or the target model. Validation and
-audit results are omitted from its evidence. Evidence truncation is explicit;
-full source records remain available for human inspection.
+Select **Automatic optimization** and an analyst participant. The analyst reviews
+the target's trajectory and chooses its own diagnosis and changes to the system
+prompt, reference documents or registered tool selection. No fixed edit categories
+are assigned. Tool implementation requests remain reports for human review.
 
-The search is a `(1+1)` elitist algorithm: evaluate a baseline, propose one
-candidate from the accepted incumbent, evaluate it with fresh conversations,
-then keep or reject it. The utility is:
+Each candidate is evaluated with fresh target conversations. Validity, paired
+combat scores, convergence and target token penalties determine whether it replaces
+the best candidate. Laya diagnostics never enter this decision.
 
-```text
-mean validation score
-  - round_penalty * mean convergence round
-  - token_penalty_per_million * mean target tokens / 1,000,000
+The search organizes attempts in two ways:
+
+- **Exploitation** starts from the best measured candidate.
+- **Exploration** may start from another valid archived candidate, including a
+  previously rejected one, to explore a different hypothesis. With no alternative
+  yet, it starts from the best candidate and asks for a different hypothesis.
+
+The default exploration probability is 20%. Choices use the saved search seed and
+attempt number. The analyst receives recent attempts and a bounded excerpt from
+the latest rejected trajectory. It remains free to choose what to modify. There
+is no Q table, diagnostic state classifier or model weight training in new studies.
+Old frozen studies retain their original search protocol on resume; fork to use
+the current optimizer.
+
+Candidate diffs identify the actual starting candidate. Acceptance compares the
+result against the best candidate, even when exploration started elsewhere.
+**Optimization progress** shows objective values, strategy, starting candidate and
+keep/reject decisions. The default candidate limit is empty. Plateau stopping
+waits at least 10 attempts and stops after 8 attempts without an accepted objective
+improvement greater than 0.001. Counts, threshold and exploration are configurable.
+Disable plateau stopping for manual stopping; spending limits still apply.
+
+## Independent Laya diagnostics
+
+Install into Arena's environment:
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install ".[calibration]"
 ```
 
-A candidate must remain within `score_tolerance` of the incumbent for every
-paired replicate and improve utility. An invalid candidate cannot replace a
-valid incumbent. A score gain can therefore trade against convergence speed or
-token use; set the two penalties to zero to optimize score alone. Token penalties
-apply only to measured usage, and candidates with incomparable usage are not
-ranked on fabricated token counts. All accepted and rejected trials are retained.
+```bash
+.venv/bin/python -m pip install '.[calibration]'
+```
 
-`max_trials` includes the baseline. Search `patience` stops after that many
-consecutive rejections. Round patience is a separate setting. Analyst
-`editor_retries` controls repairs of malformed proposals; these are real calls
-and count toward costs. **Review change** shows the rationale, prompt diff and
-tool/parameter changes. Select a proposal in the candidate menu to inspect the
-analyst's own conversation and journal.
+Laya observations are enabled in new configurations and can be disabled. First use
+downloads the selected checkpoint from Hugging Face; later runs use cached weights. They run
+locally, using readable reasoning only by default. Optional **Analyst summary**
+evidence makes a separate factual-summary call, with its usual tokens/costs; that
+summary session never receives Laya results. OpenAI encrypted reasoning cannot be
+read. Missing reasoning, missing Laya or inference failure saves an unavailable
+observation and does not block the optimization.
+
+For each reasoning message, typed `choice` questions assess task understanding,
+language/API problems, tool use, response to results, and progress. Each dimension
+includes insufficient-evidence/no-visible-problem choices. Full choice probability
+distributions are retained and averaged across messages. Long messages use Laya's
+window scan; it picks the most-confident window per question. These distributions
+are hypotheses, not verified engine findings or calibrated confidence.
+
+Receipts in `trials/NNN/diagnostics/SESSION.json` save all questions, distributions,
+per-message answers, input usage, windows, model revision, package version and
+inference duration. They are **human-only**: excluded from the analyst prompt,
+recent-experience data, objective, candidate acceptance and plateau stopping.
+There are no hosted Laya calls. The CPU default leaves GPU memory for Ollama.
+
+**Independent Laya observations** appears alongside **Analyst findings & changes**.
+For a proposal, it shows Laya's observations of the proposal's starting candidate,
+so you compare diagnoses of the same trajectory. The saved raw records are
+inspectable. The analyst is not asked to agree with Laya, and no automatic
+agreement judgment is fabricated. A separately selected candidate can still be
+inspected through its transcript and saved diagnostic files.
+
+To diagnose an already exported conversation without rerunning its target:
+
+```powershell
+.\.venv\Scripts\python.exe -m arena calibrate diagnose-conversation "conversation.json" --out "laya-diagnostic"
+```
+
+This saves a human-only receipt in `laya-diagnostic/diagnostics/conversation.json`.
+It does not send anything to an analyst or change the original calibration.
+
+The previous Laya scalar-scoring feature remains readable for old studies and
+available through retrospective `score-conversation`; new optimization uses combat
+results and keeps Laya purely observational.
 
 ## Parameter sweeps
 
@@ -146,8 +241,9 @@ come from saved participant settings, environment variables or the optional
 password fields. Password fields are passed to worker memory, not study JSON.
 Do not put API keys inside provider JSON.
 
-No token or call limits apply by default. Optional per-round budgets and a
-study spending ceiling are available. The ceiling includes target and analyst
+Quick diagnosis defaults to 8 model calls, 20 tool calls and 4 preparation fights
+per round. No token limit is set. Clear the limits for unlimited preparation. A
+study spending ceiling is also available. The ceiling includes target and analyst
 calls across candidates. Costs use participant pricing; unknown token usage
 stays unknown rather than becoming zero. Analyst and target usage are recorded
 separately. The convergence objective uses target tokens, not analyst tokens.
@@ -171,3 +267,526 @@ to shell redirection, which can produce UTF-16 files.
 The workshop reuses Arena's registered tool contracts and permission checks.
 It does not connect arbitrary external MCP servers. Adding a new tool requires
 implementing and registering it in Arena before enabling it in a calibration.
+
+## Tool improvement reports
+
+The analyst can produce two independent outputs: an executable candidate (a new
+prompt and selection of registered tools), and recommendations for development.
+A recommendation has `kind` (`new_tool`, `tool_change`, `documentation` or
+`error_feedback`), `problem` and `proposed_change`; optional fields are `tool`,
+`evidence` (session/round/message references) and `expected_benefit`.
+
+Choose **Tool improvement report** in the study inspector to read recommendations
+from all proposals, including candidates that were rejected. **Review change**
+also includes that candidate's requests. Files are retained in
+`proposals/NNN/tool-requests.json` and `tool-requests.md`. Reports are advisory:
+they do not install tools, execute code or automatically alter the benchmark.
+The analyst may keep the prompt unchanged and report a tool limitation instead.
+
+A coding agent could implement a recommendation in a separate branch, followed
+by review and a fresh study. This integration is not implemented. Changing a
+tool changes the experimental environment; start a new study rather than treating
+that change as a prompt-only candidate or silently modifying a running study.
+
+For a first automatic run, select a real target and an analyst, keep the fixed
+opponents, choose finite rounds (for example 8), and set 3 candidates including
+the baseline. Two replicates give a first check of variability. Enable the API
+calls checkbox and check the pricing and spending fields. To optimize final
+score alone, set both convergence and token penalties to zero; add them later
+if faster convergence or lower token use is part of the objective. A trial can
+still finish at its maximum without establishing a plateau.
+
+### Optimize the reference documents too
+
+The **Reference documents** editor changes the Markdown learning material served
+by `read_docs`, including `authoring.md`, component guidance, the language cheat
+sheet and tutorials. Selecting a document preserves edits to the previous one.
+Fork an existing candidate to carry its prompt and document edits into a new
+manual study. Exporting the configuration includes `reference_documents`, a map
+of paths to complete replacement text. Unlisted paths keep their original text.
+
+The automatic analyst receives the reference texts as well as the prompt and
+training trajectory. It can propose document replacements using the same
+`reference_documents` field. The existing paired candidate evaluation accepts or
+rejects the prompt/document package together. Candidate review exposes unified
+diffs for each changed document. Every trial freezes and fingerprints its own
+corpus; rejected candidates never edit the repository or the incumbent corpus.
+Generated API/equipment catalogs, rule JSON, opponents, seeds and executable tools
+are excluded from document editing. Tool changes remain structured requests for
+human review. The analyst receives additional input tokens for these documents;
+target usage counts only documents it actually reads.
+
+Static opponent IDs now include `turret` and `human-weapon` alongside `passive`,
+`single-shot` and `rush`. These are useful reference behaviors, not an established
+ordering of human ability. `human-weapon` ports one Apache-2.0 weapon-selection
+heuristic; it does not reproduce the upstream AI's full team and chip logic.
+
+### Follow a study and find the analyst's conclusions
+
+Preparation budgets have separate model-call, tool-call and preparation-fight
+fields. A short-trial preset fills 8 calls, 20 tools and 4 fights. The first target
+message contains these limits and instructions to save a complete strategy early.
+Tool results return the remaining budget. The inspection view displays the same
+counters; an empty field means unlimited.
+
+After launch, setup collapses to make room for study progress. In automatic mode,
+the analyst runs after a complete candidate trajectory, including its configured
+rounds and replicates or plateau stopping. Finishing one conversation does not
+necessarily finish that trajectory. Manual mode never runs an analyst by itself.
+
+**Analyst findings & changes** shows the proposal rationale, system-prompt and
+Markdown-document diffs, tool requests, validation metrics and the kept/rejected
+decision. The analyst proposes changes; the paired validation objective makes the
+decision. Candidate review buttons select another review. **Inspect analyst
+conversation** opens its complete recorded exchanges. Raw review data remains
+available for copying.
+
+The conversation has a bounded scrolling area, Markdown text formatting and
+**Top**, **Latest** and **Follow live** controls. Streaming is enabled by default
+for OpenAI Chat Completions, OpenAI Responses and compatible Ollama servers in
+calibration. Exposed reasoning is separately expandable; encrypted or unexposed
+reasoning cannot be displayed as readable thoughts. Partial tool arguments are
+previewed but never executed until the provider completes its response. Final
+usage and the received stream events are retained in the normal response archive.
+Interrupted streams keep a bounded partial preview and require reconciliation
+when the remote outcome is uncertain; they are not silently repeated.
+
+Anthropic and Gemini currently update after each complete response. Disable
+**Stream responses** for a compatible endpoint that does not implement streaming.
+The live display uses a small, throttled worker snapshot rather than rewriting
+the full conversation for every token. Archived messages, token usage and cost
+accounting are committed through the normal journal after completion.
+
+
+### Script rounds, repetitions and prompt optimization iterations
+
+These are three separate loops:
+
+1. A **script round** prepares, freezes and evaluates a strategy. Later rounds
+   inherit its script and training feedback. The system prompt and reference
+   documents remain unchanged within that candidate, while the round instruction
+   and feedback change.
+2. A **fresh repetition** restarts that candidate from scratch, without the scripts
+   or feedback of other repetitions. It repeats the complete configured sequence
+   of script rounds.
+3. In **Automatic optimization**, the analyst reviews that observation, proposes
+   prompt/document changes, then the tool evaluates a fresh candidate under the
+   same protocol. It keeps or rejects the candidate and continues automatically,
+   stopping on an objective plateau, an optional candidate limit or manual stop. The baseline counts as the
+   first candidate. A rejected proposal does not replace the incumbent.
+
+The new default is **Quick diagnosis**: one script round, one repetition and a
+short preparation budget. The analyst can propose a change immediately after
+that observation. This is useful for correcting the starting instructions. The
+convergence penalty is zero because a single round cannot establish convergence.
+Use **Learning curve** later to evaluate up to ten script-improvement rounds per
+prompt, with plateau stopping. Increase repetitions when checking robustness.
+
+For example, 10 rounds and 1 repetition means one candidate with ten successive
+script versions under the same system prompt, followed by an analyst proposal.
+It does not mean ten revisions of the system prompt. Five prompt candidates with
+those settings can require up to 50 target preparations, plus analyst calls.
+
+Previously saved studies retain their frozen settings. Fork/edit their
+configuration and choose Quick diagnosis to start the shorter protocol; changing
+the defaults does not alter an ongoing study. Manual editing remains available
+and does not call the analyst or start the next candidate automatically.
+
+
+## Interpreting diagnostics, opponents and proposal checks
+
+A displayed diagnostic percentage is the mean of Laya's per-message class
+weights. It is not the fraction of the task understood, a session success rate,
+or the probability that code is correct. Documentation-only reasoning messages
+have the same weight as a detailed task explanation. Reasoning-only input excludes
+compiler results, tool results and code. Long messages use Laya's most-confident
+window per question. The model has not been calibrated on Arena conversations.
+
+**Inspect Laya input and per-message results** exposes the saved questions,
+reasoning evidence, individual answers, windows and aggregation, including for
+older studies. Final compilation is shown separately as a measured engine fact,
+not inferred from Laya. A correct final script does not prove no previous errors.
+
+The default opponent panel is `passive`, `single-shot`, `rush`; `turret` and
+`human-weapon` are additional selectable references. Saved configurations may use
+other subsets. **Fight results for the evaluated candidate** shows the actual
+opponents, panel, repetition, round and win/draw/loss counts from recorded fights.
+Draws earn half a point, so score is not win rate. Preparation fights are excluded.
+
+New authoring material uses isolated language examples instead of a ready-made
+move-and-shoot strategy. The complete feature showcase remains available to humans
+under `examples/strategies/feature-showcase`, outside the model documentation corpus.
+Old studies retain their frozen copies, including any previous combat examples.
+
+The analyst is explicitly instructed not to insert complete combat implementations
+or fully prescribed tactical recipes into prompts/documents. An additional
+**experimental Laya proposal check** is optional and disabled by default. It checks
+cumulative added material against the initial study, covering successive edits.
+All detected risks must be at most 0.2 for approval; any risk at least 0.8 rejects;
+intermediate values are inconclusive. Unavailable checks never approve
+a proposal. Automatic mode requests revisions for explicit rejections;
+inconclusive results allow evaluation with the diagnostic retained. Unavailable
+enforced checks pause the study. JSON-format repairs have a separate retry budget. This guard is separate from human-only trajectory diagnostics;
+its rejection feedback can be sent to the analyst to revise its proposal.
+
+Local spot checks showed false alarms on general workflow instructions and moderate
+risk on complete code. This is not a validated detector or a guarantee against
+solution leakage. Inspect the stored `guard.json` and `guards/` receipts. The normal
+syntax/API examples in documentation remain allowed. Existing material in a study's
+initial baseline is not certified by this check.
+
+## Recover the analyst's changes
+
+Calibration writes isolated candidate snapshots, not repository source files.
+The default `calibrations/` directory is ignored by Git. For candidate 3, for example:
+
+- `calibrations/STUDY/trials/002/calibration.json`: configuration, including `config.prompt` and reference-document overrides.
+- `calibrations/STUDY/trials/002/corpus/`: actual frozen documents used by the target.
+- `calibrations/STUDY/proposals/002/proposal.json`: analyst proposal; a blocked proposal can instead have `proposal-draft.json`.
+
+Open the study and candidate, then choose **Download this candidate's learning
+material** in its review card, or **Download selected learning material** above
+the candidate selector. This downloads a ZIP with:
+
+- `system-prompt.txt`, `tools.json` and a reusable `calibration.json`.
+- `docs/` containing documents changed since the study's initial candidate,
+  including inherited edits rather than only the last proposal's changes.
+- `documents.patch`, generated against the current local repository contents.
+- `manifest.json` identifying the candidate, evaluation status and current-best flag.
+
+Exporting a rejected or untested proposal does not certify it as the best version.
+The export makes no model calls and applies nothing to the repository. After
+extracting the ZIP, inspect its files. To apply its document patch from the
+repository root:
+
+```powershell
+git apply --check "C:\path\to\export\documents.patch"
+git apply "C:\path\to\export\documents.patch"
+```
+
+Skip these commands if the patch is empty. The check can fail if repository files
+changed after export. The system prompt is exported separately; it does not patch
+Python source or change global Arena defaults. Copy it into a new study, or use the
+exported configuration through `arena calibrate run` as described in the ZIP README.
+
+## Prompt history and accounting
+
+Open **Prompt history** in a study to compare any saved candidates, including
+rejected or blocked proposals. Select the system prompt or a reference document
+to see its diff and exact before/after contents. **Mark as my preferred version**
+saves a personal choice in this browser; it does not replace the algorithm's
+recorded winner. **Use this version in a new study** loads that candidate's frozen
+prompt, documents and configuration into the editor without starting a run.
+**Download learning material** exports the selected version for use elsewhere.
+
+The summary's **Recorded optimization API cost** includes all target candidates,
+rejected attempts, analyst calls and optional analyst summaries. Target and analyst
+subtotals appear separately. Local engine and Laya execution have no API charge;
+unreported usage is marked unknown rather than treated as zero.
+
+The token objective measures every target input and output token across all calls
+and rounds of one candidate, then divides by repetitions for its penalty. It
+excludes analyst calls and other candidates. Cached input remains part of input;
+provider-reported reasoning counts in output without being counted twice. The
+summary also shows the entire optimization's tokens and call counts. The default
+short observation uses one round and at most eight target calls, which can be
+much smaller than a full Arena competition.
+
+## Recover a blocked analyst response
+
+Malformed analyst JSON receives a correction request, up to `editor_retries`
+(default one). A completed text response is not automatically a valid proposal.
+After retries are exhausted, the study retains its conversations and evaluations.
+
+Open **Intervene in a blocked analyst proposal** after stopping the worker.
+Send instructions to ask the analyst for another complete answer, or paste the
+complete corrected JSON (`prompt`, `tools`, `rationale`, and optional
+`reference_documents`/`tool_requests`). Click **Resume** afterwards. This works
+in automatic studies and continues the same search. Manual replacements are
+marked in the journal and still undergo normal configuration validation and any
+enabled proposal guard. Provider usage is retained; an intervention cannot bypass
+billing reconciliation or rewrite a frozen proposal.
+
+### Recover the tested model
+
+The target uses the same preparation loop as Arena. A response ending without
+tool calls triggers up to three explicit submission reminders, subject to the
+configured budget. After that the conversation stops without submitting.
+Malformed tool arguments are returned as tool errors; an unreadable provider
+response can instead require billing reconciliation.
+
+Use **Continue a stopped target conversation**, not analyst intervention. Stop
+the study, optionally add instructions, click **Prepare target continuation**,
+then **Resume**. The saved conversation, workspace, counters, completed trials and
+pending tool calls remain intact. Submission reminders reset; budgets do not.
+New instructions cannot be inserted while tools are pending. For an unresolved
+provider request, first enter its confirmed additional charge and how you checked
+it in the reconciliation fields. Unknown token usage remains unknown.
+
+## Study navigation and blocked proposal checks
+
+The study header identifies the active candidate, whether the target or analyst
+is working, and the blocking reason. **Overview** contains results and cost,
+**Prompt changes** contains the analyst's changes and independent observations,
+and **Conversations & files** contains the full records and recovery controls.
+The saved-version selector applies to all three views.
+
+A rejected experimental Laya proposal check means that the new prompt has not
+been evaluated. It is not a target compilation failure. Inspect **Review proposed
+changes**. If the prompt is acceptable, **Accept proposal & continue** records a
+human override for that exact draft and check, then resumes the optimization.
+Configuration and tool validation still apply. Alternatively use **Resolve &
+continue** to ask the analyst for a revision or supply corrected JSON.
+
+### Automatic versus observational Laya checks
+
+**Laya proposal decisions** has three modes. **Off** skips the semantic check.
+**Observe only** saves and displays its result without rejecting a proposal or
+feeding it to the analyst. **Automatic** sends explicitly rejected results back to the analyst for revision.
+Inconclusive results (`needs_review`) are saved but allow evaluation to proceed;
+uncertainty is not treated as a rejection. These
+semantic revisions do not consume the JSON-format correction allowance. Provider
+errors, unavailable enforced checks, spending limits and manual stops still stop
+the run. With unlimited spending, semantic revision has no fixed attempt limit.
+Every checked draft and check receipt is saved under `proposals/NNN/attempts/`;
+model messages and usage remain in the analyst journal.
+
+Existing studies with the proposal check enabled use automatic decisions after
+this update. Resume a study blocked by a rejected check to continue revision
+without a human override. Independent trajectory diagnostics remain separate and
+are always informational.
+
+The analyst may also return `{"no_change": true, "rationale": "..."}` when no
+useful change is justified. This ends the optimization on the best evaluated
+candidate, without a new target trial; the conclusion is saved. A blocked
+proposal also offers **Finish with current best** for the same explicit human
+decision. A proposal rejected by Laya is never promoted just because the analyst
+has no further idea.
+
+In **Prompt changes**, open **Laya input & exact output** to select any saved
+proposal check attempt. It displays the exact input, questions, returned
+probabilities, thresholds, model revision and complete library response. **Copy**
+copies all saved checks. Older receipts expose the answers and usage originally
+saved; additional output discarded by older versions cannot be recovered. Laya
+returns structured scores, not a textual explanation or hidden reasoning.
+
+## Prompt source and unsuccessful observations
+
+A fresh setup reads the Arena default from `prompts/g0.md`. The workshop rereads
+it when serving defaults; **Load current Arena prompt & documents** reloads it
+into the editor after a file edit. This deliberately replaces the editor's
+learning-material changes. New studies freeze the editor's prompt and documents;
+existing studies keep their saved inputs. **Compare results with this study**
+changes result comparisons only, never the prompt or selected best version.
+
+If preparation ends without any submitted files, calibration records an
+unsuccessful observation with score zero, the stop reason, counters and complete
+conversation. It stops that replicate's strategy rounds because there is no
+submission to inherit, then proceeds to analyst review in automatic mode. It
+does not ask the user to continue a timed-out preparation manually. Provider
+failures, uncertain billing and engine assessment failures still pause the run;
+they are infrastructure problems rather than evidence of a bad prompt.
+Application/runtime updates can resume a frozen study with compatible engine
+artifacts; additional runtime provenance records the change. Prompt, document,
+scenario and engine changes remain subject to compatibility checks.
+
+A local [proposal-check sanity check](laya-proposal-check.md) found ambiguous
+outputs even for simple authoring instructions. These scores are uncalibrated;
+allowing an inconclusive check to proceed does not certify that a prompt contains
+no solution. The original Laya result remains available in the review.
+
+The combat-tactic check now asks an explicit `choice` between `coding_workflow`
+and `battle_tactics`, rather than asking whether the text prescribes a generic
+strategy. Only `battle_tactics` is interpreted as tactic risk. Planning tool
+calls, reading docs, compiling, testing and submitting are permitted workflow.
+The separate ready-made-code question explicitly refers to executable combat
+behavior. Existing pending checks are recomputed because question definitions
+are part of the cache identity; original receipts remain available.
+
+## API lookup under small preparation budgets
+
+`lookup_api` now supports `{"queries":["getCell","getDistance","moveToward"]}`:
+up to 20 exact names or fragments per call, consuming one tool step for the whole
+batch. Results are separated by query; zero matches for one name does not hide
+other results. `{"mode":"index","kind":"functions"}` lists names without
+definitions (default/max 500 entries); use `kind:"constants"` for constants.
+Searches are case-insensitive name searches, not semantic documentation search.
+Each truncated search/index page includes a runnable continuation with a match
+offset. Fetch related signatures together when calls or tool steps are limited.
+The tool operates on the trial's frozen LeekScript 4 catalog. Existing `query`
+calls still work. Fresh defaults document the new interface; old saved prompts
+and reference documents are not rewritten automatically.
+
+## Why a candidate can finish after one round
+
+With default plateau patience 2, one score cannot establish stagnation. A candidate
+may nevertheless end its repetition after the first round if it has no submitted
+strategy: later improvement rounds have no frozen script to inherit. That is an
+unsuccessful observation passed to the analyst, not convergence. Invalid but
+submitted scripts can still proceed to later repair rounds. The overview shows
+the saved round limit and each selected repetition's actual stop reason. Settings
+in the setup editor do not change a study already launched; check its frozen
+settings rather than the current editor values.
+
+## Scenario briefing and automatic source snapshots
+
+New sessions receive a readable briefing, rather than a serialized copy of the
+entire scenario and several duplicate guides. It states the objective, whether
+the team is fixed or must be composed, build constraints, relevant equipment
+references and actual preparation limits. Identical reference members are grouped;
+open-team reference opponents are explicitly distinguished from the team to build.
+The open-team preset permits 1–4 members up to level 300; Dream-team imports retain
+their real levels. Original configuration stays in the journal. Historical runs
+show a labelled readable view without replacing their recorded native requests.
+
+On a preparation limit, Arena automatically freezes the latest saved files. It
+uses the known/configured entrypoint, main.leek or a sole source file. Missing
+team configuration no longer discards saved code: it creates an invalid frozen
+submission with an explicit diagnostic, allowing a later improvement round to
+inherit the code and configure the team. In Arena it forfeits against a configured
+participant rather than silently playing with a reference roster. Compiler errors
+still fail assessment; automatic freezing does not validate code or invent a team.
+If there are no source files, or multiple files without an identifiable entrypoint,
+the failed freeze now records its exact reason.
+
+When resuming an unfinished legacy trial whose recorded budget closure failed to
+freeze existing code, calibration retries only that snapshot operation. It does
+not repeat model calls or rewrite completed trial results. Cached reference fights
+remain verified against their original engine provenance after compatible runner
+updates.
+
+## Target preparation limits versus analyst requests
+
+`budget_per_session` limits the tested model's preparation. Exhausting that budget
+freezes its latest saved sources for assessment; compilation and team errors can
+still make that frozen submission invalid. This status does not mean the analyst
+proposal was rejected.
+
+The prompt analyst does not inherit the target's token, call, tool or per-session
+cost limits. Its own participant settings (such as maximum output per request and
+input admission bound) still apply. The shared `spending.max_total_usd` ceiling
+covers both target and analyst calls and is never bypassed by recovery. Admission
+uses a conservative reservation, so a request can be paused before the actual
+ceiling is spent. The interface identifies these cases as budget pauses, with the
+specific reason, rather than semantic proposal rejection.
+
+Resume after updating the application to recover an old analyst budget pause.
+An already recorded answer is parsed first, preserving its usage receipt without
+another model call. A new request still checks the shared spending ceiling.
+The baseline has no analyst proposal of its own: analyst conversation links are
+shown only when their journal exists.
+
+Independent Laya diagnostics require readable reasoning when configured with
+`evidence=reasoning`. If the model returns none, an unavailable diagnostic receipt
+is saved and no score is invented. This does not block fight-based optimization.
+A summary-based diagnostic can be selected for a new study instead. The Laya
+proposal guard examines proposed instructions separately and does not require the
+tested model's reasoning. Conversation-only scoring, unlike an optional diagnostic,
+requires usable evidence and reports an error if there is none.
+
+### Resolving an analyst input admission pause
+
+The participant setting `max_input_tokens_per_call` is checked conservatively
+against the serialized request's UTF-8 byte length, not a tokenizer measurement.
+The analyst's input includes the system prompt, editable documents and bounded
+trajectory evidence, so a cap sufficient for a target call may reject this larger
+request. The pause now reports both byte length and configured bound.
+
+For an existing paused study, **Remove analyst input cap & resume** explicitly
+removes this admission cap from that study's analyst requests, including subsequent
+candidates. The decision is saved in `analyst-runtime.json` and recorded in each
+analyst journal. It applies to the currently selected analyst, including a
+replacement selected with **Change models**. Editing a saved participant does
+not update an existing study's frozen model settings; use this study action to
+remove its analyst cap. Frozen target inputs and the original participant remain intact;
+the shared financial ceiling and the provider's own context constraints still
+apply. Ordinary Resume does not silently remove this cap.
+
+The candidate selector controls the entire review panel. Target candidates show
+their own diagnostics; pending prompt proposals label their source trajectory.
+Refreshing does not substitute the latest proposal for the selected candidate.
+Unavailable diagnostics are grouped in one collapsed summary, with saved reasons
+available inside. Existing completed diagnostic receipts are retained.
+
+### Retrying an interrupted free API request
+
+A network failure is different from a model rejection or a preparation budget.
+DNS failures, direct connection refusals and certificate verification failures
+before a direct request are reported as not sent; Resume can retry them without
+billing reconciliation. Timeouts, interrupted responses and failures after a
+redirect retain an unknown delivery status. The journal records the network
+category and endpoint without logging credentials.
+
+For an already saved unknown request, use **Resolve interrupted request & resume**.
+Enter the confirmed additional charge, or **0** for a confirmed free API call
+(such as Mistral's free offering), and a note explaining the check. This works for
+both the tested model and the prompt analyst. Existing usage receipts, source
+files and completed evaluations remain intact. A saved response is processed
+without requesting it again; otherwise the selected active conversation can be retried.
+Free pricing alone does not prove whether a network request reached the provider.
+
+### Request attempts and completed responses
+
+The displayed model-call count and `max_calls` preparation budget count completed
+model responses, not failed connections. Request attempts are shown separately.
+For example, one refused connection followed by a successful retry is two attempts
+and one model response, consuming one model-call slot. Provider usage and costs
+still come from receipts; an unknown request outcome must be resolved before a
+retry. Internal transport retries remain recorded in the provider receipt.
+
+Journal `calls` remains the request sequence for stable request/tool IDs;
+`completed_calls` tracks responses. Historical journals reconstruct the response
+count from their own `model_response` events when read. Their checkpoints are not
+rewritten for display. A regular Resume is disabled while a request is awaiting
+reconciliation; use **Resolve interrupted request & resume** instead. The server
+also rejects a direct Resume in that state before launching another worker.
+
+## Model roles, connection tests and replacement
+
+The model panel names the **tested model / student**, the **prompt analyst / summary
+model**, and each enabled **local Laya** check. The analyst proposes prompt edits
+and also produces trajectory summaries when summary evidence is enabled. Laya
+runs locally for independent diagnostics, proposal checks or conversation scoring;
+it is separate from the provider analyst. Selected conversations show the model
+used for their recorded requests.
+
+Use **Test connection** or **Test tools** beside a role to make a small explicitly
+requested probe of its effective provider configuration. Probe receipts and costs
+are separate from optimization totals. Connection tests cap output at 16 tokens;
+tool tests cap it at 128. No returned function is executed.
+
+To replace a rate-limited analyst, stop the optimization, choose **Change models**,
+keep the tested model and select another saved analyst. Apply, then Resume. Future
+analyst and summary requests use the replacement, including a retry of a failed
+request in the existing conversation. An interrupted analyst request can be left archived while the replacement starts a separate conversation.
+Saved responses and completed evaluations remain intact. Changes are recorded in
+`role-models.json`; each subsequent request records its actual model descriptor.
+The study's original frozen inputs and shared spending ceiling are unchanged.
+
+Choosing another tested model prepares a **new calibration**, initialized from the
+best candidate's prompt and complete frozen reference documents. Review its
+settings and spending budget, then click **Run calibration**. It starts fresh
+student conversations and keeps the original study's results separate. The new
+study records its source in `origin.json`. A completed study also uses this path
+when changing its analyst. This avoids mixing different students into a single
+learning curve while retaining the optimized learning material.
+
+### Replacing an unsuitable or interrupted analyst
+
+Changing the analyst does not require retrying or reconciling an earlier provider
+request. The replacement gets a new session containing
+the recorded analysis context and visible history, with a fresh request for an independent review. The old session and any monetary
+reservation remain unchanged and count toward the shared financial ceiling. No
+charge is silently set to zero. A ceiling fully occupied by unresolved reservations
+can still prevent further spending, but does not prevent changing the analyst.
+
+The conversation selector labels the old session Archived and selects the active
+replacement by default. Use **Resolve archived request** later to record its known
+charge, while the optimization is stopped. Resolving it does not resend that request.
+This also applies to interrupted trajectory-summary sessions. Completed proposals
+and summaries are immutable and are reused rather than regenerated.
+
+A zero-priced model has a zero monetary reservation even when its output token
+limit is blank. Such requests can continue when earlier reservations exactly fill
+the financial ceiling; requests with a positive or unknown cost bound still obey
+that ceiling. These bounds use configured prices, not independent billing data.

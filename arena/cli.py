@@ -15,11 +15,16 @@ def parser():
     commands = p.add_subparsers(dest="command", required=True)
     c = commands.add_parser("setup", help="Fetch the pinned engine, build its jar and the arena adapter")
     c.add_argument("--gradle")
+    c.add_argument("--bridge-only", action="store_true", help="Recompile only the arena adapter against the existing pinned jar")
     c = commands.add_parser("ui", help="Open the local browser interface")
     c.add_argument("--port", type=int, default=8765)
     c.add_argument("--runs", type=Path, help="Directory of competition artifacts (default: runs)")
     c.add_argument("--open", action="store_true", dest="open_browser")
     commands.add_parser("doctor", help="Check engine artifact hashes and Java runtime")
+    c = commands.add_parser("storage", help="Show disk usage or compact fight folders into SQLite stores")
+    c.add_argument("action", choices=["report", "compact"])
+    c.add_argument("runs", type=Path, nargs="+", help="Competition folders")
+    c.add_argument("--keep-files", action="store_true", help="Store fights but keep the original folders")
     c = commands.add_parser("docs", help="Export a frozen API reference from the compiled engine")
     c.add_argument("--out", type=Path, required=True)
     c = commands.add_parser("plan", help="Validate a tournament and show its match count")
@@ -47,12 +52,19 @@ def parser():
         action.add_argument("config", type=Path)
         if name in {"run", "init"}:
             action.add_argument("--out", type=Path, required=True)
+    action = actions.add_parser('retry-fights',help='Retry frozen engine fixtures without making model requests')
+    action.add_argument('directory',type=Path)
+    action.add_argument('--include-ready',action='store_true',help='Schedule and drain all available frozen submissions too')
     action = actions.add_parser("retry", help="Continue one failed conversation, retaining completed submissions and matches")
     action.add_argument("directory", type=Path)
     action.add_argument("--session", required=True)
+    action.add_argument("--reasoning-effort")
+    action.add_argument("--allow-updated-runner", action="store_true")
     for name in ("resume", "status", "report"):
         action = actions.add_parser(name)
         action.add_argument("directory", type=Path)
+        if name == "resume":
+            action.add_argument("--allow-updated-runner", action="store_true")
     action = actions.add_parser("export")
     action.add_argument("directory", type=Path)
     action.add_argument("--out", type=Path, required=True)
@@ -67,11 +79,19 @@ def parser():
     action.add_argument("config", type=Path)
     action.add_argument("--out", type=Path, required=True)
     action.add_argument("--automatic", action="store_true")
+    for name,help_text in [('score-conversation',"Score an exported conversation's readable reasoning with local Laya"),('diagnose-conversation','Save independent Laya choice diagnostics for an exported conversation')]:
+        action = ca.add_parser(name, help=help_text)
+        action.add_argument("conversation", type=Path)
+        action.add_argument("--out", type=Path, required=True)
+        action.add_argument("--model", choices=['convaiinnovations/laya','convaiinnovations/laya-multilingual','convaiinnovations/laya-typed-decisions'], default='convaiinnovations/laya')
+        action.add_argument("--device", choices=['cpu','cuda','mps'], default='cpu')
     c = commands.add_parser("mcp", help="Preparation tools over MCP stdio")
     actions_mcp = c.add_subparsers(dest="mcp_action", required=True)
     action = actions_mcp.add_parser("serve")
     action.add_argument("--experiment", type=Path, required=True)
     action.add_argument("--session", required=True)
+    action.add_argument("--reasoning-effort")
+    action.add_argument("--allow-updated-runner", action="store_true")
     for name in ("analyze", "fight", "verify", "tournament"):
         c = commands.choices[name]
         c.add_argument("--out", type=Path)
@@ -82,11 +102,31 @@ def parser():
 def main(argv=None):
     args = parser().parse_args(argv)
     try:
+        from .environment import load_dotenv
+        load_dotenv()
         if args.command == "ui":
             from arena_web.server import serve
             if not 0 <= args.port <= 65535:
                 raise ArenaError("Port must be between 0 and 65535")
             serve(args.port, args.runs, args.open_browser)
+            return 0
+        if args.command == "storage":
+            from .storage import compact, report as usage_report
+            for run in args.runs:
+                if args.action == "report":
+                    rows = usage_report(run.absolute())
+                    print(run.name)
+                    for name, files, size in rows:
+                        print(f"  {name:40s} {files:>10} files {size / 1e9:8.2f} GB")
+                else:
+                    last = [0]
+                    def progress(stage, stored):
+                        if stored - last[0] >= 20000:
+                            last[0] = stored
+                            print(f"  {stage.name}: {stored} files stored", flush=True)
+                    result = compact(run.absolute(), delete=not args.keep_files, progress=progress)
+                    print(f"{run.name}: {result['files_stored']} files stored; "
+                          f"{result['bytes_before'] / 1e9:.2f} GB -> {result['bytes_after'] / 1e9:.2f} GB", flush=True)
             return 0
         if args.command == "calibrate":
             from .calibration import defaults, study
@@ -94,6 +134,12 @@ def main(argv=None):
                 from arena_web.calibration import serve
                 serve(args.out, args.port, args.open_browser)
                 return 0
+            if args.calibration_action in {'score-conversation','diagnose-conversation'}:
+                from .calibration_transcript import score,diagnose_export
+                operation=score if args.calibration_action=='score-conversation' else diagnose_export
+                result=operation(args.conversation,args.out,args.model,args.device)
+                print(json.dumps(result,ensure_ascii=False,indent=2))
+                return 0 if result['status']=='completed' else 1
             result = defaults() if args.calibration_action == "example" else study(read_json(args.config), args.out, args.automatic)
             print(json.dumps(result, ensure_ascii=False, indent=2))
             return int(result.get('status') == 'blocked')
@@ -106,10 +152,17 @@ def main(argv=None):
             if args.action in {"plan", "run", "init"}:
                 config = load_config(args.config.absolute())
                 result = plan(config) if args.action == "plan" else run(config, args.out.absolute(), prepare_only=args.action == "init")
+            elif args.action=='retry-fights':
+                from .fight_recovery import run as retry_fights
+                result=retry_fights(args.directory.absolute(),include_ready=args.include_ready)
+                print(json.dumps(result,ensure_ascii=False,indent=2))
+                return int(bool(result['remaining_failed']))
             elif args.action in {"resume", "retry"}:
                 directory = args.directory.absolute()
                 result = run(read_json(directory / "experiment.json")["config"], directory, resume=True,
-                             retry_session=args.session if args.action == "retry" else None)
+                             retry_session=args.session if args.action == "retry" else None,
+                             allow_updated_runner=args.allow_updated_runner,
+                             retry_reasoning_effort=getattr(args,"reasoning_effort",None))
             elif args.action == "status":
                 result = status(args.directory.absolute())
             elif args.action == "export":
@@ -122,8 +175,13 @@ def main(argv=None):
                        or bool(result.get("unresolved_sessions")) or bool(result.get("incomplete"))
                        or bool((result.get("evolution") or {}).get("incomplete")))
         if args.command == "setup":
-            setup(args.gradle)
-            print("Engine built. Run: python -m arena doctor")
+            if args.bridge_only:
+                from .engine import build_bridge
+                build_bridge()
+                print("Arena adapter rebuilt. Run: python -m arena doctor")
+            else:
+                setup(args.gradle)
+                print("Engine built. Run: python -m arena doctor")
             return 0
         if args.command == "doctor":
             engine = Engine()

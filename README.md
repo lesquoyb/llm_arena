@@ -4,6 +4,13 @@
 
 Run and compare **LeekScript 4** strategies with the official Leek Wars engine,
 pinned to commit `b99a174dd938260d9e47b2e65a208cb32230e26e`.
+The game rules are the original ones, with one small addition in the arena's
+engine adapter: an optional stall watcher that ends a fight early as a draw
+once nothing happens for a set number of turns (see `stall_turns` below).
+Idle fights then stop instead of running to the turn limit, which lets the
+arena handle much larger fight volumes. Worker JVMs also keep the engine loaded
+and reuse compiled strategies between fights through upstream's own compiled-AI
+cache; game rules and replays are unchanged ([details](docs/performance/jvm-tuning.md)).
 
 Participants write code through a shared tool interface. The runner records
 prompts, source versions, usage and match results. Experiments can compare an
@@ -30,6 +37,10 @@ bash scripts/bootstrap-linux.sh
 .venv/bin/python -m arena ui --open
 ```
 
+For API keys, copy [`.env.example`](.env.example) to `.env` at the repository
+root and fill in the providers you use. The application loads it at startup;
+no terminal assignments are needed. `.env` is ignored by Git.
+
 The interface opens at **http://127.0.0.1:8765**. It provides participant and
 price settings, competition management, full recorded conversations, source
 history and diffs, schematic replays, match statistics and comparisons across
@@ -38,13 +49,20 @@ compatible experiments. No Node.js installation is needed to use it.
 See the [Windows](docs/windows.md), [Linux](docs/linux.md) and [interface](docs/ui.md)
 guides. Installation needs Internet access; mock experiments and matches run locally afterward.
 
+## Benchmark campaigns
+
+See the [multi-model experiment plan](docs/benchmark-plan.md) for batching, parameter
+variants, feedback ablations, provider-free strategy reuse and multi-run CSV exports.
+
 ## Prompt calibration
 
 Run `python -m arena calibrate serve --open` with the virtual environment activated
 to compare system prompts, tool sets and model parameters in a separate workshop.
-It supports manual revisions, automatic analyst proposals, fixed opponents,
-round-by-round inspection and held-out evaluation. See the
+It supports manual revisions, analyst-led prompt/document optimization with exploration and exploitation,
+fixed opponents, independent local Laya diagnostics and round-by-round inspection. See the
 [prompt calibration guide](docs/calibration.md).
+Round context, earlier source versions and feedback permissions are described in
+the [round feedback guide](docs/round-feedback.md).
 
 ## Command line
 
@@ -73,8 +91,7 @@ python -m arena experiment resume runs/complete-demo
 python -m arena experiment export runs/complete-demo --out runs/complete-export
 ```
 
-Use a new output directory for a new experiment. Resume requires the recorded
-code, runtime, configuration and sources. Existing archives remain readable after updates.
+Use a new output directory for a new experiment. The web interface can continue after application updates while keeping completed work and recording version changes. CLI resume remains strict unless `--allow-updated-runner` is supplied. Configuration, game-engine and source integrity checks still apply. See [competition recovery and billing reconciliation](docs/recovery.md).
 
 ## Strategies and results
 
@@ -101,7 +118,42 @@ the whole worker process, not one turn. Recorded timings are elapsed time, not C
 Results include frozen sources, scenarios, raw outcomes, logs, compact results,
 SHA-256 hashes and reports. Engine winners are 0 or 1 for the two sides and -1
 for a draw; replay teams are numbered 1 and 2. The arena records duration up to the requested `max_turns` limit.
+
+A fight is replayed exactly from its seed, with one known exception inherited
+from the engine. When a strategy overflows the Java stack (typically unbounded
+recursion), the engine logs a `STACKOVERFLOW` error and ends that AI's turn.
+How deep the recursion gets first depends on JVM stack frame sizes, which vary
+with JIT compilation state, so the operations counted before the overflow can
+differ between runs. Actions, winner and duration stay the same; operation
+counts and the replay hash, which includes them, may not. In a sample of 660
+stored fights, 13 had stack overflows and all 13 varied this way. The 647 others
+replayed byte-identical. Stored fights are verified by hash, not re-run, so
+this does not affect resuming. Making it exact would require a deterministic
+recursion limit in the upstream engine, which the arena does not modify.
 New UI competitions use the [Simple duel preset and character sheets](docs/ui.md#scenario-presets-and-character-sheets).
+
+Optional `stall_turns` (10 to 1000) ends a fight as a draw when no entity
+loses or recovers life for that many consecutive turns. Participants are told
+the rule. It is off unless a scenario sets it; the Simple duel preset uses 100.
+Decisive fights replay identically with or without it. The watcher lives in
+the adapter (`engine/ArenaMain.java`), not in the upstream engine source.
+
+## Storage
+
+Each stage (`tournament`, `gN-tournament`, `evaluations/gN-*`) keeps its fight
+records and artifacts in one `fights.sqlite` file: contents are compressed,
+deduplicated and addressed by SHA-256, and reads check that hash. Records keep
+their original relative paths. Older competitions still read their per-fight
+folders; to move them into the store and reclaim space (about 20x on real
+runs), stop the competition and run:
+
+```bash
+python -m arena storage report runs/<competition>
+python -m arena storage compact runs/<competition>
+```
+
+`--keep-files` stores everything but keeps the folders. CSV exports remain
+available from the interface.
 
 ## Validation and documentation
 

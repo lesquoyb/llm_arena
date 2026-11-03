@@ -58,4 +58,4 @@ python scripts/import_language_docs.py --snapshot .arena/language-docs-source.js
 API paths encode spaces in article titles. Browser URLs display those titles
 with underscores; using browser slugs directly against the API can return 400.
 Existing experiment corpora remain frozen. Clone configurations for a new run
-when adopting updated documentation; scientific resume checks remain strict.
+when adopting updated documentation. The web interface can also make an [audited continuation](recovery.md), preserving the original frozen documents. CLI resume remains strict by default.

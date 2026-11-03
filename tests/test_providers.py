@@ -25,7 +25,7 @@ class ProviderContractTests(unittest.TestCase):
         config["spending"] = {"allow_paid_calls": True, "max_total_usd": "1"}
         config["budget_per_session"].update(max_input_tokens=1000000, max_output_tokens=1000, max_cost_usd="1")
         response = {"role": "assistant", "native": {"role": "assistant", "content": "done"},
-                    "tool_calls": [], "usage": {"input_tokens": 1, "output_tokens": 1},
+                    "tool_calls": [], "stop_reason": "end_turn", "usage": {"input_tokens": 1, "output_tokens": 1},
                     "cost_usd": "0.00001", "request_id": "fixture"}
         with scratch_directory() as tmp:
             journal = Journal(tmp)
@@ -66,6 +66,7 @@ class ProviderContractTests(unittest.TestCase):
                               "completion_tokens_details": {"reasoning_tokens": 15}}}
         captured = []
         def transport(url, payload, headers, timeout):
+            self.assertEqual(headers.get("User-Agent"), "LLMArena/1.0")
             captured.append(payload)
             return response, "request-fixture"
         with mock.patch.dict(os.environ, {"ARENA_TEST_KEY": "test-only"}):
@@ -242,6 +243,23 @@ class ProviderContractTests(unittest.TestCase):
             with self.assertRaises(ProviderFailure):
                 APIProvider(model(), unknown).respond([], TOOLS, 1)
         self.assertEqual(len(attempts), 1)
+
+    def test_malformed_ollama_tool_call_500_is_certain_and_retryable(self):
+        import io
+        from urllib import error
+        from arena.api_providers import raise_http_error
+        def http(code, body):
+            return error.HTTPError('http://localhost:11434/v1/chat/completions', code, 'err', {}, io.BytesIO(body.encode()))
+        body = '{"error":{"message":"XML syntax error on line 5: element <function> closed by </parameter>","type":"api_error"}}'
+        with self.assertRaises(ProviderFailure) as caught:
+            raise_http_error(http(500, body), 'http://localhost:11434/v1/chat/completions', {})
+        self.assertTrue(caught.exception.retryable)
+        self.assertFalse(caught.exception.uncertain)
+        self.assertEqual(caught.exception.diagnostics['failure_kind'], 'malformed_tool_call')
+        with self.assertRaises(ProviderFailure) as caught:
+            raise_http_error(http(500, '{"error":"boom"}'), 'http://localhost:11434/v1/chat/completions', {})
+        self.assertFalse(caught.exception.retryable)
+        self.assertTrue(caught.exception.uncertain)
 
     def test_optional_tokens_omit_api_caps_and_preserve_unknown_call_reservation(self):
         descriptor = model()

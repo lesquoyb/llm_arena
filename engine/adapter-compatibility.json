@@ -1,0 +1,23 @@
+{
+  "note": "Adapter revisions that run fights exactly like an earlier one unless a scenario opts into a new field. Resuming an older competition with a listed successor keeps its results comparable.",
+  "equivalents": {
+    "294d79b1661f8b2d9ff49fe5e35fa796315b92fb40de03af3115eb83e8d25bdb": {
+      "previous": [
+        "cb01879b1e7c848fdb0f9d9ea78c8093fd8cdf75f8990b874ce3e3f0c7b84073"
+      ],
+      "opt_in_fields": [
+        "stall_turns"
+      ]
+    },
+    "d1ae1c68c73a3e20617780ad78da332ec3199172e5f2fdf029253a81c0aa9919": {
+      "previous": [
+        "294d79b1661f8b2d9ff49fe5e35fa796315b92fb40de03af3115eb83e8d25bdb",
+        "cb01879b1e7c848fdb0f9d9ea78c8093fd8cdf75f8990b874ce3e3f0c7b84073"
+      ],
+      "opt_in_fields": [
+        "stall_turns"
+      ],
+      "runtime_only": "Compiled-strategy cache and reused engine classloader (warm JVM workers). Strategies are precompiled so RAM accounting and error logs match cache-free fights; replays of 651 stored competition fights were byte-identical, logs included."
+    }
+  }
+}

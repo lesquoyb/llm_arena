@@ -80,6 +80,8 @@ class PresetTests(unittest.TestCase):
             passive = ROOT/'examples/strategies/passive'
             info = submission(passive)
             scenario = simple_scenario()
+            self.assertEqual(scenario['stall_turns'], 100)
+            scenario.pop('stall_turns')  # This test needs the full turn limit.
             out = tmp/'long'
             result = Engine().fight([passive]*2, [info]*2, scenario, 101, out)
             self.assertEqual(result['status'], 'completed')

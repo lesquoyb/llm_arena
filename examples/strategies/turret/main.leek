@@ -1,0 +1,9 @@
+// Stationary target that fires at most once per turn; never spends MP.
+var enemy = getNearestEnemy()
+if (enemy != null && isAlive(enemy)) {
+    for (var weapon in getWeapons()) {
+        if (!canUseWeapon(weapon, enemy)) continue
+        if (getWeapon() != weapon) setWeapon(weapon)
+        if (getTP() >= getWeaponCost() && useWeapon(enemy) == USE_SUCCESS) break
+    }
+}

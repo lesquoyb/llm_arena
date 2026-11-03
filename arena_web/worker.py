@@ -13,7 +13,8 @@ def run():
     if hasattr(signal, "SIGBREAK"):
         signal.signal(signal.SIGBREAK, interrupt)
     try:
-        return main()
+        from arena.runner_diagnostics import Diagnostics
+        with Diagnostics():return main()
     except KeyboardInterrupt:
         print("Run stopped. Saved checkpoints will be checked on resume.", flush=True)
         return 130
