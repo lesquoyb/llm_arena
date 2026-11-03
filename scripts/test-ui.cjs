@@ -13,6 +13,40 @@ const python =
     : "python");
 const artifacts =
   process.env.ARENA_UI_ARTIFACTS || path.join(root, "runs", "ui-browser");
+// Builds and equipment sit in a collapsed roster disclosure that re-renders closed.
+async function openRoster(page) {
+  const roster = page.locator("details.roster-disclosure");
+  if (!(await roster.evaluate((el) => el.open)))
+    await roster.locator(":scope > summary").click();
+}
+// Conversation messages and session details render collapsed, and the view can
+// re-render after navigation. Keep opening them until the expected text is visible.
+async function reveal(page, text, containers = "details.message-shell") {
+  await page.waitForFunction(
+    ([wanted, selector]) => {
+      for (const details of document.querySelectorAll(selector)) details.open = true;
+      return [...document.querySelectorAll("main *")].some(
+        (el) => el.textContent.trim() === wanted && el.checkVisibility(),
+      );
+    },
+    [text, containers],
+  );
+}
+async function revealMessage(page, text) {
+  await reveal(page, text);
+}
+async function openAllMessages(page) {
+  await page.locator("details.message-shell").first().waitFor({ state: "attached" });
+  await page.evaluate(() => {
+    for (const shell of document.querySelectorAll("details.message-shell")) shell.open = true;
+  });
+}
+// Conversation actions sit in a collapsed toolbar menu.
+async function conversationAction(page, name) {
+  const menu = page.locator("#session-toolbar details.action-menu");
+  if (!(await menu.evaluate((el) => el.open))) await menu.locator(":scope > summary").click();
+  await menu.getByRole("button", { name, exact: true }).click();
+}
 async function main() {
   fs.mkdirSync(artifacts, { recursive: true });
   const server = spawn(
@@ -77,7 +111,7 @@ async function main() {
       .click();
     await page.getByRole("button", { name: "Add participant" }).click();
     await page.getByLabel("Participant ID").fill("browser-api");
-    await page.getByLabel("Provider").selectOption("openai");
+    await page.getByLabel("Provider", { exact: true }).selectOption("openai");
     assert.equal(
       await page.getByLabel("Participant ID").inputValue(),
       "browser-api",
@@ -196,6 +230,8 @@ async function main() {
       await page.getByLabel("Maximum output per call").inputValue(),
       "",
     );
+    // Seeds, limits and retries live in the collapsed advanced settings.
+    await page.getByText("Advanced settings", { exact: false }).click();
     await page.getByLabel("Model seed").fill("42");
     assert.equal(
       await page
@@ -245,14 +281,15 @@ async function main() {
       42,
     );
     await page.getByRole("button", { name: "Add participant" }).click();
-    await page.getByLabel("Provider").selectOption("gemini");
+    await page.getByLabel("Provider", { exact: true }).selectOption("gemini");
     assert.equal(
       await page.getByLabel("API key environment variable").inputValue(),
       "ARENA_GEMINI_KEY",
     );
     assert.equal(await page.getByLabel("Model seed").inputValue(), "0");
-    await page.getByLabel("Provider").selectOption("anthropic");
+    await page.getByLabel("Provider", { exact: true }).selectOption("anthropic");
     assert.equal(await page.getByLabel("Model seed").count(), 0);
+    await page.getByText("Advanced settings", { exact: false }).click();
     await page
       .getByText("Seed: not available in the Anthropic API.", { exact: true })
       .waitFor();
@@ -262,7 +299,7 @@ async function main() {
       .click();
     await page.getByRole("button", { name: "New competition" }).click();
     await page.getByLabel("Competition name").fill("Configuration navigateur");
-    await page.getByLabel("Repetitions per participant").fill("2");
+    await page.getByLabel("Repetitions per generated participant").fill("2");
     await page.locator('[name="generations"]').fill("4");
     await page
       .getByLabel("Round stopping rule", { exact: true })
@@ -295,6 +332,8 @@ async function main() {
     const componentPicker = page.locator(
       '[data-member-build="0"] [data-kind="components"]',
     );
+    // Builds and equipment sit in a collapsed roster disclosure.
+    await openRoster(page);
     await componentPicker.locator("summary").first().click();
     const initialCapital = await page
       .locator(".member-stat-summary")
@@ -409,6 +448,7 @@ async function main() {
       await page.locator('[name="member_0_level"]').inputValue(),
       "301",
     );
+    await openRoster(page);
     await page.locator('[data-action="character-tab"][data-index="1"]').click();
     assert.equal(
       await page.locator('[name="member_1_level"]').inputValue(),
@@ -460,10 +500,10 @@ async function main() {
       "Imported builds need useful slider ranges",
     );
     await page
-      .getByRole("button", { name: "Simple duel · level 300", exact: true })
+      .locator('[data-action="preset-simple"]')
       .click();
     await page
-      .getByRole("button", { name: "Dream team · saved preset", exact: true })
+      .locator('[data-action="preset-dream"]')
       .click();
     await page
       .locator('[name="member_3_level"]')
@@ -473,7 +513,7 @@ async function main() {
       "301",
     );
     await page
-      .getByRole("button", { name: "LLM builds its team", exact: true })
+      .locator('[data-action="preset-llm"]')
       .click();
     await page.locator('[name="team_mode"]').waitFor();
     assert.equal(
@@ -515,9 +555,10 @@ async function main() {
     assert.equal(fixedScenario.preset, "custom");
     assert.equal(fixedScenario.team_selection, undefined);
     await page
-      .getByRole("button", { name: "Simple duel · level 300", exact: true })
+      .locator('[data-action="preset-simple"]')
       .click();
-    await page.locator('[name="member_0_strength"]').waitFor();
+    await page.locator('[name="member_0_strength"]').waitFor({ state: "attached" });
+    await openRoster(page);
     assert.equal(await page.locator("[data-member-build]").count(), 1);
     await page.locator('[name="team_size"]').fill("2");
     await page.locator('[name="team_size"]').press("Tab");
@@ -744,12 +785,12 @@ async function main() {
       .getByText("Conversations", { exact: true })
       .waitFor();
     assert((await page.locator("#plan-preview").innerText()).includes("4"));
-    await page.getByLabel("Repetitions per participant").fill("1");
+    await page.getByLabel("Repetitions per generated participant").fill("1");
     await page.getByLabel("Maximum turns").fill("1");
-    await page.getByLabel("Include mirror matches").uncheck();
+    await page.locator('[name="include_mirrors"]').uncheck();
     await page.getByRole("button", { name: "Save configuration" }).click();
     const configRow = page
-      .locator("tr")
+      .locator("article.draft-card")
       .filter({ hasText: "Configuration navigateur" });
     await configRow.waitFor();
     const configured = (
@@ -827,10 +868,10 @@ async function main() {
     await page.locator("[name=participant][value=mock-repair]").uncheck();
     await page.locator("[name=participant][value=mock-single]").uncheck();
     await page.locator("[name=participant][value=browser-api]").check();
-    await page.getByLabel("Authorize API calls").check();
+    await page.locator('[name="allow_paid_calls"]').check();
     await page.getByRole("button", { name: "Save configuration" }).click();
     await page
-      .locator("tr")
+      .locator("article.draft-card")
       .filter({ hasText: "Configuration API non lancée" })
       .getByRole("button", { name: "Launch" })
       .click();
@@ -843,9 +884,7 @@ async function main() {
       url +
         "/#view=run&run=feedback-view&tab=conversation&session=mock-repair-r0-g1-feedback",
     );
-    await page
-      .getByText("Tournament feedback supplied to the model", { exact: true })
-      .waitFor();
+    await revealMessage(page, "Tournament feedback supplied to the model");
     assert(
       (await page.locator(".chat-message.user").first().innerText()).includes(
         "Round 2 instruction: improve with feedback",
@@ -862,18 +901,18 @@ async function main() {
       .click();
     await page
       .getByText("Original Round 1 instruction", { exact: true })
+      .first()
       .waitFor();
     await page
       .getByRole("button", { name: "Round 2 instruction", exact: true })
       .click();
-    await page
-      .getByText("Tournament feedback supplied to the model", { exact: true })
-      .waitFor();
+    await revealMessage(page, "Tournament feedback supplied to the model");
     await page
       .getByLabel("Conversation", { exact: true })
       .selectOption("mock-repair-r0-g1-control");
     await page
       .getByText("Round 2 instruction: improve with control", { exact: true })
+      .first()
       .waitFor();
     assert.equal(
       await page
@@ -882,28 +921,23 @@ async function main() {
       0,
     );
     await page.goto(url + "/#view=run&run=diagnostics&tab=conversation");
+    // The diagnostics panel and its reports are collapsed and re-render once loaded.
+    const diagnosticsPanels =
+      "details.conversation-session-info, [data-session-diagnostics] details";
+    for (const expected of [
+      "Strategy submitted",
+      "The submitted strategy does not compile.",
+      "main.leek:15:8",
+      "1 compilation error · 1 warning",
+    ])
+      await reveal(page, expected, diagnosticsPanels);
     await page
       .locator("[data-session-diagnostics]")
-      .getByText("Strategy submitted", { exact: true })
-      .waitFor();
-    await page
-      .getByText("The submitted strategy does not compile.", { exact: true })
-      .waitFor();
-    await page
-      .getByText("Submission validation report", { exact: true })
-      .click();
-    await page
       .getByText("Unknown variable or function: moveResult", { exact: false })
       .first()
-      .waitFor();
-    await page.getByText("main.leek:15:8", { exact: true }).waitFor();
-    await page
-      .getByText("1 compilation error · 1 warning", { exact: true })
-      .waitFor();
+      .waitFor({ state: "attached" });
     await page.goto(url + "/#view=run&run=tool-transcript&tab=conversation");
-    await page
-      .getByText("Read documentation: authoring.md", { exact: true })
-      .waitFor();
+    await reveal(page, "Read documentation: authoring.md");
     await page.getByText(/Partial read; next offset 8/).waitFor();
     assert.equal(await page.locator(".provider-output.reasoning").count(), 3);
     for (let i = 0; i < 3; i++) {
@@ -932,7 +966,7 @@ async function main() {
     await write.getByText("Complete written file", { exact: true }).click();
     assert.equal(await write.locator("details pre").innerText(), "var a = 2\n");
     await page.goto(url + "/#view=run&run=outputs&tab=conversation");
-    await page.getByText("Visible answer", { exact: true }).waitFor();
+    await reveal(page, "Visible answer");
     assert.equal(await page.locator(".provider-output[open]").count(), 0);
     assert.equal(await page.locator(".provider-output.reasoning").count(), 3);
     await page
@@ -985,13 +1019,12 @@ async function main() {
         .querySelector(".provider-output.tool_result pre")
         ?.textContent.includes("WHOLE_TOOL_OUTPUT"),
     );
-    const envelope = page
-      .getByText("Complete provider response", { exact: true })
-      .first()
-      .locator("..");
-    await envelope.click();
+    // The complete provider response is archived outside the checkpoint and
+    // loaded on demand from the message's full record.
+    const records = page.locator("[data-message-record] > summary");
+    for (let i = 0; i < (await records.count()); i++) await records.nth(i).click();
     await page.waitForFunction(() =>
-      [...document.querySelectorAll(".provider-output.raw pre")].some((n) =>
+      [...document.querySelectorAll("[data-message-record] pre")].some((n) =>
         n.textContent.includes("extra_remote_tool"),
       ),
     );
@@ -1000,31 +1033,29 @@ async function main() {
       fullPage: true,
     });
     page.off("request", watchOutput);
-    // Matrix counts must keep the pair, stage and result perspective across side swaps.
+    // Matrix counts must keep the pair and result perspective across side swaps.
+    // The overview aggregates every round, so the A-B win from another stage counts too.
     const matrixSummary = url + "/#view=run&run=matrix";
     const paths = async () =>
       page
         .locator(".match-card")
         .evaluateAll((nodes) => nodes.map((n) => n.dataset.path).sort());
+    const card = (name) =>
+      name.includes("/") ? name : `matches/${name}/attempt-1`;
+    const otherStage = "tournament/matches/other-stage/attempt-1";
     async function openMatrix(label, expected) {
       await page.goto(matrixSummary);
-      await page
-        .getByLabel("Overview round", { exact: true })
-        .selectOption("stage:.");
       await page.getByRole("link", { name: label, exact: true }).click();
       await page.waitForFunction(
         (n) => document.querySelectorAll(".match-card").length === n,
         expected.length,
       );
-      assert.deepEqual(
-        await paths(),
-        expected.map((p) => `matches/${p}/attempt-1`).sort(),
-      );
+      assert.deepEqual(await paths(), expected.map(card).sort());
       const fragment = new URLSearchParams(new URL(page.url()).hash.slice(1));
-      assert.equal(fragment.get("stage"), ".");
       assert.equal(fragment.get("tab"), "matches");
     }
-    await openMatrix("A vs B: 2 wins", ["win-left", "win-right"]);
+    const abWins = ["win-left", "win-right", otherStage];
+    await openMatrix("A vs B: A beats B: 3 wins", abWins);
     await page.locator("#match-detail h2").waitFor();
     await page.screenshot({
       path: path.join(artifacts, "matrix-filtered.png"),
@@ -1035,50 +1066,43 @@ async function main() {
     await page.getByRole("heading", { name: "No matches found" }).waitFor();
     await page.getByLabel("Opponent", { exact: false }).selectOption("B");
     await page.waitForFunction(
-      () => document.querySelectorAll(".match-card").length === 2,
+      () => document.querySelectorAll(".match-card").length === 3,
     );
     await page.reload();
     await page.waitForFunction(
-      () => document.querySelectorAll(".match-card").length === 2,
+      () => document.querySelectorAll(".match-card").length === 3,
     );
-    assert.deepEqual(await paths(), [
-      "matches/win-left/attempt-1",
-      "matches/win-right/attempt-1",
-    ]);
+    assert.deepEqual(await paths(), abWins.map(card).sort());
     await page.goBack();
     await page.getByRole("heading", { name: "Match matrix" }).waitFor();
-    await openMatrix("A vs B: 1 draw", ["draw"]);
-    await openMatrix("A vs B: 1 loss", ["loss"]);
+    await openMatrix("A vs B: A draws against B: 1 draw", ["draw"]);
+    await openMatrix("A vs B: A loses against B: 1 loss", ["loss"]);
     await openMatrix("A vs B: 1 failure", ["failure"]);
-    await openMatrix("A vs B: 4 completed matches", [
-      "win-left",
-      "win-right",
+    await openMatrix("A vs B: 5 completed matches", [
+      ...abWins,
       "draw",
       "loss",
     ]);
-    await openMatrix("B vs A: 1 win", ["loss"]);
-    await openMatrix("A vs C: 0 losses", []);
+    await openMatrix("B vs A: B beats A: 1 win", ["loss"]);
+    await openMatrix("A vs C: A loses against C: 0 losses", []);
     await page.getByRole("heading", { name: "No matches found" }).waitFor();
-    await page.getByRole("button", { name: "Clear filters" }).click();
+    await page.getByRole("button", { name: "Reset fight options" }).click();
+    // Ranked tournament fights from every stage; self-play is a separate category.
+    const ranked = ["win-left", "win-right", "draw", "loss", "failure", "other-opponent", otherStage];
     await page.waitForFunction(
-      () => document.querySelectorAll(".match-card").length === 8,
+      (n) => document.querySelectorAll(".match-card").length === n,
+      ranked.length,
     );
-    await page.getByLabel("Stage", { exact: false }).selectOption("tournament");
-    await page.waitForFunction(
-      () => document.querySelectorAll(".match-card").length === 1,
-    );
-    assert.deepEqual(await paths(), [
-      "tournament/matches/other-stage/attempt-1",
-    ]);
+    assert.deepEqual(await paths(), ranked.map(card).sort());
     await page.goto(winsUrl);
     await page.waitForFunction(
-      () => document.querySelectorAll(".match-card").length === 2,
+      () => document.querySelectorAll(".match-card").length === 3,
     );
     await page.locator("#match-search").fill("seed-not-present");
     await page.getByRole("heading", { name: "No matches found" }).waitFor();
     await page.locator("#match-search").fill("301");
     await page.waitForFunction(
-      () => document.querySelectorAll(".match-card").length === 2,
+      () => document.querySelectorAll(".match-card").length === 3,
     );
     await page.goto(url + "/#view=run&run=legacy&tab=code");
     await page.waitForFunction(() =>
@@ -1095,17 +1119,28 @@ async function main() {
     await page.getByRole("heading", { name: "Model ranking" }).waitFor();
     assert.equal(await page.locator(".overview-ranking li").count(), 3);
     assert.equal(await page.locator(".overview-matrix tbody tr").count(), 3);
-    assert.equal(
-      await page.evaluate(() => overviewData(S.detail).selected.length),
-      36,
-    );
+    // Identical outcomes are grouped with a count; compare numbers of fights.
+    // Fight groups for a category load asynchronously; wait for the expected totals.
+    const expectOverview = (fights, completed) =>
+      page.waitForFunction(
+        ([fights, completed]) => {
+          const d = overviewData(S.detail);
+          const total = d.selected.reduce((t, row) => t + (row.match.count || 1), 0);
+          return total === fights && (completed == null || d.models[0]?.completed === completed);
+        },
+        [fights, completed],
+      );
+    const competitionFilter = (name, value) =>
+      page
+        .getByLabel("Competition " + name, { exact: true })
+        .selectOption(value);
+    await expectOverview(36);
     assert.equal(
       await page.evaluate(() => overviewData(S.detail).sessions.length),
       9,
     );
-    await page
-      .getByLabel("Overview round", { exact: true })
-      .selectOption("feedback");
+    await competitionFilter("round", "2");
+    await competitionFilter("track", "feedback");
     assert.equal(
       await page.evaluate(() => overviewData(S.detail).sessions.length),
       3,
@@ -1115,38 +1150,22 @@ async function main() {
         (text) => !text.includes("NaN"),
       ),
     );
-    await page
-      .getByLabel("Overview model", { exact: true })
-      .selectOption("Qwen3-30B-A3B-Instruct-2507-local");
+    await competitionFilter("model", "Qwen3-30B-A3B-Instruct-2507-local");
     assert.equal(await page.locator(".overview-ranking li").count(), 1);
     assert.equal(await page.locator(".overview-matrix tbody tr").count(), 1);
-    assert.equal(await page.locator(".overview-legend > span i").count(), 1);
+    assert.equal(await page.locator(".overview-legend > span[data-chart-model] i").count(), 1);
     await page
       .getByLabel("Overview matches", { exact: true })
       .selectOption("evaluation");
-    assert.equal(
-      await page.evaluate(() => overviewData(S.detail).selected.length),
-      12,
-    );
-    assert.equal(
-      await page.evaluate(() => overviewData(S.detail).models[0].completed),
-      12,
-    );
-    await page
-      .getByLabel("Overview round", { exact: true })
-      .selectOption("initial");
-    assert.equal(
-      await page.evaluate(() => overviewData(S.detail).models[0].completed),
-      12,
-    ); // self-reference counts once
-    await page.getByLabel("Overview model", { exact: true }).selectOption("");
-    await page
-      .getByLabel("Overview round", { exact: true })
-      .selectOption("all");
-    assert.equal(
-      await page.evaluate(() => overviewData(S.detail).selected.length),
-      108,
-    );
+    // Fights against another version of the same model are listed but do not
+    // count toward that model's score.
+    await expectOverview(12, 10);
+    await competitionFilter("round", "1");
+    await competitionFilter("track", "");
+    await expectOverview(12, 10); // self-reference counts once
+    await competitionFilter("model", "");
+    await competitionFilter("round", "");
+    await expectOverview(108);
     await page
       .getByLabel("Overview matches", { exact: true })
       .selectOption("competition");
@@ -1201,10 +1220,12 @@ async function main() {
     await page.getByRole("heading", { name: "Model ranking" }).waitFor();
     await page.goto(url + "/#view=run&run=one");
     await page.getByRole("heading", { name: "Model ranking" }).waitFor();
-    assert.equal(await page.locator(".overview-filters select").count(), 3);
+    // Match category and matrix grouping; model and round filters are competition-wide.
+    assert.equal(await page.locator(".overview-filters select").count(), 2);
     assert.equal(await page.locator(".overview-details[open]").count(), 0);
+    // Evolution defaults to grouped bars; the line chart is a display option.
     await page
-      .getByRole("img", { name: "Model scores across strategy rounds" })
+      .getByRole("img", { name: "Model scores grouped by round" })
       .waitFor();
     await page.getByText("Detailed metrics", { exact: true }).click();
     const sortButton = page
@@ -1224,7 +1245,7 @@ async function main() {
     await page.getByRole("heading", { name: "Match matrix" }).waitFor();
     assert(
       (await page.locator(".overview-matrix").innerText()).includes(
-        "1 / 0 / 0",
+        "1 W / 0 D / 0 L",
       ),
     );
     await page.screenshot({
@@ -1235,6 +1256,7 @@ async function main() {
       .getByRole("button", { name: "Conversations", exact: true })
       .click();
     await page.locator(".chat-message.user").first().waitFor();
+    await openAllMessages(page);
     assert(
       (await page.locator(".chat-message.user").first().innerText()).includes(
         "<script>not executable</script>",
@@ -1247,7 +1269,7 @@ async function main() {
     assert(
       (
         await page
-          .locator(".chat-message.user .message-head")
+          .locator(".chat-message.user .message-compact-head")
           .first()
           .innerText()
       ).includes("Arena → Model"),
@@ -1255,7 +1277,7 @@ async function main() {
     assert(
       (
         await page
-          .locator(".chat-message.tool .message-head")
+          .locator(".chat-message.tool .message-compact-head")
           .first()
           .innerText()
       ).includes("Tool → Model"),
@@ -1392,18 +1414,18 @@ async function main() {
     await page.getByRole("button", { name: "Close", exact: true }).click();
     await page.goto(url + "/#view=run&run=threads&tab=conversation");
     await page.locator("#session-choice").waitFor();
-    assert.equal(
-      await page.locator("#conversation-model").inputValue(),
-      "mock-repair",
+    // The model is chosen with the competition-wide filter shared by every tab.
+    const competitionModel = page.getByLabel("Competition model", { exact: true });
+    await competitionModel.selectOption("mock-repair");
+    await page.waitForFunction(
+      () => document.querySelectorAll("#session-choice option").length === 2,
     );
-    assert.equal(await page.locator("#session-choice option").count(), 2);
     await page.locator("#session-choice").selectOption("mock-repair-r1");
     await page
       .getByText("Second repair conversation", { exact: true })
+      .first()
       .waitFor();
-    await page
-      .getByRole("button", { name: "Conversation journal", exact: true })
-      .click();
+    await conversationAction(page, "Conversation journal");
     await page.getByRole("heading", { name: "Event log" }).waitFor();
     assert.equal(
       await page.locator("#event-session").inputValue(),
@@ -1417,50 +1439,32 @@ async function main() {
     await page.waitForFunction(
       () => document.querySelectorAll('[data-action="event"]').length === 2,
     );
-    await page.locator("#conversation-model").selectOption("mock-single");
+    await competitionModel.selectOption("mock-single");
     await page.waitForFunction(
       () => document.querySelectorAll('[data-action="event"]').length === 1,
     );
     assert.equal(await page.locator("#event-session option").count(), 2);
     await page.reload();
-    await page.locator("#conversation-model").waitFor();
-    assert.equal(
-      await page.locator("#conversation-model").inputValue(),
-      "mock-single",
-    );
+    await competitionModel.waitFor();
+    assert.equal(await competitionModel.inputValue(), "mock-single");
     await page
       .getByRole("button", { name: "Open conversation", exact: true })
       .click();
     await page
       .getByText("Single model conversation", { exact: true })
+      .first()
       .waitFor();
-    assert.equal(
-      await page.locator("#conversation-model").inputValue(),
-      "mock-single",
-    );
+    assert.equal(await competitionModel.inputValue(), "mock-single");
     assert.equal(await page.locator("#session-choice option").count(), 1);
-    await page
-      .getByRole("button", { name: "Retry conversation", exact: true })
-      .click();
-    await page
-      .getByRole("dialog")
-      .getByRole("heading", { name: "Retry conversation", exact: true })
-      .waitFor();
-    assert(
-      (await page.getByRole("dialog").innerText()).includes(
-        "Other models' submissions and completed matches are kept",
-      ),
-    );
-    assert.equal(
-      await page.getByRole("dialog").locator('[name="confirm_paid"]').count(),
-      0,
-    );
-    await page.getByRole("button", { name: "Cancel", exact: true }).click();
-    await page
-      .getByRole("button", { name: "Conversation journal", exact: true })
-      .click();
+    // A retryable failure is continued from the action menu, without a paid-call dialog.
+    const actionMenu = page.locator("#session-toolbar details.action-menu");
+    await actionMenu.locator(":scope > summary").click();
+    for (const name of ["Continue now", "Restart preparation"])
+      await actionMenu.getByRole("button", { name, exact: true }).waitFor();
+    await actionMenu.locator(":scope > summary").click();
+    await conversationAction(page, "Conversation journal");
     await page.locator("#event-session").waitFor();
-    await page.locator("#conversation-model").selectOption("");
+    await competitionModel.selectOption("");
     await page.waitForFunction(
       () => document.querySelectorAll('[data-action="event"]').length === 3,
     );
@@ -1476,8 +1480,8 @@ async function main() {
     };
     await liveStep("start");
     await page.goto(url + "/?live-fixture=1#view=run&run=live&tab=matches");
-    await page.getByLabel("Live updates", { exact: true }).waitFor();
-    assert(await page.getByLabel("Live updates", { exact: true }).isChecked());
+    await page.locator("#follow-live").waitFor();
+    assert(await page.locator("#follow-live").isChecked());
     await liveStep("training");
     await page.waitForFunction(() =>
       document
@@ -1493,7 +1497,7 @@ async function main() {
     );
     assert(
       (await page.locator(".match-card").first().innerText()).includes(
-        "Excluded from standings",
+        "Preparation · unscored",
       ),
     );
     await page.getByRole("button", { name: "Summary", exact: true }).click();
@@ -1514,11 +1518,11 @@ async function main() {
     await page.waitForFunction(
       () => document.querySelectorAll(".match-card").length === 1,
     );
-    await page.getByLabel("Live updates", { exact: true }).uncheck();
+    await page.locator("#follow-live").uncheck();
     await liveStep("competition");
     await page.waitForTimeout(3500);
     assert.equal(await page.locator(".match-card").count(), 1);
-    await page.getByLabel("Live updates", { exact: true }).check();
+    await page.locator("#follow-live").check();
     await page.waitForFunction(
       () => document.querySelectorAll(".match-card").length === 2,
     );
@@ -1564,7 +1568,9 @@ async function main() {
     await page.locator("#message-0").waitFor();
     await page.evaluate(() => {
       window.originalMessage = document.querySelector("#message-0");
-      window.scrollTo(0, document.documentElement.scrollHeight);
+      // The conversation scrolls inside its own pane, not the window.
+      const pane = document.querySelector("#conversation-scroll");
+      pane.scrollTop = pane.scrollHeight;
     });
     await liveStep("conversation");
     await page.waitForFunction(
@@ -1572,8 +1578,9 @@ async function main() {
     );
     await page.waitForFunction(
       () =>
-        document.documentElement.scrollHeight - window.scrollY - innerHeight <
-        100,
+        ((pane) => pane.scrollHeight - pane.scrollTop - pane.clientHeight)(
+          document.querySelector("#conversation-scroll"),
+        ) < 100,
     );
     assert(
       await page.evaluate(
@@ -1586,11 +1593,16 @@ async function main() {
         .locator("#message-32")
         .evaluate((el) => el.classList.contains("message-arrival")),
     );
-    await page.evaluate(() => window.scrollTo(0, 0));
+    await page.evaluate(() => {
+      document.querySelector("#conversation-scroll").scrollTop = 0;
+    });
     await liveStep("conversation");
     await page.getByText("30 new messages", { exact: false }).waitFor();
     assert.equal(await page.locator(".chat-message").count(), 33);
-    assert.equal(await page.evaluate(() => window.scrollY), 0);
+    assert.equal(
+      await page.evaluate(() => document.querySelector("#conversation-scroll").scrollTop),
+      0,
+    );
     await page
       .getByRole("button", { name: "Follow latest", exact: true })
       .click();
@@ -1599,8 +1611,9 @@ async function main() {
     );
     await page.waitForFunction(
       () =>
-        document.documentElement.scrollHeight - window.scrollY - innerHeight <
-        100,
+        ((pane) => pane.scrollHeight - pane.scrollTop - pane.clientHeight)(
+          document.querySelector("#conversation-scroll"),
+        ) < 100,
     );
     assert(
       await page.evaluate(
@@ -1608,6 +1621,7 @@ async function main() {
       ),
     );
     await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.locator("#conversation-scroll").hover();
     await page.mouse.wheel(0, -40);
     await liveStep("conversation");
     await page.getByText("30 new messages", { exact: false }).waitFor();
@@ -1618,8 +1632,9 @@ async function main() {
     );
     await page.waitForFunction(
       () =>
-        document.documentElement.scrollHeight - window.scrollY - innerHeight <
-        4,
+        ((pane) => pane.scrollHeight - pane.scrollTop - pane.clientHeight)(
+          document.querySelector("#conversation-scroll"),
+        ) < 4,
     );
     assert.equal(
       await page
