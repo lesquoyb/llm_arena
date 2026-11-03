@@ -58,8 +58,8 @@ def validate_config(value: dict) -> dict:
         raise ArenaError("Unsupported prompt language; current prompts are English (legacy fr configs remain loadable)")
     if value.get("generations", 1) is not None:
         integer(value.get("generations", 1), 1, 2**31-1, "generations")
-    if value.get("improvement_conditions", ["control", "feedback"]) != ["control", "feedback"]:
-        raise ArenaError("G1 requires the paired control and feedback conditions")
+    if value.get("improvement_conditions", ["control", "feedback"]) not in (["control", "feedback"], ["feedback"]):
+        raise ArenaError("Improvement conditions must be control and feedback, or feedback alone")
     if not isinstance(value["name"], str) or not value["name"]:
         raise ArenaError("Experiment name is required")
     integer(value["replicates"], 1, 20, "replicates")
@@ -171,17 +171,18 @@ def plan(config: dict) -> dict:
     from .reference_strategies import repetitions
     n = sum(repetitions(config,model) for model in config["models"])
     evolved = config.get("generations", 1) != 1
+    tracks = len(config.get("improvement_conditions", ["control", "feedback"]))
     paid = [m for m in config["models"] if m["provider"] != "mock"]
     learned=sum(model['provider']!='mock' for model in config['models'])*config['replicates']
-    previous_matches=(None if config.get('generations',1) is None else 8*learned*learned*max(0,config.get('generations',1)-2)*len(config.get('final_seeds',[]))) if config.get('compare_previous_round') and learned else 0
-    return {"previous_comparison_matches":previous_matches, "parallel_requests":config.get("_parallel_requests",config.get("parallel_requests",1)), "request_order":config.get("_request_order",config.get("request_order","models")), "parallel_fights":config.get("_parallel_fights",config.get("parallel_fights",1)), "sessions": None if config.get("generations", 1) is None else n * (2 * config.get("generations", 1) - 1), "generation": None if config.get("generations", 1) is None else config.get("generations", 1) - 1,
+    previous_matches=(None if config.get('generations',1) is None else 2*tracks*tracks*learned*learned*max(0,config.get('generations',1)-2)*len(config.get('final_seeds',[]))) if config.get('compare_previous_round') and learned else 0
+    return {"previous_comparison_matches":previous_matches, "parallel_requests":config.get("_parallel_requests",config.get("parallel_requests",1)), "request_order":config.get("_request_order",config.get("request_order","models")), "parallel_fights":config.get("_parallel_fights",config.get("parallel_fights",1)), "sessions": None if config.get("generations", 1) is None else n * (1 + tracks * (config.get("generations", 1) - 1)), "generation": None if config.get("generations", 1) is None else config.get("generations", 1) - 1,
             "provider": "mixed" if paid else "mock", "simulated": not paid,
             "ranked_matches_if_all_submit": n * (n - 1) * len(config["seeds"]),
             "mirrors_if_all_submit": n * len(config["seeds"]) if config["include_mirrors"] else 0,
-            "g1_contemporary_matches": (2*n*(2*n-1) + (2*n if config["include_mirrors"] else 0)) *
+            "g1_contemporary_matches": (tracks*n*(tracks*n-1) + (tracks*n if config["include_mirrors"] else 0)) *
                                       len(config.get("final_seeds", [])) * (config["generations"]-1) if evolved and config.get("generations") is not None else None if evolved else 0,
-            "common_reference_matches": (2*config["generations"]-1)*n*(n+3)*2*len(config.get("final_seeds", [])) if evolved and config.get("generations") is not None else None if evolved else 0,
-            "max_preparation_matches": (None if config.get("generations", 1) is None else n * (2 * config.get("generations", 1) - 1) * config["budget_per_session"]["max_test_matches"]) if "max_test_matches" in config["budget_per_session"] else None,
+            "common_reference_matches": (1+tracks*(config["generations"]-1))*n*(n+3)*2*len(config.get("final_seeds", [])) if evolved and config.get("generations") is not None else None if evolved else 0,
+            "max_preparation_matches": (None if config.get("generations", 1) is None else n * (1 + tracks * (config.get("generations", 1) - 1)) * config["budget_per_session"]["max_test_matches"]) if "max_test_matches" in config["budget_per_session"] else None,
             "max_cost_usd": config["spending"].get("max_total_usd"),
             "financial_ceiling": ("best_effort_with_reservations" if "max_total_usd" in config["spending"] else "unlimited") if paid else "no_paid_calls",
             "required_keys": sorted({m["api_key_env"] for m in paid})}

@@ -134,7 +134,7 @@ class Jobs:
                 from arena.reference_strategies import repetitions
                 sampled={**config,'_fixed_reference_repetitions':metadata.get('fixed_reference_repetitions',config['replicates'])}
                 requested_models = [model for model in requested_models if not (
-                    set(frozen_tracks.get(model['id'],[])) >= {'control','feedback'} and
+                    set(frozen_tracks.get(model['id'],[])) >= set(config.get('improvement_conditions',['control','feedback'])) and
                     all((states.get(f"{model['id']}-r{replicate}") or {}).get('submission') for replicate in range(repetitions(sampled,model))))]
             if retry_session is not None:
                 if draft_id is not None or not isinstance(retry_session, str):

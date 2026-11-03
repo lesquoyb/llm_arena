@@ -73,8 +73,8 @@ def update(out, journal, original, catalog, selected, frozen_tracks=None, compar
     if not isinstance(frozen_tracks,dict) or set(frozen_tracks)-set(known):
         raise ArenaError('Unknown participant in frozen tracks')
     for model, tracks in frozen_tracks.items():
-        if not isinstance(tracks,list) or any(not isinstance(track,str) or track not in {'control','feedback'} for track in tracks) or len(set(tracks))!=len(tracks):
-            raise ArenaError('Freeze tracks must be control or feedback')
+        if not isinstance(tracks,list) or any(not isinstance(track,str) or track not in original.get('improvement_conditions',['control','feedback']) for track in tracks) or len(set(tracks))!=len(tracks):
+            raise ArenaError('Freeze tracks must be improvement tracks of this competition')
         if tracks and not any(state['model']==model and state.get('submission') for state in states.values()):
             raise ArenaError('A participant needs a submitted strategy before it can be frozen: '+model)
         if tracks and any(state['model']==model and state.get('condition') in tracks and
