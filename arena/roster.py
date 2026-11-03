@@ -25,9 +25,11 @@ def effective(out, config):
     roster = snapshot(out)
     if roster:
         result['models'] = roster['models']
-        # Competition-level override: applies to every participant, including those created before it was set.
+        # Competition-level override: applies to every API participant, including those created before it was set.
+        # Mock and saved-strategy participants make no provider requests and their schema has no retry field.
         if roster.get('max_retries') is not None:
-            for model in result['models']:model['max_retries']=roster['max_retries']
+            for model in result['models']:
+                if model['provider']!='mock':model['max_retries']=roster['max_retries']
     return result
 
 
