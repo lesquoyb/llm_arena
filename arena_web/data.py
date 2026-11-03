@@ -690,7 +690,8 @@ class Store(Workspaces):
             path=safe_path(self.run_path(identifier),reference['artifact'])
             if file_hash(path)!=reference['sha256']:
                 raise ArenaError('Archived model response changed')
-            message={**message,**self.json(path)}
+            # Show the exact transport record, not the checkpoint's archive bookkeeping.
+            message={**{key:value for key,value in message.items() if key not in {'request_summary','response_artifact'}},**self.json(path)}
         return {"message": message}
 
     def tool_exchange(self, identifier, sid, index):

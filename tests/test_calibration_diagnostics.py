@@ -33,7 +33,7 @@ class IndependentDiagnosticTests(TestCase):
         with scratch_directory() as out:
             journal=Journal(out)
             try:
-                journal.save('target',{'generation':0,'history':[{'role':'assistant','native':{'reasoning_content':'Investigate the syntax.'}}]},'session_created')
+                journal.save('target',{'status':'submitted','generation':0,'history':[{'role':'assistant','native':{'reasoning_content':'Investigate the syntax.'}}]},'session_created')
             finally: journal.db.close()
             write_json(out/'diagnostics/target.json',{'private_diagnosis':'HUMAN_ONLY_SENTINEL'})
             report={'replicates':[{'replicate':0,'rounds':[{'training':{'score':.5},'validation':{'secret':'HUMAN_ONLY_SENTINEL'},'judge_score':'HUMAN_ONLY_SENTINEL','diagnostics':'HUMAN_ONLY_SENTINEL'}]}]}

@@ -1,6 +1,7 @@
 import contextlib
 import copy
 import io
+from pathlib import Path
 import unittest
 from unittest import mock
 from arena.core import ROOT, ArenaError, digest, file_hash, read_json, scratch_directory, write_json
@@ -18,20 +19,26 @@ class EvolutionIntegrationTests(unittest.TestCase):
         config["models"][1]["profile"] = "single-shot"
         with scratch_directory() as tmp, contextlib.redirect_stdout(io.StringIO()):
             out = tmp / "experiment"
-            original_fight = Engine.fight
-            injected = False
+            from arena import reference_cache
+            original_fight = reference_cache.fight
+            injected = None
             def fail_one_reference(engine, sources, infos, scenario, seed, directory):
+                # Frozen submissions run through the replay cache. Evaluations play the
+                # fixed reference panel (controls/) and retry timeouts automatically, so
+                # the same fight must keep failing for the run to stay incomplete.
                 nonlocal injected
-                if "evaluations" in directory.parts and not injected:
-                    injected = True
-                    directory.mkdir(parents=True)
+                fight = (tuple(str(source) for source in sources), seed)
+                if any("controls" in Path(source).parts for source in sources) and injected in (None, fight):
+                    injected = fight
+                    directory.mkdir(parents=True, exist_ok=True)
                     result = {"status": "timeout", "elapsed_seconds": 0,
                               "error": "Injected infrastructure timeout"}
                     write_json(directory / "result.json", result)
                     return result
                 return original_fight(engine, sources, infos, scenario, seed, directory)
-            with mock.patch.object(Engine, "fight", fail_one_reference):
+            with mock.patch("arena.reference_cache.fight", fail_one_reference):
                 interrupted = run(config, out)
+            self.assertIsNotNone(injected)
             self.assertTrue(interrupted["evolution"]["incomplete"])
             successful = {p.relative_to(out).as_posix(): file_hash(p)
                           for p in out.glob("evaluations/*/matches/**/outcome.json")}
@@ -52,7 +59,7 @@ class EvolutionIntegrationTests(unittest.TestCase):
                 self.assertNotEqual(control['history'][:len(states[parent]['history'])], states[parent]['history'])
                 marker = 0
                 self.assertNotIn("feedback", control["history"][marker])
-                self.assertIn("Your Round 1 tournament results:", feedback["history"][marker]["content"])
+                self.assertIn("Performance across your own earlier rounds in this track:\nRound 1:", feedback["history"][marker]["content"])
                 self.assertIn("read_past_fight", feedback["history"][marker]["content"])
                 serialized = str(feedback["previous_round_feedback"])
                 self.assertNotIn("main.leek", serialized)

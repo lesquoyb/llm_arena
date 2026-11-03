@@ -1,7 +1,7 @@
 """Transport archives stay lossless without quadratic checkpoint histories."""
 import json
 from unittest import TestCase
-from arena.core import ArenaError, scratch_directory
+from arena.core import ArenaError, scratch_directory, write_json
 from arena.experiment import Journal
 from arena.api_providers import APIProvider
 from arena_web.data import Store
@@ -11,6 +11,7 @@ class ResponseArchiveTests(TestCase):
     def test_checkpoint_is_small_and_full_transport_record_remains_accessible(self):
         with scratch_directory() as root:
             run=root/'runs'/'example';run.mkdir(parents=True)
+            write_json(run/'experiment.json',{'config':{}})
             journal=Journal(run)
             model={'provider':'openai-compatible','model':'example'}
             first={'role':'user','content':'Keep the instructions'}

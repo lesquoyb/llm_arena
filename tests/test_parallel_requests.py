@@ -108,7 +108,8 @@ class ParallelRequestsTests(TestCase):
         model=config()['models'][0]
         variant={**model,'id':'other-profile','parameters':{'temperature':.7}}
         try:
-            dispatcher.pending['one-r0']={'model':model}
+            from concurrent.futures import Future
+            dispatcher.pending['one-r0']={'model':model,'future':Future()}  # an in-flight request
             self.assertTrue(dispatcher.can_start('one-r1',model))
             self.assertTrue(dispatcher.can_start('variant-r0',variant))
             self.assertTrue(dispatcher.can_start('two-r0',config()['models'][1]))
@@ -157,7 +158,8 @@ class ParallelRequestsTests(TestCase):
         with scratch_directory() as root:
             journal=Journal(root)
             try:
-                with mock.patch('arena.api_providers.APIProvider.respond',new=respond):
+                # Automatic retries (2-5 minute backoff) would re-run the failing participant; this test needs it to stay failed.
+                with mock.patch('arena.api_providers.APIProvider.respond',new=respond),mock.patch('arena.conversation_recovery.automatic_due',return_value=None):
                     prepare([(m['id']+'-r0',m) for m in value['models']],value,root,journal,CoordinatorEngine())
                 states=journal.states()
                 self.assertEqual(states['one-r0']['status'],'provider_unavailable')

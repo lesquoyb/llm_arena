@@ -23,8 +23,12 @@ class MCPIntegrationTests(unittest.TestCase):
                 async with ClientSession(reader, writer, read_timeout_seconds=timedelta(seconds=120)) as session:
                     await session.initialize()
                     listing = await session.list_tools()
-                    self.assertEqual(len(listing.tools), 13)
-                    self.assertIn("configure_team", {tool.name for tool in listing.tools})
+                    from arena.feedback import FEEDBACK_NAMES
+                    from arena.tool_schemas import TOOLS
+                    names = {tool.name for tool in listing.tools}
+                    # Without feedback access, only the past-fight tools are withheld.
+                    self.assertEqual(names, {tool["name"] for tool in TOOLS} - FEEDBACK_NAMES)
+                    self.assertIn("configure_team", names)
                     forbidden = await session.call_tool("list_past_fights", {})
                     self.assertIn("forbidden", json.loads(forbidden.content[0].text)["error"])
                     result = await session.call_tool("write_file", {"path": "main.leek", "content": "var a = 1"})

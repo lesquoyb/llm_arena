@@ -4,7 +4,7 @@ from pathlib import Path
 from unittest import TestCase, mock
 
 from arena.core import (ROOT, ArenaError, scratch_directory, read_json, write_json,
-                        file_hash, make_scenario, copy_submission)
+                        file_hash, make_scenario, copy_submission, digest)
 from arena.calibration import (defaults, validate, trial, study, plateau, objective, accept,
                                CalibrationFights, propose, study_spending)
 from arena.experiment import Journal
@@ -27,8 +27,9 @@ class FixtureEngine:
         self.fights+=1
         outcome={'fight':{'actions':[[6,1]],'leeks':[]},'winner':-1,'duration':1,'logs':{}}
         write_json(out/'outcome.json',outcome)
-        write_json(out/'scenario.json',make_scenario(config,[i['entrypoint'] for i in infos],seed,[i.get('team') for i in infos]))
-        write_json(out/'provenance.json',{'engine':self.identity,'submissions':infos})
+        scenario=make_scenario(config,[i['entrypoint'] for i in infos],seed,[i.get('team') for i in infos])
+        write_json(out/'scenario.json',scenario)
+        write_json(out/'provenance.json',{'engine':self.identity,'submissions':infos,'scenario_sha256':digest(scenario)})
         for i,(source,info) in enumerate(zip(sources,infos),1): copy_submission(Path(source),out/'strategies'/str(i),info)
         result={'status':'completed','winner_side':-1,'turns':1,'outcome_sha256':file_hash(out/'outcome.json')}
         write_json(out/'result.json',result)
@@ -173,7 +174,9 @@ class CalibrationTests(TestCase):
     def test_guard_revisions_are_automatic_and_observation_does_not_revise(self):
         from arena.calibration_guard import defaults as guard_defaults
         with scratch_directory() as tmp:
-            value=config();value['analyst']={'id':'editor','provider':'openai-compatible','model':'fixture'};value['spending']={'allow_paid_calls':True}
+            value=config();value['analyst']={'id':'editor','provider':'openai-compatible','model':'fixture','api_key_env':'ARENA_EDITOR_FIXTURE',
+                'endpoint':'http://127.0.0.1:11434/v1/chat/completions',
+                'pricing':{'date':'2026-10-16','currency':'USD','input_per_million':'0','output_per_million':'0'}};value['spending']={'allow_paid_calls':True}
             value['proposal_guard']={**guard_defaults(),'enabled':True}
             value['optimizer']['editor_retries']=0
             answers=[]
@@ -264,9 +267,11 @@ class CalibrationTests(TestCase):
                 return {'role':'assistant','native':{'role':'assistant','content':text},'tool_calls':[],
                         'usage':{'input_tokens':12,'output_tokens':3},'cost_usd':'0'}
             with mock.patch('arena.api_providers.APIProvider.respond',side_effect=[answer('not JSON'),answer(json.dumps(proposal))]) as respond:
-                self.assertEqual(propose(value,report,tmp/'incumbent',tmp/'proposal'),proposal)
+                # Proposals always carry the merged reference documents (none changed here).
+                selected={**proposal,'reference_documents':{}}
+                self.assertEqual(propose(value,report,tmp/'incumbent',tmp/'proposal'),selected)
                 self.assertEqual(respond.call_count,2)
-                self.assertEqual(propose(value,report,tmp/'incumbent',tmp/'proposal'),proposal)
+                self.assertEqual(propose(value,report,tmp/'incumbent',tmp/'proposal'),selected)
                 self.assertEqual(respond.call_count,2)
             journal=Journal(tmp/'proposal')
             try:

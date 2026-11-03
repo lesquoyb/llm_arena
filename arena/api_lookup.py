@@ -44,8 +44,8 @@ def lookup(catalog, arguments):
         selected,result=page(exact or matches,{'query':query,'kind':kind})
         result.update(query=query,results=[{'kind':category,'name':name,'definition':value} for category,name,value in selected])
         if result['next_offset'] is not None: result['hint']='More matches are available; follow continuation or narrow this query.'
-        if query.casefold()=='getleek': result['hint']='getLeek() was removed after version 3. Use getEntity() for your runtime ID; getLeekID() returns the persistent website ID.'
         if not result['matches']: result['hint']='No name matches. Try a shorter fragment or mode=index. Group separate names using queries, not a space-separated query.'
+        if query.casefold()=='getleek': result['hint']='getLeek() was removed after version 3. Use getEntity() for your runtime ID; getLeekID() returns the persistent website ID.'
         return result
 
     if 'queries' in arguments:

@@ -25,6 +25,16 @@ from .provider_output import blocks
 STATIC = Path(__file__).parent/'static'
 
 
+def evaluation_records(trial):
+    """(panel, record) for every stored evaluation fight; stores override legacy record files."""
+    from arena.fight_store import stage_records
+    rows=[]
+    for stage in sorted(path for path in (trial/'evaluations').glob('*') if path.is_dir()):
+        panel=stage.name.split('-',1)[0]
+        rows.extend((panel,record) for _,(_,record) in sorted(stage_records(stage)[1].items()))
+    return rows
+
+
 def decision_reason(row, parent, config, candidate):
     if candidate==0: return 'Reference candidate. The analyst has not edited this baseline.'
     if not row: return 'The proposal has not completed its paired validation yet.'
@@ -514,10 +524,8 @@ class Workshop:
                     'parameters_before':before['target'].get('parameters',{}),'parameters_after':frozen['target'].get('parameters',{})}
         if route == '/api/fight-summary':
             groups={}
-            for path in sorted((trial/'evaluations').glob('*/records/*.json')):
-                record=read_json(path)
+            for panel,record in evaluation_records(trial):
                 if value('session') and record['session']!=value('session'): continue
-                panel=path.parent.parent.name.split('-',1)[0]
                 import re
                 match=re.fullmatch(r'target-r(\d+)-g(\d+)',record['session'])
                 replicate,round_number=(int(match[1])+1,int(match[2])+1) if match else (None,None)
@@ -533,15 +541,14 @@ class Workshop:
                     'scoring':'Win = 1 point; draw = 0.5; loss = 0. Both starting sides are evaluated for every seed. Preparation fights are excluded.'}
         if route in {'/api/fights','/api/fight'}:
             fights=[]
-            for path in sorted((trial/'evaluations').glob('*/records/*.json')):
-                record=read_json(path)
+            for panel,record in evaluation_records(trial):
                 if value('session') and record['session'] != value('session'): continue
-                panel=path.parent.parent.name.split('-',1)[0]
                 fights.append({'path':record['artifact_dir'],'panel':panel,**{k:record[k] for k in ('opponent','side','seed','result')}})
             if route=='/api/fights': return fights
             match=next((m for m in fights if m['path']==value('path')),None)
             if not match: raise ArenaError('Unknown fight')
-            outcome=read_json(local_path(trial,match['path'])/'outcome.json')
+            from arena.fight_store import read_json as read_artifact
+            outcome=read_artifact(local_path(trial,match['path'])/'outcome.json')
             from .replay import describe
             return {'match':match,'team_metrics':outcome.get('team_metrics'),
                     'events':describe(outcome.get('fight',{}))['events'], 'logs':outcome.get('logs')}

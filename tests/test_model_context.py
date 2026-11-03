@@ -85,7 +85,8 @@ class ModelContextTests(TestCase):
                 parent=None
                 for sid,generation,code in [('model-r0',0,'// Round one\n'),('model-r0-g1-feedback',1,'// Full inherited strategy\n')]:
                     folder=out/'sessions'/sid/'submission';folder.mkdir(parents=True)
-                    (folder/'main.leek').write_text(code,encoding='utf-8')
+                    # newline='': keep LF on Windows, since the UI returns the exact frozen bytes.
+                    (folder/'main.leek').write_text(code,encoding='utf-8',newline='')
                     info=submission(folder)
                     journal.save(sid,{'model':'model','replicate':0,'generation':generation,'parent':parent,'submission':info,'history':[]},'submitted')
                     stage='tournament' if not generation else 'g1-tournament'
@@ -104,6 +105,7 @@ class ModelContextTests(TestCase):
                 self.assertEqual(fight['own_submission']['read']['arguments'],{'round':1,'path':'main.leek'})
                 with self.assertRaises(ArenaError): access.call('list_past_fights',{'round':3})
                 self.assertIsNone(access_for(out,{**state,'condition':'control'}))
+                write_json(out/'experiment.json',{'config':{}})
                 store=Store(out.parent,out/'ui')
                 versions=store.versions(out.name,'model-r0-g2-feedback')['versions']
                 self.assertEqual(versions[0]['inherited_round'],2)
