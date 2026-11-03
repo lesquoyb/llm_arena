@@ -71,6 +71,23 @@ class RoundTests(TestCase):
             self.assertTrue({'g1-tournament','g2-tournament','g3-tournament'} <= {m['stage'] for m in matches})
             self.assertEqual(plan(value)['sessions'],14)
 
+    def test_feedback_only_competition_skips_the_control_track(self):
+        with scratch_directory() as tmp, contextlib.redirect_stdout(io.StringIO()), mock.patch('arena.experiment.Engine', RoundEngine):
+            value = competition(3)
+            value['improvement_conditions'] = ['feedback']
+            self.assertEqual(plan(value)['sessions'], 6)
+            report = run(value, tmp/'run')
+            self.assertEqual(report['sessions'], 6)
+            self.assertFalse(report['incomplete'])
+            journal = Journal(tmp/'run')
+            try:
+                conditions = {state.get('condition') for state in journal.states().values()}
+            finally: journal.db.close()
+            self.assertEqual(conditions, {'initial', 'feedback'})
+            self.assertTrue(all(row['feedback_minus_control'] is None for row in report['evolution']['paired']))
+        with self.assertRaises(ArenaError):
+            validate_config({**competition(2), 'improvement_conditions': ['control']})
+
     def test_unbounded_competition_has_a_durable_round_boundary_and_resumes(self):
         with scratch_directory() as tmp, contextlib.redirect_stdout(io.StringIO()), mock.patch('arena.experiment.Engine', RoundEngine):
             value=competition(None)
