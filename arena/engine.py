@@ -42,6 +42,17 @@ def java_home() -> Path:
     return home
 
 
+def java_version_text(text: str) -> str:
+    """`java -version` output without JVM option banners such as
+    "Picked up JAVA_TOOL_OPTIONS: ...", which hold environment settings (proxy
+    ports, trust stores) rather than the runtime identity."""
+    return "\n".join(line for line in text.strip().splitlines() if not line.startswith("Picked up ")).strip()
+
+
+def java_version(binary) -> str:
+    return java_version_text(command([binary, "-version"], capture_output=True, text=True).stderr)
+
+
 OUTPUT_LIMIT = 8_000_000
 
 
@@ -143,7 +154,7 @@ def build_bridge(lock=None, home=None):
     command([home / "bin" / ("javac.exe" if os.name == "nt" else "javac"), "-encoding", "UTF-8", "-cp", jar, "-d", classes, ROOT / "engine/ArenaMain.java", ROOT / "engine/ArenaWorker.java"])
     metadata = {
         "lock": lock, "java": str(home / "bin" / ("java.exe" if os.name == "nt" else "java")),
-        "java_version": command([home / "bin" / ("java.exe" if os.name == "nt" else "java"), "-version"], capture_output=True, text=True).stderr.strip(),
+        "java_version": java_version(home / "bin" / ("java.exe" if os.name == "nt" else "java")),
         "jar": str(jar), "classes": str(classes), "data": str(vendor / "data"),
         "jar_sha256": file_hash(jar), "bridge_sha256": tree_hash(classes),
         "data_sha256": tree_hash(vendor / "data"), "adapter_sha256": file_hash(ROOT / "engine/ArenaMain.java"),
@@ -174,10 +185,10 @@ class Engine:
         if 'worker_transport_sha256' in m:checks['worker_transport_sha256']=file_hash(ROOT/'engine/ArenaWorker.java')
         if any(m[k] != v for k, v in checks.items()):
             raise ArenaError("Engine artifacts changed; rerun setup before starting a new experiment")
-        actual_java = command([m["java"], "-version"], capture_output=True, text=True).stderr.strip()
-        if actual_java != m["java_version"]:
+        if java_version(m["java"]) != java_version_text(m["java_version"]):
             raise ArenaError("Java runtime changed; rerun setup")
         self.identity = {k: m[k] for k in ("lock", "java_version", *checks)}
+        self.identity["java_version"] = java_version_text(m["java_version"])
         self.identity["runner_sha256"] = digest({p.relative_to(ROOT).as_posix(): file_hash(p)
                                                for directory in ("arena", "prompts")
                                                for p in sorted((ROOT / directory).rglob("*"))

@@ -181,11 +181,23 @@ class CalibrationFights(PastFights):
         result = {}
         for round_number, sid in enumerate(self.context['previous_sessions'], 1):
             if number is not None and number!=round_number:continue
-            paths = [path for label in ('training-', 'history-') for path in (self.root/'evaluations'/(label+sid)/'records').glob('*.json')]
-            for path in sorted(paths):
-                key = 'fight-' + digest({'session': sid, 'record': path.relative_to(self.root).as_posix()})[:20]
+            # Records live in each stage's fight store; older studies kept record files.
+            # Select by name first so only the requested records are read.
+            from pathlib import PurePosixPath
+            from .fight_store import FightStore
+            located = {}
+            for label in ('training-', 'history-'):
+                stage = self.root/'evaluations'/(label+sid)
+                prefix = (stage/'records').relative_to(self.root).as_posix()
+                for path in (stage/'records').glob('*.json'):
+                    located[f'{prefix}/{path.name}'] = lambda path=path: read_json(path)
+                store = FightStore.at(stage)
+                for name in (store.list('records') if store is not None else []):
+                    located[f'{prefix}/{PurePosixPath(name).name}'] = lambda store=store, name=name: store.get_json(name)
+            for relative in sorted(located):
+                key = 'fight-' + digest({'session': sid, 'record': relative})[:20]
                 if identifier is not None and key!=identifier:continue
-                row = read_json(path)
+                row = located[relative]()
                 sides = [self.parent, row['opponent']] if row['side'] == 0 else [row['opponent'], self.parent]
                 result[key] = {'match': {'sides': sides, 'round':round_number}, 'result': row['result'], 'directory': row['artifact_dir'], 'own_submission':self.sources.get(round_number)}
         return result
