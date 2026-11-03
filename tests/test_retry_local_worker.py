@@ -52,7 +52,8 @@ class LocalRetryWorkerTests(unittest.TestCase):
                                           {'id':'peer-submit','name':'submit','arguments':{}}],
                             'usage':{'input_tokens':10,'output_tokens':20},'cost_usd':'0'}
                     return original(provider,history,tools,limit)
-                with mock.patch.object(APIProvider,'respond',first_attempt):
+                # Automatic retries (2-5 minute backoff) would re-run the failing participant; this test needs it to stay failed.
+                with mock.patch.object(APIProvider,'respond',first_attempt),mock.patch('arena.conversation_recovery.automatic_due',return_value=None):
                     first=run(copy.deepcopy(config),out)
                 self.assertTrue(first['incomplete'])
                 old=store.session('quota','healthy-r0')

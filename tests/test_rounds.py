@@ -123,7 +123,8 @@ class RoundTests(TestCase):
             return original(provider,history,tools,output_limit)
         with scratch_directory() as tmp, contextlib.redirect_stdout(io.StringIO()), mock.patch('arena.experiment.Engine',RoundEngine):
             value=competition(4);value['models']=value['models'][:1]
-            with mock.patch.object(MockProvider,'respond',respond):
+            # Automatic retries (2-5 minute backoff) would re-run the failing participant; this test needs it to stay failed.
+            with mock.patch.object(MockProvider,'respond',respond),mock.patch('arena.conversation_recovery.automatic_due',return_value=None):
                 report=run(value,tmp/'run')
             self.assertTrue(report['incomplete'])
             journal=Journal(tmp/'run')

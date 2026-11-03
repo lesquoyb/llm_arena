@@ -225,18 +225,25 @@ class OfflineIntegrationTests(unittest.TestCase):
             out = tmp / "experiment"
             self.config["budget_per_session"]["max_test_matches"] = 0
             self.config["models"][1]["profile"] = "empty"
-            result = run(self.config, out)
+            # Automatic retries (2-5 minute backoff) would re-run the empty participant; it must stay without a submission.
+            with mock.patch('arena.conversation_recovery.automatic_due',return_value=None):
+                result = run(self.config, out)
             self.assertEqual(result["budget_exhausted"], 1)
             self.assertEqual(result["no_submission"], 1)
             self.assertEqual(result["preparation_matches_reserved"], 0)
-            self.assertIsNone(result["tournament"])
+            # The single frozen submission still plays its mirror fixtures (include_mirrors).
+            self.assertEqual([row["id"] for row in result["tournament"]["standings"]], ["mock-repair-r0"])
+            self.assertEqual(len(result["tournament"]["mirrors"]), len(self.config["seeds"]))
+            self.assertEqual(result["tournament"]["failed"], 0)
             self.assertIsNone(result["input_tokens"])
 
     def test_invalid_submission_is_visible_in_report(self):
         with scratch_directory() as tmp, contextlib.redirect_stdout(io.StringIO()):
             self.config["models"][0]["profile"] = "invalid"
             self.config["models"][1]["profile"] = "empty"
-            result = run(self.config, tmp / "experiment")
+            # Automatic retries (2-5 minute backoff) would re-run the empty participant; it must stay without a submission.
+            with mock.patch('arena.conversation_recovery.automatic_due',return_value=None):
+                result = run(self.config, tmp / "experiment")
             self.assertEqual(result["invalid_submissions"], 1)
             self.assertEqual(result["no_submission"], 1)
             self.assertEqual(result["assessment_failures"], 0)

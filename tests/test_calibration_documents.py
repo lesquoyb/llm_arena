@@ -34,7 +34,7 @@ class CalibrationDocumentTests(TestCase):
         with scratch_directory() as root:
             report=trial(value,root/'incumbent',engine=FixtureEngine())
             value['analyst']={'id':'editor','provider':'openai','model':'editor',
-                'api_key_env':'ARENA_EDITOR_KEY','pricing':{'input_per_million':'0','output_per_million':'0'}}
+                'api_key_env':'ARENA_EDITOR_KEY','pricing':{'date':'2026-10-16','currency':'USD','input_per_million':'0','output_per_million':'0'}}
             value['spending']={'allow_paid_calls':True,'max_total_usd':'1'}
             proposal={'prompt':value['prompt'],'tools':value['tools'],'rationale':'Clarify compilation guidance',
                       'reference_documents':{'authoring.md':'# Revised candidate material\nCompile before submitting.\n'}}

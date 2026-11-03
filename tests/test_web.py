@@ -396,7 +396,7 @@ class SubmissionDiagnosticsTests(unittest.TestCase):
             self.assertEqual(data['validation_status'],'pending')
             self.assertEqual(data['problems'],[])
             self.assertEqual(data['matches']['failed'],0)
-            self.assertIn('after all Round 2 preparation',data['schedule_note'])
+            self.assertIn('the next round waits for all participants',data['schedule_note'])
 
     def test_fight_engine_failure_surfaces_for_both_participants_not_unrelated_sessions(self):
         with scratch_directory() as tmp:

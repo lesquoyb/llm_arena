@@ -104,6 +104,7 @@ class ModelContextTests(TestCase):
                 self.assertEqual(fight['own_submission']['read']['arguments'],{'round':1,'path':'main.leek'})
                 with self.assertRaises(ArenaError): access.call('list_past_fights',{'round':3})
                 self.assertIsNone(access_for(out,{**state,'condition':'control'}))
+                write_json(out/'experiment.json',{'config':{}})
                 store=Store(out.parent,out/'ui')
                 versions=store.versions(out.name,'model-r0-g2-feedback')['versions']
                 self.assertEqual(versions[0]['inherited_round'],2)

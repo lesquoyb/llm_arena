@@ -3,6 +3,7 @@ import io
 import unittest
 from types import SimpleNamespace
 from unittest import mock
+from arena_web.performance import History
 from arena_web.server import Handler
 
 
@@ -12,7 +13,8 @@ class DisconnectedClientTests(unittest.TestCase):
         handler.path='/api/bootstrap';handler.close_connection=False
         handler.check_origin=mock.Mock();handler.headers_for=mock.Mock()
         handler.wfile=mock.Mock();handler.wfile.write.side_effect=failure
-        handler.server=SimpleNamespace(app=SimpleNamespace(get=mock.Mock(return_value={'ok':True}),post=mock.Mock(return_value={'ok':True}),token='fixture-token'))
+        handler.server=SimpleNamespace(app=SimpleNamespace(get=mock.Mock(return_value={'ok':True}),post=mock.Mock(return_value={'ok':True}),token='fixture-token',
+                                                        store=SimpleNamespace(performance=History())))
         return handler
 
     def test_get_response_disconnect_is_not_retried_as_an_error_response(self):

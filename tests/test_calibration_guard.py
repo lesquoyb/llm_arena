@@ -27,6 +27,7 @@ class ProposalGuardTests(TestCase):
                   'prescribed_strategy':{'type':'choice','choice':'coding_workflow',
                     'probabilities':{'coding_workflow':.9346,'battle_tactics':.0654}}}}
         with scratch_directory() as out,mock.patch('arena.calibration_guard.agent') as loader:
+            loader.return_value.revision='fixture'
             loader.return_value.predict_long.return_value=response
             result=review(before,after,out,guard_defaults())
             self.assertEqual(result['status'],'needs_review')

@@ -6,12 +6,13 @@ from types import SimpleNamespace
 from unittest import mock
 from urllib.request import Request,urlopen
 from urllib.error import HTTPError
+from arena_web.performance import History
 from arena_web.server import Server
 
 
 class SessionTokenTests(unittest.TestCase):
     def test_expired_token_has_a_specific_code_and_never_executes_the_action(self):
-        app=SimpleNamespace(token='current-token',post=mock.Mock(return_value={'saved':True}))
+        app=SimpleNamespace(token='current-token',post=mock.Mock(return_value={'saved':True}),store=SimpleNamespace(performance=History()))
         app.get=lambda route,query:{'token':app.token}
         with Server(('127.0.0.1',0),app) as server:
             thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()

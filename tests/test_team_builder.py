@@ -24,7 +24,7 @@ class TeamBuilderTests(unittest.TestCase):
         scenario['member_stats'][0]['components'] = [290, 313]
         scenario['entity'].update(member_stats(scenario, 0))
         team = {'members': [
-            {'entrypoint': 'main.leek', 'level': 301, 'capital': {'strength': 100},
+            {'entrypoint': 'main.leek', 'level': 300, 'capital': {'strength': 100},
              'components': [{'template': 313, 'stats': {'ram': 1}}], 'weapons': [37], 'chips': []},
             {'entrypoint': 'main.leek', 'level': 11, 'capital': {}, 'weapons': [], 'chips': []},
         ]}
@@ -32,7 +32,7 @@ class TeamBuilderTests(unittest.TestCase):
         validate_team(team, scenario, {'main.leek': ''}, ROOT/'docs/leekscript-v1')
         native = make_scenario(scenario, ['main.leek']*2, 101, [team, None])
         chosen = native['entities'][0]
-        self.assertEqual([m['level'] for m in chosen], [301, 11])
+        self.assertEqual([m['level'] for m in chosen], [300, 11])
         self.assertEqual(chosen[0]['strength'], 200)
         self.assertEqual(chosen[0]['ram'], 11)
         self.assertEqual(chosen[1]['strength'], 0)
@@ -41,6 +41,11 @@ class TeamBuilderTests(unittest.TestCase):
         self.assertEqual(chosen[1]['components'], [])
         self.assertEqual(native['entities'][1][0]['level'], 300)
         self.assertEqual(native['entities'][1][0]['ram'], 10)
+        # The AI-built team preset caps member levels at 300.
+        over = copy.deepcopy(team)
+        over['members'][0]['level'] = 301
+        with self.assertRaisesRegex(ArenaError, 'member level'):
+            validate_team(over, scenario, {'main.leek': ''}, ROOT/'docs/leekscript-v1')
         for missing in ('capital', 'level'):
             bad = copy.deepcopy(team)
             del bad['members'][0][missing]
@@ -49,7 +54,7 @@ class TeamBuilderTests(unittest.TestCase):
         with scratch_directory() as tmp:
             tools = Preparation(tmp, ROOT/'docs', Engine(), scenario)
             tools.call('write_file', {'path': 'main.leek', 'content': '// passive'}, '1')
-            preview = tools.call('preview_build', {'level': 301, 'capital': {'strength': 100},
+            preview = tools.call('preview_build', {'level': 300, 'capital': {'strength': 100},
                 'components': team['members'][0]['components']}, '2')
             self.assertTrue(preview['valid'], preview)
             self.assertEqual(preview['stats']['ram'], 11)

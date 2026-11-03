@@ -91,7 +91,9 @@ class RetryTests(unittest.TestCase):
         config['budget_per_session']={'max_calls':12,'max_agent_steps':30,'max_test_matches':0,'max_wall_seconds':90}
         with scratch_directory() as tmp:
             out=tmp/'experiment'
-            first=run(copy.deepcopy(config),out)
+            # Automatic retries (2-5 minute backoff) would re-run the failing participant; this test needs it to stay failed.
+            with mock.patch('arena.conversation_recovery.automatic_due',return_value=None):
+                first=run(copy.deepcopy(config),out)
             self.assertTrue(first['incomplete'])
             journal=Journal(out)
             before=journal.states();journal.db.close()

@@ -54,7 +54,8 @@ class EngineIntegrationTests(unittest.TestCase):
     def test_documented_corpus_example_runs_in_pinned_engine(self):
         import re
         text = (ROOT / "docs/corpus/api-guide.md").read_text()
-        code = re.search(r"```javascript\n(.*?)```", text, re.S).group(1)
+        # The guide documents interfaces, not a strategy: its only code is an isolated example.
+        code = re.search(r"An isolated equipment-query example is `([^`]+)`", text).group(1) + "\n"
         with scratch_directory() as tmp:
             source = tmp / "documented"
             source.mkdir()

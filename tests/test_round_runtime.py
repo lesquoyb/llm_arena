@@ -1,5 +1,6 @@
 import sqlite3
 import unittest
+from contextlib import closing
 from arena.core import scratch_directory,write_json
 from arena.round_runtime import RoundClock,estimate_history,view
 
@@ -42,7 +43,8 @@ class RoundRuntimeTests(unittest.TestCase):
 
     def test_historical_estimate_uses_timestamps_and_rejects_ten_minute_gaps(self):
         with scratch_directory() as out:
-            with sqlite3.connect(out/'journal.sqlite') as db:
+            # closing(): the connection context manager only commits; Windows keeps open files locked.
+            with closing(sqlite3.connect(out/'journal.sqlite')) as db, db:
                 db.execute('CREATE TABLE session_metadata(id TEXT,metadata TEXT)')
                 db.execute('CREATE TABLE events(session TEXT,payload TEXT)')
                 db.execute('INSERT INTO session_metadata VALUES (?,?)',('s','{"generation":0}'))
