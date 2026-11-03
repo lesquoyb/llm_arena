@@ -85,7 +85,8 @@ class ModelContextTests(TestCase):
                 parent=None
                 for sid,generation,code in [('model-r0',0,'// Round one\n'),('model-r0-g1-feedback',1,'// Full inherited strategy\n')]:
                     folder=out/'sessions'/sid/'submission';folder.mkdir(parents=True)
-                    (folder/'main.leek').write_text(code,encoding='utf-8')
+                    # newline='': keep LF on Windows, since the UI returns the exact frozen bytes.
+                    (folder/'main.leek').write_text(code,encoding='utf-8',newline='')
                     info=submission(folder)
                     journal.save(sid,{'model':'model','replicate':0,'generation':generation,'parent':parent,'submission':info,'history':[]},'submitted')
                     stage='tournament' if not generation else 'g1-tournament'
