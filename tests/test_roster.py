@@ -3,7 +3,7 @@ from contextlib import closing
 from unittest import mock
 from pathlib import Path
 from arena.core import ROOT, ArenaError, read_json, write_json, scratch_directory, submission, copy_submission, make_scenario, digest, file_hash
-from arena.experiment import Journal, initial_state, run
+from arena.experiment import Journal, initial_state, run, validate_config
 from arena.roster import update, snapshot, effective, active
 
 
@@ -41,8 +41,12 @@ class RosterTests(unittest.TestCase):
                 self.assertEqual(snapshot(root)['revision'],2)
                 journal.verify()
 
-    def test_competition_max_retries_overrides_every_participant_and_persists(self):
+    def test_competition_max_retries_overrides_api_participants_and_persists(self):
         config=read_json(ROOT/'configs/offline-complete.json')
+        config['spending']={'allow_paid_calls':True}
+        config['models'].append({'id':'api','provider':'openai','model':'gpt-test','api_key_env':'ARENA_TEST_KEY',
+                                 'pricing':{'date':'2026-10-16','currency':'USD','input_per_million':'0','output_per_million':'0'}})
+        api=lambda models:next(m for m in models if m['id']=='api')
         with scratch_directory() as root:
             journal=Journal(root)
             with closing(journal.db):
@@ -50,12 +54,16 @@ class RosterTests(unittest.TestCase):
                 journal.save(sid,initial_state(sid,model,config),'session_created')
                 selected=[m['id'] for m in config['models']]
                 update(root,journal,config,[],selected,max_retries=3)
-                self.assertTrue(all(m['max_retries']==3 for m in effective(root,config)['models']))
+                resumed=effective(root,config)
+                self.assertEqual(api(resumed['models'])['max_retries'],3)
+                # Mock and saved-strategy participants have a closed schema and make no provider requests.
+                self.assertTrue(all('max_retries' not in m for m in resumed['models'] if m['provider']=='mock'))
+                validate_config(resumed)
                 update(root,journal,config,[],selected,parallel_requests=1)
                 self.assertEqual(snapshot(root)['max_retries'],3)
                 with self.assertRaises(ArenaError):update(root,journal,config,[],selected,max_retries=4)
                 update(root,journal,config,[],selected,max_retries=0)
-                self.assertTrue(all(m['max_retries']==0 for m in effective(root,config)['models']))
+                self.assertEqual(api(effective(root,config)['models'])['max_retries'],0)
 
     def test_invalid_changes_are_atomic_and_freezing_requires_a_submission(self):
         config=read_json(ROOT/'configs/offline-complete.json')
