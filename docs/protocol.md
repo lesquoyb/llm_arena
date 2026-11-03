@@ -26,8 +26,8 @@ See the [engine audit](engine-audit.md).
 ## Experimental units
 
 Identify a strategy by exact model, language, repetition, generation and feedback
-condition. Each repetition starts an independent conversation. Later generations
-continue its history with the same context policy. Pin engine, game data,
+condition. Each repetition starts an independent conversation. Later generations start a
+fresh conversation from the parent's source checkpoint; earlier history is not sent. Pin engine, game data,
 compiler, prompts and documents by version and hash.
 
 Declare the team-building mode: shared teams/equipment or participant-selected
@@ -72,12 +72,15 @@ for determinism checks.
 
 ## Improvement and feedback
 
-After initial strategy, clone each conversation and source checkpoint into two paired branches:
+After initial strategy, branch each source checkpoint into two paired branches:
 
 - Control: an improvement request without match results.
 - Feedback: the same request and budget, plus bounded structured results and logs.
 
-Both retain equal preparation rights. Opponent source code remains hidden in the
+Both retain equal preparation rights. The control track is optional
+(`improvement_conditions: ["feedback"]`): without it, later rounds cost half
+the model calls, but the effect of feedback can no longer be separated from
+the effect of a second attempt. Opponent source code remains hidden in the
 main condition. A separate disclosure condition could measure that effect later.
 Freeze every submission before running the next tournament.
 

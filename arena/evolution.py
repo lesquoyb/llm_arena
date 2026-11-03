@@ -454,7 +454,7 @@ def run_evolution(config, out, journal, engine, initial, interrupt=None, retry_s
             write_json(out/'report.json',summary)
         # Preserve a resumable boundary if any model needs recovery. Do not silently
         # exclude it from all future rounds or spin forever with an empty panel.
-        if (not current or len(current) != 2*len(initial)
+        if (not current or len(current) != len(config['improvement_conditions'])*len(initial)
                 or any(active(config,s) and s.get('generation',0)<=generation and 'submission' not in s for s in states.values())
                 or result.get('incomplete')):
             break

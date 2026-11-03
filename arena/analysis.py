@@ -65,15 +65,15 @@ def analyze_evolution(config, out, states, initial, branches, baseline, evolved,
     for parent in parents:
         row = {"parent": parent["id"], "model": parent["model"], "replicate": parent["replicate"]}
         values = {condition: next((r for r in rows if r["session"] == parent["id"] + "-g1-" + condition
-                                  and r["panel"] == "all"), None) for condition in ("control", "feedback")}
+                                  and r["panel"] == "all"), None) for condition in config.get("improvement_conditions", ["control", "feedback"])}
         available = all(v is not None and v["score"] is not None and v["failed"] == 0 for v in values.values())
-        row["feedback_minus_control"] = values["feedback"]["score"] - values["control"]["score"] if available else None
+        row["feedback_minus_control"] = values["feedback"]["score"] - values["control"]["score"] if available and "control" in values else None
         row["complete"] = available
         paired.append(row)
     # Resample independent conversation pairs, preserving all their fixtures together.
     deltas = {}
     for row in paired:
-        if row["complete"]:
+        if row["feedback_minus_control"] is not None:
             deltas.setdefault(row["model"], []).append(row["feedback_minus_control"])
     interval = None
     if len(deltas) == len(config["models"]) and all(len(values) >= 2 for values in deltas.values()):
