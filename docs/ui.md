@@ -701,6 +701,15 @@ across repetitions. Missing measurements are excluded from that chart. Preparati
 time includes model and tool work and depends on hardware, quantization and
 concurrency. Size alone is not a measure of running cost.
 
+In **Variation between repetitions**, **Grouping → By model · feedback pooled**
+combines feedback and no-feedback branches on one row per model. Each point
+remains one repetition: selected branches are averaged within each round, then
+the same shared rounds are averaged with equal weights. The initial round is
+counted once. A round missing a selected branch is excluded from the shared
+rounds, rather than replacing that branch with zero. Clicking a pooled point
+opens its latest included conversation; the tooltip gives the contributing
+conversation count. Separate rounds and separate feedback tracks remain available.
+
 Detailed metrics and CSV exports include `model_size_billion`; result exports also
 include `score_per_billion` (score from 0 to 1 divided by parameter count in
 billions). This ratio complements the raw score; it is not a replacement ranking.

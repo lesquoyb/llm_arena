@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import os
+import json
+import re
 from pathlib import Path
 import signal
 import subprocess
@@ -15,21 +17,38 @@ from arena.experiment import validate_config
 from arena.usage import amount
 
 
-def failure_reason(log_path):
+def failure_reason(log_path, report=None):
     """The error that ended a failed job, read from the end of its run log."""
     try:
         with open(log_path, 'rb') as handle:
             handle.seek(0, os.SEEK_END); handle.seek(max(0, handle.tell() - 20000))
-            lines = [line.strip() for line in handle.read().decode('utf-8', 'replace').splitlines() if line.strip()]
+            tail = handle.read().decode('utf-8', 'replace')
+            lines = [line.strip() for line in tail.splitlines() if line.strip()]
     except OSError:
-        return 'The runner stopped with an error; see the run log.'
+        tail, lines = '', []
     for line in reversed(lines):
         if line.startswith('Arena error:'):
             return line
     # An unexpected exception ends with "Type: message" after its traceback.
     for line in reversed(lines):
-        if not line.startswith(('[arena]', 'File ', 'Thread ', 'Traceback')) and ':' in line:
+        if re.match(r'^[\w.]*(?:Error|Exception|ExceptionGroup|Interrupt):', line):
             return 'Runner error: ' + line[:500]
+    failures = (report or {}).get('session_failures')
+    if not failures:
+        # CLI workers can exit nonzero after printing a structured incomplete
+        # report, without a traceback. JSON diagnostic fields are not errors.
+        for match in reversed(list(re.finditer(r'"session_failures"\s*:\s*', tail))):
+            try:
+                failures, _ = json.JSONDecoder().raw_decode(tail[match.end():])
+            except ValueError:
+                continue
+            if isinstance(failures, list):
+                break
+    if isinstance(failures, list):
+        messages = [f'{item.get("session", "unknown session")}: {item["message"]}'
+                    for item in failures if isinstance(item, dict) and item.get('message')]
+        if messages:
+            return ('Conversation failed: ' + '; '.join(messages))[:1500]
     return 'The runner stopped with an error; see the run log.'
 
 
@@ -66,7 +85,21 @@ class Jobs:
 
     def listing(self):
         with self.lock:
-            return list(reversed(self.rows))
+            rows = []
+            for original in reversed(self.rows):
+                row = dict(original)
+                # Repair previously saved misleading notes for existing runs,
+                # without rewriting their logs or experiment artifacts.
+                if row.get('status') == 'failed' and re.match(r'^Runner error:\s*["{\[]', row.get('note', '')):
+                    path = self.store.state / 'jobs' / row['log']
+                    try: stamp = (path.stat().st_mtime_ns, path.stat().st_size)
+                    except OSError: stamp = None
+                    cache = self.__dict__.setdefault('_failure_notes', {})
+                    key = (row['id'], stamp)
+                    if key not in cache: cache[key] = failure_reason(path)
+                    row['note'] = cache[key]
+                rows.append(row)
+            return rows
 
     def _save(self):
         write_json(self.path, self.rows)
@@ -404,7 +437,7 @@ class Jobs:
                 if row['status']!='stopped':row['status']='completed' if code==0 else 'failed'
                 row['note']='Engine fight recovery finished; model conversations were not resumed.'
             if row['status'] == 'failed' and not row.get('note'):
-                row['note'] = failure_reason(self.store.state / 'jobs' / row['log'])
+                row['note'] = failure_reason(self.store.state / 'jobs' / row['log'], report)
             if row['status'] == 'blocked' and row.get('mode')!='retry_fights':
                 row['note'] = ('Engine fights remain incomplete. Retry failed fights, then resume to continue the next round.'
                                if not report.get('blocked_sessions') and ((report.get('tournament') or {}).get('failed') or ((report.get('evolution') or {}).get('contemporaries') or {}).get('failed'))

@@ -110,6 +110,33 @@ class IndexedOverviewTests(unittest.TestCase):
 
 
 class FailedJobReasonTests(unittest.TestCase):
+    def test_structured_provider_failure_is_not_a_json_diagnostic_field(self):
+        from arena_web.jobs import failure_reason, Jobs
+        import json
+        import threading
+        from types import SimpleNamespace
+        with scratch_directory() as root:
+            folder = root/'jobs'; folder.mkdir()
+            log = folder/'failed.log'
+            message = 'Provider connection failed: The request timed out while waiting for the provider. Its outcome is unknown.'
+            report = {'session_failures': [{'session': 'mistral-r4', 'message': message,
+                'diagnostics': {'request_delivery': 'unknown', 'redirect_followed': False}}]}
+            # The report starts outside the bounded log tail, but its failures remain.
+            log.write_text('x'*25000 + '\n' + json.dumps(report, indent=2), encoding='utf-8')
+            self.assertEqual(failure_reason(log), 'Conversation failed: mistral-r4: ' + message)
+            jobs = Jobs.__new__(Jobs)
+            jobs.lock = threading.RLock()
+            jobs.store = SimpleNamespace(state=root)
+            jobs.rows = [{'id': 'failed', 'log': 'failed.log', 'status': 'failed',
+                          'note': 'Runner error: "redirect_followed": false'}]
+            self.assertIn(message, jobs.listing()[0]['note'])
+            self.assertEqual(jobs.rows[0]['note'], 'Runner error: "redirect_followed": false')
+            log.write_text('{"redirect_followed": false}', encoding='utf-8')
+            self.assertIn('run log', failure_reason(log))
+            self.assertEqual(failure_reason(log, report), 'Conversation failed: mistral-r4: ' + message)
+            log.write_text('Traceback (most recent call last):\nKeyError: \'scenario\'\n', encoding='utf-8')
+            self.assertEqual(failure_reason(log, report), "Runner error: KeyError: 'scenario'")
+
     def test_failed_job_reports_the_error_that_ended_it(self):
         from arena_web.jobs import failure_reason
         with scratch_directory() as root:

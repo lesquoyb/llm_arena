@@ -106,6 +106,66 @@ async function main() {
       path: path.join(artifacts, "dashboard.png"),
       fullPage: true,
     });
+    // Review opens only failed conversations, while retaining the all-conversations view.
+    await page.goto(url + "/#view=run&run=threads&tab=summary");
+    await page.getByRole("button", { name: "Review & retry", exact: true }).click();
+    const attentionList = page.locator("#overview-conversations");
+    assert.equal(await page.getByLabel("Conversations shown").inputValue(), "attention");
+    assert.equal(await attentionList.locator("tbody tr").count(), 1);
+    assert((await attentionList.innerText()).includes("Provider HTTP 429"));
+    assert((await attentionList.innerText()).includes("mock-single"));
+    await page.getByLabel("Conversations shown").selectOption("all");
+    assert.equal(await attentionList.locator("tbody tr").count(), 3);
+    await page.getByRole("button", { name: "Review & retry", exact: true }).click();
+    assert.equal(await attentionList.locator("tbody tr").count(), 1);
+
+    await page.goto(url + "/#view=run&run=overview&tab=summary");
+    await page.locator(".overview-matrix").waitFor();
+    // Pool feedback tracks by model without turning branches into independent repetitions.
+    await page.evaluate(() => {
+      window.__originalDetail = S.detail;
+      S.detail = structuredClone(S.detail);
+      S.detail.metadata.config.models.forEach(model => model.provider = "openai");
+      S.repetitionMetric = "cost";
+      LiveDOM.replace(document.querySelector("#repetition-variance"), repetitionVariance(S.detail, overviewData(S.detail)));
+    });
+    assert.equal(await page.locator(".repetition-point").count(), 9);
+    await page.getByLabel("Repetition grouping").selectOption("model");
+    assert.equal(await page.locator(".repetition-point").count(), 3);
+    assert((await page.locator("#repetition-variance").innerText()).includes("Feedback tracks pooled"));
+    assert((await page.locator(".repetition-point").first().locator("..").getAttribute("aria-label")).includes("Average of 3 conversations"));
+    await page.getByLabel("Repetition grouping").selectOption("separate");
+    assert.equal(await page.locator(".repetition-point").count(), 9);
+    await page.evaluate(() => { S.detail = window.__originalDetail; delete window.__originalDetail; S.repetitionMetric = undefined; S.repetitionRounds = undefined; });
+    // Large counts and many models must remain inside their own matrix cells.
+    for (const width of [1280, 390]) {
+      await page.setViewportSize({ width, height: 844 });
+      await page.evaluate(() => {
+        const names = Array.from({ length: 12 }, (_, i) => `long-provider-model-name-${i}`);
+        const matrix = names.flatMap(who => names.map(other => ({ who, other,
+          score: 0.5, wins: 12345678, draws: 12345678, losses: 12345678,
+          completed: 37037034, failures: 12345678,
+          entrants: new Set([who]), opponents: new Set([other]), stages: new Set(["."]) })));
+        document.querySelector(".overview-matrix-wrap").outerHTML = overviewMatrix({
+          scope: { source: "competition", matrix: "models", round: "all" }, matrix });
+      });
+      const overflow = await page.locator(".overview-matrix td a").evaluateAll(links =>
+        links.filter(link => {
+          const cell = link.closest("td").getBoundingClientRect(), box = link.getBoundingClientRect();
+          return box.left < cell.left - 1 || box.right > cell.right + 1;
+        }).map(link => link.textContent));
+      assert.deepEqual(overflow, [], `Matrix counts overflow cells at viewport ${width}`);
+      assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
+      await page.locator(".overview-matrix-wrap").screenshot({ path: path.join(artifacts, `matrix-large-${width}.png`) });
+    }
+    assert.deepEqual(errors, []);
+    if (process.env.ARENA_UI_FOCUS === "review-matrix") {
+      console.log("Browser checks passed: failed-conversation review, pooled model repetitions, large matrix counts on desktop and mobile.");
+      return;
+    }
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await page.goto(url);
+    await page.getByRole("heading", { name: "Overview", exact: true }).waitFor();
     await page
       .getByRole("link", { name: "Participants", exact: false })
       .click();
@@ -1174,7 +1234,10 @@ async function main() {
       assert(
         await page
           .locator(".overview-matrix-wrap")
-          .evaluate((n) => n.scrollWidth <= n.clientWidth + 1),
+          .evaluate((n) => [...n.querySelectorAll('td a')].every(link => {
+            const box = link.getBoundingClientRect(), cell = link.closest('td').getBoundingClientRect();
+            return box.left >= cell.left - 1 && box.right <= cell.right + 1;
+          })),
       );
       assert(
         await page
@@ -1231,22 +1294,18 @@ async function main() {
     const sortButton = page
       .getByRole("button", { name: "Score ↕", exact: true })
       .first();
-    await sortButton.click();
-    assert.equal(
-      await sortButton.locator("..").getAttribute("aria-sort"),
-      "descending",
-    );
-    await sortButton.click();
-    assert.equal(
-      await sortButton.locator("..").getAttribute("aria-sort"),
-      "ascending",
-    );
+    assert(await sortButton.isVisible());
+    const directions = await sortButton.evaluate(button => {
+      button.click();
+      const descending = button.parentElement.getAttribute("aria-sort");
+      button.click();
+      return [descending, button.parentElement.getAttribute("aria-sort")];
+    });
+    assert.deepEqual(directions, ["descending", "ascending"]);
     await page.getByText("Detailed metrics", { exact: true }).click();
     await page.getByRole("heading", { name: "Match matrix" }).waitFor();
     assert(
-      (await page.locator(".overview-matrix").innerText()).includes(
-        "1 W / 0 D / 0 L",
-      ),
+      /1 W\s*0 D\s*0 L/.test(await page.locator(".overview-matrix").innerText()),
     );
     await page.screenshot({
       path: path.join(artifacts, "summary.png"),
@@ -1557,6 +1616,7 @@ async function main() {
       .waitFor();
     await liveStep("source");
     await page.locator(".version-button").first().waitFor();
+    await page.waitForFunction(() => document.querySelector("#source-content")?.textContent.includes("var live = 1"));
     assert(
       (await page.locator("#source-content").innerText()).includes(
         "var live = 1",

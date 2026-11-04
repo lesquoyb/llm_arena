@@ -92,5 +92,47 @@
         validated:group.reduce((sum,row)=>sum+row.validated,0),engineFailures:group.reduce((sum,row)=>sum+row.engineFailures,0),conflicts:group.reduce((sum,row)=>sum+row.conflicts,0)};
     });
   }
-  return {describe,summarize,poolRounds};
+  function poolModels(rows) {
+    const models=new Map();
+    for(const row of rows) {
+      if(!models.has(row.model))models.set(row.model,[]);
+      models.get(row.model).push(row);
+    }
+    return [...models.values()].map(group=>{
+      const byRound=new Map(),repetitions=new Set();
+      for(const row of group) {
+        if(!byRound.has(row.generation))byRound.set(row.generation,[]);
+        byRound.get(row.generation).push(row);
+        for(const point of row.points)repetitions.add(point.replicate);
+      }
+      const measured=new Map();
+      for(const replicate of repetitions) {
+        const rounds=new Map();
+        for(const [generation,tracks] of byRound) {
+          const points=tracks.map(row=>row.points.find(point=>point.replicate===replicate));
+          // A missing branch is not replaced by zero or by its successful sibling.
+          if(points.every(point=>point&&finite(point.value)))rounds.set(generation,points);
+        }
+        measured.set(replicate,rounds);
+      }
+      const observed=[...measured.values()].filter(rounds=>rounds.size);
+      const rounds=observed.length?[...observed[0].keys()].filter(round=>observed.every(values=>values.has(round))).sort((a,b)=>a-b):[];
+      const points=[...repetitions].sort((a,b)=>a-b).map(replicate=>{
+        const values=measured.get(replicate);
+        const included=rounds.flatMap(round=>values.get(round)||[]);
+        const last=included.at(-1)||group.flatMap(row=>row.points).find(point=>point.replicate===replicate);
+        const value=rounds.length&&included.length?rounds.reduce((sum,round)=>{
+          const tracks=values.get(round);
+          return sum+tracks.reduce((sum,point)=>sum+point.value,0)/tracks.length;
+        },0)/rounds.length:null;
+        return {...last,replicate,value,sessions:included.map(point=>point.session)};
+      });
+      return {...group[0],pooled:true,tracksPooled:true,condition:'pooled',rounds,points,
+        stats:describe(points.map(point=>point.value)),disagreement:null,
+        commonFixtures:group.filter(row=>rounds.includes(row.generation)).reduce((sum,row)=>sum+row.commonFixtures,0),
+        submitted:Math.min(...group.map(row=>row.submitted)),invalid:group.reduce((sum,row)=>sum+row.invalid,0),
+        validated:group.reduce((sum,row)=>sum+row.validated,0),engineFailures:group.reduce((sum,row)=>sum+row.engineFailures,0),conflicts:group.reduce((sum,row)=>sum+row.conflicts,0)};
+    });
+  }
+  return {describe,summarize,poolRounds,poolModels};
 });

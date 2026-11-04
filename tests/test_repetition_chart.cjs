@@ -4,7 +4,8 @@ const script=fs.readFileSync(require.resolve('../arena_web/static/repetition-cha
 function fixture(count=6) {
   const sessions=Array.from({length:count},(_,replicate)=>({id:'model-r'+replicate,model:'model',replicate,condition:'initial',generation:0,submission:{},steps:10,cost_spent:'1',wall_seconds:60}));
   const data={sessions,scope:{source:'competition'},selected:sessions.map(session=>({entries:[{id:session.id,model:'model',side:0}],match:{sides:[session.id,'opponent'],seed:101,result:{status:'completed',winner_side:-1}}}))};
-  const context={RepetitionStats,S:{run:'fixture'},runScope:()=>({}),measuredUsage:()=>({complete:false}),
+  const context={RepetitionStats,S:{run:'fixture',repetitionFixtures:{key:JSON.stringify(['fixture','competition',null]),
+    observations:sessions.map(session=>({session:session.id,opponent:'opponent',seed:101,side:0,status:'completed',winner:-1}))}},runScope:()=>({}),measuredUsage:()=>({complete:false}),
     overviewIdentity:()=>({model:'other'}),overviewColor:()=> '#167568',overviewRound:()=> 'R1 · Initial',
     query:value=>new URLSearchParams(value).toString(),chartFullScreenButton:()=>'',
     e:value=>String(value??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('"','&quot;'),
@@ -24,8 +25,20 @@ test('missing scheduled repetitions stay visible in coverage and single-repetiti
   assert(html.includes('1/20 scored'));assert(html.includes('SD needs ≥2 repetitions'));
 });
 test('resources and absent panels render without inventing quality scores',()=>{
-  const {context,data,detail}=fixture(2);data.selected=[];
+  const {context,data,detail}=fixture(2);data.selected=[];context.S.repetitionFixtures.observations=[];
   assert(context.repetitionVariance(detail,data).includes('No comparable data'));
   context.S.repetitionMetric='cost';const html=context.repetitionVariance(detail,data);
   assert(html.includes('2/20 measured'));assert.equal((html.match(/class="repetition-point"/g)||[]).length,2);
+});
+test('pooled-model selector renders one row and one point per independent repetition',()=>{
+  const {context,data,detail}=fixture(2);
+  data.sessions.push(...data.sessions.map(row=>({...row,id:row.id+'-c',generation:1,condition:'control'})),
+    ...data.sessions.slice(0,2).map(row=>({...row,id:row.id+'-f',generation:1,condition:'feedback'})));
+  context.S.repetitionMetric='cost';context.S.repetitionRounds='model';
+  const html=context.repetitionVariance(detail,data);
+  assert(html.includes('By model · feedback pooled'));
+  assert(html.includes('Feedback tracks pooled · 2 shared rounds'));
+  assert.equal((html.match(/class="repetition-point"/g)||[]).length,2);
+  assert(html.includes('Average of 3 conversations'));
+  assert(html.includes('2/20 measured'));assert(!html.includes('NaN'));
 });

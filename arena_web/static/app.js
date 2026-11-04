@@ -2701,7 +2701,7 @@ function overviewMatrix(data) {
     }
     return `<abbr title="${e(name)}" tabindex="0">${e(short(name))}</abbr>`;
   };
-  return `<div class="overview-matrix-wrap"><table class="overview-matrix" style="min-width:${names.length > 5 ? (names.length + 1) * 96 : 0}px" aria-label="Head-to-head results by selected grouping"><thead><tr><th scope="col" class="matrix-axis">Row model ↓<br>Opponent →</th>${names.map((name) => `<th scope="col">${label(name)}</th>`).join("")}</tr></thead><tbody>${rows
+  return `<div class="overview-matrix-wrap"><table class="overview-matrix" style="min-width:${120 + names.length * 140}px" aria-label="Head-to-head results by selected grouping"><thead><tr><th scope="col" class="matrix-axis">Row model ↓<br>Opponent →</th>${names.map((name) => `<th scope="col">${label(name)}</th>`).join("")}</tr></thead><tbody>${rows
     .map(
       (who) =>
         `<tr><th scope="row">${label(who)}</th>${names
@@ -2719,6 +2719,22 @@ function overviewMatrix(data) {
     .join(
       "",
     )}</tbody></table></div><div class="overview-caption">Read each cell from the row model’s perspective against the column opponent. W = row wins, D = draws, L = row losses. Green favors the row; red favors the column. Click a score or count to open those fights.${data.scope.matrix === "versions" ? " · Each entry is a frozen strategy, identified by round, track and repetition." : " · Switch to strategy versions to inspect fights between rounds or feedback tracks of the same model."}</div>`;
+}
+function overviewConversations(data) {
+  const attention = overviewSettings().conversations === "attention";
+  const active = activeJobs().some(job => job.run === S.run);
+  const sessions = attention ? data.sessions.filter(s => conversationNeedsAttention(s, active)) : data.sessions;
+  return `<details class="overview-details" id="overview-conversations" ${attention ? "open" : ""}><summary>Conversations <span>${sessions.length}${attention ? " / " + data.sessions.length : ""}</span></summary><div class="overview-detail-body"><label>Conversations shown <select id="overview-conversation-filter" aria-label="Conversations shown"><option value="all" ${!attention ? "selected" : ""}>All conversations</option><option value="attention" ${attention ? "selected" : ""}>Needs attention</option></select></label>${
+    sessions.length
+      ? table(
+          ["Model", "Version", "Status", "Calls", "Cost", ""],
+          sessions.map(
+            (s) =>
+              `<tr><td>${e(s.model)}</td><td>${overviewRound(overviewIdentity(s.id).condition, s.generation)}<small>Repetition ${s.replicate + 1}</small></td><td>${status(s.status)}${s.failure?.message ? `<small class="provider-error">${e(s.failure.message)}</small>` : ""} ${s.validation_status && !["valid", "not_submitted"].includes(s.validation_status) ? badge(s.validation_status === "pending" ? "Validation pending" : "Validation: " + text(s.validation_status), s.validation_status === "pending" ? "blue" : "orange") : ""}</td><td>${fmt(s.calls)}</td><td>${money(s.cost_spent)}</td><td>${btn("Open", "session-conversation", `data-session="${e(s.id)}"`)}${btn("Diagnostics", "session-diagnostics", `data-session="${e(s.id)}"`)}${retryButton(s)}${s.submission ? btn("Save as participant","save-strategy",`data-session="${e(s.id)}"`) : ""}</td></tr>`,
+          ),
+        )
+      : (attention ? "<p>No conversations need attention within the current filters.</p>" : "<p>No conversations recorded.</p>")
+  }</div></details>`;
 }
 function overviewDetails(d, data, statistics) {
   const recorded = (S.overviewMatches || []).filter(
@@ -2771,17 +2787,7 @@ function overviewDetails(d, data, statistics) {
         )}`
       : ""
   }</div></details>
-  <details class="overview-details" id="overview-conversations"><summary>Conversations <span>${data.sessions.length}</span></summary><div class="overview-detail-body">${
-    data.sessions.length
-      ? table(
-          ["Model", "Version", "Status", "Calls", "Cost", ""],
-          data.sessions.map(
-            (s) =>
-              `<tr><td>${e(s.model)}</td><td>${overviewRound(overviewIdentity(s.id).condition, s.generation)}<small>Repetition ${s.replicate + 1}</small></td><td>${status(s.status)} ${s.validation_status && !["valid", "not_submitted"].includes(s.validation_status) ? badge(s.validation_status === "pending" ? "Validation pending" : "Validation: " + text(s.validation_status), s.validation_status === "pending" ? "blue" : "orange") : ""}</td><td>${fmt(s.calls)}</td><td>${money(s.cost_spent)}</td><td>${btn("Open", "session-conversation", `data-session="${e(s.id)}"`)}${btn("Diagnostics", "session-diagnostics", `data-session="${e(s.id)}"`)}${retryButton(s)}${s.submission ? btn("Save as participant","save-strategy",`data-session="${e(s.id)}"`) : ""}</td></tr>`,
-          ),
-        )
-      : "<p>No conversations recorded.</p>"
-  }</div></details>
+  ${overviewConversations(data)}
   <details class="overview-details"><summary>Usage & match accounting</summary><div class="overview-detail-body">${usageAccounting(d)}<h3>Selected versions</h3><p>Tokens: ${e(tokenDisplay({ ...d, sessions: data.sessions }))} · ${fmt(data.sessions.reduce((n, s) => n + (s.calls || 0), 0))} model calls · ${fmt(data.sessions.reduce((n, s) => n + (s.steps || 0), 0))} tool calls</p><h3>Whole competition</h3><dl class="overview-accounting"><div><dt>Completed evaluations (ranked + diagnostics)</dt><dd>${fmt(count((m) => m.kind !== "training"))}</dd></div><div><dt>Ranked fights · Round 1</dt><dd>${fmt(count((m) => m.kind === "competition" && !m.mirror && !/^g\d+-tournament$/.test(m.stage)))}</dd></div><div><dt>Ranked fights · Later rounds</dt><dd>${fmt(count((m) => m.kind === "competition" && !m.mirror && /^g\d+-tournament$/.test(m.stage)))}</dd></div><div><dt>Fixed-baseline evaluations (unscored)</dt><dd>${fmt(count((m) => m.kind === "evaluation"))}</dd></div><div><dt>Extra previous-round comparisons (unscored)</dt><dd>${fmt(count((m) => m.kind === "progression"))}</dd></div><div><dt>Preparation tests (unscored)</dt><dd>${fmt(statistics?.training_matches || 0)}</dd></div><div><dt>Of these: cached fixed-reference fights</dt><dd>${fmt(count(m=>!!m.result.reference_cache?.hit))}</dd></div><div><dt>Self-play diagnostics (unscored)</dt><dd><a href="#${query({view:'run',run:S.run,tab:'matches',kind:'selfplay'})}">${fmt(count((m) => m.mirror))} · View fights</a></dd></div></dl>${btn("View preparation tests", "show-training")}</div></details>
   <details class="overview-details"><summary>How to read these results</summary><div class="overview-detail-body"><p>Score = (wins + 0.5 × draws) / completed appearances. 50% can mean all draws. Failures do not earn points and remain visible separately.</p>${fightPurposeGuide()}<p>A vs B and B vs A are both included in standings. Self-play (A vs identical A) is unscored: counting both copies would always contribute 50%, which dilutes scores without comparing distinct strategies.</p><p>Filters apply to all charts, the matrix and details. The model filter selects the candidate; opponents remain visible. Self-play diagnostics and preparation tests are excluded from scored results. Tournament rankings and progress exclude fights against versions of the same model. The separate previous-round comparison view includes them. The strategy-version matrix retains these comparisons; fight counts include them. Other appearances can exceed the number of unique fights. Tournament diagonals are omitted.</p><p>Cost and tokens measure preparation of selected versions, independently of the match category. Unknown provider usage stays unknown. Zero configured prices still allow token measurement.</p></div></details>`;
 }
@@ -4320,6 +4326,8 @@ document.addEventListener("click", async (event) => {
     else if (a === "clear-match-filters")
       navigate("run", { run: S.run, tab: "matches" });
     else if (a === "overview-failures") {
+      overviewSettings().conversations = "attention";
+      $("#overview-conversations").outerHTML = overviewConversations(overviewData(S.detail));
       const detail = $("#overview-conversations");
       detail.open = true;
       detail.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -4727,6 +4735,12 @@ document.addEventListener("change", async (event) => {
       for(const key of ['model','round','track','replicate']){hash.delete('filter_'+key);if(runScope()[key])hash.set('filter_'+key,runScope()[key]);}
       for(const key of ['session','offset','entrant','entrant_model','round','track','stage','opponent'])hash.delete(key);history.replaceState(null,'','#'+hash);
       await renderRun(++S.epoch,true);
+    }
+    else if (n.id === "overview-conversation-filter") {
+      overviewSettings().conversations = n.value;
+      $("#overview-conversations").outerHTML = overviewConversations(overviewData(S.detail));
+      $("#overview-conversations").open = true;
+      $("#overview-conversation-filter").focus({ preventScroll: true });
     }
     else if (n.matches("[data-overview-filter]")) {
       overviewSettings()[n.dataset.overviewFilter] = n.value;

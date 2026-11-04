@@ -49,3 +49,25 @@ test('all-round view averages each repetition before estimating spread',()=>{
   assert.equal(pooled.stats.n,2);assert.equal(pooled.stats.mean,.5);assert.equal(pooled.stats.sd,0);
   assert.deepEqual(pooled.rounds,[0,1]);
 });
+test('model aggregation pools feedback within rounds and keeps independent repetition counts',()=>{
+  const sessions=[session('a0',0,{metrics:{cost:0}}),session('b0',1,{metrics:{cost:2}}),
+    session('ac',0,{generation:1,condition:'control',metrics:{cost:2}}),
+    session('af',0,{generation:1,condition:'feedback',metrics:{cost:6}}),
+    session('bc',1,{generation:1,condition:'control',metrics:{cost:4}}),
+    session('bf',1,{generation:1,condition:'feedback',metrics:{cost:8}}),
+    session('other',0,{model:'other',metrics:{cost:100}})];
+  const rows=summarize(sessions,[],'cost');
+  const pooled=require('../arena_web/static/repetition-stats.js').poolModels(rows);
+  const model=pooled.find(row=>row.model==='model');
+  assert.equal(pooled.length,2);assert.deepEqual(model.rounds,[0,1]);
+  assert.deepEqual(model.points.map(point=>point.value),[2,4]);
+  assert.equal(model.stats.n,2);assert.equal(model.stats.mean,3);assert.equal(model.stats.variance,2);
+  assert.deepEqual(model.points[0].sessions,['a0','ac','af']);
+  assert.equal(model.points[0].session,'af');
+  // Both tracks are required for a shared round; a missing branch isn't zero.
+  sessions.find(row=>row.id==='bf').metrics.cost=null;
+  const [missing]=require('../arena_web/static/repetition-stats.js').poolModels(summarize(sessions.filter(row=>row.model==='model'),[],'cost'));
+  assert.deepEqual(missing.rounds,[0]);assert.deepEqual(missing.points.map(point=>point.value),[0,2]);
+  const [noInitial]=require('../arena_web/static/repetition-stats.js').poolModels(summarize(sessions.filter(row=>row.model==='model'&&row.generation===1),[],'cost'));
+  assert.equal(noInitial.stats.n,1);assert.equal(noInitial.points[1].value,null);
+});
