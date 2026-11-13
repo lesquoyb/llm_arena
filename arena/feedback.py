@@ -37,7 +37,16 @@ def available_tools(state):
             'read_past_fight':'Inspect a fight_id from list_past_fights: overview explains results and metrics; actions gives ordered events; turns gives per-entity metrics; logs gives your side only. Character pages use offset/limit and next_offset. Validation and audit records cannot be read.'}
         return [{**tool, 'description':descriptions.get(tool['name'],tool['description'])}
                 for tool in TOOLS if tool['name'] in names]
-    return [tool for tool in TOOLS if tool['name'] not in FEEDBACK_NAMES or allowed(state)]
+    tools = [tool for tool in TOOLS if tool['name'] not in FEEDBACK_NAMES or allowed(state)]
+    if len(state.get('parents', [])) == 2:
+        descriptions = {
+            'list_submissions': 'List both frozen crossover parents, their round and files.',
+            'read_submitted_file': 'Read one frozen parent file. Set parent to 1 or 2 and use the round and path from list_submissions. Follow next_offset.',
+            'list_past_fights': 'List tournament results for both crossover parents, from each parent’s own perspective.',
+            'read_past_fight': 'Read the selected parent fight returned by list_past_fights. Only that parent’s own logs are accessible.',
+        }
+        tools = [{**tool, 'description': descriptions.get(tool['name'], tool['description'])} for tool in tools]
+    return tools
 
 
 class PastFights:
@@ -45,10 +54,10 @@ class PastFights:
         import re
         previous = re.search(r'-g(\d+)-(?:control|feedback)$', parent)
         self.root, self.parent = out / (f'g{previous[1]}-tournament' if previous else 'tournament'), parent
-        self.round = int(previous[1])+1 if previous else 1
+        self.round = max(row['round'] for row in versions) if versions else int(previous[1])+1 if previous else 1
         self.out = out
         self.versions = versions or [{'round':self.round, 'session':parent}]
-        self.available_rounds = sorted(row['round'] for row in self.versions)
+        self.available_rounds = sorted({row['round'] for row in self.versions})
 
     def records(self, number=None, identifier=None, identifiers=None):
         result = {}
@@ -76,7 +85,7 @@ class PastFights:
                 if match.get('mirror') or parent not in match['sides']:
                     continue
                 record = {**record, 'match':{**match, 'round':round_number}, '_root':root,
-                          'own_session':parent, 'own_submission':version.get('submission')}
+                          'own_session':parent, 'own_submission':version.get('submission'), 'source_parent':version.get('parent')}
                 result[key] = record
         return result
 
@@ -111,6 +120,9 @@ class PastFights:
         source = record.get('own_submission')
         source_view = {'round':match.get('round',self.round), 'entrypoint':source['entrypoint'], 'files':sorted(source['files']),
                        'read':{'tool':'read_submitted_file','arguments':{'round':match.get('round',self.round),'path':source['entrypoint']}}} if source else None
+        if source_view and record.get('source_parent'):
+            source_view['parent'] = record['source_parent']
+            source_view['read']['arguments']['parent'] = record['source_parent']
         return {'own_submission':source_view, 'fight_id': identifier, 'round':match.get('round',self.round), 'opponent': 'opponent-' + digest(match['sides'][1-side])[:8],
                 'own_side': side, 'status': result['status'],
                 'result': ('unscored' if result['status'] != 'completed' else 'draw' if result['winner_side'] == -1

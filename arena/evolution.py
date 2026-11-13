@@ -252,7 +252,20 @@ def run_generation(config, out, journal, engine, initial, interrupt=None, retry_
                 if sum(record['session']==entrant['id'] and record['result']['status']=='completed' for record in collected.values())>=expected:
                     evaluated.add(entrant['id'])
     tasks=[];candidates=[]
-    for parent in initial:
+    if config.get('evolutionary'):
+        from .population import populate
+        label = 'g0-panel' if generation == 1 else f'g{generation-1}-panel'
+        records = references(engine, config, out, journal, initial, label, panel)
+        expected = len(initial) * len(panel) * len(config['final_seeds']) * 2
+        if len(records) != expected or any(row['result']['status'] != 'completed' for row in records.values()):
+            result = analyze_evolution(config, out, journal.states(), roots, [],
+                records if generation == 1 else read_json(out/'evaluations/g0-panel/results.json'),
+                records, None)
+            result.update(contemporaries=None, selection_pending=True, incomplete=True,
+                          selections=[read_json(out/'selection'/f'g{index}.json') for index in range(1, generation)])
+            return result
+        tasks, candidates = populate(config, out, journal, initial, models, records, panel, generation, retry_session)
+    for parent in [] if config.get('evolutionary') else initial:
         parent_state = initial_states[parent["id"]]
         if parent_state["status"] == "needs_reconciliation":
             continue
@@ -387,7 +400,7 @@ def run_generation(config, out, journal, engine, initial, interrupt=None, retry_
             branches.append({"id": sid, "path": out / "sessions" / sid / "submission",
                              "submission": state["submission"], "model": state["model"],
                              "replicate": state["replicate"], "parent": state["parent"], "generation": generation, "condition": state["condition"]})
-    for parent_sid, parent_summary in list(journal.metadata().items()):
+    for parent_sid, parent_summary in ([] if config.get('evolutionary') else list(journal.metadata().items())):
         # Metadata is enough to select parents; only missing branches need a full checkpoint.
         if not active(config,parent_summary) or parent_summary.get("generation", 0) != generation-1 or "submission" in parent_summary:
             continue
@@ -426,6 +439,8 @@ def run_evolution(config, out, journal, engine, initial, interrupt=None, retry_s
     for generation in indices:
         generation_retry = retry_session if retry_session and generation <= (journal.state(retry_session) or {}).get('generation',0) else None
         result = run_generation(config, out, journal, engine, previous, interrupt, generation_retry, allow_extend, generation, initial)
+        if result.get('selection_pending'):
+            return result
         states = journal.states()
         current = [{'id':sid,'path':out/'sessions'/sid/'submission','submission':s['submission'],
                     'model':s['model'],'replicate':s['replicate'],'parent':s['parent'],
@@ -440,6 +455,8 @@ def run_evolution(config, out, journal, engine, initial, interrupt=None, retry_s
         result = analyze_evolution(config,out,states,initial,branches,
             read_json(out/'evaluations/g0-panel/results.json'), evolved, combined)
         result.update(contemporaries=combined, completed_rounds=generation+1)
+        if config.get('evolutionary'):
+            result['selections'] = [read_json(out/'selection'/f'g{index}.json') for index in range(1, generation+1)]
         write_json(out/'evolution.json',result)
         if (out/'report.json').exists():
             from .experiment import token_totals

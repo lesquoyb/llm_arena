@@ -14,10 +14,24 @@ class OwnSubmissions:
         self.out, self.state = out, state
 
     def versions(self):
+        if len(self.state.get('parents', [])) == 2:
+            # Read the authoritative checkpoint without opening a writer.
+            result = []
+            with closing(sqlite3.connect((self.out/'journal.sqlite').as_uri()+'?mode=ro', uri=True)) as db:
+                for index, sid in enumerate(self.state['parents'], 1):
+                    row = db.execute("SELECT state FROM sessions WHERE id=?", (sid,)).fetchone()
+                    parent = json.loads(row[0]) if row else {}
+                    if (parent.get('generation') != self.state['generation'] - 1 or not parent.get('submission')
+                            or parent['submission']['sha256'] != self.state['parent_submissions'][index-1]):
+                        raise ArenaError('Crossover parent has no frozen submission in the preceding round')
+                    result.append({'round':parent['generation']+1,'session':sid,
+                                   'parent':index,'submission':parent['submission']})
+            return result
         database = self.out/'journal.sqlite'
         if not database.exists(): return []
         seeds = list(self.state.get('calibration',{}).get('previous_sessions',[]))
-        if self.state.get('parent'): seeds.append(self.state['parent'])
+        if self.state.get('parent'):
+            seeds.append(self.state['parent'])
         result, seen = [], set()
         from .sqlite_metrics import connect
         with closing(connect(database.as_uri()+'?mode=ro',uri=True)) as db:
@@ -47,13 +61,17 @@ class OwnSubmissions:
             if type(offset) is not int or offset<0 or type(limit) is not int or not 1<=limit<=100:
                 raise ArenaError('Invalid version page')
             rows=self.versions(); selected=rows[offset:offset+limit]
-            return {'scope':'Your own submitted code from earlier rounds of this track; no fight results.',
-                    'submissions':[{'round':r['round'],'entrypoint':r['submission']['entrypoint'],'files':sorted(r['submission']['files'])} for r in selected],
+            return {'scope':('Both selected crossover parents; no other sources.' if self.state.get('replaces')
+                             else 'Your own submitted code from earlier rounds of this track; no fight results.'),
+                    'submissions':[{'round':r['round'], **({'parent':r['parent']} if 'parent' in r else {}),'entrypoint':r['submission']['entrypoint'],'files':sorted(r['submission']['files'])} for r in selected],
                     'next_offset':offset+limit if offset+limit<len(rows) else None}
-        if set(arguments)-{'round','path','offset','limit'}: raise ArenaError('Unknown source-version arguments')
+        if set(arguments)-{'round','parent','path','offset','limit'}: raise ArenaError('Unknown source-version arguments')
         number=arguments.get('round')
         if type(number) is not int or number<1: raise ArenaError('round must be a positive strategy-round number')
-        row=next((r for r in self.versions() if r['round']==number),None)
+        parent = arguments.get('parent')
+        if parent is not None and (type(parent) is not int or parent not in (1,2)):
+            raise ArenaError('parent must be 1 or 2')
+        row=next((r for r in self.versions() if r['round']==number and r.get('parent')==parent),None)
         if not row: raise ArenaError('That round is not an earlier submission of this track')
         path=arguments.get('path'); expected=row['submission']['files'].get(path)
         if not expected: raise ArenaError('File not present in that submission')

@@ -254,6 +254,24 @@ The competition Summary uses one shared filter bar: **Round**, **Model** and **M
 
 The default view shows four indicators, a model ranking, evolution by version and a head-to-head matrix. Detailed metrics, conversations, accounting and methodology expand on demand. Numeric columns in detail tables can be sorted. Small matrices fit the available width; large matrices scroll within their own container. Full model names are available from abbreviated headers.
 
+**Competition type → Evolutionary population** is a separate format. Start
+with at least three repetitions per generating model. After each round, rank
+each model’s repetitions against the frozen initial strategies and fixed
+controls, on the same seeds and both sides. Valid strategies rank first; ties
+are deterministic. Keep the best strategies unchanged and replace the
+configured number of lowest-ranked slots with new strategies. Each new
+strategy receives two distinct surviving parents, can read their frozen files
+and fight results, and starts from a copy of the first parent's files. Fixed
+reference strategies carry forward without breeding. The selection decisions
+are recorded and reused on resume. A missing shared evaluation blocks breeding.
+
+**Cross models (experimental)** supplies one parent from the receiving model
+and one from another generating model. The receiving model writes the child.
+This measures recombination of strategies made by different models, so report
+it separately from same-model improvement. Descendants share ancestry; later
+population slots are not independent samples. The standard improvement format
+still supports the separate feedback and no-feedback tracks.
+
 Score is `(wins + 0.5 * draws) / completed appearances`. The ranking pools the selected appearances for each model; a 50% score can mean all draws. Failures are displayed separately. A tournament fight contributes an appearance to each model, so appearance counts can exceed unique fight counts. The completed-fight indicator counts each selected fight once. Self-play diagnostics and preparation tests do not enter the scores.
 
 Round 1 is the initial submission. Round 2 has two alternative branches, with and without feedback. Tournament opponents may change between rounds; use Reference tests to compare against frozen initial submissions and built-in scripts. Reference tests count only the candidate side, including tests against its own initial strategy. The evolution chart uses the same selected matches and rounds as the ranking.

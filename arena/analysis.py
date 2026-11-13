@@ -26,12 +26,16 @@ def score(records):
 
 def trajectory_cost(states, sid):
     seen, total = set(), amount('0')
-    while sid and sid not in seen:
+    pending = [sid]
+    while pending:
+        sid = pending.pop()
+        if not sid or sid in seen:
+            continue
         seen.add(sid)
         state = states.get(sid, {})
         if state.get('status') == 'needs_reconciliation' or amount(state.get('money_reserved', '0')) > 0: return None
         total += amount(state.get('cost_spent', '0'))
-        sid = state.get('parent')
+        pending.extend(state.get('parents') or [state.get('parent')])
     return str(total)
 
 
@@ -50,6 +54,8 @@ def analyze_evolution(config, out, states, initial, branches, baseline, evolved,
             rows.append({"session": sid, "model": participant["model"], "replicate": participant["replicate"],
                          "generation": generation, "condition": participant.get("condition", "initial"),
                          "validity": states[sid].get("validity", "unknown"),
+                         **({"parents": states[sid].get("parents", []), "replaces": states[sid].get("replaces")}
+                            if config.get('evolutionary') else {}),
                          "panel": panel_name, **score(selected),
                          "cost_usd": None if states[sid]["status"] == "needs_reconciliation" or
                                             amount(states[sid].get("money_reserved", "0")) > 0
@@ -61,7 +67,7 @@ def analyze_evolution(config, out, states, initial, branches, baseline, evolved,
                          "trajectory_cost_usd": trajectory_cost(states, sid)})
     paired = []
     parents = [{"id": sid, "model": state["model"], "replicate": state["replicate"]}
-               for sid, state in states.items() if state.get("generation", 0) == 0]
+               for sid, state in states.items() if state.get("generation", 0) == 0 and not config.get('evolutionary')]
     for parent in parents:
         row = {"parent": parent["id"], "model": parent["model"], "replicate": parent["replicate"]}
         values = {condition: next((r for r in rows if r["session"] == parent["id"] + "-g1-" + condition
@@ -102,7 +108,9 @@ def analyze_evolution(config, out, states, initial, branches, baseline, evolved,
               "incomplete": bool(missing) or any(r["failed"] for r in rows) or
                             any(active(config,s) and s["status"] == "needs_reconciliation" for s in states.values()) or
                             bool(contemporaries and (contemporaries["failed"] or contemporaries["pending"])),
-              "interpretation": "Exploratory bootstrap stratified by model, resampling conversation pairs with all fixtures, conditional on the frozen panel.",
+              "interpretation": ("Evolutionary selection uses a frozen panel. Descendants share parents; scores are descriptive and not independent repetitions."
+                                 if config.get('evolutionary') else
+                                 "Exploratory bootstrap stratified by model, resampling conversation pairs with all fixtures, conditional on the frozen panel."),
               "pareto": [r["session"] for r in rows if r["panel"] == "all" and r["score"] is not None and r["cost_usd"] is not None and
                          not any(other["panel"] == "all" and other["score"] is not None and
                                  other["cost_usd"] is not None and amount(other["cost_usd"]) <= amount(r["cost_usd"]) and other["score"] >= r["score"] and
@@ -119,8 +127,9 @@ def analyze_evolution(config, out, states, initial, branches, baseline, evolved,
              "", "| Session | Panel | Score | Matches | Failures |", "|---|---|---:|---:|---:|"]
     for row in rows:
         lines.append(f"| {row['session']} | {row['panel']} | {row['score']} | {row['completed']} | {row['failed']} |")
-    lines += ["", "## Paired feedback minus control effect", "", "| Initial conversation | Difference |", "|---|---:|"]
-    lines += [f"| {r['parent']} | {r['feedback_minus_control']} |" for r in paired]
+    if not config.get('evolutionary'):
+        lines += ["", "## Paired feedback minus control effect", "", "| Initial conversation | Difference |", "|---|---:|"]
+        lines += [f"| {r['parent']} | {r['feedback_minus_control']} |" for r in paired]
     lines += ["", f"Total cost: {total_cost} USD; unresolved reservations: {held} USD.",
               "", "Missing results are retained in analysis.json. Scores are conditional on available submissions.",
               "Models are aggregated with equal weight per conversation. Same-model matches remain in the matrices.",

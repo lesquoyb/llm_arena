@@ -61,5 +61,5 @@ TOOLS.extend([
     {'name':'list_submissions','description':'List your own frozen source versions by strategy round (Round 1 is the initial version). Same track and replicate only; no fight results or opponent code. Available with or without feedback. Follow next_offset for more versions.',
      'input_schema':schema({'offset':{'type':'integer','minimum':0},'limit':{'type':'integer','minimum':1,'maximum':100}})},
     {'name':'read_submitted_file','description':'Read one file of your own earlier submitted strategy. Choose round and path from list_submissions. Character pages: follow continuation until next_offset=null. Cannot access other tracks, opponents, future rounds or match results.',
-     'input_schema':schema({'round':{'type':'integer','minimum':1},'path':TEXT,**PAGE},['round','path'])},
+     'input_schema':schema({'round':{'type':'integer','minimum':1},'parent':{'type':'integer','enum':[1,2]},'path':TEXT,**PAGE},['round','path'])},
 ])

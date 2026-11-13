@@ -61,6 +61,8 @@ def update(out, journal, original, catalog, selected, frozen_tracks=None, compar
     models = copy.deepcopy(previous['models'] if previous else original['models'])
     known = {model['id']:model for model in models}
     old_active = set(known)-set(previous['withdrawn'] if previous else [])
+    if original.get('evolutionary') and (set(selected) != old_active or any((frozen_tracks or {}).values())):
+        raise ArenaError('Evolutionary competitions keep their original participants and selection rules')
     profiles = {model['id']:model for model in catalog}
     for identifier in selected:
         if identifier not in known:

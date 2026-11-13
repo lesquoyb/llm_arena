@@ -18,6 +18,8 @@ async function loadRepetitionFixtures(key,args) {
   } finally {if(S.repetitionFixturesPending===key)S.repetitionFixturesPending=null;}
 }
 function repetitionVariance(d,data) {
+  if(d.metadata.config?.evolutionary)
+    return '<section class="overview-card" id="repetition-variance"><div class="overview-section-head"><h2>Variation between repetitions</h2></div><p class="muted">Later slots in this competition share parents. Use Strategy lineages and Evolutionary selection to compare their results; the independent-repetition chart does not apply.</p></section>';
   const metric=S.repetitionMetric||'score';
   const specs=new Map((d.metadata.config?.models||[]).map(model=>[model.id,model]));
   const number=value=>value===null||value===undefined||value===''?null:Number.isFinite(Number(value))?Number(value):null;

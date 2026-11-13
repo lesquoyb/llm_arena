@@ -359,6 +359,24 @@ async function main() {
       .click();
     await page.getByRole("button", { name: "New competition" }).click();
     await page.getByLabel("Competition name").fill("Configuration navigateur");
+    await page.getByLabel("Repetitions per generated participant").fill("3");
+    await page.locator('[name="generations"]').fill("2");
+    await page.getByLabel("Competition type").selectOption("evolutionary");
+    await page.getByLabel("Replacements per model per round").fill("1");
+    const populationPlan = page.waitForResponse(response =>
+      response.url().endsWith("/api/plan") && response.request().method() === "POST");
+    await page.getByRole("button", { name: "Calculate schedule", exact: true }).click();
+    const plannedPopulation = await populationPlan;
+    assert(plannedPopulation.ok(), JSON.stringify(await plannedPopulation.json()));
+    assert.deepEqual(plannedPopulation.request().postDataJSON().config.evolutionary,
+      { replace: 1, cross_models: false });
+    await page.getByText("New descendants per round (after Round 1)").waitFor();
+    if (process.env.ARENA_UI_FOCUS === "population") {
+      assert.deepEqual(errors, []);
+      console.log("Browser checks passed: evolutionary competition configuration and schedule.");
+      return;
+    }
+    await page.getByLabel("Competition type").selectOption("standard");
     await page.getByLabel("Repetitions per generated participant").fill("2");
     await page.locator('[name="generations"]').fill("4");
     await page

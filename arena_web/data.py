@@ -510,7 +510,7 @@ class Store(Workspaces):
             metadata = {**metadata, 'config':effective(root, metadata['config'])}
         withdrawn = set((roster or {}).get('withdrawn', []))
         sessions = []
-        keys = ("model", "participant_revision", "replicate", "generation", "condition", "parent", "parent_checkpoint_sha256",
+        keys = ("model", "participant_revision", "replicate", "generation", "condition", "parent", "parents", "replaces", "parent_checkpoint_sha256",
                 "status", "validity", "conversation_paused", "automatic_retries_paused", "automatic_retry_at", "automatic_retry_attempts", "calls", "completed_calls", "failure", "context_recoveries", "manual_frozen", "steps", "test_matches", "replay_reads", "wall_seconds", "cost_spent",
                 "money_reserved", "token_usage_known", "input_tokens", "output_tokens", "submission", "in_flight", "reserved", "retry_count", "continuation_identity", "provider_parameter_overrides")
         from arena.retries import retry_reason
