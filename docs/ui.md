@@ -86,8 +86,10 @@ manifests. A repetition creates an independent conversation.
 
 **Number of rounds** includes the initial round. One evaluates only the initial
 strategy; two adds one improvement round; larger numbers keep improving each
-track. There is no 2-round limit. From Round 2 onward, feedback and no-feedback
-tracks continue separately from their own previous submission, without creating
+track. There is no 2-round limit. Under **Improvement tracks**, select **With
+feedback**, **Without feedback**, or both independently for the standard
+format. From Round 2 onward, selected tracks continue separately from their
+own previous submission, without creating
 more branches. Every participant finishes preparing before the round's tournament;
 all tournament and reference fights finish before the next round starts.
 
@@ -923,6 +925,15 @@ It does not change statistical filters or exports; axes keep their original scal
 Conversation pages request their latest page directly and show messages before
 loading the fight-health summary in the background. Exact messages, requests,
 provider outputs and file diffs remain available on demand.
+
+**Token limits by model** shows the configured output cap per call and how
+often the provider reported truncating a response at its token limit. For
+Anthropic this cap is required and covers thinking and visible output. A cut
+response can continue in another call. The table separately counts preparations
+that ended on Arena's per-call input admission check or a session input/output
+budget. Counts honor the competition filters and use the active attempt for
+each conversation. Missing stop reasons in older archives are not proof that
+a response finished.
 
 ### Grouped evolution bars
 

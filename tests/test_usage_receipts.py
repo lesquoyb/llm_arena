@@ -5,7 +5,7 @@ from pathlib import Path
 
 from arena.experiment import Journal
 from arena.usage import normalize, cost
-from arena_web.accounting import summarize
+from arena_web.accounting import summarize, token_budget_stop
 from arena_web.data import Store
 
 
@@ -28,7 +28,7 @@ class UsageReceiptTests(unittest.TestCase):
             journal = Journal(root)
             try:
                 response = {'usage': {'input_tokens': 100, 'output_tokens': 10,
-                                     'cached_input_tokens': 90}, 'cost_usd': '0.01'}
+                                     'cached_input_tokens': 90}, 'cost_usd': '0.01', 'stop_reason': 'max_tokens'}
                 state = {'history': [response]}
                 journal.save('initial', state, 'model_response', response)
                 journal.save('initial', state, 'usage_event', response)
@@ -39,9 +39,26 @@ class UsageReceiptTests(unittest.TestCase):
                     usage = store.usage_receipts(root)
                     self.assertEqual(usage['initial']['input_tokens'], 100)
                     self.assertEqual(usage['initial']['responses'], 1)
+                    self.assertEqual(usage['initial']['output_cutoffs'], 1)
+                    self.assertEqual(usage['initial']['output_reasons_known'], 1)
                     self.assertEqual(usage['next']['input_tokens'], 100)
+                    self.assertEqual(usage['next']['output_cutoffs'], 0)
             finally:
                 journal.db.close()
+
+    def test_token_stop_counts_only_terminal_attributed_stops(self):
+        stop = {'code': 'input_tokens', 'token_limits': ['input_tokens', 'output_tokens']}
+        self.assertEqual(token_budget_stop({'status': 'no_submission', 'budget_stop': stop}),
+                         ['input_tokens', 'output_tokens'])
+        self.assertEqual(token_budget_stop({'status': 'running', 'budget_stop': stop}), [])
+        self.assertEqual(token_budget_stop({'status': 'budget_exhausted'}), [])
+        self.assertEqual(token_budget_stop({'status': 'budget_exhausted', 'budget_stop': {
+            'message': 'Preparation output_tokens limit reached (100 / 100).'}}), ['output_tokens'])
+        total = summarize([{'preparation_response': True, 'finish_reason': 'MAX_TOKENS'},
+                           {'preparation_response': True, 'stop_reason': 'end_turn'},
+                           {'preparation_response': True}])
+        self.assertEqual((total['output_cutoffs'], total['output_reasons_known'], total['preparation_responses']),
+                         (1, 2, 3))
 
     def test_missing_usage_does_not_erase_other_receipts(self):
         total = summarize([{'usage': {'input_tokens': 100, 'output_tokens':10}},

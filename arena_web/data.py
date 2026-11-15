@@ -18,6 +18,7 @@ from arena.core import ArenaError, ROOT, STATE_ROOT, digest, file_hash, is_link,
 from arena.experiment import plan, validate_config
 from arena.preparation import local_path
 from .workspaces import Workspaces
+from .accounting import token_budget_stop
 from .performance import measure, History, TimedRLock, request_cached
 
 
@@ -477,7 +478,7 @@ class Store(Workspaces):
         if not path.is_file():
             return {}
         with closing(sqlite3.connect(path.as_uri() + '?mode=ro', uri=True, timeout=2)) as connection:
-            rows = connection.execute("WITH restarts AS (SELECT session,max(id) AS cutoff FROM events WHERE kind='conversation_restarted' GROUP BY session) SELECT e.session,e.payload FROM events e LEFT JOIN restarts r ON r.session=e.session WHERE e.id > coalesce(r.cutoff,0) AND e.kind IN ('model_response','provider_probe_result') ORDER BY e.id").fetchall()
+            rows = connection.execute("WITH restarts AS (SELECT session,max(id) AS cutoff FROM events WHERE kind='conversation_restarted' GROUP BY session) SELECT e.session,e.kind,e.payload FROM events e LEFT JOIN restarts r ON r.session=e.session WHERE e.id > coalesce(r.cutoff,0) AND e.kind IN ('model_response','provider_probe_result') ORDER BY e.id").fetchall()
         grouped = {}
         from arena.usage import normalize, cost, effective_pricing
         from decimal import Decimal
@@ -487,12 +488,13 @@ class Store(Workspaces):
             metadata = {**metadata, 'config':effective(root,metadata['config'])}
         models = {m['id']: m for m in metadata.get('config', {}).get('models', [])}
         states = self.states(root, ('model', 'provider_parameter_overrides'))
-        decoded = [(sid, json.loads(reference)) for sid, reference in rows]
-        receipts = self.receipts.many('usage', [(reference['sha256'], lambda reference=reference: safe_path(root, reference['artifact'])) for _, reference in decoded],
-                                      lambda value: {field: value.get(field) for field in ('usage', 'cost_usd')})
-        for sid, reference in decoded:
+        decoded = [(sid, kind, json.loads(reference)) for sid, kind, reference in rows]
+        receipts = self.receipts.many('usage', [(reference['sha256'], lambda reference=reference: safe_path(root, reference['artifact'])) for _, _, reference in decoded],
+                                      lambda value: {field: value.get(field) for field in ('usage', 'cost_usd', 'stop_reason', 'finish_reason')})
+        for sid, kind, reference in decoded:
             receipt = receipts[reference['sha256']]
             receipt = copy.deepcopy(receipt)
+            receipt['preparation_response'] = kind == 'model_response'
             model = models.get(states.get(sid, {}).get('model'), {})
             usage = receipt.get('usage') or {}
             raw_usage = usage.get('raw') or {}
@@ -518,7 +520,7 @@ class Store(Workspaces):
         sessions = []
         keys = ("model", "participant_revision", "replicate", "generation", "condition", "parent", "parents", "replaces", "parent_checkpoint_sha256",
                 "status", "validity", "conversation_paused", "automatic_retries_paused", "automatic_retry_at", "automatic_retry_attempts", "calls", "completed_calls", "failure", "context_recoveries", "manual_frozen", "steps", "test_matches", "replay_reads", "wall_seconds", "cost_spent",
-                "money_reserved", "token_usage_known", "input_tokens", "output_tokens", "submission", "in_flight", "reserved", "retry_count", "continuation_identity", "provider_parameter_overrides")
+                "money_reserved", "token_usage_known", "input_tokens", "output_tokens", "submission", "in_flight", "reserved", "retry_count", "continuation_identity", "provider_parameter_overrides", "budget_stop")
         from arena.retries import retry_reason
         from arena.budget_context import tool_budget_exhausted
         from arena.recovery import needs_reconciliation, zero_cost_requests
@@ -547,7 +549,7 @@ class Store(Workspaces):
             from arena.context_recovery import context_overflow
             state['context_recovery_required'] = context_overflow(state)
             sessions.append({"withdrawn":state["model"] in withdrawn, "planned_frozen":state.get("condition") in (roster or {}).get("frozen_tracks",{}).get(state["model"],[]), "context_recovery_required":state['context_recovery_required'], "validation_status": validation or ('pending' if state.get('submission') or state['status'] == 'submitted' else 'not_submitted'), "id": sid, **{k: state[k] for k in keys if k in state},
-                             "usage_receipts": receipts.get(sid), "messages": state["messages"], "retry_allowed": reason is None, "finalize_allowed": tool_budget_exhausted(state,metadata.get("config",{}).get("budget_per_session",{})), "retry_reason": reason,
+                             "usage_receipts": receipts.get(sid), "token_budget_stop": token_budget_stop(state), "messages": state["messages"], "retry_allowed": reason is None, "finalize_allowed": tool_budget_exhausted(state,metadata.get("config",{}).get("budget_per_session",{})), "retry_reason": reason,
                              "reconciliation_required": needs_reconciliation(state, state.get("model") in external)})
         from decimal import Decimal
         for session in sessions:

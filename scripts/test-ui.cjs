@@ -338,7 +338,7 @@ async function main() {
       "",
     );
     // Seeds, limits and retries live in the collapsed advanced settings.
-    await page.getByText("Advanced settings", { exact: false }).click();
+    await page.getByRole("dialog").locator("summary").filter({ hasText: "Advanced settings" }).click();
     await page.getByLabel("Model seed").fill("42");
     assert.equal(
       await page
@@ -396,7 +396,7 @@ async function main() {
     assert.equal(await page.getByLabel("Model seed").inputValue(), "0");
     await page.getByLabel("Provider", { exact: true }).selectOption("anthropic");
     assert.equal(await page.getByLabel("Model seed").count(), 0);
-    await page.getByText("Advanced settings", { exact: false }).click();
+    await page.getByRole("dialog").locator("summary").filter({ hasText: "Advanced settings" }).click();
     await page
       .getByText("Seed: not available in the Anthropic API.", { exact: true })
       .waitFor();
@@ -406,6 +406,24 @@ async function main() {
       .click();
     await page.getByRole("button", { name: "New competition" }).click();
     await page.getByLabel("Competition name").fill("Configuration navigateur");
+    if (process.env.ARENA_UI_FOCUS === "improvement-tracks") {
+      await page.locator('[name="generations"]').fill("3");
+      const withFeedback = page.getByLabel("With feedback", { exact: true });
+      const withoutFeedback = page.getByLabel("Without feedback", { exact: true });
+      for (const tracks of [["control"], ["feedback"], ["control", "feedback"], []]) {
+        await withFeedback.setChecked(tracks.includes("feedback"));
+        await withoutFeedback.setChecked(tracks.includes("control"));
+        const planned = page.waitForResponse(response =>
+          response.url().endsWith("/api/plan") && response.request().method() === "POST");
+        await page.getByRole("button", { name: "Calculate schedule", exact: true }).click();
+        const response = await planned;
+        assert.deepEqual(response.request().postDataJSON().config.improvement_conditions, tracks);
+        assert.equal(response.ok(), tracks.length > 0);
+      }
+      assert.deepEqual(errors, []);
+      console.log("Browser checks passed: independent improvement tracks.");
+      return;
+    }
     await page.getByLabel("Repetitions per generated participant").fill("3");
     await page.locator('[name="generations"]').fill("2");
     await page.getByLabel("Competition type").selectOption("evolutionary");

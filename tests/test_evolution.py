@@ -6,12 +6,33 @@ import unittest
 from unittest import mock
 from arena.core import ROOT, ArenaError, digest, file_hash, read_json, scratch_directory, write_json
 from arena.engine import Engine
-from arena.experiment import run, plan, status
+from arena.experiment import run, plan, status, validate_config, Journal
 from arena.exporting import export_experiment
 
 
 @unittest.skipUnless((ROOT / ".arena/engine.json").exists(), "Build engine")
 class EvolutionIntegrationTests(unittest.TestCase):
+    def test_control_only_continues_without_releasing_fight_feedback(self):
+        from arena.feedback import available_tools
+        config = read_json(ROOT / "configs/offline-complete.json")
+        config.update(models=[config["models"][1]], generations=3, improvement_conditions=["control"])
+        config["scenario"]["max_turns"] = 1
+        with scratch_directory() as tmp, contextlib.redirect_stdout(io.StringIO()):
+            result = run(config, tmp / "run")
+            self.assertFalse(result["incomplete"])
+            self.assertEqual(result["evolution"]["completed_rounds"], 3)
+            self.assertIsNone(result["evolution"]["paired"][0]["feedback_minus_control"])
+            journal = Journal(tmp / "run")
+            try:
+                states = journal.states()
+                self.assertEqual(len(states), 3)
+                for index in (1, 2):
+                    state = next(s for s in states.values() if s["generation"] == index)
+                    self.assertEqual(state["condition"], "control")
+                    self.assertNotIn("previous_round_feedback", state)
+                    self.assertNotIn("list_past_fights", {tool["name"] for tool in available_tools(state)})
+            finally:
+                journal.db.close()
     def test_complete_pipeline_paired_checkpoints_final_panel_export_and_resume(self):
         config = read_json(ROOT / "configs/offline-complete.json")
         config["scenario"]["max_turns"] = 1
@@ -88,3 +109,11 @@ class EvolutionIntegrationTests(unittest.TestCase):
         self.assertEqual(result["sessions"], 6)
         self.assertEqual(result["common_reference_matches"], 60)
         self.assertEqual(result["g1_contemporary_matches"], 16)
+        for tracks in (["control"], ["feedback"]):
+            config["improvement_conditions"] = tracks
+            self.assertEqual(plan(validate_config(config))["sessions"], 4)
+        config["improvement_conditions"] = []
+        with self.assertRaisesRegex(ArenaError, "Select at least one improvement track"):
+            validate_config(config)
+        config["generations"], config["final_seeds"] = 1, []
+        self.assertEqual(plan(validate_config(config))["sessions"], 2)

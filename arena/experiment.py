@@ -58,8 +58,11 @@ def validate_config(value: dict) -> dict:
         raise ArenaError("Unsupported prompt language; current prompts are English (legacy fr configs remain loadable)")
     if value.get("generations", 1) is not None:
         integer(value.get("generations", 1), 1, 2**31-1, "generations")
-    if value.get("improvement_conditions", ["control", "feedback"]) not in (["control", "feedback"], ["feedback"]):
-        raise ArenaError("Improvement conditions must be control and feedback, or feedback alone")
+    conditions = value.get("improvement_conditions", ["control", "feedback"])
+    if conditions not in (["control", "feedback"], ["control"], ["feedback"], []):
+        raise ArenaError("Choose feedback, no feedback, or both for later rounds")
+    if not conditions and value.get("generations", 1) != 1:
+        raise ArenaError("Select at least one improvement track for rounds after Round 1, or set the number of rounds to 1.")
     if not isinstance(value["name"], str) or not value["name"]:
         raise ArenaError("Experiment name is required")
     integer(value["replicates"], 1, 20, "replicates")
@@ -475,7 +478,8 @@ def _build_provider_response(sid, state, model, config, journal):
         if bound["cost_bound"] is None and remaining:
             bound["cost_bound"] = str(min(remaining))
         if "max_input_tokens" in budget and state.get("input_tokens",0)+bound['input_bound']>budget['max_input_tokens']:
-            stop_budget('session','The next request exceeds the session input token limit (conservative admission estimate).')
+            stop_budget('session','The next request exceeds the session input token limit (conservative admission estimate).',
+                        {'code': 'input_tokens'})
             return None
         if bound['cost_bound'] is not None and any(amount(bound['cost_bound'])>value for value in remaining):
             scope='study' if 'max_total_usd' in config['spending'] and amount(bound['cost_bound'])>amount(config['spending']['max_total_usd'])-total else 'session'
@@ -599,10 +603,14 @@ def _provider_response_once(sid, state, model, config, journal):
             state["cost_spent"] = str(amount(state.get("cost_spent", "0")) + amount(response["cost_usd"]))
             state["money_reserved"] = "0"
             state["reservation_unbounded"] = False
-            if (("max_input_tokens" in budget and state.get("input_tokens",0) > budget["max_input_tokens"])
-                    or ("max_output_tokens" in budget and state.get("output_tokens",0) > budget["max_output_tokens"])
-                    or ("max_cost_usd" in budget and amount(state["cost_spent"]) > amount(budget["max_cost_usd"]))):
+            exceeded = [key for key in ('input_tokens', 'output_tokens')
+                        if 'max_' + key in budget and state.get(key, 0) > budget['max_' + key]]
+            if exceeded or ("max_cost_usd" in budget and amount(state["cost_spent"]) > amount(budget["max_cost_usd"])):
                 state["status"] = "budget_exhausted"
+                if exceeded:
+                    state['budget_stop'] = {'scope': 'session', 'code': exceeded[0],
+                                            'token_limits': exceeded,
+                                            'message': 'Preparation token budget exceeded: ' + ', '.join(exceeded)}
         else:
             state["status"] = "needs_reconciliation"
     state.pop("failure", None)
@@ -842,7 +850,7 @@ def run_session(sid, model, config, out, journal, engine, interrupt=None):
                         if name!='test_matches' and item.get('remaining') is not None and amount(str(item['remaining']))<=0),None)
                     if exhausted:
                         name,item=exhausted
-                        state['budget_stop']={'scope':'session','message':f"Preparation {name} limit reached ({item['used']} / {item['limit']})."}
+                        state['budget_stop']={'scope':'session','code':name,'message':f"Preparation {name} limit reached ({item['used']} / {item['limit']})."}
                         _finish(sid,state,tools,journal,'budget_exhausted')
                     else:
                         details=continue_output(state,state['pending'])

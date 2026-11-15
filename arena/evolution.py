@@ -303,6 +303,7 @@ def run_generation(config, out, journal, engine, initial, interrupt=None, retry_
                 state.pop("assessment_sha256", None)
                 state.pop("validity", None)
                 state.pop("failure", None)
+                state.pop("budget_stop", None)
                 state.pop("retry_parent_refresh", None)
                 state.pop("retry_count", None)
                 state.pop('manual_frozen', None)
@@ -415,6 +416,7 @@ def run_generation(config, out, journal, engine, initial, interrupt=None, retry_
                                calls=0, completed_calls=0, steps=0, test_matches=0, cost_spent="0", money_reserved="0",
                                discarded_attempt_cost_usd="0",attempt=0,
                                input_tokens=0, output_tokens=0, token_usage_known=False, missing_usage_calls=0, diagnostic_calls=0, diagnostic_cost_usd="0")
+                skipped.pop("budget_stop", None)
                 journal.save(sid, skipped, "branch_unavailable", {"reason": "No G0 submission"})
     contemporaries = evaluate_ready(engine, config, out, journal, generation, final=True)
     evolved = references(engine, config, out, journal, branches, f"g{generation}-panel", panel)

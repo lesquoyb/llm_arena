@@ -86,13 +86,17 @@ class InputAdmissionError(ArenaError):
         self.admission={'code':'input_admission','request_bytes':request_bytes,'configured_limit':limit}
 
 
+class OutputBudgetError(ArenaError):
+    admission = {'code': 'output_tokens'}
+
+
 def reservation(model, history, tools, remaining_output):
     # Configured upper bounds, not a tokenizer-independent claim of strict billing.
     import json
     limits = [v for v in (model.get("max_output_tokens"), remaining_output) if v is not None]
     output_bound = min(limits) if limits else None
     if output_bound is not None and output_bound <= 0:
-        raise ArenaError("Output token budget exhausted")
+        raise OutputBudgetError("Output token budget exhausted")
     from .api_providers import APIProvider
     payload = APIProvider(model).payload(history, tools, output_bound)
     request_bytes = len(json.dumps(payload, ensure_ascii=False).encode())

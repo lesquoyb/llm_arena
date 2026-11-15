@@ -73,7 +73,7 @@ def analyze_evolution(config, out, states, initial, branches, baseline, evolved,
         values = {condition: next((r for r in rows if r["session"] == parent["id"] + "-g1-" + condition
                                   and r["panel"] == "all"), None) for condition in config.get("improvement_conditions", ["control", "feedback"])}
         available = all(v is not None and v["score"] is not None and v["failed"] == 0 for v in values.values())
-        row["feedback_minus_control"] = values["feedback"]["score"] - values["control"]["score"] if available and "control" in values else None
+        row["feedback_minus_control"] = values["feedback"]["score"] - values["control"]["score"] if available and {"control", "feedback"} <= values.keys() else None
         row["complete"] = available
         paired.append(row)
     # Resample independent conversation pairs, preserving all their fixtures together.
@@ -127,7 +127,7 @@ def analyze_evolution(config, out, states, initial, branches, baseline, evolved,
              "", "| Session | Panel | Score | Matches | Failures |", "|---|---|---:|---:|---:|"]
     for row in rows:
         lines.append(f"| {row['session']} | {row['panel']} | {row['score']} | {row['completed']} | {row['failed']} |")
-    if not config.get('evolutionary'):
+    if not config.get('evolutionary') and set(config.get("improvement_conditions", ["control", "feedback"])) == {"control", "feedback"}:
         lines += ["", "## Paired feedback minus control effect", "", "| Initial conversation | Difference |", "|---|---:|"]
         lines += [f"| {r['parent']} | {r['feedback_minus_control']} |" for r in paired]
     lines += ["", f"Total cost: {total_cost} USD; unresolved reservations: {held} USD.",
