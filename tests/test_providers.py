@@ -19,6 +19,30 @@ def model(provider="openai"):
 
 
 class ProviderContractTests(unittest.TestCase):
+    def test_anthropic_effort_saved_sent_and_overridden_natively(self):
+        from arena.reasoning import apply_overrides
+        from arena_web.data import Store
+        descriptor = {**model('anthropic'), 'model': 'claude-sonnet-5-5',
+                      'parameters': {'output_config': {'effort': 'xhigh'}}}
+        with scratch_directory() as tmp:
+            store = Store(tmp/'runs', tmp/'settings')
+            store.save_participant(descriptor)
+            saved = next(row for row in store.catalog() if row['id'] == descriptor['id'])
+            payload = request_snapshot({**saved, '_stream': True}, [], TOOLS, 100)['body']
+            self.assertEqual(payload['output_config'], {'effort': 'xhigh'})
+            self.assertNotIn('reasoning_effort', payload)
+            self.assertNotIn('stream_options', payload)
+            self.assertTrue(payload['stream'])
+            for override in ('low', None):
+                resumed = apply_overrides(saved, {'provider_parameter_overrides': {'reasoning_effort': override}})
+                self.assertEqual(APIProvider(resumed).payload([], [], 100).get('output_config'),
+                                 {'effort': override} if override else None)
+            legacy = {**saved, 'model': 'claude-sonnet-4-6', 'parameters': {'output_config': {'effort': 'high'}}}
+            store.save_participant(legacy)
+            self.assertEqual(APIProvider(legacy).payload([], [], 100)['thinking'], {'type': 'adaptive'})
+            with self.assertRaisesRegex(ArenaError, 'supports reasoning effort'):
+                store.save_participant({**legacy, 'parameters': {'output_config': {'effort': 'xhigh'}}})
+
     def test_receipt_and_usage_are_atomic_when_interrupted_before_tool_execution(self):
         config = read_json(ROOT / "configs/offline-demo.json")
         config["models"] = [model()]
@@ -189,12 +213,23 @@ class ProviderContractTests(unittest.TestCase):
             config["models"] = [descriptor]
             descriptor["parameters"] = {"seed":42}
             if provider == "anthropic":
-                with self.assertRaises(ArenaError): validate_config(config)
+                with self.assertRaisesRegex(ArenaError, r'fixture \(anthropic\).*seed.*Anthropic does not expose a seed'):
+                    validate_config(config)
             else:
                 validate_config(config)
                 for invalid in (True,-1,"42",1.5):
                     descriptor["parameters"]["seed"] = invalid
                     with self.assertRaises(ArenaError): validate_config(config)
+
+    def test_unsupported_parameters_identify_model_and_provider(self):
+        config = read_json(ROOT / "configs/offline-demo.json")
+        config["spending"] = {"allow_paid_calls": True}
+        config["models"] = [{**model("openai-compatible"), "id": "mistral-large",
+                             "endpoint": "https://example.test/v1/chat/completions",
+                             "parameters": {"output_config": {"effort": "high"}, "thinking": {}}}]
+        with self.assertRaisesRegex(ArenaError, r'mistral-large \(openai-compatible\).*output_config, thinking') as caught:
+            validate_config(config)
+        self.assertNotIn("Anthropic", str(caught.exception))
 
     def test_mock_receives_prompts_and_tools_and_journals_request_before_responding(self):
         config = read_json(ROOT / "configs/offline-demo.json")

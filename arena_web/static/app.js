@@ -1128,7 +1128,19 @@ function reasoningLabel(parameters = {}) {
   const thinking = parameters.thinking_config || parameters.thinkingConfig || parameters.thinking;
   return thinking ? JSON.stringify(thinking) : "Provider default (not specified)";
 }
+function anthropicEfforts(model) {
+  const name = model.toLowerCase();
+  if (/^claude-(?:opus|sonnet)-4-6(?:-|$)/.test(name)) return ["low", "medium", "high", "max"];
+  if (/^claude-opus-4-5(?:-|$)/.test(name)) return ["low", "medium", "high"];
+  if (/^claude-(?:3(?:[.-]|$)|(?:haiku|sonnet)-4-5(?:-|$)|(?:opus|sonnet)-4(?:-[01])?(?:-[0-9]{8}|$))/.test(name)) return [];
+  return ["low", "medium", "high", "xhigh", "max"];
+}
 function reasoningField(provider, parameters = {}, model = "") {
+  if (provider === "anthropic") {
+    const selected = Object.hasOwn(parameters, "reasoning_effort") ? parameters.reasoning_effort ?? "" : parameters.output_config?.effort ?? "";
+    const allowed = anthropicEfforts(model);
+    return `<label class="field full">${fieldHeading("Reasoning effort", "Anthropic effort for supported Claude models. Provider default omits the effort. Older Claude models may only support a thinking token budget in Advanced settings.")}<select name="reasoning_effort" data-initial="${e(selected)}" data-anthropic-effort>${["", "low", "medium", "high", "xhigh", "max"].map(value => `<option value="${value}" ${value && !allowed.includes(value) ? "disabled" : ""} ${selected === value ? "selected" : ""}>${value || "Provider default (do not send)"}</option>`).join("")}</select></label>`;
+  }
   if (!["openai", "openai-compatible"].includes(provider))
     return `<div class="field full"><small>Reasoning requested: ${e(reasoningLabel(parameters))}. Configure provider-specific thinking settings in the JSON parameters below.</small></div>`;
   const selected = parameters.reasoning_effort ?? "";
@@ -1173,7 +1185,7 @@ function participantDialog(identifier = null, provider = null, connection = null
          m.profile || "single-shot",
          "single-shot submits a simple strategy; repair-and-submit fixes a script and submits rush.",
        )
-     : `</div></section><section class="form-section"><h3>Connection</h3><div class="form-grid">${field("API key environment variable", "api_key_env", m.api_key_env || defaultKeyBinding(p), "text", "Name of the server environment variable containing the key, or the name under which to store a session key entered below.", "required")}<label class="field full">API key (this server session only)<input name="secret" type="password" autocomplete="new-password" placeholder="Optional for local compatible servers; otherwise leave blank to keep the key"><small>Not returned to the browser or written to configuration files.</small></label>${p === "openai-compatible" ? field("Full API endpoint", "endpoint", m.endpoint || "", "url", "Ollama: http://localhost:11434/v1/chat/completions. HTTP is allowed on loopback; remote servers require HTTPS. API keys are optional for local compatible servers.", "required") : p === "openai" ? '<p class="muted">Uses the official OpenAI API. No endpoint required.</p>' : m.endpoint ? field("HTTPS endpoint", "endpoint", m.endpoint, "url") : ""}</div></section><section class="form-section"><h3>Model</h3><div class="form-grid"><div class="field full">${btn("Load models", "list-models")}<label class="field" hidden id="model-search-field">Search models<input type="search" id="model-search" placeholder="Filter by model name or ID"></label><div id="available-models" class="model-catalog" role="group" aria-label="Available models" hidden></div><small id="model-list-status">Load models available to the configured API key. You can also enter an ID manually.</small><details id="excluded-models" hidden><summary>Excluded models</summary><div id="excluded-model-list"></div></details></div>${field("Exact model ID", "model", m.model || "", "text", "The exact ID accepted by the API.", "required")}${reasoningField(p, m.parameters || {}, m.model || "")}${field("Model size (B parameters), optional", "model_size_billion", m.model_size_billion ?? "", "number", "Total parameters in billions: 7 for 7B, 0.5 for 500M. For MoE use total parameters, not active parameters. This is not disk size or VRAM usage. Leave blank when unknown.", 'min="0.000001" max="1000000" step="any"')}</div></section><details class="form-section form-disclosure" ${!identifier ? "open" : ""}><summary>Token pricing <span>USD per million</span></summary><div class="form-grid">${field("Input price / million tokens ($)", "input_price", pricing.input_per_million ?? "", "number", "", 'required min="0" step="any"')}${field("Output price / million tokens ($)", "output_price", pricing.output_per_million ?? "", "number", "", 'required min="0" step="any"')}${field("Price date", "pricing_date", pricing.date || new Date().toISOString().slice(0, 10), "date", "", "required")}${field("Cache read price / million ($), optional", "cached_price", pricing.cached_input_per_million ?? "", "number", "Blank uses the standard input price.", 'min="0" step="any"')}${field("Cache write price / million ($), optional", "creation_price", pricing.cache_creation_per_million ?? "", "number", "", 'min="0" step="any"')}</div></details><details class="form-section form-disclosure"><summary>Advanced settings <span>Limits, retries & parameters</span></summary><div class="form-grid">${field("Maximum input per call (tokens)", "max_input_tokens_per_call", m.max_input_tokens_per_call ?? "", "number", "Optional. Blank disables local input admission limits.", 'min="1"')}${field("Maximum output per call (tokens)", "max_output_tokens", m.max_output_tokens ?? "", "number", p === "anthropic" ? "Required by Anthropic (max_tokens)." : "Optional. Blank uses the API default; one call may exceed the remaining financial budget.", p === "anthropic" ? 'required min="1"' : 'min="1"')}${field("Call timeout (seconds)", "timeout_seconds", m.timeout_seconds || 60, "number", "Socket connection/read timeout. Streaming activity can keep a call open longer.", 'required min="1" max="3600"')}${field("Pause after no provider output (seconds)","inactivity_timeout_seconds",m.inactivity_timeout_seconds??300,"number","Pauses this conversation and frees its request slot when no text, reasoning or tool output arrives. Keepalive signals do not count. Increase for long silent reasoning or local prompt processing.",'required min="1" max="3600"')}${field("Retries on HTTP 429", "max_retries", m.max_retries ?? 1, "number", "Calls with unknown outcomes are not retried automatically.", 'required min="0" max="3"')}${p === "anthropic" ? `<p class="muted">Seed: not available in the Anthropic API.</p>` : field("Model seed", "model_seed", m.parameters?.seed ?? (identifier ? "" : 0), "number", p === "openai-compatible" ? "Server support varies. Identical output is not guaranteed." : "Sent with every call when supported by the model. Identical output is not guaranteed.", 'min="0" max="2147483647"')}<label class="field full">Model parameters (JSON)<textarea name="parameters" class="mono">${e(pretty(m.parameters || {}))}</textarea><small>API-specific options such as temperature and top_p. Use the seed and reasoning controls above. The reasoning selector is authoritative; it overrides reasoning_effort in this JSON.</small></label>`
+     : `</div></section><section class="form-section"><h3>Connection</h3><div class="form-grid">${field("API key environment variable", "api_key_env", m.api_key_env || defaultKeyBinding(p), "text", "Name of the server environment variable containing the key, or the name under which to store a session key entered below.", "required")}<label class="field full">API key (this server session only)<input name="secret" type="password" autocomplete="new-password" placeholder="Optional for local compatible servers; otherwise leave blank to keep the key"><small>Not returned to the browser or written to configuration files.</small></label>${p === "openai-compatible" ? field("Full API endpoint", "endpoint", m.endpoint || "", "url", "Ollama: http://localhost:11434/v1/chat/completions. HTTP is allowed on loopback; remote servers require HTTPS. API keys are optional for local compatible servers.", "required") : p === "openai" ? '<p class="muted">Uses the official OpenAI API. No endpoint required.</p>' : m.endpoint ? field("HTTPS endpoint", "endpoint", m.endpoint, "url") : ""}</div></section><section class="form-section"><h3>Model</h3><div class="form-grid"><div class="field full">${btn("Load models", "list-models")}<label class="field" hidden id="model-search-field">Search models<input type="search" id="model-search" placeholder="Filter by model name or ID"></label><div id="available-models" class="model-catalog" role="group" aria-label="Available models" hidden></div><small id="model-list-status">Load models available to the configured API key. You can also enter an ID manually.</small><details id="excluded-models" hidden><summary>Excluded models</summary><div id="excluded-model-list"></div></details></div>${field("Exact model ID", "model", m.model || "", "text", "The exact ID accepted by the API.", "required")}${reasoningField(p, m.parameters || {}, m.model || "")}${field("Model size (B parameters), optional", "model_size_billion", m.model_size_billion ?? "", "number", "Total parameters in billions: 7 for 7B, 0.5 for 500M. For MoE use total parameters, not active parameters. This is not disk size or VRAM usage. Leave blank when unknown.", 'min="0.000001" max="1000000" step="any"')}</div></section><details class="form-section form-disclosure" ${!identifier ? "open" : ""}><summary>Token pricing <span>USD per million</span></summary><div class="form-grid">${field("Input price / million tokens ($)", "input_price", pricing.input_per_million ?? "", "number", "", 'required min="0" step="any"')}${field("Output price / million tokens ($)", "output_price", pricing.output_per_million ?? "", "number", "", 'required min="0" step="any"')}${field("Price date", "pricing_date", pricing.date || new Date().toISOString().slice(0, 10), "date", "", "required")}${field("Cache read price / million ($), optional", "cached_price", pricing.cached_input_per_million ?? "", "number", "Blank uses the standard input price.", 'min="0" step="any"')}${field("Cache write price / million ($), optional", "creation_price", pricing.cache_creation_per_million ?? "", "number", "", 'min="0" step="any"')}</div></details><details class="form-section form-disclosure"><summary>Advanced settings <span>Limits, retries & parameters</span></summary><div class="form-grid">${field("Maximum input per call (tokens)", "max_input_tokens_per_call", m.max_input_tokens_per_call ?? "", "number", "Optional. Blank disables local input admission limits.", 'min="1"')}${field("Maximum output per call (tokens)", "max_output_tokens", m.max_output_tokens ?? "", "number", p === "anthropic" ? "Required by Anthropic (max_tokens)." : "Optional. Blank uses the API default; one call may exceed the remaining financial budget.", p === "anthropic" ? 'required min="1"' : 'min="1"')}${field("Call timeout (seconds)", "timeout_seconds", m.timeout_seconds || 60, "number", "Socket connection/read timeout. Streaming activity can keep a call open longer.", 'required min="1" max="3600"')}${field("Pause after no provider output (seconds)","inactivity_timeout_seconds",m.inactivity_timeout_seconds??300,"number","Pauses this conversation and frees its request slot when no text, reasoning or tool output arrives. Keepalive signals do not count. Increase for long silent reasoning or local prompt processing.",'required min="1" max="3600"')}${field("Retries on HTTP 429", "max_retries", m.max_retries ?? 1, "number", "Calls with unknown outcomes are not retried automatically.", 'required min="0" max="3"')}${p === "anthropic" ? `<p class="muted">Seed: not available in the Anthropic API.</p>` : field("Model seed", "model_seed", m.parameters?.seed ?? (identifier ? "" : 0), "number", p === "openai-compatible" ? "Server support varies. Identical output is not guaranteed." : "Sent with every call when supported by the model. Identical output is not guaranteed.", 'min="0" max="2147483647"')}<label class="field full">Model parameters (JSON)<textarea name="parameters" class="mono">${e(pretty(m.parameters || {}))}</textarea><small>API-specific options such as temperature and top_p. Use the seed and reasoning controls above. The reasoning selector is authoritative; it overrides reasoning_effort (OpenAI) or output_config.effort (Anthropic).</small></label>`
  }</div>${p === "mock" ? "</section>" : "</details>"}<div class="form-footer">${btn("Cancel", "close-dialog")}<button type="submit" class="button primary">Save participant</button></div></form>`,
   );
 }
@@ -4532,7 +4544,10 @@ document.addEventListener("submit", async (event) => {
         }
         const effortField = form.elements.namedItem("reasoning_effort");
         if (effortField) {
-          if (effortField.value) spec.parameters.reasoning_effort = effortField.value;
+          if (provider === "anthropic") {
+            if (effortField.value) spec.parameters.output_config = { effort: effortField.value };
+            else delete spec.parameters.output_config;
+          } else if (effortField.value) spec.parameters.reasoning_effort = effortField.value;
           else delete spec.parameters.reasoning_effort;
         }
         if (f.has("model_seed")) {
@@ -4689,11 +4704,24 @@ document.addEventListener("change", async (event) => {
         provider = n.value;
       participantDialog(S.editParticipant, provider);
       for (const [key, value] of old) {
-        if (["provider", "secret", "api_key_env", "model_seed"].includes(key))
+        if (["provider", "secret", "api_key_env", "endpoint", "model_seed", "reasoning_effort", "parameters"].includes(key))
           continue;
         const target = $(`[name="${key}"]`, $("#dialog"));
         if (target && !target.readOnly) target.value = value;
       }
+      const params = $('[name="parameters"]', $("#dialog"));
+      if (params) {
+        let previous;
+        try { previous = JSON.parse(new Map(old).get("parameters") || "{}"); }
+        catch { previous = {}; }
+        params.value = pretty(Object.fromEntries(["temperature", "top_p"]
+          .filter(key => previous && Object.hasOwn(previous, key)).map(key => [key, previous[key]])));
+      }
+      const endpoint = $('[name="endpoint"]', $("#dialog"));
+      if (endpoint) endpoint.value = "";
+      const effort = $('[name="reasoning_effort"]', $("#dialog"));
+      if (effort) effort.value = "";
+      $('[name="model"]', $("#dialog"))?.dispatchEvent(new Event("input", { bubbles: true }));
       const env = $("[name=api_key_env]", $("#dialog"));
       if (env) env.value = defaultKeyBinding(provider);
     } else if (n.matches(".equipment-check")) {
@@ -5382,9 +5410,16 @@ sortableObserver.observe(document.querySelector("#main"), {
 
 // Updating the exact model changes which effort levels are valid, without choosing one silently.
 document.addEventListener("input", event => {
+  if (event.target.matches?.("[data-anthropic-effort]")) event.target.setCustomValidity("");
   if (event.target.name !== "model" || event.target.form?.dataset.form !== "participant") return;
   const effort = event.target.form.elements.namedItem("reasoning_effort");
   if (!effort) return;
+  if (effort.hasAttribute("data-anthropic-effort")) {
+    const allowed = anthropicEfforts(event.target.value);
+    for (const option of effort.options) option.disabled = !!option.value && !allowed.includes(option.value);
+    effort.setCustomValidity(effort.value && !allowed.includes(effort.value) ? "Choose an effort supported by this Claude model." : "");
+    return;
+  }
   const restricted = event.target.value.toLowerCase() === "gpt-6.1-sol";
   for (const option of effort.options) option.disabled = restricted && ["none", "minimal"].includes(option.value);
 });

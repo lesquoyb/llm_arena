@@ -116,11 +116,28 @@ def validate_config(value: dict) -> dict:
             params = model.get("parameters", {})
             allowed = {"temperature", "top_p", "reasoning_effort", "seed"}
             if model["provider"] == "anthropic":
-                allowed = {"temperature", "top_p", "thinking"}
+                allowed = {"temperature", "top_p", "thinking", "output_config"}
             elif model["provider"] == "gemini":
                 allowed = {"temperature", "top_p", "top_k", "seed", "thinking_config"}
-            if not isinstance(params, dict) or set(params) - allowed:
-                raise ArenaError("Unsupported provider parameters (Anthropic does not expose a seed)")
+            if not isinstance(params, dict):
+                raise ArenaError(f"{model['id']}: model parameters must be a JSON object")
+            unsupported = sorted(set(params) - allowed)
+            if unsupported:
+                hints = []
+                if model['provider'] == 'anthropic':
+                    if 'seed' in unsupported:
+                        hints.append('Anthropic does not expose a seed.')
+                    if 'reasoning_effort' in unsupported:
+                        hints.append('Use the Reasoning effort selector or output_config.effort for Anthropic.')
+                suffix = ' ' + ' '.join(hints) if hints else ''
+                raise ArenaError(f"{model['id']} ({model['provider']}): unsupported model parameters: "
+                                 f"{', '.join(unsupported)}. Allowed: {', '.join(sorted(allowed))}.{suffix}")
+            if "output_config" in params:
+                output = params["output_config"]
+                if not isinstance(output, dict) or set(output) != {"effort"} or not isinstance(output["effort"], str):
+                    raise ArenaError("Anthropic output_config must contain a reasoning effort level")
+                from .reasoning import validate_effort
+                validate_effort(model, output["effort"])
             if "reasoning_effort" in params and (not isinstance(params['reasoning_effort'], str) or not params['reasoning_effort'].strip()):
                 raise ArenaError('reasoning_effort must be a nonempty level string; omit it for the provider default')
             if "seed" in params:

@@ -151,7 +151,8 @@ class APIProvider:
         if self.model.get('_stream'):
             result['stream']=True
             from .openai_responses import uses_responses
-            if not uses_responses(self.model): result['stream_options']={'include_usage':True}
+            if self.model['provider'] in {'openai', 'openai-compatible'} and not uses_responses(self.model):
+                result['stream_options']={'include_usage':True}
         return result
 
     def _payload(self, history, tools, output_limit):
@@ -190,6 +191,9 @@ class APIProvider:
         if m["provider"] == "anthropic":
             if output_limit is None:
                 raise ArenaError("Anthropic requires max_tokens; configure maximum output per call")
+            if (payload.get("output_config", {}).get("effort") and "thinking" not in payload
+                    and re.match(r'^claude-(?:opus-4-[678]|sonnet-4-6)(?:-|$)', m["model"].lower())):
+                payload["thinking"] = {"type": "adaptive"}
             payload.update(max_tokens=output_limit, tools=tools)
             system = "\n\n".join(item["content"] for item in history if item["role"] == "system")
             if system:

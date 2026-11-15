@@ -192,6 +192,31 @@ async function main() {
       return;
     }
     await page.getByRole("button", { name: "Add participant" }).click();
+    if (process.env.ARENA_UI_FOCUS === "anthropic-effort") {
+      const dialog = page.getByRole("dialog");
+      await dialog.getByLabel("Provider", { exact: true }).selectOption("anthropic");
+      await dialog.getByLabel("Participant ID").fill("browser-claude");
+      await dialog.getByLabel("Exact model ID").fill("claude-sonnet-4-6");
+      const effort = dialog.getByLabel("Reasoning effort");
+      assert(await effort.locator('option[value="xhigh"]').evaluate(option => option.disabled));
+      await dialog.getByLabel("Exact model ID").fill("claude-sonnet-5-5");
+      await effort.selectOption("xhigh");
+      await dialog.locator('[name="input_price"]').fill("0");
+      await dialog.locator('[name="output_price"]').fill("0");
+      await dialog.locator("summary").filter({ hasText: "Advanced settings" }).click();
+      await dialog.locator('[name="max_output_tokens"]').fill("4096");
+      const saved = page.waitForResponse(r => r.url().endsWith("/api/participant") && r.ok());
+      await dialog.getByRole("button", { name: /Save/ }).click();
+      assert.deepEqual((await saved).request().postDataJSON().spec.parameters.output_config, { effort: "xhigh" });
+      await page.getByRole("button", { name: "browser-claude", exact: true }).click();
+      assert.equal(await page.getByRole("dialog").getByLabel("Reasoning effort").inputValue(), "xhigh");
+      await dialog.getByLabel("Provider", { exact: true }).selectOption("openai-compatible");
+      assert.deepEqual(JSON.parse(await dialog.locator('[name="parameters"]').inputValue()), {});
+      assert.equal(await dialog.getByLabel("Reasoning effort").inputValue(), "");
+      assert.deepEqual(errors, []);
+      console.log("Browser checks passed: Anthropic effort can be selected, saved and reopened.");
+      return;
+    }
     await page.getByLabel("Participant ID").fill("browser-api");
     await page.getByLabel("Provider", { exact: true }).selectOption("openai");
     assert.equal(

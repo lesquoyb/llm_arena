@@ -600,7 +600,7 @@ class Store(Workspaces):
                 'api_tests':[self.event(identifier,event['id']) for event in rows if event['kind']=='provider_probe_result'][-5:],
                 'session_parameter_overrides':state.get('provider_parameter_overrides', {}),
                 'endpoint':request.get('endpoint') or configured_endpoint,
-                'configured_parameters':{k:v for k,v in params.items() if k in {'reasoning_effort','temperature','top_p','top_k','seed','thinking','thinking_config'}},
+                'configured_parameters':{k:v for k,v in params.items() if k in {'reasoning_effort','temperature','top_p','top_k','seed','thinking','thinking_config','output_config'}},
                 'failure':state.get('failure'), 'failure_event':recorded_failure or None,
                 'request_event_id':intent['id'] if intent else None,
                 'request_shape':{'fields':sorted(body), 'model':body.get('model'), 'reasoning':body.get('reasoning'),
