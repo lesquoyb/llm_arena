@@ -172,7 +172,7 @@ class Store(Workspaces):
     def save_provider(self, spec, secret=None):
         import re
         from arena.api_providers import DEFAULT_ENDPOINTS
-        from arena.endpoints import validate_endpoint
+        from arena.endpoints import validate_endpoint, openai_endpoint, clean_api_key
         if not isinstance(spec,dict) or set(spec)-{'id','provider','endpoint','api_key_env'}:
             raise ArenaError('Invalid provider fields')
         if not isinstance(spec.get('id'),str) or not re.fullmatch(r'[a-zA-Z0-9][a-zA-Z0-9_-]{0,39}',spec['id']):
@@ -184,6 +184,9 @@ class Store(Workspaces):
         validate_endpoint(spec.get('endpoint') or DEFAULT_ENDPOINTS.get(spec['provider'],''))
         if secret is not None and (not isinstance(secret,str) or len(secret)>8192):
             raise ArenaError('Invalid API key')
+        if spec['provider'] == 'openai':
+            openai_endpoint(spec.get('endpoint'))
+        secret = clean_api_key(spec['provider'], secret, spec['api_key_env'])
         with self.lock:
             values=[row['spec'] for row in self.providers() if row['spec']['id']!=spec['id']]
             write_json(self.state/'providers.json',values+[spec])
@@ -227,6 +230,9 @@ class Store(Workspaces):
         validate_effort(model, model.get('parameters', {}).get('reasoning_effort'))
         if secret is not None and (not isinstance(secret, str) or len(secret) > 8192):
             raise ArenaError("Invalid API key")
+        if secret:
+            from arena.endpoints import clean_api_key
+            secret = clean_api_key(model['provider'], secret, model.get('api_key_env'))
         if secret and not model.get("api_key_env", "").startswith("ARENA_"):
             raise ArenaError("Use an ARENA_ variable name for a key entered here")
         with self.lock:

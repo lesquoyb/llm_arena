@@ -7,6 +7,18 @@ from arena.api_providers import http_json, ProviderFailure
 
 
 class ProviderErrorDetailsTests(unittest.TestCase):
+    def test_openai_invalid_key_explains_binding_without_echoing_key_fragment(self):
+        url = 'https://api.openai.com/v1/responses'
+        data = {'error': {'code': 'invalid_api_key', 'message': 'Incorrect API key provided: partial-key'}}
+        failure = HTTPError(url, 401, 'Unauthorized', None, io.BytesIO(json.dumps(data).encode()))
+        with mock.patch('arena.api_providers.open_provider_response', side_effect=failure):
+            with self.assertRaises(ProviderFailure) as caught:
+                http_json(url, {}, {'Authorization': 'Bearer fixture-key'}, 5)
+        self.assertIn('current server session overrides the .env value', str(caught.exception))
+        self.assertNotIn('partial-key', str(caught.exception))
+        self.assertNotIn('partial-key', caught.exception.diagnostics['provider_detail'])
+        self.assertFalse(caught.exception.retryable)
+
     def test_proxy_validation_fields_and_request_location_are_kept_without_secrets(self):
         body=json.dumps({'detail':[{'loc':['body','instructions'],'msg':'Missing field; token=credential'}]}).encode()
         failure=HTTPError('https://provider.test/v1/responses',400,'Bad Request',{'x-request-id':'req-test'},io.BytesIO(body))

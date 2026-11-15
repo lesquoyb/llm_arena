@@ -10,7 +10,7 @@ import ssl
 from urllib import request, error, parse
 from .core import ArenaError, digest
 from .usage import normalize, cost, effective_pricing
-from .endpoints import validate_endpoint, optional_local_key
+from .endpoints import validate_endpoint, optional_local_key, openai_endpoint, clean_api_key, OPENAI_CHAT
 
 
 class ProviderFailure(ArenaError):
@@ -118,8 +118,11 @@ def raise_http_error(exc,url,headers,*,read_timeout=60):
     for header, value in headers.items():
         if header.lower() in {'authorization', 'x-api-key', 'x-goog-api-key'} and value:
             detail = detail.replace(value, '[REDACTED]').replace(value.removeprefix('Bearer '), '[REDACTED]')
-    detail = re.sub(r'(?i)(key|api_key|token)=([^\s&]+)', r'\1=[REDACTED]', detail)[:2000]
     parsed = parse.urlsplit(url)
+    detail = re.sub(r'(?i)(key|api_key|token)=([^\s&]+)', r'\1=[REDACTED]', detail)[:2000]
+    if exc.code == 401 and parsed.hostname == 'api.openai.com' and 'invalid_api_key' in detail:
+        detail = ('OpenAI rejected the API key (invalid_api_key). Check the key bound to this profile. '
+                  'A key entered in the current server session overrides the .env value; restart the server after editing .env.')
     diagnostics = {'http_status':exc.code, 'endpoint':parse.urlunsplit((parsed.scheme, parsed.netloc, parsed.path, '', '')),
                    'request_id':(exc.headers or {}).get('x-request-id') or (exc.headers or {}).get('request-id'),
                    'provider_detail':detail or 'No public error detail was returned by the endpoint'}
@@ -206,7 +209,10 @@ class APIProvider:
         control=request_control.get()
         if control:control.check()
         m = self.model
-        key = key_override if key_override is not None else os.environ.get(m["api_key_env"])
+        try:
+            key = clean_api_key(m["provider"], key_override if key_override is not None else os.environ.get(m["api_key_env"]), m["api_key_env"])
+        except ArenaError as exc:
+            raise ProviderFailure(str(exc)) from None
         if not key and not optional_local_key(m):
             raise ProviderFailure(f"Missing credential binding: {m['api_key_env']}")
         from .openai_responses import uses_responses
@@ -278,14 +284,15 @@ class APIProvider:
                 "cost_usd": cost(usage, effective_pricing(m)), "cost_status": "calculated_from_reported_usage"}
 
 
-DEFAULT_ENDPOINTS = {"openai": "https://api.openai.com/v1/chat/completions",
+DEFAULT_ENDPOINTS = {"openai": OPENAI_CHAT,
                      "anthropic": "https://api.anthropic.com/v1/messages",
                      "gemini": "https://generativelanguage.googleapis.com/v1beta"}
 
 
 def connection(model, key):
     provider = model["provider"]
-    endpoint = model.get("endpoint") or DEFAULT_ENDPOINTS.get(provider)
+    endpoint = openai_endpoint(model.get("endpoint")) if provider == "openai" else model.get("endpoint") or DEFAULT_ENDPOINTS.get(provider)
+    key = clean_api_key(provider, key, model.get('api_key_env'))
     if not endpoint:
         raise ArenaError("An endpoint is required")
     # Some API gateways reject urllib's default Python user agent (Groq: 403/1010).
@@ -348,8 +355,13 @@ def request_snapshot(model, history, tools, output_limit):
         endpoint, headers = "local:mock/" + model["profile"], {}
     else:
         body = APIProvider(model).payload(history, tools, output_limit)
-        credential = (None if optional_local_key(model) and not os.environ.get(model.get("api_key_env", "")) else "[REDACTED]")
-        endpoint, headers = connection(model, credential)
+        endpoint, headers = connection(model, None)
+        if model['provider'] == 'anthropic':
+            headers['x-api-key'] = '[REDACTED]'
+        elif model['provider'] == 'gemini':
+            headers['x-goog-api-key'] = '[REDACTED]'
+        elif not optional_local_key(model) or os.environ.get(model.get('api_key_env', '')):
+            headers['Authorization'] = 'Bearer [REDACTED]'
     return {"method": "LOCAL" if model["provider"] == "mock" else "POST", "endpoint": endpoint,
             "headers": headers, "body": body, "body_sha256": digest(body),
             "credential_values_recorded": False}

@@ -861,6 +861,18 @@ function participantCards(term = "") {
     <dl class="profile-facts">${m.model_size_billion ? `<div><dt>Model size</dt><dd>${fmt(m.model_size_billion,3)}B parameters</dd></div>` : ""}<div><dt>Reasoning</dt><dd>${m.provider === "mock" ? "Scripted" : e(reasoningLabel(m.parameters))}</dd></div><div><dt>Input / output · $ / 1M</dt><dd>${m.pricing ? `${e(m.pricing.input_per_million)} / ${e(m.pricing.output_per_million)}` : "No API cost"}</dd></div></dl>
     <div class="profile-card-footer">${m.provider === "mock" ? badge("Ready", "green") : badge(key_optional && !key_configured ? "Local · no key required" : key_configured ? "Key configured" : "API key missing", key_configured || key_optional ? "green" : "orange")}${m.provider!=="mock"?btn("Test API","test-model",`data-id="${e(m.id)}"`):""}${btn("Groups", "profile-groups", `data-id="${e(m.id)}"`)}${btn("Configure", "edit-participant", `data-id="${e(m.id)}"`)}</div></article>`).join("") : empty("No participants found", term ? "Try a different name, model or provider." : "Add a model provider or a built-in strategy.", term ? "" : btn("Add participant","new-participant","",true));
 }
+const defaultKeyBinding = provider => ({
+  openai: "ARENA_OPENAI_KEY", anthropic: "ARENA_ANTHROPIC_KEY",
+  gemini: "ARENA_GEMINI_KEY", "openai-compatible": "ARENA_COMPATIBLE_KEY",
+})[provider] || "";
+function updateProviderEndpoint(form) {
+  const provider = form.elements.provider.value;
+  const endpoint = form.elements.endpoint;
+  endpoint.disabled = provider === "openai";
+  endpoint.required = provider === "openai-compatible";
+  endpoint.closest(".field").hidden = endpoint.disabled;
+  $("[data-official-openai]", form).hidden = !endpoint.disabled;
+}
 function providersDialog(identifier=null) {
   const saved=(S.boot.providers||[]),spec=saved.find(row=>row.spec.id===identifier)?.spec||{};
   openDialog('Saved providers','Reuse a connection across model participants.',`
@@ -869,10 +881,12 @@ function providersDialog(identifier=null) {
     ${field('Provider name','id',spec.id||'','text','',`required pattern="[a-zA-Z0-9][a-zA-Z0-9_-]{0,39}" ${identifier?'readonly':''}`)}
     ${selectField('Protocol','provider',[['openai-compatible','OpenAI-compatible (Groq, Ollama, etc.)'],['openai','OpenAI'],['anthropic','Anthropic'],['gemini','Google Gemini']],spec.provider||'openai-compatible')}
     ${field('Full API endpoint','endpoint',spec.endpoint||'','url','For compatible APIs, include /v1/chat/completions. Leave blank for the default OpenAI, Anthropic or Gemini endpoint.')}
-    ${field('API key environment variable','api_key_env',spec.api_key_env||'','text','Example: ARENA_GROQ_KEY. Define it in the repository-root .env file; loaded on startup. Reused by every participant from this provider.','required pattern="ARENA_[A-Z0-9_]+"')}
+    <p data-official-openai class="muted" hidden>Uses the official OpenAI API. No endpoint required.</p>
+    ${field('API key environment variable','api_key_env',spec.api_key_env||defaultKeyBinding(spec.provider||'openai-compatible'),'text','Example: ARENA_GROQ_KEY. Define it in the repository-root .env file; loaded on startup. Reused by every participant from this provider.','required pattern="ARENA_[A-Z0-9_]+"')}
     <label class="field full">API key<input name="secret" type="password" autocomplete="new-password"><small>Kept in server memory until shutdown. Put the key in the repository-root .env file under the variable name above to keep it available after restarting.</small></label>
     </div><div class="form-footer">${identifier?`<button type="button" class="button" data-action="delete-provider" data-id="${e(identifier)}">Delete provider</button>`:''}<button type="submit" class="button primary">Save connection</button></div></form>
     ${identifier?`<section class="form-section"><h3>Create model participants</h3><p>Load the catalog, select models and enter each model’s prices. No generation requests are made.</p><button type="button" class="button" data-action="provider-models" data-id="${e(identifier)}">Load models</button><div id="provider-models"></div></section>`:''}`);
+  updateProviderEndpoint($('[data-form="provider"]', $("#dialog")));
 }
 async function providerModels(identifier) {
   const spec=S.boot.providers.find(row=>row.spec.id===identifier).spec;
@@ -1159,7 +1173,7 @@ function participantDialog(identifier = null, provider = null, connection = null
          m.profile || "single-shot",
          "single-shot submits a simple strategy; repair-and-submit fixes a script and submits rush.",
        )
-     : `</div></section><section class="form-section"><h3>Connection</h3><div class="form-grid">${field("API key environment variable", "api_key_env", m.api_key_env || (p === "anthropic" ? "ARENA_ANTHROPIC_KEY" : p === "gemini" ? "ARENA_GEMINI_KEY" : "ARENA_OPENAI_KEY"), "text", "Name of the server environment variable containing the key, or the name under which to store a session key entered below.", "required")}<label class="field full">API key (this server session only)<input name="secret" type="password" autocomplete="new-password" placeholder="Optional for local compatible servers; otherwise leave blank to keep the key"><small>Not returned to the browser or written to configuration files.</small></label>${p === "openai-compatible" ? field("Full API endpoint", "endpoint", m.endpoint || "", "url", "Ollama: http://localhost:11434/v1/chat/completions. HTTP is allowed on loopback; remote servers require HTTPS. API keys are optional for local compatible servers.", "required") : m.endpoint ? field("HTTPS endpoint", "endpoint", m.endpoint, "url") : ""}</div></section><section class="form-section"><h3>Model</h3><div class="form-grid"><div class="field full">${btn("Load models", "list-models")}<label class="field" hidden id="model-search-field">Search models<input type="search" id="model-search" placeholder="Filter by model name or ID"></label><div id="available-models" class="model-catalog" role="group" aria-label="Available models" hidden></div><small id="model-list-status">Load models available to the configured API key. You can also enter an ID manually.</small><details id="excluded-models" hidden><summary>Excluded models</summary><div id="excluded-model-list"></div></details></div>${field("Exact model ID", "model", m.model || "", "text", "The exact ID accepted by the API.", "required")}${reasoningField(p, m.parameters || {}, m.model || "")}${field("Model size (B parameters), optional", "model_size_billion", m.model_size_billion ?? "", "number", "Total parameters in billions: 7 for 7B, 0.5 for 500M. For MoE use total parameters, not active parameters. This is not disk size or VRAM usage. Leave blank when unknown.", 'min="0.000001" max="1000000" step="any"')}</div></section><details class="form-section form-disclosure" ${!identifier ? "open" : ""}><summary>Token pricing <span>USD per million</span></summary><div class="form-grid">${field("Input price / million tokens ($)", "input_price", pricing.input_per_million ?? "", "number", "", 'required min="0" step="any"')}${field("Output price / million tokens ($)", "output_price", pricing.output_per_million ?? "", "number", "", 'required min="0" step="any"')}${field("Price date", "pricing_date", pricing.date || new Date().toISOString().slice(0, 10), "date", "", "required")}${field("Cache read price / million ($), optional", "cached_price", pricing.cached_input_per_million ?? "", "number", "Blank uses the standard input price.", 'min="0" step="any"')}${field("Cache write price / million ($), optional", "creation_price", pricing.cache_creation_per_million ?? "", "number", "", 'min="0" step="any"')}</div></details><details class="form-section form-disclosure"><summary>Advanced settings <span>Limits, retries & parameters</span></summary><div class="form-grid">${field("Maximum input per call (tokens)", "max_input_tokens_per_call", m.max_input_tokens_per_call ?? "", "number", "Optional. Blank disables local input admission limits.", 'min="1"')}${field("Maximum output per call (tokens)", "max_output_tokens", m.max_output_tokens ?? "", "number", p === "anthropic" ? "Required by Anthropic (max_tokens)." : "Optional. Blank uses the API default; one call may exceed the remaining financial budget.", p === "anthropic" ? 'required min="1"' : 'min="1"')}${field("Call timeout (seconds)", "timeout_seconds", m.timeout_seconds || 60, "number", "Socket connection/read timeout. Streaming activity can keep a call open longer.", 'required min="1" max="3600"')}${field("Pause after no provider output (seconds)","inactivity_timeout_seconds",m.inactivity_timeout_seconds??300,"number","Pauses this conversation and frees its request slot when no text, reasoning or tool output arrives. Keepalive signals do not count. Increase for long silent reasoning or local prompt processing.",'required min="1" max="3600"')}${field("Retries on HTTP 429", "max_retries", m.max_retries ?? 1, "number", "Calls with unknown outcomes are not retried automatically.", 'required min="0" max="3"')}${p === "anthropic" ? `<p class="muted">Seed: not available in the Anthropic API.</p>` : field("Model seed", "model_seed", m.parameters?.seed ?? (identifier ? "" : 0), "number", p === "openai-compatible" ? "Server support varies. Identical output is not guaranteed." : "Sent with every call when supported by the model. Identical output is not guaranteed.", 'min="0" max="2147483647"')}<label class="field full">Model parameters (JSON)<textarea name="parameters" class="mono">${e(pretty(m.parameters || {}))}</textarea><small>API-specific options such as temperature and top_p. Use the seed and reasoning controls above. The reasoning selector is authoritative; it overrides reasoning_effort in this JSON.</small></label>`
+     : `</div></section><section class="form-section"><h3>Connection</h3><div class="form-grid">${field("API key environment variable", "api_key_env", m.api_key_env || defaultKeyBinding(p), "text", "Name of the server environment variable containing the key, or the name under which to store a session key entered below.", "required")}<label class="field full">API key (this server session only)<input name="secret" type="password" autocomplete="new-password" placeholder="Optional for local compatible servers; otherwise leave blank to keep the key"><small>Not returned to the browser or written to configuration files.</small></label>${p === "openai-compatible" ? field("Full API endpoint", "endpoint", m.endpoint || "", "url", "Ollama: http://localhost:11434/v1/chat/completions. HTTP is allowed on loopback; remote servers require HTTPS. API keys are optional for local compatible servers.", "required") : p === "openai" ? '<p class="muted">Uses the official OpenAI API. No endpoint required.</p>' : m.endpoint ? field("HTTPS endpoint", "endpoint", m.endpoint, "url") : ""}</div></section><section class="form-section"><h3>Model</h3><div class="form-grid"><div class="field full">${btn("Load models", "list-models")}<label class="field" hidden id="model-search-field">Search models<input type="search" id="model-search" placeholder="Filter by model name or ID"></label><div id="available-models" class="model-catalog" role="group" aria-label="Available models" hidden></div><small id="model-list-status">Load models available to the configured API key. You can also enter an ID manually.</small><details id="excluded-models" hidden><summary>Excluded models</summary><div id="excluded-model-list"></div></details></div>${field("Exact model ID", "model", m.model || "", "text", "The exact ID accepted by the API.", "required")}${reasoningField(p, m.parameters || {}, m.model || "")}${field("Model size (B parameters), optional", "model_size_billion", m.model_size_billion ?? "", "number", "Total parameters in billions: 7 for 7B, 0.5 for 500M. For MoE use total parameters, not active parameters. This is not disk size or VRAM usage. Leave blank when unknown.", 'min="0.000001" max="1000000" step="any"')}</div></section><details class="form-section form-disclosure" ${!identifier ? "open" : ""}><summary>Token pricing <span>USD per million</span></summary><div class="form-grid">${field("Input price / million tokens ($)", "input_price", pricing.input_per_million ?? "", "number", "", 'required min="0" step="any"')}${field("Output price / million tokens ($)", "output_price", pricing.output_per_million ?? "", "number", "", 'required min="0" step="any"')}${field("Price date", "pricing_date", pricing.date || new Date().toISOString().slice(0, 10), "date", "", "required")}${field("Cache read price / million ($), optional", "cached_price", pricing.cached_input_per_million ?? "", "number", "Blank uses the standard input price.", 'min="0" step="any"')}${field("Cache write price / million ($), optional", "creation_price", pricing.cache_creation_per_million ?? "", "number", "", 'min="0" step="any"')}</div></details><details class="form-section form-disclosure"><summary>Advanced settings <span>Limits, retries & parameters</span></summary><div class="form-grid">${field("Maximum input per call (tokens)", "max_input_tokens_per_call", m.max_input_tokens_per_call ?? "", "number", "Optional. Blank disables local input admission limits.", 'min="1"')}${field("Maximum output per call (tokens)", "max_output_tokens", m.max_output_tokens ?? "", "number", p === "anthropic" ? "Required by Anthropic (max_tokens)." : "Optional. Blank uses the API default; one call may exceed the remaining financial budget.", p === "anthropic" ? 'required min="1"' : 'min="1"')}${field("Call timeout (seconds)", "timeout_seconds", m.timeout_seconds || 60, "number", "Socket connection/read timeout. Streaming activity can keep a call open longer.", 'required min="1" max="3600"')}${field("Pause after no provider output (seconds)","inactivity_timeout_seconds",m.inactivity_timeout_seconds??300,"number","Pauses this conversation and frees its request slot when no text, reasoning or tool output arrives. Keepalive signals do not count. Increase for long silent reasoning or local prompt processing.",'required min="1" max="3600"')}${field("Retries on HTTP 429", "max_retries", m.max_retries ?? 1, "number", "Calls with unknown outcomes are not retried automatically.", 'required min="0" max="3"')}${p === "anthropic" ? `<p class="muted">Seed: not available in the Anthropic API.</p>` : field("Model seed", "model_seed", m.parameters?.seed ?? (identifier ? "" : 0), "number", p === "openai-compatible" ? "Server support varies. Identical output is not guaranteed." : "Sent with every call when supported by the model. Identical output is not guaranteed.", 'min="0" max="2147483647"')}<label class="field full">Model parameters (JSON)<textarea name="parameters" class="mono">${e(pretty(m.parameters || {}))}</textarea><small>API-specific options such as temperature and top_p. Use the seed and reasoning controls above. The reasoning selector is authoritative; it overrides reasoning_effort in this JSON.</small></label>`
  }</div>${p === "mock" ? "</section>" : "</details>"}<div class="form-footer">${btn("Cancel", "close-dialog")}<button type="submit" class="button primary">Save participant</button></div></form>`,
   );
 }
@@ -4471,6 +4485,10 @@ document.addEventListener("submit", async (event) => {
     } else if (type === 'provider') {
       const spec={id:f.get('id'),provider:f.get('provider'),api_key_env:f.get('api_key_env')};
       if(f.get('endpoint'))spec.endpoint=f.get('endpoint');
+      const previous = S.boot.providers?.find(row => row.spec.id === spec.id)?.spec;
+      if (spec.provider === 'openai' && previous?.provider === 'openai' &&
+          /^https:\/\/api\.openai\.com\/v1\/responses\/?$/.test(previous.endpoint || ''))
+        spec.endpoint = previous.endpoint;
       await api('/api/provider',{spec,secret:f.get('secret')||null},true);
       await refreshBoot();providersDialog(spec.id);
     } else if (type === 'provider-participants') {
@@ -4523,6 +4541,10 @@ document.addEventListener("submit", async (event) => {
           else delete spec.parameters.seed;
         }
         if (f.get("endpoint")) spec.endpoint = f.get("endpoint");
+        const previous = S.boot.participants.find(row => row.spec.id === S.editParticipant)?.spec;
+        if (provider === "openai" && previous?.provider === "openai" &&
+            /^https:\/\/api\.openai\.com\/v1\/responses\/?$/.test(previous.endpoint || ""))
+          spec.endpoint = previous.endpoint;
         if (f.get("cached_price") !== "")
           spec.pricing.cached_input_per_million = f.get("cached_price");
         if (f.get("creation_price") !== "")
@@ -4656,6 +4678,12 @@ document.addEventListener("change", async (event) => {
     } else if (n.name === 'reference'  && n.closest('[data-form=reference-strategy]')) {
       const id=n.form.elements.id;
       if (id.value.startsWith('reference-')) id.value='reference-'+n.value;
+    } else if (n.name === "provider" && n.closest("[data-form=provider]")) {
+      const binding = n.form.elements.api_key_env;
+      if (!binding.value || ["openai", "anthropic", "gemini", "openai-compatible"].map(defaultKeyBinding).includes(binding.value))
+        binding.value = defaultKeyBinding(n.value);
+      n.form.elements.secret.value = "";
+      updateProviderEndpoint(n.form);
     } else if (n.name === "provider" && n.closest("[data-form=participant]")) {
       const old = [...new FormData(n.form)],
         provider = n.value;
@@ -4667,13 +4695,7 @@ document.addEventListener("change", async (event) => {
         if (target && !target.readOnly) target.value = value;
       }
       const env = $("[name=api_key_env]", $("#dialog"));
-      if (env)
-        env.value =
-          provider === "anthropic"
-            ? "ARENA_ANTHROPIC_KEY"
-            : provider === "gemini"
-              ? "ARENA_GEMINI_KEY"
-              : "ARENA_OPENAI_KEY";
+      if (env) env.value = defaultKeyBinding(provider);
     } else if (n.matches(".equipment-check")) {
       const picker = n.closest(".equipment-picker");
       const checked = $$(".equipment-check:checked", picker).map((el) =>

@@ -204,7 +204,8 @@ class Jobs:
                     continue
                 name = model["api_key_env"]
                 secret = self.store.secrets.get(name) or os.environ.get(name)
-                from arena.endpoints import optional_local_key
+                from arena.endpoints import optional_local_key, clean_api_key
+                secret = clean_api_key(model['provider'], secret, name)
                 if not secret and not optional_local_key(model):
                     raise ArenaError(f"Missing API key: {name}")
                 if secret:

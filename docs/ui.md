@@ -631,6 +631,14 @@ to inspect exactly the matches contributing to that number.
 In Participants, open **Providers & bulk add**. Save a named protocol, endpoint and
 API key environment variable. A key entered here stays in server memory until
 shutdown; set the named variable in the repository-root `.env` file to reuse it after restarting. Copy `.env.example` to get started.
+
+Choose **OpenAI** for the official API: Arena picks the address and switches
+between Chat Completions and Responses as required by the model. The
+**API key environment variable** field holds a name such as `ARENA_OPENAI_KEY`;
+the **API key** field holds the actual secret. A key pasted in the interface
+overrides the environment value until the server restarts. Choose
+**OpenAI-compatible** for a third-party or local server, and supply its full
+endpoint and a separate credential binding.
 The connection settings are saved in `.arena/ui/providers.json`, without the key.
 
 Choose a saved provider, load its models, select the models to add, and enter each

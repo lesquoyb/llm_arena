@@ -169,6 +169,28 @@ async function main() {
     await page
       .getByRole("link", { name: "Participants", exact: false })
       .click();
+    if (process.env.ARENA_UI_FOCUS === "openai-provider") {
+      await page.getByRole("button", { name: "Providers & bulk add" }).click();
+      const dialog = page.getByRole("dialog");
+      await dialog.getByLabel("Protocol").selectOption("openai-compatible");
+      assert(await dialog.locator('[name="endpoint"]').evaluate(input => input.required));
+      await dialog.getByLabel("Protocol").selectOption("openai");
+      assert(await dialog.locator('[name="endpoint"]').isHidden());
+      assert(await dialog.locator('[name="endpoint"]').isDisabled());
+      assert.equal(await dialog.locator('[name="api_key_env"]').inputValue(), "ARENA_OPENAI_KEY");
+      await dialog.getByLabel("Provider name").fill("Official");
+      await dialog.locator('[name="secret"]').fill("API");
+      const rejected = page.waitForResponse(r => r.url().endsWith("/api/provider"));
+      await dialog.getByRole("button", { name: "Save connection" }).click();
+      assert.match(await (await rejected).text(), /actual OpenAI API key/);
+      await dialog.locator('[name="secret"]').fill("");
+      const saved = page.waitForResponse(r => r.url().endsWith("/api/provider") && r.ok());
+      await dialog.getByRole("button", { name: "Save connection" }).click();
+      assert.equal((await saved).request().postDataJSON().spec.endpoint, undefined);
+      assert.deepEqual(errors, []);
+      console.log("Browser checks passed: official endpoint omitted, compatible endpoint required, placeholder rejected.");
+      return;
+    }
     await page.getByRole("button", { name: "Add participant" }).click();
     await page.getByLabel("Participant ID").fill("browser-api");
     await page.getByLabel("Provider", { exact: true }).selectOption("openai");
