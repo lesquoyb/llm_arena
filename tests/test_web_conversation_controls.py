@@ -2,7 +2,8 @@
 import unittest
 from unittest import mock
 from arena.core import ArenaError,scratch_directory,write_json,read_json
-from arena.experiment import Journal,initial_state
+from arena.conversation_recovery import commands
+from arena.experiment import Journal,_build_provider_response,initial_state
 from arena_web.data import Store
 from arena_web.jobs import Jobs
 from test_parallel_requests import config
@@ -42,6 +43,45 @@ class ConversationControlTests(unittest.TestCase):
 
     def test_resume_of_stopped_run_keeps_its_spending_ceiling(self):
         self.exercise('continue',live=False,message='Continue.')
+
+    def test_change_rejected_mistral_effort_during_live_competition(self):
+        with scratch_directory() as root:
+            store=Store(root/'runs',root/'ui');out=store.runs/'run';out.mkdir()
+            value=config()
+            model,other=value['models']
+            model.update(endpoint='https://api.mistral.ai/v1/chat/completions',
+                         parameters={'reasoning_effort':'low'})
+            write_json(out/'experiment.json',{'config':value})
+            journal=Journal(out)
+            try:
+                state=initial_state('one-r0',model,value)
+                state.update(status='provider_unavailable',failure={
+                    'message':"reasoning_effort='low' is not supported. Must be one of "
+                              "(<ReasoningEffort.none: 'none'>, <ReasoningEffort.high: 'high'>)",
+                    'retryable':False})
+                journal.save('one-r0',state,'fixture')
+                other_state=initial_state('two-r0',other,value)
+                journal.save('two-r0',other_state,'fixture')
+                session=next(s for s in store.detail('run')['sessions'] if s['id']=='one-r0')
+                self.assertEqual(session['reported_reasoning_efforts'],('none','high'))
+                jobs=Jobs(store)
+                jobs.process=mock.Mock();jobs.process.poll.return_value=None
+                jobs.current={'run':'run','status':'running'}
+                with mock.patch.object(jobs,'launch') as launch:
+                    with self.assertRaisesRegex(ArenaError,'none, high'):
+                        jobs.recover_conversation('run','one-r0',reasoning_effort='low')
+                    jobs.recover_conversation('run','one-r0',reasoning_effort='high')
+                    launch.assert_not_called()
+                self.assertEqual(journal.state('one-r0'),state)
+                self.assertEqual(commands(out,journal,value,[('one-r0',model),('two-r0',other)]),[('one-r0',model)])
+                resumed=journal.state('one-r0')
+                self.assertEqual(resumed['history'],state['history'])
+                self.assertEqual(resumed['calls'],state['calls'])
+                request=_build_provider_response('one-r0',resumed,model,value,journal)['request']
+                self.assertEqual(request['body']['reasoning_effort'],'high')
+                self.assertEqual(journal.state('two-r0'),other_state)
+                self.assertEqual(model['parameters']['reasoning_effort'],'low')
+            finally:journal.db.close()
 
     def test_invalid_messages_are_rejected_before_enqueuing(self):
         jobs=Jobs.__new__(Jobs)

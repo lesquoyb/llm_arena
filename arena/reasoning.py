@@ -3,6 +3,23 @@ import re
 from .core import ArenaError
 
 
+def reported_efforts(state):
+    failure = state.get('failure') or {}
+    diagnostics = failure.get('diagnostics') or {}
+    detail = f"{failure.get('message', '')} {diagnostics.get('provider_detail', '')}"
+    if 'reasoning_effort' not in detail:
+        return ()
+    return tuple(dict.fromkeys(re.findall(r'ReasoningEffort\.([a-z_]+)', detail)))
+
+
+def validate_retry_effort(model, state, requested):
+    effort = None if requested == 'provider-default' else requested
+    validate_effort(model, effort)
+    allowed = reported_efforts(state)
+    if effort is not None and allowed and effort not in allowed:
+        raise ArenaError(f"Provider accepts these reasoning levels: {', '.join(allowed)}")
+
+
 def supported_efforts(model):
     if model.get('provider') == 'anthropic':
         name = model.get('model', '').lower()

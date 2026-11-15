@@ -20,15 +20,23 @@ def normalize(provider, raw):
                   'prompt_tokens_details':raw.get('input_tokens_details'), 'completion_tokens_details':raw.get('output_tokens_details')}
         return {**normalize('openai', mapped), 'raw':raw}
     if provider == "gemini":
-        fields = ("promptTokenCount", "candidatesTokenCount", "thoughtsTokenCount", "cachedContentTokenCount")
+        fields = ("promptTokenCount", "candidatesTokenCount", "thoughtsTokenCount",
+                  "cachedContentTokenCount", "totalTokenCount")
         for key in fields:
             if raw.get(key) is not None and (type(raw[key]) is not int or raw[key] < 0):
                 raise ArenaError("Invalid Gemini token usage")
         # Gemini reports thought tokens separately; they are billable output.
         output = raw.get("candidatesTokenCount")
-        return {"input_tokens": raw.get("promptTokenCount"),
-                "output_tokens": output + raw.get("thoughtsTokenCount", 0) if output is not None else None,
-                "cached_input_tokens": raw.get("cachedContentTokenCount", 0) if raw.get("promptTokenCount") is not None else None,
+        prompt = raw.get("promptTokenCount")
+        thoughts = raw.get("thoughtsTokenCount") or 0
+        # The total includes tool prompts, thoughts and candidates, so equality
+        # with the prompt proves zero output even if the candidate count is absent.
+        if (output is None and prompt is not None and raw.get("totalTokenCount") == prompt
+                and thoughts == 0 and raw.get("toolUsePromptTokenCount") in (0, None)):
+            output = 0
+        return {"input_tokens": prompt,
+                "output_tokens": output + thoughts if output is not None else None,
+                "cached_input_tokens": raw.get("cachedContentTokenCount", 0) if prompt is not None else None,
                 "cache_creation_input_tokens": None, "reasoning_tokens": raw.get("thoughtsTokenCount"), "raw": raw}
     fields = ("input_tokens", "output_tokens", "cache_read_input_tokens", "cache_creation_input_tokens") if provider == "anthropic" else ("prompt_tokens", "completion_tokens")
     for key in fields:

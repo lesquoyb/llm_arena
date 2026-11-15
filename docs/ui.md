@@ -795,6 +795,18 @@ Expand **Freeze preparation** to keep a track fighting with its preceding submit
 strategy without further model calls. Freeze and pool changes are audited; already
 submitted versions are never regenerated. See [recovery details](recovery.md#change-participants-without-restarting).
 
+**More → Reference strategies** is available once the competition stops. Check an
+official reference under **Exclude official references from results** to remove
+its fights from both sides of the standings. **Matches → All fights** keeps the
+fights and replays. An official reference remains on the schedule until withdrawn in
+**Edit participants**.
+
+Select evaluation opponents from the reference catalog and choose rounds with
+saved submissions. **Save & run evaluation** plays missing fights without model
+calls, standings points, or feedback. See **Fixed baseline (unscored)** in the
+overview. Clear a reference and save to hide its evaluation results. Re-enabling
+the same version makes its saved fights available again.
+
 The **Errors** tab filters observed failures by model, round and track. It includes
 failed compilation checks, unknown tools, invalid arguments, team validation,
 runtime errors and separate provider failures, with rates, recent incidents and an

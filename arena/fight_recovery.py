@@ -68,6 +68,7 @@ def run(directory, *, engine=None, journal=None, cooperative=False, include_read
             jobs=[]
             from .fight_store import FightStore, attempt_path, scratch, stage_records, stored_sources
             for root in sorted((out/'evaluations').glob('g*-*')):
+                if root.name.endswith('-references-panel'):continue
                 store,entries=stage_records(root)
                 stage=root.relative_to(out).as_posix()
                 for key,(location,record) in entries.items():
@@ -147,6 +148,7 @@ def run(directory, *, engine=None, journal=None, cooperative=False, include_read
             remaining=sum(report.get('failed',0) for report in tournaments.values())
             panels={}
             for root in sorted((out/'evaluations').glob('g*-*')):
+                if root.name.endswith('-references-panel'):continue
                 records={key:record for key,(location,record) in stage_records(root)[1].items()}
                 if records:
                     write_json(root/'results.json',records);panels[root.name]=records

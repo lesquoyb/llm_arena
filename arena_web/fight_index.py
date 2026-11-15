@@ -40,7 +40,7 @@ def kind_of(stage: str) -> str:
 
 
 def round_of(stage: str):
-    match = re.search(r'g(\d+)-(?:tournament|panel|previous)$', stage)
+    match = re.search(r'g(\d+)-(?:tournament|(?:references-)?panel|previous)$', stage)
     if match:
         return int(match.group(1))
     return 0 if stage in {'tournament', '.'} else None

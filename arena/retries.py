@@ -37,16 +37,17 @@ def prepare_retry(journal, sid, config, reasoning_effort=None):
     reason = retry_reason(original, config['budget_per_session'], parent)
     if reason:
         raise ArenaError(reason)
+    if reasoning_effort is not None:
+        from .reasoning import validate_retry_effort
+        model = next(m for m in config['models'] if m['id'] == original['model'])
+        validate_retry_effort(model, original, reasoning_effort)
     state = copy.deepcopy(original)
     from .submission_stops import restore_interrupted_streak
     restored=restore_interrupted_streak(state)
     if restored:journal.save(sid,state,'submission_counter_restored',restored)
     previous_stop_streak=state.get('consecutive_submission_reminders',0)
     if reasoning_effort is not None:
-        from .reasoning import validate_effort
-        model = next(m for m in config['models'] if m['id'] == state['model'])
         effort = None if reasoning_effort == 'provider-default' else reasoning_effort
-        validate_effort(model, effort)
         state['provider_parameter_overrides'] = {**state.get('provider_parameter_overrides', {}), 'reasoning_effort':effort}
     state.update(status='running', in_flight=False, money_reserved='0', reservation_unbounded=False,
                  retry_count=state.get('retry_count', 0) + 1)

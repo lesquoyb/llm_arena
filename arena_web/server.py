@@ -271,13 +271,17 @@ class Application:
         if route == '/api/conversation/retry-policy':
             return self.jobs.retry_policy(data['run'],data['session'],data['paused'])
         if route == '/api/conversation/recover':
-            return self.jobs.recover_conversation(data['run'],data['session'],data.get('action','continue'),data.get('message'))
+            return self.jobs.recover_conversation(data['run'],data['session'],data.get('action','continue'),
+                                                  data.get('message'),data.get('reasoning_effort'))
         if route == '/api/run/execution':
             return self.jobs.execution_control(data['run'],data['parallel_fights'])
         if route == '/api/run/compact-storage':
             return self.jobs.compact_storage(data['run'])
         if route == '/api/run/retry-fights':
             return self.jobs.retry_fights(data['run'])
+        if route == '/api/run/reference-evaluation':
+            return self.jobs.reference_evaluation(data['run'], data['selected'], data['rounds'],
+                                                  data['excluded'], data.get('evaluate', False))
         if route == '/api/run/run-fights':
             return self.jobs.retry_fights(data['run'],include_ready=True)
         if route == "/api/launch":

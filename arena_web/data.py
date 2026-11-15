@@ -462,6 +462,8 @@ class Store(Workspaces):
                 if connection.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='events'").fetchone():
                     event_id = connection.execute('SELECT coalesce(max(id),0) FROM events'+('' if include_events else " WHERE kind='participants_updated'")).fetchone()[0]
         files = [root/'report.json', root/'analysis.json'] if include_records and include_reports else [root/'experiment.json']
+        from arena.reference_evaluation import SETTINGS
+        files.append(root/SETTINGS)
         stamps=[]
         for path in files:
             try:stat=path.stat()
@@ -522,6 +524,7 @@ class Store(Workspaces):
                 "status", "validity", "conversation_paused", "automatic_retries_paused", "automatic_retry_at", "automatic_retry_attempts", "calls", "completed_calls", "failure", "context_recoveries", "manual_frozen", "steps", "test_matches", "replay_reads", "wall_seconds", "cost_spent",
                 "money_reserved", "token_usage_known", "input_tokens", "output_tokens", "submission", "in_flight", "reserved", "retry_count", "continuation_identity", "provider_parameter_overrides", "budget_stop")
         from arena.retries import retry_reason
+        from arena.reasoning import reported_efforts
         from arena.budget_context import tool_budget_exhausted
         from arena.recovery import needs_reconciliation, zero_cost_requests
         free={m["id"] for m in metadata.get("config",{}).get("models",[]) if zero_cost_requests(m)}
@@ -550,7 +553,8 @@ class Store(Workspaces):
             state['context_recovery_required'] = context_overflow(state)
             sessions.append({"withdrawn":state["model"] in withdrawn, "planned_frozen":state.get("condition") in (roster or {}).get("frozen_tracks",{}).get(state["model"],[]), "context_recovery_required":state['context_recovery_required'], "validation_status": validation or ('pending' if state.get('submission') or state['status'] == 'submitted' else 'not_submitted'), "id": sid, **{k: state[k] for k in keys if k in state},
                              "usage_receipts": receipts.get(sid), "token_budget_stop": token_budget_stop(state), "messages": state["messages"], "retry_allowed": reason is None, "finalize_allowed": tool_budget_exhausted(state,metadata.get("config",{}).get("budget_per_session",{})), "retry_reason": reason,
-                             "reconciliation_required": needs_reconciliation(state, state.get("model") in external)})
+                             "reconciliation_required": needs_reconciliation(state, state.get("model") in external),
+                             "reported_reasoning_efforts": reported_efforts(state)})
         from decimal import Decimal
         for session in sessions:
             session['recorded_cost_spent'] = session.get('cost_spent')
@@ -559,7 +563,12 @@ class Store(Workspaces):
                 session['cost_spent'] = str(Decimal(session['cost_spent']) + Decimal(adjustment))
         sessions.sort(key=lambda s:(s.get('model',''),s.get('replicate',0),s.get('generation',0),s.get('condition','')))
         report=self.json(root / "report.json", {})
+        from arena.reference_evaluation import settings, reference_model
+        policy = settings(root)
         return {"id": identifier, "revision": self.revision(root) if include_revision else None, "metadata": metadata, "roster":{key:value for key,value in roster.items() if key!='models'} if roster else None, "report": report, "report_sha256": digest(report),
+                "reference_evaluation": {"selected": [m['id'] for m in policy.get('models', [])],
+                                         "excluded": policy.get('excluded', []), "rounds": policy.get('rounds'),
+                                         "official": [m['id'] for m in metadata.get('config', {}).get('models', []) if reference_model(m)]},
                 'model_metadata':{m['id']:{'model_size_billion':self.model_size(m)} for m in metadata.get('config',{}).get('models',[])},
                 "analysis": self.json(root / "analysis.json"), "sessions": sessions,
                 "g0": self.json(root / "tournament/report.json"),
@@ -982,13 +991,16 @@ class Store(Workspaces):
         metadata=self.json(root/'experiment.json',{})
         from arena.roster import effective
         models={model['id']:model for model in effective(root,metadata['config']).get('models',[])} if 'config' in metadata else {}
+        from arena.reference_evaluation import hidden_from_results, settings
+        policy = settings(root)
         for row in rows:
             row['kind'] = 'training' if row['stage'] == 'training' else 'evaluation' if row['stage'].startswith('evaluations/') else 'competition'
             if row['stage'].endswith('-previous'):row['kind']='progression'
             candidate=states.get(row.get('candidate'),{})
             opponent=next((states.get(sid,{}) for sid in row['sides'] if sid!=row.get('candidate')),{})
             row['previous_round_comparison']=row['kind']=='progression' or (row['kind']=='evaluation' and candidate.get('generation')==1 and opponent.get('generation')==0 and models.get(candidate.get('model'),{}).get('provider') not in {None,'mock'} and models.get(opponent.get('model'),{}).get('provider') not in {None,'mock'})
-            row['counts_toward_standings'] = row['kind'] == 'competition' and not row.get('mirror')
+            row['excluded_from_results'] = hidden_from_results(row['stage'], row['kind'], row['sides'], states, policy)
+            row['counts_toward_standings'] = row['kind'] == 'competition' and not row.get('mirror') and not row['excluded_from_results']
         from .progression import summarize
         result={"matches": rows,"progression":summarize(states,models,rows)}
         if compact:
@@ -1065,11 +1077,14 @@ class Store(Workspaces):
             if kind=='training':entry.pop('candidate');entry.pop('candidate_side');entry.pop('timings')
             rows.append(entry)
         from .fights import previous_round
+        from arena.reference_evaluation import hidden_from_results, settings
+        policy = settings(root)
         for row in rows:
             candidate=states.get(row.get('candidate'),{})
             opponent=next((states.get(sid,{}) for sid in row['sides'] if sid!=row.get('candidate')),{})
             row['previous_round_comparison']=previous_round(row['kind'],candidate,opponent,models)
-            row['counts_toward_standings']=row['kind']=='competition' and not row.get('mirror')
+            row['excluded_from_results'] = hidden_from_results(row['stage'], row['kind'], row['sides'], states, policy)
+            row['counts_toward_standings']=row['kind']=='competition' and not row.get('mirror') and not row['excluded_from_results']
         from .progression import summarize
         return {"matches":rows,"progression":summarize(states,models,rows)}
 
@@ -1130,8 +1145,8 @@ class Store(Workspaces):
         from .metrics import competition_stats
         root = self.run_path(identifier)
         all_matches = self.matches(identifier)["matches"]
-        matches = [row for row in all_matches if row.get('kind') != 'training']
-        training_count = len(all_matches) - len(matches)
+        matches = [row for row in all_matches if row.get('kind') != 'training' and not row.get('excluded_from_results')]
+        training_count = sum(row.get('kind') == 'training' for row in all_matches)
         paths = [safe_path(root, row["path"] + "/outcome.json") for row in matches]
         stamp = (digest(matches), training_count), tuple((p.stat().st_mtime_ns, p.stat().st_size) if p.is_file() else None for p in paths)
         with self.lock:

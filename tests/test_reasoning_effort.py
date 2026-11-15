@@ -7,7 +7,9 @@ class ReasoningEffortTests(unittest.TestCase):
         history=[{'role':'user','content':'Compile a strategy.'}]
         for provider in ('openai','openai-compatible'):
             model={'id':'test','provider':provider,'model':'target','api_key_env':'ARENA_TEST_REASONING',
-                   'endpoint':'http://127.0.0.1:11434/v1/chat/completions','parameters':{}}
+                   'parameters':{}}
+            if provider == 'openai-compatible':
+                model['endpoint']='http://127.0.0.1:11434/v1/chat/completions'
             self.assertNotIn('reasoning_effort',APIProvider(model).payload(history,[],None))
             for effort in ('none','minimal','low','medium','high','xhigh','custom-endpoint-level'):
                 selected={**model,'parameters':{'reasoning_effort':effort}}

@@ -17,14 +17,17 @@ def automatic_due(state, config, parent=None):
     return failure.get('at',time.time())+min(300,120*2**attempts)
 
 
-def recover(sid, state, config, out, journal, *, restart=False, automatic=False, command_id=None, message=None):
+def recover(sid, state, config, out, journal, *, restart=False, automatic=False, command_id=None, message=None, reasoning_effort=None):
     if state.get('submission') or state.get('in_flight'):
         raise ArenaError('Only an idle conversation without a frozen submission can be recovered')
     previous_attempts=state.get('automatic_retry_attempts',0)
     from .budget_context import tool_budget_exhausted
-    if not restart and tool_budget_exhausted(state,config['budget_per_session']):
+    finalize = tool_budget_exhausted(state,config['budget_per_session'])
+    if reasoning_effort is not None and (restart or finalize or state['status']=='running'):
+        raise ArenaError('Reasoning can only be changed when retrying a failed conversation with remaining tool budget')
+    if not restart and finalize:
         state['status']='running';journal.save(sid,state,'budget_finalization_requested',{'counters_preserved':True})
-    elif not restart and state['status']!='running':prepare_retry(journal,sid,config)
+    elif not restart and state['status']!='running':prepare_retry(journal,sid,config,reasoning_effort=reasoning_effort)
     state=journal.state(sid)
     state['conversation_paused']=False
     if restart:
@@ -82,7 +85,8 @@ def commands(out, journal, config, tasks, pending=()):
                         if control:control.cancel()
                 else:
                     if sid in pending:continue
-                    recover(sid,state,config,out,journal,restart=command['action']=='restart',command_id=command_id,message=command.get('message'))
+                    recover(sid,state,config,out,journal,restart=command['action']=='restart',command_id=command_id,
+                            message=command.get('message'),reasoning_effort=command.get('reasoning_effort'))
                     queued.append((sid,models[sid]))
             result={'status':'applied'}
         except ArenaError as error:result={'status':'rejected','error':str(error)}

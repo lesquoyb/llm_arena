@@ -55,6 +55,8 @@ def parser():
     action = actions.add_parser('retry-fights',help='Retry frozen engine fixtures without making model requests')
     action.add_argument('directory',type=Path)
     action.add_argument('--include-ready',action='store_true',help='Schedule and drain all available frozen submissions too')
+    action = actions.add_parser('evaluate-references', help='Run configured reference evaluations on frozen submissions')
+    action.add_argument('directory', type=Path)
     action = actions.add_parser("retry", help="Continue one failed conversation, retaining completed submissions and matches")
     action.add_argument("directory", type=Path)
     action.add_argument("--session", required=True)
@@ -157,6 +159,11 @@ def main(argv=None):
                 result=retry_fights(args.directory.absolute(),include_ready=args.include_ready)
                 print(json.dumps(result,ensure_ascii=False,indent=2))
                 return int(bool(result['remaining_failed']))
+            elif args.action=='evaluate-references':
+                from .reference_evaluation import run as evaluate
+                failed = evaluate(args.directory.absolute())
+                print(f'Unsuccessful reference fights: {failed}')
+                return int(bool(failed))
             elif args.action in {"resume", "retry"}:
                 directory = args.directory.absolute()
                 result = run(read_json(directory / "experiment.json")["config"], directory, resume=True,

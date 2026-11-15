@@ -67,11 +67,15 @@ def groups(store, root, states, models):
     rows = store.fight_index.stage_groups(root)
     training = store.fight_index.query(root, 'SELECT a,b,status,winner,modified FROM fights WHERE run=? AND kind=?', ('training',))
     ids = {};stage_ids = {};merged = {}
+    from arena.reference_evaluation import hidden_from_results, settings
+    policy = settings(root)
     def ref(table, value):
         if value not in table:
             table[value] = len(table)
         return table[value]
     for kind, stage, mirror, a, b, candidate, candidate_side, status, winner, count, cached, _ in rows:
+        if hidden_from_results(stage, kind, (a, b), states, policy):
+            continue
         completed = status == 'completed'
         # Without a designated candidate, orientation carries no meaning: fold
         # A-vs-B and B-vs-A together so a pair costs one row per outcome.
@@ -147,6 +151,8 @@ def listing(store, root, states, models, detail_sessions, manifest, filters, sco
     selected = [];category_total = 0
     session_ids = {row['id'] for row in detail_sessions}
     stage_filter = filters.get('stage')
+    from arena.reference_evaluation import hidden_from_results, settings
+    policy = settings(root)
     for (rowid, fkind, stage, mirror, a, b, candidate, candidate_side, seed, status, winner, turns, elapsed,
          errors_a, errors_b, limits_a, limits_b, cache_hit, modified) in _rows(store, root, training=kind in ('training', 'all')):
         if not accept(fkind, mirror) or (stage_filter and stage != stage_filter):
@@ -154,13 +160,16 @@ def listing(store, root, states, models, detail_sessions, manifest, filters, sco
         if fkind == 'training' and modified < cutoffs.get(a if a in states else b, 0):
             continue
         sides = [a, b]
+        hidden = hidden_from_results(stage, fkind, sides, states, policy)
+        if hidden and kind != 'all':
+            continue
         if kind == 'progression' and fkind == 'evaluation':
             cand = identity(candidate) if candidate else identity(a)
             other = identity(b if (candidate or a) == a else a)
             if not previous_round(fkind, cand, other, models):
                 continue
         category_total += 1
-        if filters.get('scored') and mirror:
+        if filters.get('scored') and (mirror or hidden):
             continue
         if filters.get('exclude_same_model') and identity(a)['model'] == identity(b)['model']:
             continue
@@ -209,6 +218,7 @@ def listing(store, root, states, models, detail_sessions, manifest, filters, sco
             result['reference_cache'] = {'hit': True}
         rows.append({'path': work, 'stage': stage, 'kind': fkind, 'sides': sides, 'candidate': candidate,
                      'candidate_side': candidate_side, 'seed': seed_value(seed), 'mirror': bool(mirror), 'result': result,
+                     'excluded_from_results': hidden_from_results(stage, fkind, sides, states, policy),
                      'timings': json.loads(timings) if timings else {}})
     everyone = {sid for row in store.fight_index.stage_rows(root) for sid in (row[4], row[5]) if sid}
     participants = sorted({identity(sid)['model'] for sid in everyone})
@@ -236,9 +246,14 @@ def lengths(store, root, detail_sessions, manifest, max_turns):
     width, count = _bins(max_turns)
     limit = int(max_turns or 0)
     series = {}
+    from arena.reference_evaluation import hidden_from_results, settings
+    policy = settings(root)
+    states = {row['id']: row for row in detail_sessions}
     for (rowid, kind, stage, mirror, a, b, candidate, candidate_side, seed, status, winner, turns, elapsed,
          *_ignored) in _rows(store, root):
         if status != 'completed' or mirror or turns is None:
+            continue
+        if hidden_from_results(stage, kind, (a, b), states, policy):
             continue
         outcome = 'decisive' if winner in (0, 1) else 'capped' if limit and turns >= limit else 'draw'
         models = {identity(candidate)['model']} if kind in {'evaluation', 'progression'} and candidate else {identity(a)['model'], identity(b)['model']}
@@ -281,12 +296,16 @@ def fixtures(store, root, states, models, source, stage=None):
     accept = _category(source)
     identity = identities([{'id': sid, **state} for sid, state in states.items()])
     ids = {};flat = []
+    from arena.reference_evaluation import hidden_from_results, settings
+    policy = settings(root)
     def ref(value):
         if value not in ids:
             ids[value] = len(ids)
         return ids[value]
     for (rowid, kind, fstage, mirror, a, b, candidate, candidate_side, seed, status, winner, *_ignored) in _rows(store, root):
         if mirror or not accept(kind, mirror) or (stage and fstage != stage):
+            continue
+        if hidden_from_results(fstage, kind, (a, b), states, policy):
             continue
         seed = seed_value(seed)
         if not isinstance(seed, int):

@@ -295,6 +295,9 @@ def report(out: Path, *, verified_records=None, experiment=None, markdown=True) 
     roster = snapshot(out.parent)
     withdrawn = set((roster or {}).get('withdrawn', []))
     excluded = {s['id'] for s in experiment['manifest']['strategies'] if s.get('model', s['id']) in withdrawn}
+    from .reference_evaluation import ranking_exclusions
+    reference_models = ranking_exclusions(out.parent)
+    unranked = {s['id'] for s in experiment['manifest']['strategies'] if s.get('model', s['id']) in reference_models}
     missing = failed = completed = cancelled = retry_pending = 0
     for match in experiment["schedule"]:
         if verified_records is None:
@@ -314,11 +317,13 @@ def report(out: Path, *, verified_records=None, experiment=None, markdown=True) 
         if r["status"] != "completed":
             retry_pending+=bool(record.get('retry_pending'))
             failed += 1
-            if not match["mirror"]:
+            if not match["mirror"] and not unranked.intersection(sides):
                 for s in sides:
                     rows[s]["failures"] += 1
             continue
         completed += 1
+        if unranked.intersection(sides):
+            continue
         if match["mirror"]:
             mirrors.append({"strategy": sides[0], "seed": match["seed"], "winner_side": r["winner_side"], "turns": r["turns"]})
             continue
@@ -334,7 +339,11 @@ def report(out: Path, *, verified_records=None, experiment=None, markdown=True) 
             cell["points"] += {"wins": 1, "draws": 0.5, "losses": 0}[kind]
     for row in rows.values():
         row["score"] = (row["wins"] + row["draws"] * 0.5) / row["played"] if row["played"] else None
-    standings = sorted(rows.values(), key=lambda r: (-(r["score"] if r["score"] is not None else -1), r["id"]))
+    if unranked:
+        ids = [sid for sid in ids if sid not in unranked]
+        matrix = {sid: {opponent: cell for opponent, cell in matrix[sid].items() if opponent not in unranked} for sid in ids}
+    standings = sorted((rows[sid] for sid in ids),
+                       key=lambda r: (-(r["score"] if r["score"] is not None else -1), r["id"]))
     result = {"completed": completed, "failed": failed, "pending": missing, "cancelled":cancelled,"retry_pending":retry_pending,
               "withdrawn_strategies":sorted(excluded),
               "standings": standings, "matrix": matrix, "mirrors": mirrors}

@@ -261,6 +261,15 @@ class ProviderContractTests(unittest.TestCase):
         self.assertIsNone(cost(normalize("openai", {"prompt_tokens": 10, "completion_tokens": 5}), model()["pricing"]))
         self.assertIsNone(normalize("anthropic", {"input_tokens": 10, "output_tokens": 5})["input_tokens"])
 
+    def test_gemini_total_can_confirm_zero_output_when_candidate_usage_is_missing(self):
+        raw = {"promptTokenCount": 7181, "totalTokenCount": 7181}
+        usage = normalize("gemini", raw)
+        self.assertEqual(usage["output_tokens"], 0)
+        self.assertEqual(cost(usage, {"input_per_million": "0.1", "output_per_million": "0.4"}), "0.0007181")
+        for overrides in ({"totalTokenCount": None}, {"totalTokenCount": 7182},
+                          {"thoughtsTokenCount": 1}, {"toolUsePromptTokenCount": 1}):
+            self.assertIsNone(normalize("gemini", {**raw, **overrides})["output_tokens"])
+
     def test_rate_limit_retry_bounded_timeout_never_retried(self):
         attempts = []
         def transport(*args):

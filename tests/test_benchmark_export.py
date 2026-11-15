@@ -8,6 +8,45 @@ from arena.experiment import Journal
 
 
 class CampaignExportTests(unittest.TestCase):
+    def test_excluded_reference_fight_stays_in_history_and_leaves_both_scores(self):
+        from arena.reference_evaluation import SETTINGS, refresh_standings
+        from arena_web.data import Store
+        from arena_web.fights import expand
+        with scratch_directory() as out:
+            root = out/'runs'/'trial'
+            write_json(root/'experiment.json',{'config':{'models':[],'scenario':{}}})
+            journal = Journal(root)
+            try:
+                for sid, model in [('model-r0','model'), ('reference-r0','reference')]:
+                    journal.save(sid, {'model':model,'status':'submitted','history':[]}, 'fixture')
+            finally:
+                journal.db.close()
+            fixture = {'id':'fight','sides':['model-r0','reference-r0'],'seed':1,'mirror':False}
+            metrics = {'operations':0,'errors':0,'operation_limit_hits':0}
+            stage = root/'tournament'
+            write_json(stage/'records/fight.json', {'match':fixture,'directory':'matches/fight',
+                'result':{'status':'completed','winner_side':0,'turns':2,'team_metrics':{'0':metrics,'1':metrics}}})
+            write_json(stage/'experiment.json', {'manifest':{'strategies':[
+                {'id':'model-r0','model':'model'}, {'id':'reference-r0','model':'reference'}]},'schedule':[fixture]})
+            write_json(stage/'report.json', {})
+            write_json(root/'report.json', {})
+            write_json(root/SETTINGS, {'excluded':['reference']})
+            refresh_standings(root)
+            store = Store(root.parent, out/'ui')
+            standings = store.json(root/'report.json')['tournament']['standings']
+            self.assertEqual([(row['id'], row['played']) for row in standings], [('model-r0', 0)])
+            self.assertFalse(list(expand(store.fight_groups('trial'))))
+            fight, = store.matches('trial')['matches']
+            self.assertFalse(fight['counts_toward_standings'])
+            self.assertTrue(fight['excluded_from_results'])
+            export([root], out/'csv')
+            with (out/'csv/fights.csv').open(encoding='utf-8-sig',newline='') as stream:
+                self.assertEqual(len(list(csv.DictReader(stream))), 2)
+            with (out/'csv/results.csv').open(encoding='utf-8-sig',newline='') as stream:
+                self.assertEqual(list(csv.DictReader(stream)), [])
+            write_json(root/SETTINGS, {'excluded':[]})
+            self.assertTrue(store.matches('trial')['matches'][0]['counts_toward_standings'])
+
     def test_two_same_named_runs_have_unique_fights_and_usage_is_not_zero(self):
         with scratch_directory() as out:
             roots=[out/'first'/'same-name',out/'second'/'same-name']

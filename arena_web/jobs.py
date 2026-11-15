@@ -256,7 +256,7 @@ class Jobs:
             self.watcher.start()
             return row
 
-    def recover_conversation(self, run_id, sid, action='continue', message=None):
+    def recover_conversation(self, run_id, sid, action='continue', message=None, reasoning_effort=None):
         if action not in {'continue','restart','pause'}:raise ArenaError('Unknown recovery action')
         if message is not None and (not isinstance(message,str) or len(message)>12000):raise ArenaError('Resume message must be text of at most 12000 characters')
         message=message.strip() if message else None
@@ -283,14 +283,23 @@ class Jobs:
             reason=retry_reason(state,{} if action=='restart' else config['budget_per_session'],parent)
             if action=='pause' or (action=='continue' and state.get('status')=='running' and (live or not state.get('in_flight'))):reason=None
             from arena.budget_context import tool_budget_exhausted
-            if reason and (action=='restart' or not tool_budget_exhausted(state,config['budget_per_session'])):raise ArenaError(reason)
+            finalize = tool_budget_exhausted(state,config['budget_per_session'])
+            if reason and (action=='restart' or not finalize):raise ArenaError(reason)
+            if reasoning_effort is not None:
+                if action!='continue' or finalize or state['status']=='running' or model['provider']=='mock':
+                    raise ArenaError('Reasoning can only be changed when retrying a failed provider conversation with remaining tool budget')
+                from arena.reasoning import validate_retry_effort
+                validate_retry_effort(model, state, reasoning_effort)
             if not active(config,state):raise ArenaError('Reactivate this participant before retrying it')
             process,current=self.running(run_id)
             running=process is not None
             if running and current['status']!='running':
                 raise ArenaError('This competition is stopping')
             identifier=uuid4().hex
-            write_json(root/'recovery-commands'/(identifier+'.json'),{'id':identifier,'session':sid,'action':action,'message':message,'requested_at':time.time()})
+            command = {'id':identifier,'session':sid,'action':action,'message':message,'requested_at':time.time()}
+            if reasoning_effort is not None:
+                command['reasoning_effort'] = reasoning_effort
+            write_json(root/'recovery-commands'/(identifier+'.json'),command)
             write_json(root/'conversation-controls'/(sid+'.json'),{'paused':action=='pause','requested_at':time.time()})
             if not running and action!='pause':
                 try:self.launch(run_id=run_id,confirm_paid=True,ceiling=config['spending'].get('max_total_usd'),allow_updated_runner=True)
@@ -337,13 +346,49 @@ class Jobs:
             write_json(root/'execution-control.json',command)
             return {**command,'status':'requested'}
 
-    def retry_fights(self, run_id, *, include_ready=False):
+    def reference_evaluation(self, run_id, selected, rounds, excluded, evaluate):
+        from arena.experiment import experiment_lock
+        from arena.reference_evaluation import SETTINGS, reference_model, refresh_standings, settings
+        from arena.roster import effective
+        for values in (selected, excluded):
+            if not isinstance(values, list) or any(not isinstance(value, str) for value in values) or len(set(values)) != len(values):
+                raise ArenaError('Choose distinct reference strategies')
+        if not isinstance(rounds, list) or any(type(value) is not int or value < 0 for value in rounds):
+            raise ArenaError('Choose valid rounds')
+        if type(evaluate) is not bool or (evaluate and (not selected or not rounds)):
+            raise ArenaError('Choose references and at least one round to evaluate')
+        with self.lock:
+            root = self.store.run_path(run_id)
+            if (root/'export.json').exists() or self.running(run_id)[0] is not None:
+                raise ArenaError('Stop the original competition before changing reference settings')
+            with experiment_lock(root):
+                metadata = read_json(root/'experiment.json')
+                if 'config' not in metadata:raise ArenaError('Only model competitions support reference evaluation')
+                models = effective(root, metadata['config'])['models']
+                official = {m['id'] for m in models if reference_model(m)}
+                catalog = {m['id']: m for m in self.store.catalog() if reference_model(m)}
+                if set(excluded) - official or set(selected) - catalog.keys():
+                    raise ArenaError('Unknown reference strategy')
+                generated = {m['id'] for m in models if m['provider'] != 'mock'}
+                sessions = self.store.states(root, ('model','generation','submission','validity'))
+                available = {state.get('generation', 0) for state in sessions.values()
+                             if state.get('submission') and state.get('validity') != 'invalid' and state['model'] in generated}
+                if set(rounds) - available:raise ArenaError('Choose rounds with submitted model strategies')
+                previous = settings(root)
+                write_json(root/SETTINGS, {'models': [catalog[key] for key in selected],
+                                          'rounds': sorted(set(rounds)), 'excluded': sorted(excluded)})
+                if set(previous.get('excluded', [])) != set(excluded):
+                    refresh_standings(root)
+            return self.retry_fights(run_id, reference_evaluation=True) if evaluate else {'status':'saved'}
+
+    def retry_fights(self, run_id, *, include_ready=False, reference_evaluation=False):
         with self.lock:
             root=self.store.run_path(run_id)
             if (root/'export.json').exists():raise ArenaError('Exported archives are read-only')
             if 'config' not in read_json(root/'experiment.json'):raise ArenaError('Only managed model competitions support this action')
             process,current=self.running(run_id)
             if process is not None:
+                if reference_evaluation:raise ArenaError('Stop the competition before evaluating references')
                 if current['status']!='running':
                     raise ArenaError('This competition is stopping')
                 command={'id':uuid4().hex,'requested_at':time.time(),'include_ready':include_ready}
@@ -356,10 +401,12 @@ class Jobs:
             identifier=uuid4().hex[:12];logs=self.store.state/'jobs';logs.mkdir(exist_ok=True)
             env=dict(os.environ);env.update(PYTHONUTF8='1',PYTHONUNBUFFERED='1',ARENA_PROJECT_ROOT=str(ROOT),ARENA_STATE_ROOT=str(Path(engine.metadata['classes']).parent))
             options={'start_new_session':True} if os.name=='posix' else {'creationflags':subprocess.CREATE_NEW_PROCESS_GROUP}
+            mode = 'evaluate_references' if reference_evaluation else 'retry_fights'
+            action = 'evaluate-references' if reference_evaluation else 'retry-fights'
             row={'id':identifier,'run':run_id,'name':metadata.get('config',{}).get('name',run_id),'started_at':time.time(),
-                 'status':'running','mode':'retry_fights','log':identifier+'.log'}
+                 'status':'running','mode':mode,'log':identifier+'.log'}
             with (logs/row['log']).open('wb') as log:
-                self.process=subprocess.Popen([sys.executable,'-m','arena_web.worker','experiment','retry-fights',str(root),*(['--include-ready'] if include_ready else [])],
+                self.process=subprocess.Popen([sys.executable,'-m','arena_web.worker','experiment',action,str(root),*(['--include-ready'] if include_ready else [])],
                     cwd=ROOT,env=env,stdin=subprocess.DEVNULL,stdout=log,stderr=subprocess.STDOUT,**options)
             self.current=row;self.active[run_id]=(self.process,row);self.rows.append(row);self._save()
             self.watcher=threading.Thread(target=self._watch,args=(self.process,row),daemon=True);self.watcher.start()
@@ -434,11 +481,15 @@ class Jobs:
             if row.get('mode')=='compact_storage':
                 row['status']='stopped' if row['status']=='stopped' else 'completed' if code==0 else 'failed'
                 row['note']='Fight folders moved into SQLite stores.' if code==0 else 'Compaction stopped; stored fights are kept and the command can be run again.'
+            elif row.get('mode')=='evaluate_references':
+                row['status']='stopped' if row['status']=='stopped' else 'completed' if code==0 else 'failed'
+                if code==0:row['note']='Reference evaluation finished. No model requests were sent.'
             elif row.get('mode')=='retry_fights':
                 if row['status']!='stopped':row['status']='completed' if code==0 else 'failed'
                 row['note']='Engine fight recovery finished; model conversations were not resumed.'
             if row['status'] == 'failed' and not row.get('note'):
-                row['note'] = failure_reason(self.store.state / 'jobs' / row['log'], report)
+                row['note'] = failure_reason(self.store.state / 'jobs' / row['log'],
+                                             None if row.get('mode')=='evaluate_references' else report)
             if row['status'] == 'blocked' and row.get('mode')!='retry_fights':
                 row['note'] = ('Engine fights remain incomplete. Retry failed fights, then resume to continue the next round.'
                                if not report.get('blocked_sessions') and ((report.get('tournament') or {}).get('failed') or ((report.get('evolution') or {}).get('contemporaries') or {}).get('failed'))
@@ -447,6 +498,7 @@ class Jobs:
             root=self.store.runs/row['run']
             owner=self.active.get(row['run'],(None,None))[0]
             if owner is process:self.active.pop(row['run'],None)
+            if row.get('mode')=='evaluate_references':return
             if (owner is process or self.process is process) and row['status']!='stopped' and any((root/'fight-retry-requests').glob('*.json')):
                 self.retry_fights(row['run'],include_ready=any(read_json(path).get('include_ready') for path in (root/'fight-retry-requests').glob('*.json')))
             elif (owner is process or self.process is process) and row['status']!='stopped' and code==0 and any((root/'recovery-commands').glob('*.json')):

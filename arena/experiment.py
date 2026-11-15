@@ -418,6 +418,9 @@ def _prepare_provider_response(sid, state, model, config, journal):
 
 
 def _build_provider_response(sid, state, model, config, journal):
+    from .reasoning import apply_overrides
+    if model['provider'] != 'mock':
+        model = apply_overrides(model, state)
     dispatcher=getattr(journal,'requests',None)
     if dispatcher and not dispatcher.can_start(sid,model):return None
     from .call_counts import hydrate_calls
@@ -758,9 +761,6 @@ def run_session(sid, model, config, out, journal, engine, interrupt=None):
     if state.get('conversation_paused'):return
     from .call_counts import hydrate_calls
     hydrate_calls(state,journal.db,sid)
-    from .reasoning import apply_overrides
-    if model["provider"] != "mock":
-        model = apply_overrides(model, state)
     directory = out / "sessions" / sid
     from .feedback import access_for
     from .submitted_versions import OwnSubmissions
