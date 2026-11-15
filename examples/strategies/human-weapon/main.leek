@@ -1,31 +1,114 @@
 // Adapted from smarlhens/leekwars-scripts weapon.lks, Apache-2.0.
-// See NOTICE and LICENSE. LeekScript 4 port: equipped weapons only,
-// runtime legality checks, repeated selection after each action, no chip logic.
-function expectedDamage(weapon) {
+// See NOTICE and LICENSE. LeekScript 4, equipped weapons only.
+function weaponEffects(weapon) {
+    var effects = []
     for (var effect in getWeaponEffects(weapon)) {
-        if (effect[0] == EFFECT_DAMAGE) return (effect[1] + effect[2]) / 2
+        push(effects, [effect[0], (effect[1] + effect[2]) / 2, effect[4]])
     }
-    return 0
+    return effects
 }
-var enemy = getNearestEnemy()
-if (enemy != null && isAlive(enemy)) {
-    moveToward(enemy)
-    while (isAlive(enemy) && getTP() > 0) {
-        var best = null
-        var bestDamage = 0
-        for (var weapon in getWeapons()) {
-            if (!canUseWeapon(weapon, enemy)) continue
-            var switching = getWeapon() == weapon ? 0 : 1
-            var shots = floor((getTP() - switching) / getWeaponCost(weapon))
-            var damage = expectedDamage(weapon) * shots
-            if (damage > bestDamage) {
-                best = weapon
-                bestDamage = damage
+
+function targetScore(effects, target, shots, areaScale, damageScale, shackleScale) {
+    var life = getLife(target)
+    var totalLife = getTotalLife(target)
+    var absoluteShield = getAbsoluteShield(target)
+    var shieldScale = 1 - getRelativeShield(target) / 100
+    var allied = isAlly(target)
+    var damage = 0
+    var utility = 0
+    for (var effect in effects) {
+        var targetFlag = allied ? EFFECT_TARGET_ALLIES : EFFECT_TARGET_ENEMIES
+        if ((effect[2] & targetFlag) == 0) continue
+        var base = effect[1] * areaScale
+        if (effect[0] == EFFECT_DAMAGE) {
+            damage += max(0, round(base * damageScale * shieldScale - absoluteShield))
+        } else if (effect[0] == EFFECT_SHACKLE_TP) {
+            utility += base * shackleScale
+        } else if (effect[0] == EFFECT_ABSOLUTE_VULNERABILITY) {
+            utility += 2 * base
+        }
+    }
+    var burst = damage * shots
+    // Wounded targets give the team a shared priority. A kill denies a full turn.
+    var score = min(burst, life) * (1 + 0.35 * (1 - life / totalLife))
+    if (damage > 0 && damage < life) score += utility
+    if (burst >= life) score += 0.5 * totalLife
+    return allied ? -1.2 * score : score
+}
+
+function bestAttack(weapons, effectsByWeapon, remainingUses, allowMovement) {
+    var best = null
+    var bestScore = 0
+    var tp = getTP()
+    var current = getWeapon()
+    var origin = getCell()
+    var mp = allowMovement ? getMP() : 0
+    var damageScale = (1 + max(0, getStrength()) / 100) * (1 + getPower() / 100)
+    var shackleScale = (1 + max(0, getMagic()) / 100) * 100
+    for (var enemy in getAliveEnemies()) {
+        var targetCell = getCell(enemy)
+        for (var i = 0; i < count(weapons); i++) {
+            var weapon = weapons[i]
+            var switching = current == weapon ? 0 : 1
+            var cost = getWeaponCost(weapon)
+            var shots = min(remainingUses[i], floor((tp - switching) / cost))
+            if (shots <= 0) continue
+            var cell = origin
+            var steps = 0
+            if (!canUseWeapon(weapon, enemy)) {
+                if (mp <= 0) continue
+                cell = getCellToUseWeapon(weapon, enemy)
+                if (cell < 0 || cell == origin) continue
+                steps = getPathLength(origin, cell)
+                if (steps == null || steps > mp) continue
+            }
+            var area = getWeaponArea(weapon)
+            var score = 0
+            if (area == AREA_POINT) {
+                score = targetScore(effectsByWeapon[i], enemy, shots, 1, damageScale, shackleScale)
+            } else {
+                var fullPower = area == AREA_LASER_LINE || area == AREA_FIRST_INLINE || area == AREA_ENEMIES || area == AREA_ALLIES
+                for (var affectedCell in getWeaponEffectiveArea(weapon, targetCell, cell)) {
+                    var affected = affectedCell == cell ? getEntity() : getEntityOnCell(affectedCell)
+                    if (affectedCell == origin && cell != origin) continue
+                    if (affected == null || !isAlive(affected)) continue
+                    var areaScale = fullPower ? 1 : 1 - 0.2 * getCellDistance(targetCell, affectedCell)
+                    score += targetScore(effectsByWeapon[i], affected, shots, areaScale, damageScale, shackleScale)
+                }
+            }
+            score *= 1 - 0.01 * steps
+            if (score > bestScore) {
+                best = [i, enemy, cell]
+                bestScore = score
             }
         }
-        if (best == null) break
-        if (getWeapon() != best) setWeapon(best)
-        if (getWeapon() != best) break
-        if (useWeapon(enemy) != USE_SUCCESS) break
     }
+    return best
+}
+
+var weapons = getWeapons()
+var effectsByWeapon = []
+var remainingUses = []
+for (var weapon in weapons) {
+    push(effectsByWeapon, weaponEffects(weapon))
+    var maximum = getWeaponMaxUses(weapon)
+    push(remainingUses, maximum > 0 ? maximum : 1000)
+}
+
+var attack = bestAttack(weapons, effectsByWeapon, remainingUses, true)
+if (attack == null) {
+    var nearest = getNearestEnemy()
+    if (nearest != null && isAlive(nearest)) moveToward(nearest)
+    attack = bestAttack(weapons, effectsByWeapon, remainingUses, false)
+} else if (attack[2] != getCell()) {
+    moveTowardCell(attack[2])
+    attack = bestAttack(weapons, effectsByWeapon, remainingUses, false)
+}
+
+while (attack != null) {
+    var weapon = weapons[attack[0]]
+    if (getWeapon() != weapon) setWeapon(weapon)
+    if (getWeapon() != weapon || useWeapon(attack[1]) != USE_SUCCESS) break
+    remainingUses[attack[0]]--
+    attack = bestAttack(weapons, effectsByWeapon, remainingUses, false)
 }
