@@ -630,6 +630,10 @@ to inspect exactly the matches contributing to that number.
 
 ### Saved providers and bulk participants
 
+Set **Display name** when creating or editing a participant to use a shorter
+label in charts, rankings, and matrices, including existing competitions.
+The participant ID remains available on the profile and in the run data.
+
 Open **Participants → Chart colors** to set provider defaults and model
 overrides. Use **More → Chart colors** in a competition to override a model
 there only. Clear **Custom** to restore the inherited color. Built-in

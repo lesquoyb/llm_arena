@@ -55,7 +55,7 @@ class Application:
         demo = self.store.json(ROOT / "configs/offline-complete.json")
         config = {**demo, "name": "New competition", "scenario": simple_scenario()}
         return {"token": self.token, "participants": self.store.participants(), "providers": self.store.providers(),
-                "chart_colors": self.store.chart_colors(),
+                "chart_colors": self.store.chart_colors(), "participant_names": self.store.participant_names(),
                 "workspaces":self.store.workspace_index()['workspaces'],
                 "participant_groups":self.store.participant_groups(),
                 "drafts": self.store.drafts(), "runs": self.store.listing(), "jobs": self.jobs.listing(),
@@ -229,7 +229,7 @@ class Application:
         if route == "/api/participant/import":
             return self.store.import_strategy(data["run"],data["session"],data["id"])
         if route == "/api/participant":
-            return self.store.save_participant(data["spec"], data.get("secret"))
+            return self.store.save_participant(data["spec"], data.get("secret"), display_name=data.get("display_name"))
         if route == "/api/chart-colors":
             return self.store.save_chart_colors(run=data.get('run'), providers=data.get('providers'), models=data.get('models'))
         if route == "/api/participant/delete":

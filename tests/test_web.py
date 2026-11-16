@@ -67,6 +67,20 @@ class WebContractTests(unittest.TestCase):
         self.addCleanup(self.tmp.__exit__, None, None, None)
         self.store = Store(self.root / "runs", self.root / "ui")
 
+    def test_participant_display_name_is_separate_from_model_identity(self):
+        app = Application(self.store)
+        profile = self.store.catalog()[0]
+        response = app.post('/api/participant', {'spec':profile, 'display_name':'  Quick repair  '})
+        self.assertEqual(response['saved'], profile['id'])
+        self.assertEqual(self.store.participant_names(), {profile['id']:'Quick repair'})
+        self.assertEqual(next(model for model in self.store.catalog() if model['id']==profile['id']), profile)
+        app.post('/api/participant', {'spec':profile})
+        self.assertEqual(self.store.participant_names()[profile['id']], 'Quick repair')
+        with self.assertRaises(ArenaError):
+            app.post('/api/participant', {'spec':profile, 'display_name':'two\nlines'})
+        app.post('/api/participant', {'spec':profile, 'display_name':''})
+        self.assertEqual(self.store.participant_names(), {})
+
     def test_chart_colors_save_and_reset_without_editing_competitions(self):
         run = fixture(self.store)
         frozen = read_json(run/'experiment.json')

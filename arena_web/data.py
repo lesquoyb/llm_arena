@@ -113,6 +113,9 @@ class Store(Workspaces):
     def chart_colors(self):
         return self.json(self.state/'chart-colors.json', {'providers':{}, 'models':{}, 'runs':{}})
 
+    def participant_names(self):
+        return self.json(self.state/'participant-names.json', {})
+
     def save_chart_colors(self, *, run=None, providers=None, models=None):
         if run is not None:
             if not isinstance(run, str):
@@ -265,7 +268,13 @@ class Store(Workspaces):
             config["budget_per_session"].update(max_input_tokens=1_000_000, max_output_tokens=100_000, max_cost_usd="1")
         validate_config(config)
 
-    def save_participant(self, model, secret=None):
+    def save_participant(self, model, secret=None, *, display_name=None):
+        if display_name is not None:
+            if not isinstance(display_name, str):
+                raise ArenaError('Display name must be text')
+            display_name = display_name.strip()
+            if len(display_name) > 80 or any(ord(char) < 32 for char in display_name):
+                raise ArenaError('Display name must be a single line of up to 80 characters')
         self.validate_model(model)
         from arena.reasoning import validate_effort
         validate_effort(model, model.get('parameters', {}).get('reasoning_effort'))
@@ -280,6 +289,13 @@ class Store(Workspaces):
             models = self.catalog()
             models = [m for m in models if m["id"] != model["id"]] + [model]
             write_json(self.state / "participants.json", models)
+            if display_name is not None:
+                names = self.participant_names()
+                if display_name:
+                    names[model["id"]] = display_name
+                else:
+                    names.pop(model["id"], None)
+                write_json(self.state / "participant-names.json", names)
             if secret:
                 self.secrets[model["api_key_env"]] = secret
         return {"saved": model["id"]}
