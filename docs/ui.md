@@ -219,6 +219,8 @@ A zero count opens an empty filtered list rather than selecting an unrelated fig
 Use **Export PNG** on a chart to download its current view, including the
 title, selected filters, and legend. Models hidden from an interactive chart
 are omitted from both the exported plot and legend.
+The subtitle includes the competition, rounds, repetitions, and team format
+where available. Set a shorter competition label in **More → Chart settings**.
 
 The schematic replay supports play/pause, speed, stepping and seeking. It shows
 positions, HP, attacks, healing, deaths and recorded resurrections. It does not
@@ -639,7 +641,7 @@ label in charts, rankings, and matrices, including existing competitions.
 The participant ID remains available on the profile and in the run data.
 
 Open **Participants → Chart colors** to set provider defaults and overrides
-for individual models and references. Use **More → Chart colors** in a
+for individual models and references. Use **More → Chart settings** in a
 competition to apply an override there only. Clear **Custom** to restore
 the inherited color. References use the difficulty palette by default and
 can also have individual display names.

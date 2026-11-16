@@ -1813,6 +1813,9 @@ dialog::backdrop {
   display: block;
   overflow: visible;
 }
+.overview-evolution.evolution-bars {
+  width: var(--grouped-bar-width, 100%);
+}
 .overview-evolution text {
   font-family: inherit;
   font-size: 11px;

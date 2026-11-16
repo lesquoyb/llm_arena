@@ -235,7 +235,8 @@ class Application:
         if route == '/api/participant/name':
             return self.store.save_participant_name(data['id'], data['display_name'])
         if route == "/api/chart-colors":
-            return self.store.save_chart_colors(run=data.get('run'), providers=data.get('providers'), models=data.get('models'))
+            return self.store.save_chart_colors(run=data.get('run'), providers=data.get('providers'), models=data.get('models'),
+                                                display_name=data.get('display_name'))
         if route == "/api/participant/delete":
             return self.store.delete_participant(data["id"])
         if route == '/api/participant-group':

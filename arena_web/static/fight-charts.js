@@ -93,14 +93,19 @@ function lengthRow(label,total,value,classes,model,color) {
 }
 
 /* Strategy lineages: every submitted version placed at its round and tournament score, linked to its parent. */
-function lineageScores(data) {
+function lineageScores() {
   const scores=new Map();
   for(const match of S.overviewMatches||[]) {
     if(match.kind!=='competition'||match.mirror)continue;
     const weight=match.count||1;
+    const sameModel=overviewIdentity(match.sides[0]).model===overviewIdentity(match.sides[1]).model;
     match.sides.forEach((id,side)=>{
-      const row=scores.get(id)||{points:0,completed:0};
-      if(match.result.status==='completed') {row.completed+=weight;row.points+=weight*(match.result.winner_side===-1?.5:match.result.winner_side===side?1:0);}
+      const row=scores.get(id)||{points:0,completed:0,sameModelFights:0};
+      if(match.result.status==='completed') {
+        row.completed+=weight;
+        if(sameModel)row.sameModelFights+=weight;
+        row.points+=weight*(match.result.winner_side===-1?.5:match.result.winner_side===side?1:0);
+      }
       scores.set(id,row);
     });
   }
@@ -108,8 +113,8 @@ function lineageScores(data) {
 }
 function lineageChart(d,data) {
   const sessions=d.sessions.filter(session=>session.submission&&scopeAccept(overviewIdentity(session.id))&&(!data.scope.model||session.model===data.scope.model));
-  const scores=lineageScores(data);
-  const nodes=sessions.map(session=>{const score=scores.get(session.id);return {...session,generation:session.generation||0,score:score?.completed?score.points/score.completed:null,completed:score?.completed||0};}).filter(node=>node.score!=null);
+  const scores=lineageScores();
+  const nodes=sessions.map(session=>{const score=scores.get(session.id);return {...session,generation:session.generation||0,score:score?.completed?score.points/score.completed:null,completed:score?.completed||0,sameModelFights:score?.sameModelFights||0};}).filter(node=>node.score!=null);
   const head='<div class="overview-section-head"><h2>Strategy lineages</h2>'+chartActions()+'</div>';
   if(!nodes.length)return `<section class="overview-card" id="strategy-lineages">${head}<div class="overview-empty">Lineages appear once submitted strategies have tournament results.</div></section>`;
   const byId=new Map(nodes.map(node=>[node.id,node]));
@@ -120,10 +125,10 @@ function lineageChart(d,data) {
   let edges='',dots='';
   for(const node of nodes) {
     const parents=(node.parents || [node.parent]).map(id=>byId.get(id)).filter(Boolean),color=overviewColor(node.model);
-    const label=`${participantName(node.model)} · ${overviewRound(node.condition||'initial',node.generation)} · repetition ${(node.replicate||0)+1} · ${pct(node.score)} of points · ${fmt(node.completed)} fights`;
+    const label=`${participantName(node.model)} · ${overviewRound(node.condition||'initial',node.generation)} · repetition ${(node.replicate||0)+1} · ${pct(node.score)} of points · ${fmt(node.completed)} fights${node.sameModelFights?` (${fmt(node.sameModelFights)} against the same model)`:''}`;
     for(const parent of parents)edges+=`<path d="M${x(parent.generation)+jitter(parent)},${y(parent.score)} L${x(node.generation)+jitter(node)},${y(node.score)}" fill="none" stroke="${color}" stroke-width="1.6" stroke-opacity=".75" ${node.condition==='control'?'stroke-dasharray="4 4"':''} data-chart-model="${e(node.model)}" data-chart-label="${e(label)}"/>`;
     dots+=`<circle cx="${x(node.generation)+jitter(node)}" cy="${y(node.score)}" r="4.5" fill="${node.condition==='control'?'#fff':color}" stroke="${color}" stroke-width="1.8" tabindex="0" data-chart-model="${e(node.model)}" data-chart-label="${e(label)}"/>`;
   }
   const models=[...new Set(nodes.map(node=>node.model))].sort();
-  return `<section class="overview-card" id="strategy-lineages">${head}<p class="muted">Each point is a submitted strategy version, placed at its round and its share of tournament points (wins + ½ draws). Lines join a version to its parent strategies. Solid lines and filled points: with feedback; dashed lines and hollow points: without feedback. Hover a model to follow its descendants.</p><div class="chart-filterable" data-chart-key="lineage:${e(S.run)}"><div class="evolution-scroll"><svg class="lineage-chart" style="min-width:${W}px" viewBox="0 0 ${W} ${H}" role="img" aria-label="Strategy lineages across rounds">${[0,.25,.5,.75,1].map(v=>`<line x1="${L}" x2="${W-R}" y1="${y(v)}" y2="${y(v)}" stroke="#e0e7e4"/><text x="${L-7}" y="${y(v)+4}" text-anchor="end">${pct(v)}</text>`).join('')}${rounds.map(round=>`<text x="${x(round)}" y="${B+24}" text-anchor="middle">Round ${round+1}</text>`).join('')}${edges}${dots}</svg></div><div class="overview-legend">${models.map(model=>`<span tabindex="0" data-chart-model="${e(model)}"><i style="background:${overviewColor(model)}"></i>${e(participantName(model))}</span>`).join('')}</div></div></section>`;
+  return `<section class="overview-card" id="strategy-lineages">${head}<p class="muted">Each point shows one submitted strategy’s tournament score (wins + ½ draws, divided by completed fights), including fights against other repetitions of the same model. Lines join a version to its parent strategies. Solid lines and filled points: with feedback; dashed lines and hollow points: without feedback. Hover a model to follow its descendants.</p><div class="chart-filterable" data-chart-key="lineage:${e(S.run)}"><div class="evolution-scroll"><svg class="lineage-chart" style="min-width:${W}px" viewBox="0 0 ${W} ${H}" role="img" aria-label="Strategy lineages across rounds">${[0,.25,.5,.75,1].map(v=>`<line x1="${L}" x2="${W-R}" y1="${y(v)}" y2="${y(v)}" stroke="#e0e7e4"/><text x="${L-7}" y="${y(v)+4}" text-anchor="end">${pct(v)}</text>`).join('')}${rounds.map(round=>`<text x="${x(round)}" y="${B+24}" text-anchor="middle">Round ${round+1}</text>`).join('')}${edges}${dots}</svg></div><div class="overview-legend">${models.map(model=>`<span tabindex="0" data-chart-model="${e(model)}"><i style="background:${overviewColor(model)}"></i>${e(participantName(model))}</span>`).join('')}</div></div></section>`;
 }

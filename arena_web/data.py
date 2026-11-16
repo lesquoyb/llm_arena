@@ -111,13 +111,13 @@ class Store(Workspaces):
             return value
 
     def chart_colors(self):
-        return self.json(self.state/'chart-colors.json', {'providers':{}, 'models':{}, 'runs':{}})
+        return self.json(self.state/'chart-colors.json', {'providers':{}, 'models':{}, 'runs':{}, 'run_names':{}})
 
     def participant_names(self):
         return self.json(self.state/'participant-names.json', {})
 
     @staticmethod
-    def validate_participant_name(display_name):
+    def validate_display_name(display_name):
         if not isinstance(display_name, str):
             raise ArenaError('Display name must be text')
         name = display_name.strip()
@@ -134,14 +134,18 @@ class Store(Workspaces):
         write_json(self.state/'participant-names.json', names)
 
     def save_participant_name(self, identifier, display_name):
-        name = self.validate_participant_name(display_name)
+        name = self.validate_display_name(display_name)
         with self.lock:
             if not any(model['id'] == identifier for model in self.catalog()):
                 raise ArenaError('Unknown participant')
             self._write_participant_name(identifier, name)
         return {'saved': identifier}
 
-    def save_chart_colors(self, *, run=None, providers=None, models=None):
+    def save_chart_colors(self, *, run=None, providers=None, models=None, display_name=None):
+        if display_name is not None:
+            if run is None:
+                raise ArenaError('Choose a competition for the chart display name')
+            display_name = self.validate_display_name(display_name)
         if run is not None:
             if not isinstance(run, str):
                 raise ArenaError('Invalid competition ID')
@@ -175,6 +179,12 @@ class Store(Workspaces):
                 apply(overrides, models)
                 if not overrides:
                     colors['runs'].pop(run)
+                if display_name is not None:
+                    names = colors.setdefault('run_names', {})
+                    if display_name:
+                        names[run] = display_name
+                    else:
+                        names.pop(run, None)
             write_json(self.state/'chart-colors.json', colors)
         return colors
 
@@ -326,7 +336,7 @@ class Store(Workspaces):
 
     def save_participant(self, model, secret=None, *, display_name=None):
         if display_name is not None:
-            display_name = self.validate_participant_name(display_name)
+            display_name = self.validate_display_name(display_name)
         self.validate_model(model)
         from arena.reasoning import validate_effort
         validate_effort(model, model.get('parameters', {}).get('reasoning_effort'))

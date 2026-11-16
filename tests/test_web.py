@@ -101,15 +101,19 @@ class WebContractTests(unittest.TestCase):
             'providers':{'connection:Mistral':'#ABCDEF'}, 'models':{'model':'#544299'},
         })
         self.assertEqual(global_colors['providers']['connection:Mistral'], '#abcdef')
-        scoped = app.post('/api/chart-colors', {'run':run.name, 'models':{'model':'#001122'}})
+        scoped = app.post('/api/chart-colors', {'run':run.name, 'models':{'model':'#001122'},
+                                                'display_name':'  Eco sprint  '})
         self.assertEqual(scoped['runs'][run.name]['model'], '#001122')
+        self.assertEqual(scoped['run_names'][run.name], 'Eco sprint')
         self.assertEqual(scoped['models']['model'], '#544299')
         self.assertEqual(Store(self.store.runs, self.store.state).chart_colors(), scoped)
         cleared = app.post('/api/chart-colors', {'run':run.name, 'models':{'model':None}})
         self.assertFalse(cleared['runs'])
+        self.assertEqual(cleared['run_names'], {run.name:'Eco sprint'})
         with self.assertRaises(ArenaError):
             app.post('/api/chart-colors', {'models':{'model':'red;display:none'}})
         self.assertEqual(self.store.chart_colors(), cleared)
+        self.assertFalse(app.post('/api/chart-colors', {'run':run.name, 'display_name':''})['run_names'])
         self.assertEqual(read_json(run/'experiment.json'), frozen)
 
     def test_pinned_equipment_catalog_and_reference_documents(self):

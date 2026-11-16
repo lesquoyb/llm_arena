@@ -1,5 +1,5 @@
 /* Render the selected chart as a self-contained PNG in the browser. */
-const CHART_EXPORT_WRAPPERS = '.evolution-scroll,.repetition-scroll,.overview-matrix-wrap,.table-wrap,.table-scroll,.resource-bar-list';
+const CHART_EXPORT_WRAPPERS = '.evolution-scroll,.repetition-scroll,.overview-matrix-wrap,.table-wrap,.table-scroll,.resource-bar-list,.length-rows';
 const CHART_EXPORT_STYLES = (
   'display visibility box-sizing position top right bottom left ' +
   'width height min-width max-width min-height max-height overflow-x overflow-y ' +
@@ -17,13 +17,48 @@ const CHART_EXPORT_STYLES = (
 
 function exportChartOptions(chart) {
   return [...new Set([...chart.querySelectorAll('select')]
-    .filter(select=>select.getClientRects().length)
+    .filter(select=>select.getClientRects().length&&select.matches(
+      '[data-repetition-metric],[data-repetition-rounds],[data-length-setting]'
+    ))
     .map(select=>select.selectedOptions[0]?.textContent.trim()).filter(Boolean))];
 }
 
-function prepareChartImage(chart, title, context) {
-  const width = Math.max(680, chart.clientWidth, ...[...chart.querySelectorAll(CHART_EXPORT_WRAPPERS)]
-    .map(wrapper=>wrapper.scrollWidth+64));
+function compactExportBars(chart) {
+  const canvas = document.createElement('canvas');
+  const context = canvas.getContext('2d');
+  const columns = (selector, label, minimum, maximum) => {
+    const rows = [...chart.querySelectorAll(selector)];
+    if (!rows.length) return {rows, labels:minimum};
+    const textWidths = rows.flatMap(row=>[...row.querySelectorAll(label)].map(node=>{
+      const style = getComputedStyle(node);
+      context.font = `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+      return context.measureText(node.textContent.trim()).width;
+    }));
+    return {rows, labels:Math.min(maximum,Math.max(minimum,Math.ceil(Math.max(0,...textWidths))))};
+  };
+  const rank = columns('.overview-rank-body','strong',52,196);
+  for (const row of rank.rows) {
+    row.style.gridTemplateColumns = `${rank.labels}px minmax(0,1fr) 6ch`;
+  }
+  const workspace = columns('.workspace-bar',':scope > div:first-child > strong, :scope > div:first-child > small',52,196);
+  for (const row of workspace.rows) {
+    Object.assign(row.style,{gridTemplateColumns:`${workspace.labels}px minmax(0,1fr) 6ch`,gap:'8px'});
+  }
+  const resources = columns('.resource-score-row',':scope > strong',52,196);
+  if (resources.rows.length) {
+    const head = chart.querySelector('.resource-bar-head');
+    if (head) Object.assign(head.style,{gridTemplateColumns:`${resources.labels}px minmax(0,1fr) 8.5em`,gap:'8px'});
+    for (const row of resources.rows) {
+      Object.assign(row.style,{gridTemplateColumns:`${resources.labels}px minmax(0,1fr) 8.5em`,gap:'8px'});
+    }
+  }
+  const labelWidth = Math.max(rank.labels,workspace.labels,resources.labels);
+  const resourceValues = resources.rows.length ? 152 : 80;
+  return Math.max(320,labelWidth+220+resourceValues);
+}
+
+function prepareChartImage(chart, title, context, caption='') {
+  const rowChart = chart.querySelector('.overview-ranking,.workspace-bars,.resource-bar-list');
   const clone = chart.cloneNode(true);
   clone.classList.remove('chart-expanded');
   if (clone.classList.contains('comparison-chart')) {
@@ -33,8 +68,12 @@ function prepareChartImage(chart, title, context) {
   clone.querySelectorAll([
     '.overview-section-head', '.panel-title', '.chart-controls', '.chart-view-choice',
     '.chart-hidden', '.chart-legend-hidden', '.progression-availability', 'details',
+    'p', '.overview-caption', ':scope > small', '.overview-rank-body > small',
     'button', 'select', 'input', 'textarea', 'svg title',
   ].join(',')).forEach(node=>node.remove());
+  if (clone.classList.contains('resource-chart')) {
+    clone.querySelectorAll(':scope > div > small').forEach(node=>node.remove());
+  }
   clone.querySelectorAll('.chart-dimmed,.chart-selected').forEach(node=>node.classList.remove('chart-dimmed','chart-selected'));
   clone.querySelectorAll('[id],[data-chart-key],[tabindex],[href]').forEach(node=>{
     for (const attr of ['id','data-chart-key','tabindex','href']) node.removeAttribute(attr);
@@ -53,16 +92,23 @@ function prepareChartImage(chart, title, context) {
     if (!legend.textContent.trim()) legend.remove();
   }
   if (clone.querySelector('.overview-ranking')) {
-    const description = clone.querySelector(':scope > p');
-    if (description) description.textContent='W = wins · D = draws · L = losses';
+    clone.querySelector('.overview-ranking').classList.add('compact');
   }
-  const matrixCaption = clone.querySelector('.overview-caption');
-  if (matrixCaption && clone.querySelector('.overview-matrix')) {
-    matrixCaption.textContent='Scores are from the row candidate’s perspective. W = wins · D = draws · L = losses.';
+  if (clone.querySelector('.resource-bar-list')) {
+    for (const row of clone.querySelectorAll('.resource-bar-head,.resource-score-row')) {
+      row.append(row.children[1]);
+    }
+    clone.querySelector('.chart-legend')?.remove();
   }
+  const workspaceBars = clone.querySelector('.workspace-bars');
+  if (workspaceBars) Object.assign(workspaceBars.style,{gap:'8px',margin:'0'});
   if (!clone.querySelector('svg,table,.overview-ranking,.resource-bar-list,.workspace-bars,.length-rows,.error-rate-row')) {
     throw new Error('No chart data to export.');
   }
+  const groupedWidth = compactGroupedBars(clone,{forExport:true});
+  const width = (groupedWidth || rowChart) ? Math.max(320,groupedWidth) :
+    Math.max(640,Math.min(900,chart.clientWidth),...[...chart.querySelectorAll(CHART_EXPORT_WRAPPERS)]
+      .map(wrapper=>wrapper.scrollWidth));
 
   const stage = document.createElement('div');
   stage.setAttribute('aria-hidden','true');
@@ -70,7 +116,7 @@ function prepareChartImage(chart, title, context) {
   Object.assign(stage.style,{position:'fixed',left:'-100000px',top:'0',pointerEvents:'none'});
   const page = document.createElement('article');
   Object.assign(page.style,{
-    width:`${Math.ceil(width+48)}px`, padding:'24px', background:'#fff', color:'var(--ink)',
+    width:`${Math.ceil(width+36)}px`, padding:'18px', background:'#fff', color:'var(--ink)',
   });
   const heading = document.createElement('h1');
   heading.textContent = title;
@@ -79,13 +125,20 @@ function prepareChartImage(chart, title, context) {
   if (context.length) {
     const subtitle = document.createElement('p');
     subtitle.textContent = context.join(' · ');
-    Object.assign(subtitle.style,{color:'var(--muted)',margin:'0 0 18px'});
+    Object.assign(subtitle.style,{color:'var(--muted)',fontSize:'13px',margin:'0 0 12px'});
     page.append(subtitle);
   }
   page.append(clone);
+  if (caption) {
+    const description = document.createElement('p');
+    description.textContent = caption;
+    Object.assign(description.style,{color:'var(--muted)',fontSize:'12px',margin:'12px 0 0'});
+    page.append(description);
+  }
   stage.append(page);
   (document.fullscreenElement || document.body).append(stage);
   try {
+    if (rowChart) page.style.width = `${compactExportBars(clone)+36}px`;
     const bounds = page.getBoundingClientRect();
     const imageWidth = Math.ceil(Math.max(bounds.width,page.scrollWidth));
     const imageHeight = Math.ceil(Math.max(bounds.height,page.scrollHeight));
@@ -108,9 +161,9 @@ function prepareChartImage(chart, title, context) {
   }
 }
 
-async function exportChartPng(chart, {title, context, name}) {
+async function exportChartPng(chart, {title, context, name, caption}) {
   const options = exportChartOptions(chart);
-  const {width,height,svg} = prepareChartImage(chart,title,[...new Set([...context,...options])]);
+  const {width,height,svg} = prepareChartImage(chart,title,[...new Set([...context,...options])],caption);
   const image = new Image();
   image.src = 'data:image/svg+xml;charset=utf-8,'+encodeURIComponent(svg);
   await image.decode();
