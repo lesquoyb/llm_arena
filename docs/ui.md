@@ -630,6 +630,11 @@ to inspect exactly the matches contributing to that number.
 
 ### Saved providers and bulk participants
 
+Open **Participants → Chart colors** to set provider defaults and model
+overrides. Use **More → Chart colors** in a competition to override a model
+there only. Clear **Custom** to restore the inherited color. Built-in
+references use their fixed difficulty palette.
+
 In Participants, open **Providers & bulk add**. Save a named protocol, endpoint and
 API key environment variable. A key entered here stays in server memory until
 shutdown; set the named variable in the repository-root `.env` file to reuse it after restarting. Copy `.env.example` to get started.
@@ -802,10 +807,15 @@ fights and replays. An official reference remains on the schedule until withdraw
 **Edit participants**.
 
 Select evaluation opponents from the reference catalog and choose rounds with
-saved submissions. **Save & run evaluation** plays missing fights without model
-calls, standings points, or feedback. See **Fixed baseline (unscored)** in the
-overview. Clear a reference and save to hide its evaluation results. Re-enabling
-the same version makes its saved fights available again.
+saved submissions. **Save & run evaluation** plays missing fights against all
+active official candidates and between selected references, on the seeds of
+each tournament round. It runs without model
+calls, standings points, or feedback. Turn on **Include evaluation references**
+in the overview to add both sides of those fights to the tournament results
+shown in the scores, evolution chart, and match matrix. Click a score or a result count to open the matching
+fights. Clear a reference in the settings and save to
+hide its evaluation results. Re-enabling the same version makes its saved
+fights available again.
 
 The **Errors** tab filters observed failures by model, round and track. It includes
 failed compilation checks, unknown tools, invalid arguments, team validation,

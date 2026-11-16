@@ -67,6 +67,25 @@ class WebContractTests(unittest.TestCase):
         self.addCleanup(self.tmp.__exit__, None, None, None)
         self.store = Store(self.root / "runs", self.root / "ui")
 
+    def test_chart_colors_save_and_reset_without_editing_competitions(self):
+        run = fixture(self.store)
+        frozen = read_json(run/'experiment.json')
+        app = Application(self.store)
+        global_colors = app.post('/api/chart-colors', {
+            'providers':{'connection:Mistral':'#ABCDEF'}, 'models':{'model':'#544299'},
+        })
+        self.assertEqual(global_colors['providers']['connection:Mistral'], '#abcdef')
+        scoped = app.post('/api/chart-colors', {'run':run.name, 'models':{'model':'#001122'}})
+        self.assertEqual(scoped['runs'][run.name]['model'], '#001122')
+        self.assertEqual(scoped['models']['model'], '#544299')
+        self.assertEqual(Store(self.store.runs, self.store.state).chart_colors(), scoped)
+        cleared = app.post('/api/chart-colors', {'run':run.name, 'models':{'model':None}})
+        self.assertFalse(cleared['runs'])
+        with self.assertRaises(ArenaError):
+            app.post('/api/chart-colors', {'models':{'model':'red;display:none'}})
+        self.assertEqual(self.store.chart_colors(), cleared)
+        self.assertEqual(read_json(run/'experiment.json'), frozen)
+
     def test_pinned_equipment_catalog_and_reference_documents(self):
         from arena_web.server import Application
         app = Application(self.store)

@@ -1640,6 +1640,12 @@ dialog::backdrop {
   min-width: 0;
   text-overflow: ellipsis;
 }
+.overview-filters label.check {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  align-self: center;
+}
 .overview-scope {
   margin-left: auto;
   align-self: center;
@@ -1719,18 +1725,19 @@ dialog::backdrop {
   gap: 22px;
 }
 .overview-ranking li {
-  display: flex;
+  display: grid;
+  grid-template-columns: 3ch minmax(0, 1fr);
   gap: 14px;
   align-items: baseline;
 }
 .overview-rank {
   color: var(--muted);
   font-size: 12px;
-  width: 15px;
+  font-variant-numeric: tabular-nums;
+  text-align: end;
 }
 .overview-rank-body {
   min-width: 0;
-  flex: 1;
 }
 .overview-rank-body > div:first-child {
   display: flex;
@@ -1739,6 +1746,7 @@ dialog::backdrop {
   font-size: 13px;
 }
 .overview-rank-body strong {
+  min-width: 0;
   font-weight: 550;
   overflow-wrap: anywhere;
 }
@@ -1758,9 +1766,47 @@ dialog::backdrop {
   height: 100%;
   border-radius: inherit;
 }
+.overview-swatch {
+  display: inline-block;
+  width: .6em;
+  height: .6em;
+  margin-inline-end: .4em;
+  border-radius: 50%;
+}
 .overview-rank-body small {
   font-size: 11px;
   color: var(--muted);
+}
+.overview-ranking.compact {
+  gap: 10px;
+}
+.overview-ranking.compact li {
+  gap: 8px;
+}
+.overview-ranking.compact .overview-rank-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(28px, 1fr) 6ch;
+  gap: 3px 8px;
+  align-items: center;
+  font-size: 13px;
+}
+.overview-ranking.compact .overview-rank-body > div:first-child {
+  display: contents;
+}
+.overview-ranking.compact .overview-rank-body strong {
+  grid-area: 1 / 1;
+}
+.overview-ranking.compact .overview-bar {
+  grid-area: 1 / 2;
+  height: 6px;
+  margin: 0;
+}
+.overview-ranking.compact .overview-rank-body > div:first-child > span {
+  grid-area: 1 / 3;
+  text-align: right;
+}
+.overview-ranking.compact .overview-rank-body small {
+  grid-column: 1 / -1;
 }
 .overview-evolution {
   width: 100%;
@@ -2132,6 +2178,16 @@ svg path.chart-selected { stroke-width:3.5; }
 .chart-view-choice select { width:auto; min-width:140px; }
 .chart-controls { display:flex; align-items:flex-end; gap:10px; flex-wrap:wrap; }
 .chart-controls .field { min-width:125px; }
+.chart-color-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 36px auto;
+  align-items: center;
+  gap: 12px;
+  padding: 7px 0;
+}
+.chart-color-row strong { overflow-wrap: anywhere; }
+.chart-color-row small { display: block; color: var(--muted); }
+.chart-color-row input[type="color"] { width: 100%; min-width: 0; height: 28px; padding: 2px; cursor: pointer; }
 .evolution-scroll { overflow-x:auto; overscroll-behavior-x:contain; max-width:100%; }
 .evolution-bars { display:block; width:100%; height:auto; }
 .evolution-track-key { display:flex; gap:16px; flex-wrap:wrap; margin:8px 0; font-size:12px; color:var(--muted); }
@@ -2182,9 +2238,6 @@ svg rect[data-chart-model]:focus-visible,svg rect.chart-selected { outline:none;
 @keyframes workspace-pulse { to { opacity: .4; } }
 @media (prefers-reduced-motion: reduce) { .skeleton-block { animation: none; } }
 @media (max-width: 600px) { .skeleton-metrics { grid-template-columns: repeat(2,minmax(0,1fr)); } }
-
-/* Separate outcome counts from the following fight-volume line. */
-.overview-rank-body > small { display: block; margin-top: 4px; }
 
 /* Keep actor identity visible without relying on color alone. */
 .event-line.actor-blue { border-left:3px solid #5278e5; background:rgba(82,120,229,.06); }

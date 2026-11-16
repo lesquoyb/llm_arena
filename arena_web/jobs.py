@@ -349,7 +349,7 @@ class Jobs:
     def reference_evaluation(self, run_id, selected, rounds, excluded, evaluate):
         from arena.experiment import experiment_lock
         from arena.reference_evaluation import SETTINGS, reference_model, refresh_standings, settings
-        from arena.roster import effective
+        from arena.roster import effective, snapshot
         for values in (selected, excluded):
             if not isinstance(values, list) or any(not isinstance(value, str) for value in values) or len(set(values)) != len(values):
                 raise ArenaError('Choose distinct reference strategies')
@@ -369,13 +369,13 @@ class Jobs:
                 catalog = {m['id']: m for m in self.store.catalog() if reference_model(m)}
                 if set(excluded) - official or set(selected) - catalog.keys():
                     raise ArenaError('Unknown reference strategy')
-                generated = {m['id'] for m in models if m['provider'] != 'mock'}
+                active = {m['id'] for m in models} - set(excluded) - set((snapshot(root) or {}).get('withdrawn', []))
                 sessions = self.store.states(root, ('model','generation','submission','validity'))
                 available = {state.get('generation', 0) for state in sessions.values()
-                             if state.get('submission') and state.get('validity') != 'invalid' and state['model'] in generated}
-                if set(rounds) - available:raise ArenaError('Choose rounds with submitted model strategies')
+                             if state.get('submission') and state.get('validity') != 'invalid' and state['model'] in active}
+                if set(rounds) - available:raise ArenaError('Choose rounds with submitted strategies')
                 previous = settings(root)
-                write_json(root/SETTINGS, {'models': [catalog[key] for key in selected],
+                write_json(root/SETTINGS, {**previous, 'models': [catalog[key] for key in selected],
                                           'rounds': sorted(set(rounds)), 'excluded': sorted(excluded)})
                 if set(previous.get('excluded', [])) != set(excluded):
                     refresh_standings(root)

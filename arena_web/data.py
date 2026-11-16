@@ -110,6 +110,46 @@ class Store(Workspaces):
                          {"id": "mock-single", "provider": "mock", "profile": "single-shot"}]
             return value
 
+    def chart_colors(self):
+        return self.json(self.state/'chart-colors.json', {'providers':{}, 'models':{}, 'runs':{}})
+
+    def save_chart_colors(self, *, run=None, providers=None, models=None):
+        if run is not None:
+            if not isinstance(run, str):
+                raise ArenaError('Invalid competition ID')
+            self.run_path(run)
+            if providers is not None:
+                raise ArenaError('Provider colors are set globally')
+        for changes in (providers, models):
+            if changes is None:
+                continue
+            if not isinstance(changes, dict) or any(
+                not isinstance(key, str) or not key or len(key) > 512 or
+                (color is not None and (not isinstance(color, str) or not re.fullmatch(r'#[0-9a-fA-F]{6}', color)))
+                for key, color in changes.items()
+            ):
+                raise ArenaError('Chart colors must be six-digit hex colors')
+
+        def apply(target, changes):
+            for key, color in (changes or {}).items():
+                if color is None:
+                    target.pop(key, None)
+                else:
+                    target[key] = color.lower()
+
+        with self.lock:
+            colors = self.chart_colors()
+            if run is None:
+                apply(colors['providers'], providers)
+                apply(colors['models'], models)
+            else:
+                overrides = colors['runs'].setdefault(run, {})
+                apply(overrides, models)
+                if not overrides:
+                    colors['runs'].pop(run)
+            write_json(self.state/'chart-colors.json', colors)
+        return colors
+
     def participants(self):
         from arena.endpoints import optional_local_key
         return [{"spec": m, "key_optional": optional_local_key(m), "key_configured": bool(self.secrets.get(m.get("api_key_env")) or
@@ -563,10 +603,13 @@ class Store(Workspaces):
                 session['cost_spent'] = str(Decimal(session['cost_spent']) + Decimal(adjustment))
         sessions.sort(key=lambda s:(s.get('model',''),s.get('replicate',0),s.get('generation',0),s.get('condition','')))
         report=self.json(root / "report.json", {})
-        from arena.reference_evaluation import settings, reference_model
+        from arena.reference_evaluation import settings, reference_model, opponent_id
         policy = settings(root)
         return {"id": identifier, "revision": self.revision(root) if include_revision else None, "metadata": metadata, "roster":{key:value for key,value in roster.items() if key!='models'} if roster else None, "report": report, "report_sha256": digest(report),
                 "reference_evaluation": {"selected": [m['id'] for m in policy.get('models', [])],
+                                         "opponents": [{"id": opponent_id(m), "label": m['id'],
+                                                        "reference": m['strategy']['origin']['reference']}
+                                                       for m in policy.get('models', [])],
                                          "excluded": policy.get('excluded', []), "rounds": policy.get('rounds'),
                                          "official": [m['id'] for m in metadata.get('config', {}).get('models', []) if reference_model(m)]},
                 'model_metadata':{m['id']:{'model_size_billion':self.model_size(m)} for m in metadata.get('config',{}).get('models',[])},
@@ -999,7 +1042,7 @@ class Store(Workspaces):
             candidate=states.get(row.get('candidate'),{})
             opponent=next((states.get(sid,{}) for sid in row['sides'] if sid!=row.get('candidate')),{})
             row['previous_round_comparison']=row['kind']=='progression' or (row['kind']=='evaluation' and candidate.get('generation')==1 and opponent.get('generation')==0 and models.get(candidate.get('model'),{}).get('provider') not in {None,'mock'} and models.get(opponent.get('model'),{}).get('provider') not in {None,'mock'})
-            row['excluded_from_results'] = hidden_from_results(row['stage'], row['kind'], row['sides'], states, policy)
+            row['excluded_from_results'] = hidden_from_results(row['stage'], row['kind'], row['sides'], states, policy, row['seed'])
             row['counts_toward_standings'] = row['kind'] == 'competition' and not row.get('mirror') and not row['excluded_from_results']
         from .progression import summarize
         result={"matches": rows,"progression":summarize(states,models,rows)}
@@ -1083,7 +1126,7 @@ class Store(Workspaces):
             candidate=states.get(row.get('candidate'),{})
             opponent=next((states.get(sid,{}) for sid in row['sides'] if sid!=row.get('candidate')),{})
             row['previous_round_comparison']=previous_round(row['kind'],candidate,opponent,models)
-            row['excluded_from_results'] = hidden_from_results(row['stage'], row['kind'], row['sides'], states, policy)
+            row['excluded_from_results'] = hidden_from_results(row['stage'], row['kind'], row['sides'], states, policy, row['seed'])
             row['counts_toward_standings']=row['kind']=='competition' and not row.get('mirror') and not row['excluded_from_results']
         from .progression import summarize
         return {"matches":rows,"progression":summarize(states,models,rows)}

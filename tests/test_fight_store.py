@@ -83,6 +83,62 @@ class FightStoreTests(unittest.TestCase):
 
 
 class IndexedOverviewTests(unittest.TestCase):
+    def test_reference_results_open_fights_from_either_side(self):
+        from arena.core import DEFAULT_SCENARIO
+        from arena.experiment import Journal
+        from arena.reference_evaluation import SETTINGS, opponent_id
+        from arena.reference_strategies import participant
+        from arena_web.data import Store
+
+        with scratch_directory() as root:
+            store = Store(root/'runs', root/'state')
+            run = store.runs/'run'
+            reference = participant('rush', 'rush-reference', DEFAULT_SCENARIO)
+            ref = opponent_id(reference)
+            model = 'model-r0-g1-feedback'
+            write_json(run/'experiment.json', {'manifest':{'strategies':[]}})
+            write_json(run/SETTINGS, {'models':[reference], 'round_seeds':{'1':[101]}})
+            journal = Journal(run)
+            with contextlib.closing(journal.db):
+                for candidate in ('model', 'other'):
+                    journal.save(f'{candidate}-r0-g1-feedback', {
+                        'model':candidate, 'generation':1, 'condition':'feedback',
+                        'status':'submitted', 'history':[],
+                    }, 'fixture')
+            stage = 'evaluations/g1-references-panel'
+            for side in (0, 1):
+                path = f'{stage}/matches/{side}'
+                write_json(run/stage/'records'/f'{side}.json', {
+                    'session':model, 'opponent':ref, 'side':side, 'seed':101,
+                    'artifact_dir':path, 'result':{'status':'completed','winner_side':0,'turns':4},
+                })
+            filters = {'kind':'references','outcome':'win','round':'2','track':'feedback'}
+            reference_wins = store.fight_page('run', {**filters,'entrant_model':ref}, {})['matches']
+            model_wins = store.fight_page('run', {**filters,'entrant_model':'model'}, {})['matches']
+            self.assertEqual([row['path'] for row in reference_wins], [f'{stage}/matches/1'])
+            self.assertEqual([row['path'] for row in model_wins], [f'{stage}/matches/0'])
+            exact = store.fight_page('run', {**filters,'stage':stage,'entrant':ref,'opponent':model}, {})['matches']
+            self.assertEqual(exact, reference_wins)
+            self.assertFalse(store.fight_page('run', {'kind':'competition'}, {})['matches'])
+            historical = read_json(run/stage/'records/1.json')
+            write_json(run/stage/'records/old-seed.json', {
+                **historical, 'seed':301, 'artifact_dir':f'{stage}/matches/old-seed',
+            })
+            self.assertEqual(store.fight_page('run', filters, {})['total'], 2)
+            history = store.fight_page('run', {'kind':'all'}, {})['matches']
+            self.assertEqual([row['seed'] for row in history if row['excluded_from_results']], [301])
+            groups = store.fight_groups('run')
+            self.assertEqual(sum(sum(row[7:11]) for row in groups['rows']), 2)
+            write_json(run/'g1-tournament/records/model-duel.json', {
+                'match':{'sides':[model,'other-r0-g1-feedback'],'seed':101,'mirror':False},
+                'directory':'matches/model-duel', 'result':{'status':'completed','winner_side':0,'turns':4},
+            })
+            official = store.fight_page('run', {**filters,'kind':'competition','entrant_model':'model'}, {})['matches']
+            combined = store.fight_page('run', {**filters,'entrant_model':'model'}, {})['matches']
+            self.assertEqual([row['path'] for row in official], ['g1-tournament/matches/model-duel'])
+            self.assertEqual({row['path'] for row in combined}, {official[0]['path'], model_wins[0]['path']})
+            self.assertEqual(len(store.fight_fixtures('run', 'references')['rows']), 4 * 5)
+
     def test_index_reads_stored_and_legacy_records_incrementally(self):
         from arena_web.data import Store
         with scratch_directory() as root:

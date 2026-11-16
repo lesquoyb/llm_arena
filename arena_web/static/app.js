@@ -62,6 +62,11 @@ for(const name of ['pointerout','focusout'])document.addEventListener(name,event
   const target=event.target.closest?.('[data-chart-model]');if(target&&!target.contains(event.relatedTarget))clearChartHover();
 });
 const hiddenChartModels=new Map();
+function groupedBarSlot(band, count, index) {
+  if(count===1)return {width:band-6,offset:3};
+  const width=Math.floor((band-4)/2);
+  return {width,offset:1+index*(width+2)};
+}
 function compactGroupedBars(scope) {
   for(const svg of scope.querySelectorAll('svg[data-bar-layout="grouped"]')) {
     const set=(node,name,value)=>{value=String(value);if(node.getAttribute(name)!==value)node.setAttribute(name,value);};
@@ -83,15 +88,20 @@ function compactGroupedBars(scope) {
     for(const line of svg.querySelectorAll('[data-bar-grid]'))set(line,'x2',W-R);
     for(const [index,label] of labels.entries()) {
       const round=label.dataset.barRoundLabel,active=rounds.get(round)||[];
-      const order=[...new Set(active.map(bar=>bar.dataset.chartModel))];
-      const start=L+index*step+(step-order.length*band)/2;
-      set(label,'x',L+(index+.5)*step);
+      const groups=new Map();
       for(const bar of active) {
-        // Round 1 and merged reference bars fill the model's whole slot.
-        const single=Number(round)===0||bar.dataset.barCondition==='reference',width=single?band-6:Math.floor((band-4)/2);
-        const slot=order.indexOf(bar.dataset.chartModel),condition=bar.dataset.barCondition==='feedback'?1:0;
-        set(bar,'x',start+slot*band+(single?3:condition*(width+2)+1));
-        set(bar,'width',width);
+        const model=bar.dataset.chartModel;
+        if(!groups.has(model))groups.set(model,[]);
+        groups.get(model).push(bar);
+      }
+      const start=L+index*step+(step-groups.size*band)/2;
+      set(label,'x',L+(index+.5)*step);
+      for(const [slot,bars] of [...groups.values()].entries()) {
+        for(const [barIndex,bar] of bars.entries()) {
+          const {width,offset}=groupedBarSlot(band,bars.length,barIndex);
+          set(bar,'x',start+slot*band+offset);
+          set(bar,'width',width);
+        }
       }
     }
   }
@@ -818,6 +828,61 @@ function dashboard() {
   );
 }
 const PROVIDER_NAMES = {mock: "Built-in strategy", openai: "OpenAI", anthropic: "Anthropic", gemini: "Google Gemini", "openai-compatible": "Compatible API / local"};
+function colorEndpoint(model) {
+  if(model.provider!=='openai-compatible' || !model.endpoint)return null;
+  try {return new URL(model.endpoint);} catch {return null;}
+}
+function colorProviderOptions(model) {
+  if(!model?.provider || model.provider==='mock')return [];
+  const endpoint=colorEndpoint(model);
+  const saved=(S.boot?.providers||[]).map(({spec})=>spec).find(spec=>{
+    if(spec.provider!==model.provider || spec.api_key_env!==model.api_key_env)return false;
+    const address=colorEndpoint(spec);
+    return endpoint?.origin===address?.origin && endpoint?.pathname.replace(/\/$/,'')===address?.pathname.replace(/\/$/,'');
+  });
+  const base=endpoint?[`endpoint:${endpoint.host}`,endpoint.host]
+    :[`provider:${model.provider}`,PROVIDER_NAMES[model.provider]||model.provider];
+  return saved?[[`connection:${saved.id}`,saved.id],base]:[base];
+}
+function savedChartColor(colors, key) {
+  return key && Object.hasOwn(colors||{},key) ? colors[key] : undefined;
+}
+function configuredChartColor(id, model, run=null) {
+  const settings=S.boot?.chart_colors;
+  const overrides=savedChartColor(settings?.runs,run);
+  return savedChartColor(overrides,id)||savedChartColor(settings?.models,id)||
+    colorProviderOptions(model).map(([key])=>savedChartColor(settings?.providers,key)).find(Boolean);
+}
+function comparisonChartColor(id, model, run) {
+  const spec=model?.provider ? model : (S.boot?.participants||[]).find(row=>row.spec.id===id)?.spec;
+  const reference=model?.reference||spec?.strategy?.origin?.reference;
+  return reference ? REFERENCE_COLORS.get(reference) : configuredChartColor(id,spec,run);
+}
+function chartColorsDialog(run=null) {
+  const settings=S.boot.chart_colors||{};
+  const current=S.view==='run'?S.detail?.metadata.config?.models||[]:[];
+  const models=new Map((run?current:[...current,...S.boot.participants.map(row=>row.spec)])
+    .filter(model=>model.provider!=='mock').map(model=>[model.id,model]));
+  const sorted=[...models.values()].sort((a,b)=>a.id.localeCompare(b.id));
+  const providerOptions=new Map((S.boot.providers||[]).map(({spec})=>[`connection:${spec.id}`,spec.id]));
+  for(const model of sorted)for(const [key,label] of colorProviderOptions(model))providerOptions.set(key,label);
+  const row=(layer,id,label,help,color,inherited)=>`<div class="chart-color-row" data-chart-color="${layer}" data-color-key="${e(id)}">
+    <div><strong>${e(label)}</strong>${help?`<small>${e(help)}</small>`:''}</div>
+    <input type="color" value="${e(color||inherited)}" data-color-picker data-inherited="${e(inherited)}" aria-label="Color for ${e(label)}">
+    <label class="check"><input type="checkbox" data-color-custom ${color?'checked':''}>Custom</label></div>`;
+  const providerRows=[...providerOptions].sort((a,b)=>a[1].localeCompare(b[1]))
+    .map(([id,label],i)=>row('providers',id,label,id.startsWith('connection:')?'Saved connection':id.startsWith('endpoint:')?'API host':'Provider default',
+      savedChartColor(settings.providers,id),seriesColor(i%SERIES_COLORS.length)));
+  const overrides=run?savedChartColor(settings.runs,run):settings.models;
+  const modelRows=sorted.map((model,i)=>row('models',model.id,model.id,
+    colorProviderOptions(model)[0]?.[1],savedChartColor(overrides,model.id),
+    configuredChartColor(model.id,model)||seriesColor(i%SERIES_COLORS.length)));
+  openDialog(run?'Competition chart colors':'Chart colors',run?S.detail.metadata.config.name:'Default colors for your models',
+    `<form data-form="chart-colors" data-run="${e(run||'')}"><p>${run?'Overrides here apply only to this competition. Clear Custom to inherit the global model or provider color.':'Models inherit their provider color unless they have a model override. Clear Custom to restore inheritance.'}</p>
+    ${run?'':`<section class="form-section"><h3>Providers</h3>${providerRows.join('')||'<p class="muted">No providers configured.</p>'}</section>`}
+    <details class="form-section" ${run?'open':''}><summary>Model overrides</summary>${modelRows.join('')||'<p class="muted">No model profiles.</p>'}</details>
+    <div class="form-footer">${run?btn('Global colors','chart-colors'):''}${btn('Cancel','close-dialog')}<button type="submit" class="button primary">Save colors</button></div></form>`);
+}
 function participantGroups(id) {
   return S.boot.participant_groups.filter(group=>group.members.includes(id));
 }
@@ -904,7 +969,7 @@ async function providerModels(identifier) {
 }
 
 function participants() {
-  return head("Participants", "Reusable model profiles for your competitions.", btn("Groups","participant-groups") + btn("Providers & bulk add","providers") + btn("Add reference strategy","add-reference") + btn("＋ Add participant", "new-participant", "", true)) +
+  return head("Participants", "Reusable model profiles for your competitions.", btn("Groups","participant-groups") + btn("Providers & bulk add","providers") + btn("Chart colors","chart-colors") + btn("Add reference strategy","add-reference") + btn("＋ Add participant", "new-participant", "", true)) +
     `<div class="collection-toolbar"><span id="participant-count" aria-live="polite">${participantProfiles().length} of ${S.boot.participants.length} profiles</span>${selectField("Filter by group","participant_group_filter",[["","All profiles"],["ungrouped","Ungrouped"],...S.boot.participant_groups.map(g=>[g.id,g.name])],S.participantGroup||"")}<input type="search" id="participant-search" placeholder="Search name, model or provider" aria-label="Search participants"></div><div class="profile-grid" id="participant-cards">${participantCards()}</div><details class="quiet-details"><summary>API keys and pricing</summary><p>Keys entered in the interface stay in server memory. Prices are entered in USD per million tokens. Existing competitions retain the settings saved at launch.</p></details>`;
 }
 function freshConfig() {
@@ -1066,7 +1131,9 @@ function toolCallTotals(points) {
 
 function workspacePerformance(group) {
   if(!group)return '<p class="muted">No evaluation results yet.</p>';
-  return resourcePanel(group.models.map(m=>({model:m.name,reference:m.is_reference,toolTotal:m.total_tool_calls,tools:m.mean_tool_calls,tests:m.mean_test_matches,replays:m.mean_replay_reads,label:`${m.name} · ${m.round ? "R"+m.round : "Frozen"} · ${text(m.condition)}`,score:m.score,size:m.model_size_billion,cost:m.mean_cost_usd,time:m.mean_wall_seconds==null?null:m.mean_wall_seconds/60})),"workspace")+`<section class="workspace-chart"><div class="overview-section-head"><h3>Model scores</h3>${chartFullScreenButton()}</div><div class="workspace-bars">${group.models.map(m=>`<div class="workspace-bar"><div><strong>${e(m.name)}</strong><small>${m.round ? `Round ${m.round}` : 'Frozen strategy'} · ${e(text(m.condition))}</small></div><div class="workspace-bar-track"><span style="width:${Math.max(0,Math.min(100,(m.score||0)*100))}%"></span></div><strong>${pct(m.score)}</strong></div>`).join('')}</div></section>`+
+  const run=group.runs.length===1?group.runs[0]:null;
+  const models=group.models.map(m=>({...m,color:comparisonChartColor(m.name,m.chart_profile,run)}));
+  return resourcePanel(models.map(m=>({model:m.name,color:m.color,reference:m.is_reference,toolTotal:m.total_tool_calls,tools:m.mean_tool_calls,tests:m.mean_test_matches,replays:m.mean_replay_reads,label:`${m.name} · ${m.round ? "R"+m.round : "Frozen"} · ${text(m.condition)}`,score:m.score,size:m.model_size_billion,cost:m.mean_cost_usd,time:m.mean_wall_seconds==null?null:m.mean_wall_seconds/60})),"workspace")+`<section class="workspace-chart"><div class="overview-section-head"><h3>Model scores</h3>${chartFullScreenButton()}</div><div class="workspace-bars">${models.map(m=>`<div class="workspace-bar"><div><strong>${e(m.name)}</strong><small>${m.round ? `Round ${m.round}` : 'Frozen strategy'} · ${e(text(m.condition))}</small></div><div class="workspace-bar-track"><span style="width:${Math.max(0,Math.min(100,(m.score||0)*100))}%;${m.color?`background:${m.color}`:''}"></span></div><strong>${pct(m.score)}</strong></div>`).join('')}</div></section>`+
     table(['Participant','Size (B)','Score / B','Round / track','Win / draw / loss','Failed fights','Strategies'],group.models.map(m=>`<tr><td>${e(m.name)}</td><td>${fmt(m.model_size_billion,3)}</td><td>${fmt(m.score_per_billion,4)}</td><td>${m.round??'Frozen'} · ${e(text(m.condition))}</td><td>${m.wins} / ${m.draws} / ${m.losses}</td><td>${m.failed}</td><td>${m.conversations}</td></tr>`))+
     `<p class="muted">Mean score per conversation: win 1, draw 0.5, loss 0. ${group.internal_matches} same-model fights excluded. ${group.runs.length} competitions in this group.</p><details class="quiet-details"><summary>Included competitions & scenario</summary><div class="actions">${group.runs.map(id=>btn(e(S.boot.runs.find(r=>r.id===id)?.name||id),'open-run',`data-run="${e(id)}"`)).join('')}</div>${raw(group.scenario,'Scenario settings')}</details>`;
 }
@@ -1906,8 +1973,7 @@ function referenceEvaluationDialog() {
   const detail = S.detail;
   const policy = detail.reference_evaluation || {};
   const profiles = S.boot.participants.map(row=>row.spec).filter(model=>model.strategy?.origin?.reference);
-  const generated = new Set(detail.metadata.config.models.filter(model=>model.provider!=='mock').map(model=>model.id));
-  const rounds = [...new Set(detail.sessions.filter(session=>generated.has(session.model)&&session.submission&&session.validity!=='invalid')
+  const rounds = [...new Set(detail.sessions.filter(session=>!session.withdrawn&&session.submission&&session.validity!=='invalid')
     .map(session=>session.generation||0))].sort((a,b)=>a-b);
   const checks = (name, rows, checked) => rows.map(([value,label])=>`<label class="check"><input type="checkbox" name="${name}" value="${e(value)}" ${checked.includes(value)?'checked':''}>${e(label)}</label>`).join('');
   const official = checks('excluded',(policy.official||[]).map(id=>[id,id]),policy.excluded||[]);
@@ -1919,7 +1985,7 @@ function referenceEvaluationDialog() {
   }
   openDialog('Reference strategies',detail.metadata.config.name,`<form data-form="reference-evaluation">
     ${official?`<fieldset><legend>Exclude official references from results</legend><p>All fights involving a checked reference are excluded for both sides. Completed fights stay in Matches.</p>${official}</fieldset>`:''}
-    <fieldset><legend>Enable evaluation opponents</legend><p>Evaluation fights use saved model submissions and do not use model APIs or affect standings or feedback. Uncheck a reference to hide its evaluation results.</p>
+    <fieldset><legend>Enable evaluation opponents</legend><p>References fight all active submitted strategies and each other on the tournament seeds. These fights do not use model APIs or affect official standings or feedback. Uncheck a reference to hide its evaluation results.</p>
     ${opponents||'<p>Add a reference in Participants → Add reference strategy.</p>'}</fieldset>
     <fieldset><legend>Rounds to evaluate</legend>${chosenRounds||'<p>No submitted model strategies yet.</p>'}</fieldset>
     <div class="form-footer">${btn('Cancel','close-dialog')}<button type="submit" class="button">Save settings</button>
@@ -2022,8 +2088,14 @@ function scopeEventArgs() {const scope=runScope();return {scope_round:scope.roun
 function runFilters(d) {
   const scope=runScope(),rounds=[...new Set(d.sessions.map(row=>Number(row.generation||0)+1))].sort((a,b)=>a-b);
   const repetitions=Math.max(1,d.metadata.config?.replicates||0,...d.sessions.map(row=>Number(row.replicate||0)+1));
+  const showReferences=(S.tab==='summary' && overviewSettings().source==='references') ||
+    (S.tab==='matches' && ['references','evaluation','all'].includes(S.matchFilters?.kind));
+  const models=runModels(d).map(model=>[model.id,model.id]);
+  for(const reference of d.reference_evaluation?.opponents||[]) {
+    if(showReferences||scope.model===reference.id) models.push([reference.id,`${reference.label} · evaluation`]);
+  }
   const control=(label,key,options)=>`<label>${label}<select data-run-filter="${key}" aria-label="Competition ${label.toLowerCase()}">${options.map(([value,text])=>`<option value="${e(value)}" ${scope[key]===String(value)?'selected':''}>${e(text)}</option>`).join('')}</select></label>`;
-  return `<section id="run-filters" class="run-filters" aria-label="Competition filters">${control('Model','model',[['','All models'],...runModels(d).map(model=>[model.id,model.id])])}${control('Round','round',[['','All rounds'],...(rounds.length?rounds:[1]).map(round=>[String(round),'Round '+round])])}${control('Track','track',[['','All tracks'],['initial','Initial'],['control','No feedback'],['feedback','With feedback']])}${control('Repetition','replicate',[['','All repetitions'],...Array.from({length:repetitions},(_,i)=>[String(i+1),'Repetition '+(i+1)])])}${scopeActive()?btn('Reset','reset-run-filters'):''}<small>${S.tab==='activity'||S.tab==='config'?'Competition totals; exploration filters are kept.':'Shared across statistics, conversations, code, matches and journal.'}</small></section>`;
+  return `<section id="run-filters" class="run-filters" aria-label="Competition filters">${control('Model','model',[['','All models'],...models])}${control('Round','round',[['','All rounds'],...(rounds.length?rounds:[1]).map(round=>[String(round),'Round '+round])])}${control('Track','track',[['','All tracks'],['initial','Initial'],['control','No feedback'],['feedback','With feedback']])}${control('Repetition','replicate',[['','All repetitions'],...Array.from({length:repetitions},(_,i)=>[String(i+1),'Repetition '+(i+1)])])}${scopeActive()?btn('Reset','reset-run-filters'):''}<small>${S.tab==='activity'||S.tab==='config'?'Competition totals; exploration filters are kept.':'Shared across statistics, conversations, code, matches and journal.'}</small></section>`;
 }
 function competitionRecovery(d) {
   const active=activeJobs().some(job=>job.run===S.run);
@@ -2060,7 +2132,7 @@ function runHeader(d) {
     job = S.boot.jobs.find((j) => j.run === S.run),
     active = job && ["running", "stopping"].includes(job.status),
     experiment = !!d.metadata.config;
-  return `<a class="back-link" href="#view=competitions">← Competitions</a>` + head(config.name, "", `${active ? btn("■ Stop", "stop-job", `data-id="${e(job.id)}"`) : experiment && !d.archived ? btn("Resume", "resume", "", true) : ""}<details class="action-menu"><summary class="button">More <svg class="menu-chevron" viewBox="0 0 12 12" width="12" height="12" aria-hidden="true"><path d="M2.5 4.5 6 8l3.5-3.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></summary><div>${experiment && !d.archived ? btn("Edit participants","edit-run-participants")+btn("Reference strategies","run-reference-strategies")+btn("Execution & metrics","run-metric-collection") : ""}${btn('Load diagnostics','load-diagnostics')}${experiment?btn('Engine performance','engine-performance')+btn('Copy scheduling diagnostics','copy-scheduling-diagnostics'):''}${btn("Move to workspace","move-workspace",`data-run="${e(S.run)}"`)}<a class="button" href="/api/results.csv?${query({run:S.run})}" download>Download results CSV</a><a class="button" href="/api/results.csv?${query({run:S.run,table:"fights"})}" download>Download match results CSV</a><a class="button" href="/api/results.csv?${query({run:S.run,table:"sessions"})}" download>Download sessions CSV</a>${experiment ? btn("Clone configuration", "clone-run") + btn("Export competition", "export-run") : ""}${storageMenuItem(d)}</div></details>`) +
+  return `<a class="back-link" href="#view=competitions">← Competitions</a>` + head(config.name, "", `${active ? btn("■ Stop", "stop-job", `data-id="${e(job.id)}"`) : experiment && !d.archived ? btn("Resume", "resume", "", true) : ""}<details class="action-menu"><summary class="button">More <svg class="menu-chevron" viewBox="0 0 12 12" width="12" height="12" aria-hidden="true"><path d="M2.5 4.5 6 8l3.5-3.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></summary><div>${experiment && !d.archived ? btn("Edit participants","edit-run-participants")+btn("Reference strategies","run-reference-strategies")+btn("Execution & metrics","run-metric-collection")+btn("Chart colors","run-chart-colors") : ""}${btn('Load diagnostics','load-diagnostics')}${experiment?btn('Engine performance','engine-performance')+btn('Copy scheduling diagnostics','copy-scheduling-diagnostics'):''}${btn("Move to workspace","move-workspace",`data-run="${e(S.run)}"`)}<a class="button" href="/api/results.csv?${query({run:S.run})}" download>Download results CSV</a><a class="button" href="/api/results.csv?${query({run:S.run,table:"fights"})}" download>Download match results CSV</a><a class="button" href="/api/results.csv?${query({run:S.run,table:"sessions"})}" download>Download sessions CSV</a>${experiment ? btn("Clone configuration", "clone-run") + btn("Export competition", "export-run") : ""}${storageMenuItem(d)}</div></details>`) +
     `<div class="toolbar run-toolbar">${job ? status(job.status === "failed" && d.report?.incomplete ? "incomplete" : job.status) : ""}${job?.mode==='retry_fights'?badge('Engine recovery · no model calls'):''}${config.models ? badge(config.models.every(m=>m.provider==="mock") ? "Built-in strategies" : "Model competition") : badge("Provided strategies")}${d.archived ? badge("Exported copy", "orange") : ""}<span class="run-id mono" title="Competition ID">${e(S.run)}</span><span class="spacer"></span><label class="check live-toggle"><input id="follow-live" type="checkbox" ${S.follow ? "checked" : ""}>Live</label>${job ? btn("Run log", "job-log", `data-id="${e(job.id)}"`) : ""}</div>` + (S.tab==='activity'?'':competitionActivity()) +
     `<nav class="tabs" aria-label="Competition views">${TABS.map(([key,label])=>`<button class="tab ${S.tab===key ? "active" : ""}" ${S.tab===key ? 'aria-current="page"' : ""} data-action="tab" data-tab="${key}">${label}</button>`).join("")}</nav>`;
 }
@@ -2427,12 +2499,25 @@ const overviewRoundKey = (item) =>
     : item.generation === 1
       ? item.condition
       : `${item.generation}:${item.condition}`;
-function overviewEntries(match) {
+function isReferenceEvaluation(match) {
+  return match.kind==='evaluation' && match.stage.endsWith('-references-panel');
+}
+function overviewEntries(match, includeReference=false) {
   const candidateSide =
     match.candidate_side ??
     (match.candidate ? match.sides.indexOf(match.candidate) : -1);
-  return match.sides
-    .map((id, side) => ({ ...overviewIdentity(id), side }))
+  const sides=match.sides.map((id, side) => ({ ...overviewIdentity(id), side }));
+  if(includeReference && isReferenceEvaluation(match) && candidateSide>=0) {
+    if(sides.every(item=>referenceLabel(item.id)!==item.id)) {
+      const generation=stageRound(match.stage);
+      return sides.map(item=>({...item,generation,condition:generation?'reference':'initial'}));
+    }
+    const sample=sides[candidateSide];
+    return sides.map(item=>item.side===candidateSide?item:{
+      ...item,generation:sample.generation,condition:sample.condition,replicate:sample.replicate,
+    });
+  }
+  return sides
     .filter(
       (item) =>
         !['evaluation','progression'].includes(match.kind) ||
@@ -2475,7 +2560,7 @@ function overviewData(d, scope=overviewSettings()) {
   const selected = all
     .map((match) => ({
       match,
-      entries: overviewEntries(match).filter((item) =>
+      entries: overviewEntries(match,scope.source==='references').filter((item) =>
         overviewAccept(item, scope),
       ),
     }))
@@ -2556,8 +2641,13 @@ function overviewData(d, scope=overviewSettings()) {
 }
 function overviewFilters(d,data) {
   const options=(rows,value)=>rows.map(([id,label])=>`<option value="${e(id)}" ${id===value?'selected':''}>${e(label)}</option>`).join('');
-  return `<div class="overview-filters" role="group" aria-label="Chart options"><label>Matches<select data-overview-filter="source" aria-label="Overview matches">${options([['competition','Tournament'],['evaluation','Fixed baseline (unscored)'],['progression','Previous-round comparisons (unscored)']],data.scope.source)}</select></label><label>Matrix grouping<select data-overview-filter="matrix" aria-label="Matrix grouping">${options([['models','By model'],['versions','By strategy version']],data.scope.matrix||'models')}</select></label><span class="overview-scope">${fmt(fightCount(data.selected))} fights · ${data.models.length} models</span></div>`;
+  const referenceView=data.scope.source==='references';
+  const references=(d.reference_evaluation?.selected?.length||referenceView)
+    ? `<label class="check"><input type="checkbox" data-overview-filter="referenceView" ${referenceView?'checked':''}>Include evaluation references</label>` : '';
+  const source=referenceView?'competition':data.scope.source;
+  return `<div class="overview-filters" role="group" aria-label="Chart options">${references}<label>Matches<select data-overview-filter="source" aria-label="Overview matches" ${referenceView?'disabled':''}>${options([['competition','Tournament'],['evaluation','Fixed baseline (unscored)'],['progression','Previous-round comparisons (unscored)']],source)}</select></label><label>Matrix grouping<select data-overview-filter="matrix" aria-label="Matrix grouping">${options([['models','By model'],['versions','By strategy version']],data.scope.matrix||'models')}</select></label><span class="overview-scope">${fmt(fightCount(data.selected))} fights · ${data.models.length} candidates</span></div>`;
 }
+
 function chartFullScreenButton() {return btn(document.fullscreenElement||$('.chart-expanded')?'Exit full screen':'Full screen','expand-chart');}
 async function toggleChartFullScreen(node) {
   const chart=node.closest('.resource-chart,.overview-card,.comparison-chart,.workspace-chart,.conversation-panel');
@@ -2573,19 +2663,59 @@ document.addEventListener('fullscreenchange',()=>{
 document.addEventListener('keydown',event=>{
   if(event.key==='Escape'){for(const chart of $$('.chart-expanded'))chart.classList.remove('chart-expanded');document.body.classList.remove('chart-focus-open');if(!document.fullscreenElement)for(const button of $$('[data-action="expand-chart"]'))button.textContent='Full screen';}
 });
+function referenceLabel(id) {
+  return String(id).replace(/@[a-f0-9]{12}$/, '');
+}
 function overviewRanking(data) {
   if (!data.models.length)
     return '<div class="overview-empty">No scored matches in this selection.</div>';
   const resultLink=(row,outcome,value)=>`<a href="#${query({view:'run',run:S.run,tab:'matches',...scopeURL(),kind:data.scope.source,entrant_model:row.model,round:data.scope.round,outcome,scored:'1',exclude_same_model:data.scope.source==='progression'?undefined:'1'})}">${value}</a>`;
-  return `<p class="muted">${data.scope.source==='progression'?'Against previous-round versions, including the same model.':'Against other models only.'} Click a result to inspect its fights. Counts are appearances across selected submitted versions: fixed references have fewer repetitions. Cache reuse counts as a completed scheduled fight.</p><ol class="overview-ranking">${data.models.map((r, i) => `<li><span class="overview-rank">${i + 1}</span><div class="overview-rank-body"><div><strong>${e(r.model)}</strong><span>${pct(r.score)}</span></div><div class="overview-bar"><span style="width:${100 * (r.score || 0)}%;background:${overviewColor(r.model)}"></span></div><small>${resultLink(r,"win",r.wins+"W")} · ${resultLink(r,"draw",r.draws+"D")} · ${resultLink(r,"loss",r.losses+"L")}${r.failures ? ` · ${r.failures} failed` : ""}</small> <small title="Tournament fights count for both sides. Same-model fights are excluded. Fixed references have one sample; generated participants include repetitions. Cache reuse still counts every scheduled fight.">${fmt(r.completed)} fights · ${data.sessions.filter(session=>session.model===r.model&&session.submission).length} submitted strategies${data.selected.some(v=>v.entries.some(item=>item.model===r.model)&&v.match.result.reference_cache?.hit)?" · includes cached fights":""}</small></div></li>`).join("")}</ol>`;
+  return `<p class="muted">${data.scope.source==='references'?'Scores combine tournament fights and fights against evaluation references.':data.scope.source==='progression'?'Against previous-round versions, including the same model.':'Against other models only.'} Click a result to inspect its fights. Counts are appearances across selected submitted versions: fixed references have fewer repetitions. Cache reuse counts as a completed scheduled fight.</p><ol class="overview-ranking${data.scope.compactRanking?' compact':''}">${data.models.map((r, i) => `<li><span class="overview-rank">${i + 1}</span><div class="overview-rank-body"><div><strong title="${e(r.model)}">${e(referenceLabel(r.model))}</strong><span>${resultLink(r,"completed",pct(r.score))}</span></div><div class="overview-bar"><span style="width:${100 * (r.score || 0)}%;background:${overviewColor(r.model)}"></span></div><small title="Tournament fights count for both sides. Same-model fights are excluded. Fixed references have one sample; generated participants include repetitions. Cache reuse still counts every scheduled fight.">${resultLink(r,"win",r.wins+"W")} · ${resultLink(r,"draw",r.draws+"D")} · ${resultLink(r,"loss",r.losses+"L")}${r.failures ? ` · ${resultLink(r,"failure",r.failures+" failed")}` : ""} · ${fmt(r.completed)} fights · ${referenceLabel(r.model)!==r.model?"fixed reference":`${data.sessions.filter(session=>session.model===r.model&&session.submission).length} submitted strategies`}${data.selected.some(v=>v.entries.some(item=>item.model===r.model)&&v.match.result.reference_cache?.hit)?" · includes cached fights":""}</small></div></li>`).join("")}</ol>`;
 }
+// A fixed light-to-dark ladder, independent of measured scores and entrant order.
+const REFERENCE_COLORS = new Map([
+  ['passive','#9aa2ad'],
+  ['evasive','#818c9b'],
+  ['turret','#697586'],
+  ['single-shot','#536071'],
+  ['rush','#3d495b'],
+  ['human-weapon','#283345'],
+]);
 let overviewPalette={};
+function overviewReferenceLevels(detail) {
+  const levels=new Map([...REFERENCE_COLORS].map(([level])=>['fixed-'+level,level]));
+  for(const row of [...(detail?.metadata.config?.models||[]), ...(detail?.metadata.manifest?.strategies||[])]) {
+    const level=row.strategy?.origin?.reference||row.origin?.reference;
+    if(level)levels.set(row.id,level);
+  }
+  for(const row of detail?.reference_evaluation?.opponents||[]) {
+    const level=row.reference||S.boot?.participants?.find(model=>model.spec.id===row.label)?.spec.strategy?.origin?.reference;
+    if(level)levels.set(row.id,level);
+  }
+  return levels;
+}
 function overviewColor(model) {
-  if(overviewPalette.matches!==S.overviewMatches || overviewPalette.detail!==S.detail) {
-  const names=[...new Set([...(S.detail?.metadata.config?.models||[]).map(m=>m.id),...(S.overviewMatches||[]).flatMap(m=>m.sides.map(id=>overviewIdentity(id).model))])].sort();
-  overviewPalette={matches:S.overviewMatches,detail:S.detail,colors:new Map(names.map((name,i)=>[name,seriesColor(i)]))};
+  const settings=S.boot?.chart_colors, providers=S.boot?.providers;
+  if(!overviewPalette.colors || overviewPalette.matches!==S.overviewMatches || overviewPalette.detail!==S.detail ||
+      overviewPalette.settings!==settings || overviewPalette.providers!==providers) {
+    const references=overviewReferenceLevels(S.detail);
+    const specs=new Map((S.detail?.metadata.config?.models||[]).map(model=>[model.id,model]));
+    const catalog=new Map((S.boot?.participants||[]).map(({spec})=>[spec.id,spec]));
+    const names=[...new Set([...specs.keys(),...(S.overviewMatches||[]).flatMap(m=>m.sides.map(id=>overviewIdentity(id).model))])].sort();
+    const colors=new Map(names.filter(name=>!references.has(name)).map((name,i)=>[
+      name,configuredChartColor(name,specs.get(name)||catalog.get(name),S.run)||seriesColor(i),
+    ]));
+    for(const [id,level] of references)colors.set(id,REFERENCE_COLORS.get(level)||'#697586');
+    overviewPalette={matches:S.overviewMatches,detail:S.detail,settings,providers,colors,references};
   }
   return overviewPalette.colors.get(model)||seriesColor(0);
+}
+function overviewSwatch(color) {
+  return `<i class="overview-swatch" style="background:${color}" aria-hidden="true"></i>`;
+}
+function referenceSwatch(model) {
+  const color=overviewColor(model);
+  return overviewPalette.references?.has(model) ? overviewSwatch(color) : '';
 }
 function overviewEvolution(data) {
   const mode=overviewSettings().evolution||'bars';
@@ -2594,16 +2724,24 @@ function overviewEvolution(data) {
 // Reference strategies never evolve: their two "tracks" are the same frozen
 // code, so charts show one series combining both.
 function isReferenceModel(model) {
-  if(String(model).startsWith('fixed-'))return true;
+  if(String(model).startsWith('fixed-')||referenceLabel(model)!==model)return true;
   return (S.detail?.metadata.config?.models||[]).some(row=>row.id===model&&row.provider==='mock');
 }
 function mergedReferenceRow(rows,model,round) {
-  const parts=['control','feedback'].map(condition=>rows.get(JSON.stringify([model,round,condition]))).filter(Boolean);
+  const parts=['control','feedback','reference'].map(condition=>rows.get(JSON.stringify([model,round,condition]))).filter(Boolean);
   if(!parts.length)return null;
   if(parts.length===1||parts.some(row=>row.wins===undefined))return {...parts[0],condition:'reference'};
   const sum=key=>parts.reduce((total,row)=>total+(row[key]||0),0);
   const wins=sum('wins'),draws=sum('draws'),losses=sum('losses'),completed=wins+draws+losses;
   return {...parts[0],condition:'reference',wins,draws,losses,failures:sum('failures'),completed,score:completed?(wins+.5*draws)/completed:null,tooltip:null};
+}
+function evolutionTrackNote(conditions, lines=false) {
+  const feedback=conditions.has('feedback'), control=conditions.has('control');
+  if(feedback&&control)return lines
+    ? '<div class="evolution-track-key">Solid: with feedback · Dashed: without feedback</div>'
+    : '<div class="evolution-track-key"><span><i class="track-swatch"></i>With feedback</span><span><i class="track-swatch pale"></i>Without feedback</span></div>';
+  if(feedback||control)return `<small class="muted">${feedback?'With feedback':'Without feedback'}</small>`;
+  return '';
 }
 function overviewEvolutionBars(data) {
   if(!data.history.length)return '<div class="overview-empty">Evolution appears as rounds finish.</div>';
@@ -2617,26 +2755,35 @@ function overviewEvolutionBars(data) {
   const ticks=data.signed?[-1,-.5,0,.5,1]:[0,.25,.5,.75,1];
   const rows=new Map(data.history.map(row=>[JSON.stringify([row.model,row.generation,row.condition]),row]));
   const tracks=['control','feedback'].filter(track=>data.history.some(row=>row.condition===track));
+  const shownConditions=new Set();
   const marks=rounds.map((round,index)=>{
-    const start=L+index*step+(step-models.length*band)/2;
-    return `<text data-bar-round-label="${round}" x="${L+(index+.5)*step}" y="${B+25}" text-anchor="middle">Round ${round+1}</text>`+models.map((model,mi)=>{
+    const groups=models.map(model=>{
       const reference=round>0&&isReferenceModel(model)&&!data.signed;
       const conditions=round===0?['initial']:reference?['reference']:tracks;
-      return conditions.map((condition,ci)=>{
-        const row=condition==='reference'?mergedReferenceRow(rows,model,round):rows.get(JSON.stringify([model,round,condition]));if(row?.score==null)return '';
-        const single=round===0||reference||tracks.length===1;
-        const width=single?band-6:Math.floor((band-4)/2),x=start+mi*band+(single?3:ci*(width+2)+1),color=overviewColor(model);
+      const bars=conditions.map(condition=>({condition,row:condition==='reference'
+        ?mergedReferenceRow(rows,model,round):rows.get(JSON.stringify([model,round,condition]))}))
+        .filter(({row})=>row?.score!=null);
+      return {model,bars};
+    }).filter(({bars})=>bars.length);
+    const start=L+index*step+(step-groups.length*band)/2;
+    return `<text data-bar-round-label="${round}" x="${L+(index+.5)*step}" y="${B+25}" text-anchor="middle">Round ${round+1}</text>`+groups.map(({model,bars},slot)=>{
+      const color=overviewColor(model);
+      return bars.map(({condition,row},barIndex)=>{
+        shownConditions.add(condition);
+        const {width,offset}=groupedBarSlot(band,bars.length,barIndex),x=start+slot*band+offset;
         const label=row.tooltip||`${model} · ${condition==='reference'?`Round ${round+1} · fixed reference`:overviewRound(condition,round)} · ${pct(row.score)} · ${row.wins}W / ${row.draws}D / ${row.losses}L · ${row.completed} appearances`;
         return `<rect data-bar-round="${round}" data-bar-condition="${condition}" x="${x}" y="${Math.min(y(row.score),origin)-(row.score===0?2:0)}" width="${width}" height="${Math.max(2,Math.abs(origin-y(row.score)))}" fill="${color}" fill-opacity="${condition==='control'?.35:1}" stroke="${color}" stroke-width=".6" tabindex="0" aria-label="${e(label)}" data-chart-model="${e(model)}" data-chart-label="${e(label)}"/>`;
       }).join('');
     }).join('');
   }).join('');
-  return `<div class="chart-filterable" data-chart-key="${e(data.chartKey||'evolution:'+S.run)}"><div class="evolution-scroll" role="region" aria-label="Evolution by round" tabindex="0"><svg data-bar-layout="grouped" data-bar-left="${L}" data-bar-right="${R}" data-bar-available="${available}" class="overview-evolution evolution-bars" style="min-width:${W}px" viewBox="0 0 ${W} ${H}" role="img" aria-label="Model scores grouped by round">${ticks.map(value=>`<line data-bar-grid x1="${L}" x2="${W-R}" y1="${y(value)}" y2="${y(value)}" stroke="#e0e7e4"/><text x="${L-7}" y="${y(value)+4}" text-anchor="end">${data.signed?(data.signedUnit==='net_wins'?progressionNet(value):progressionPoints(value)):pct(value)}</text>`).join('')}${data.parity?`<line data-bar-grid x1="${L}" x2="${W-R}" y1="${y(.5)}" y2="${y(.5)}" stroke="#6f8294" stroke-dasharray="4 4"/>`:''}${marks}</svg></div><div class="evolution-track-key"><span><i class="track-swatch"></i>${data.parity||data.signed?'With feedback':'Initial / With feedback'}</span><span><i class="track-swatch pale"></i>Without feedback</span></div><div class="overview-legend">${models.map(model=>`<span tabindex="0" data-chart-model="${e(model)}"><i style="background:${overviewColor(model)}"></i>${e(model)}</span>`).join('')}</div></div>`;
+  return `<div class="chart-filterable" data-chart-key="${e(data.chartKey||'evolution:'+S.run)}"><div class="evolution-scroll" role="region" aria-label="Evolution by round" tabindex="0"><svg data-bar-layout="grouped" data-bar-left="${L}" data-bar-right="${R}" data-bar-available="${available}" class="overview-evolution evolution-bars" style="min-width:${W}px" viewBox="0 0 ${W} ${H}" role="img" aria-label="Model scores grouped by round">${ticks.map(value=>`<line data-bar-grid x1="${L}" x2="${W-R}" y1="${y(value)}" y2="${y(value)}" stroke="#e0e7e4"/><text x="${L-7}" y="${y(value)+4}" text-anchor="end">${data.signed?(data.signedUnit==='net_wins'?progressionNet(value):progressionPoints(value)):pct(value)}</text>`).join('')}${data.parity?`<line data-bar-grid x1="${L}" x2="${W-R}" y1="${y(.5)}" y2="${y(.5)}" stroke="#6f8294" stroke-dasharray="4 4"/>`:''}${marks}</svg></div><div class="overview-legend">${models.map(model=>`<span tabindex="0" data-chart-model="${e(model)}"><i style="background:${overviewColor(model)}"></i>${e(model)}</span>`).join('')}</div>${evolutionTrackNote(shownConditions)}</div>`;
 }
 function overviewEvolutionLines(data) {
   if (!data.history.length)
     return '<div class="overview-empty">Evolution appears as rounds finish.</div>';
   const models = [...new Set(data.history.map((r) => r.model))];
+  const conditions=new Set(data.history.filter(row=>row.score!=null&&(data.signed||!isReferenceModel(row.model)))
+    .map(row=>row.condition));
   const generations = [...new Set(data.history.map((r) => r.generation))].sort(
     (a, b) => a - b,
   );
@@ -2683,7 +2830,7 @@ function overviewEvolutionLines(data) {
     })
     .join(
       "",
-    )}</svg><div class="overview-legend">${models.map((model) => `<span tabindex="0" data-chart-model="${e(model)}"><i style="background:${overviewColor(model)}"></i>${e(model)}</span>`).join("")}<span>Solid: feedback · Dashed: no feedback</span></div></div>`;
+    )}</svg><div class="overview-legend">${models.map((model) => `<span tabindex="0" data-chart-model="${e(model)}"><i style="background:${overviewColor(model)}"></i>${e(model)}</span>`).join("")}</div>${evolutionTrackNote(conditions,true)}</div>`;
 }
 const PROGRESSION_MODES=[['own_initial','Against own Round 1'],['own_previous','Against own previous round'],['previous_pool','Against previous-round LLM pool'],['score_change','Score change in selected category']];
 const progressionNet=value=>value==null?'N/A':`${value>0?'+':''}${fmt(value*100,1)}%`;
@@ -2780,13 +2927,13 @@ function overviewMatrix(data) {
     return '<div class="overview-empty">Head-to-head results appear after opponents meet.</div>';
   const names = [...new Set(data.matrix.map((r) => r.other))].sort();
   const rows = [...new Set(data.matrix.map(r=>r.who))].sort();
-  const short = (name) => name;
+  const short = referenceLabel;
   const label = (name) => {
     if (data.scope.matrix === "versions" && (S.detail.sessions.some(s=>s.id===name) || S.detail.metadata.manifest?.strategies?.some(s=>s.id===name && s.origin))) {
       const identity=overviewIdentity(name);
-      return `<abbr title="${e(strategyName(name))}" tabindex="0">${e(short(identity.model))}<small>${e(overviewRound(identity.condition,identity.generation))} · #${identity.replicate+1}</small></abbr>`;
+      return `<abbr title="${e(strategyName(name))}" tabindex="0">${referenceSwatch(identity.model)}${e(short(identity.model))}<small>${e(overviewRound(identity.condition,identity.generation))} · #${identity.replicate+1}</small></abbr>`;
     }
-    return `<abbr title="${e(name)}" tabindex="0">${e(short(name))}</abbr>`;
+    return `<abbr title="${e(name)}" tabindex="0">${referenceSwatch(name)}${e(short(name))}</abbr>`;
   };
   return `<div class="overview-matrix-wrap"><table class="overview-matrix" style="min-width:${120 + names.length * 140}px" aria-label="Head-to-head results by selected grouping"><thead><tr><th scope="col" class="matrix-axis">Row model ↓<br>Opponent →</th>${names.map((name) => `<th scope="col">${label(name)}</th>`).join("")}</tr></thead><tbody>${rows
     .map(
@@ -2910,8 +3057,8 @@ function summary(d, statistics = null) {
         Number(s.money_reserved || 0) > 0,
     ),
     cost = sessions.reduce((n, s) => n + Number(s.cost_spent || 0), 0);
-  return `<div class="competition-overview">${indexingNotice(S.overviewIndexing)}${overviewFilters(d, data)}${data.scope.source==='progression'?notice('Unscored progression diagnostic: current LLM versions face the preceding round. This includes same-model historical opponents; results do not change tournament standings or model feedback.'):''}${failures.length ? `<div class="overview-alert">${failures.length} conversation${failures.length === 1 ? "" : "s"} need attention. <button class="table-button" data-action="overview-failures">Review & retry</button></div>` : ""}<div class="overview-kpis"><div><span>Completed fights</span><strong>${fmt(fightCount(data.selected.filter((v) => v.match.result.status === "completed")))}</strong><small>${fmt(fightCount(data.selected.filter((v) => v.match.result.status !== "completed")))} failed</small></div><div><span>Submitted strategies</span><strong>${sessions.length ? sessions.filter((s) => s.submission || s.status === "submitted").length : d.metadata.manifest?.strategies?.filter(s=>overviewAccept(overviewIdentity(s.id),data.scope)).length ?? data.models.length}${sessions.length ? `<small> / ${sessions.length}</small>` : ""}</strong><small>${d.metadata.config ? d.metadata.config.models.filter(model=>!d.roster?.withdrawn.includes(model.id)&&(!data.scope.model||data.scope.model===model.id)).length : data.models.length} active participants</small></div><div><span>Estimated API cost</span><strong>${sessions.length ? (costUnknown ? "Unknown" : money(cost)) : "N/A"}</strong><small>Selected versions</small></div><div><span>Tokens · selected versions</span><strong>${known.length ? fmt(tokens) : real.length ? "Unknown" : "N/A"}</strong><small>${known.length ? (known.length < real.length || known.some(u=>!u.complete) ? "Partial reported usage" : "Input + output") : real.length ? "Not reported by provider" : "No measured LLM usage"}</small></div></div>
-  <div class="overview-charts"><section class="overview-card"><div class="overview-section-head"><h2>Model ranking</h2>${chartFullScreenButton()}</div>${overviewRanking(data)}</section><section class="overview-card"><div class="overview-section-head"><h2>Evolution</h2>${chartFullScreenButton()}</div>${overviewEvolution(data)}</section></div><section class="overview-card">${resourcePanel(overviewResourcePoints(d,data),"overview")}</section>
+  return `<div class="competition-overview">${indexingNotice(S.overviewIndexing)}${overviewFilters(d, data)}${data.scope.source==='references'?notice('This view combines tournament fights and additional fights against evaluation references. The official ranking uses tournament fights.'):''}${data.scope.source==='progression'?notice('Unscored progression diagnostic: current LLM versions face the preceding round. This includes same-model historical opponents; results do not change tournament standings or model feedback.'):''}${failures.length ? `<div class="overview-alert">${failures.length} conversation${failures.length === 1 ? "" : "s"} need attention. <button class="table-button" data-action="overview-failures">Review & retry</button></div>` : ""}<div class="overview-kpis"><div><span>Completed fights</span><strong>${fmt(fightCount(data.selected.filter((v) => v.match.result.status === "completed")))}</strong><small>${fmt(fightCount(data.selected.filter((v) => v.match.result.status !== "completed")))} failed</small></div><div><span>Submitted strategies</span><strong>${sessions.length ? sessions.filter((s) => s.submission || s.status === "submitted").length : d.metadata.manifest?.strategies?.filter(s=>overviewAccept(overviewIdentity(s.id),data.scope)).length ?? data.models.length}${sessions.length ? `<small> / ${sessions.length}</small>` : ""}</strong><small>${d.metadata.config ? d.metadata.config.models.filter(model=>!d.roster?.withdrawn.includes(model.id)&&(!data.scope.model||data.scope.model===model.id)).length : data.models.length} active participants</small></div><div><span>Estimated API cost</span><strong>${sessions.length ? (costUnknown ? "Unknown" : money(cost)) : "N/A"}</strong><small>Selected versions</small></div><div><span>Tokens · selected versions</span><strong>${known.length ? fmt(tokens) : real.length ? "Unknown" : "N/A"}</strong><small>${known.length ? (known.length < real.length || known.some(u=>!u.complete) ? "Partial reported usage" : "Input + output") : real.length ? "Not reported by provider" : "No measured LLM usage"}</small></div></div>
+  <div class="overview-charts"><section class="overview-card"><div class="overview-section-head"><h2>${data.scope.source==='references'?"Scores including evaluation references":"Model ranking"}</h2><div class="chart-controls"><label class="check"><input type="checkbox" data-overview-filter="compactRanking" ${data.scope.compactRanking?'checked':''}>Compact</label>${chartFullScreenButton()}</div></div>${overviewRanking(data)}</section><section class="overview-card"><div class="overview-section-head"><h2>Evolution</h2>${chartFullScreenButton()}</div>${overviewEvolution(data)}</section></div><section class="overview-card">${resourcePanel(overviewResourcePoints(d,data),"overview")}</section>
   ${lineageChart(d,data)}
   ${fightLengthCard(d,data)}
   ${repetitionVariance(d,data)}
@@ -3551,6 +3698,7 @@ function matchCategory(match,kind) {
   if(kind==='all')return true;
   if(kind==='selfplay')return !!match.mirror;
   if(!kind||kind==='competition')return match.kind==='competition'&&!match.mirror;
+  if(kind==='references')return !match.mirror&&(match.kind==='competition'||isReferenceEvaluation(match));
   if(kind==='progression')return match.kind==='progression'||match.previous_round_comparison;
   return match.kind===(kind||'competition');
 }
@@ -3574,7 +3722,7 @@ function normalizeMatchFilters() {
   if(['control','feedback'].includes(f.round)) {f.track=f.round;f.round='2';}
   const branchRound=String(f.round||'').match(/^(\d+):(control|feedback)$/);
   if(branchRound) {f.round=String(Number(branchRound[1])+1);f.track=branchRound[2];}
-  if(f.stage) {const stage=String(f.stage).match(/g(\d+)-(?:tournament|panel)/);if(!f.round)f.round=stage?String(Number(stage[1])+1):'all';}
+  if(f.stage) {const stage=String(f.stage).match(/g(\d+)-(?:tournament|(?:references-)?panel)/);if(!f.round)f.round=stage?String(Number(stage[1])+1):'all';}
   if(f.entrant && !f.entrant_model) {const identity=overviewIdentity(f.entrant);f.entrant_model=identity.model;if(!f.round)f.round=String(identity.generation+1);}
   if(f.opponent && !f.opponent_model)f.opponent_model=overviewIdentity(f.opponent).model;
   return f;
@@ -3596,11 +3744,12 @@ function matchesPage() {
       ["selfplay", "Self-play diagnostics (A vs A, unscored)"],
       ["training", "Preparation tests (unscored)"],
       ["evaluation", "Fixed-baseline evaluations (unscored)"],
+      ["references", "Tournament + evaluation reference fights"],
       ["progression", "Previous-round comparisons (unscored)"],
       ["all", "All fights"],
     ],
     f.kind || "competition",
-  )}<div id="match-origin-scope">${f.stage ? notice('Stage selected from overview: '+e(stageText(f.stage))) : ''}${f.entrant || f.opponent ? notice(`Exact versions selected from the matrix: ${e(strategyName(f.entrant||'Any participant'))} vs ${e(strategyName(f.opponent||'Any opponent'))}. Changing the shared filters selects models across versions.`) : ''}</div><div class="match-filters">${field("Search", "match-search", f.search || "", "search", "", 'id="match-search"')}${selectField('Opponent model','match-opponent-model',[['','All opponents'],...participants.map(model=>[model,model])],f.opponent_model||'')}${selectField(
+  )}<div id="match-origin-scope">${f.stage ? notice('Stage selected from overview: '+e(stageText(f.stage))) : ''}${f.entrant || f.opponent ? notice(`Exact versions selected from the matrix: ${e(strategyName(f.entrant||'Any participant'))} vs ${e(strategyName(f.opponent||'Any opponent'))}. Changing the shared filters selects models across versions.`) : ''}</div><div class="match-filters">${field("Search", "match-search", f.search || "", "search", "", 'id="match-search"')}${selectField('Opponent model','match-opponent-model',[['','All opponents'],...participants.map(model=>[model,referenceLabel(model)])],f.opponent_model||'')}${selectField(
     f.kind==='selfplay'?"Outcome for blue side":"Outcome for selected participant (otherwise blue side)",
     "match-outcome",
     [
@@ -3855,7 +4004,8 @@ function lineChart(group) {
   ].sort((a, b) => a[1] - b[1]);
   if (!runs.length) return "";
   const series = new Map(),
-    labels = new Map();
+    labels = new Map(),
+    colors = new Map();
   for (const p of group.series) {
     if (p.score == null || p.failed) continue;
     const key = `${p.model_signature}/g${p.generation}/${p.condition}`;
@@ -3864,6 +4014,7 @@ function lineChart(group) {
       `${p.model} · ${generationLabel(p.generation)} ${text(p.condition)} · ${p.model_id}`,
     );
     if (!series.has(key)) series.set(key, new Map());
+    if (!colors.has(key)) colors.set(key,comparisonChartColor(p.model,p.participant,runs.length===1?p.run:null)||seriesColor(colors.size));
     const data = series.get(key);
     if (!data.has(p.run)) data.set(p.run, []);
     data.get(p.run).push(p.score);
@@ -3883,7 +4034,7 @@ function lineChart(group) {
   const chart = `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Score history across competitions">${[0, 0.25, 0.5, 0.75, 1].map((v) => `<line x1="${L}" x2="${right}" y1="${Y(v)}" y2="${Y(v)}" stroke="#e9edf5"/><text x="0" y="${Y(v) + 4}">${v * 100} %</text>`).join("")}${runs.map(([id, t], i) => `<text x="${X(i)}" y="240" text-anchor="middle">${e(new Date(t * 1000).toLocaleDateString("en-US"))}<title>${e(id)}</title></text>`).join("")}${[
     ...series,
   ]
-    .map(([key, data], j) => {
+    .map(([key, data]) => {
       const label = labels.get(key),
         points = runs.map(([id], i) => {
           const values = data.get(id);
@@ -3901,18 +4052,18 @@ function lineChart(group) {
         .map((p) => `${p.x},${p.y}`)
         .join(
           " ",
-        )}" fill="none" stroke="${seriesColor(j)}" stroke-width="2" data-chart-model="${e(label)}" data-chart-label="${e(label)}"/>${points
+        )}" fill="none" stroke="${colors.get(key)}" stroke-width="2" data-chart-model="${e(label)}" data-chart-label="${e(label)}"/>${points
         .filter(Boolean)
         .map(
           (p) =>
-            `<circle cx="${p.x}" cy="${p.y}" r="4" fill="${seriesColor(j)}" tabindex="0" data-chart-model="${e(label)}" data-chart-label="${e(label)} · ${e(p.id)} · ${pct(p.v)}"><title>${e(label)} · ${e(p.id)} : ${pct(p.v)}</title></circle>`,
+            `<circle cx="${p.x}" cy="${p.y}" r="4" fill="${colors.get(key)}" tabindex="0" data-chart-model="${e(label)}" data-chart-label="${e(label)} · ${e(p.id)} · ${pct(p.v)}"><title>${e(label)} · ${e(p.id)} : ${pct(p.v)}</title></circle>`,
         )
         .join("")}`;
     })
     .join("")}</svg>`;
   return (
     `<div class="chart-filterable" data-chart-key="history:${e(JSON.stringify(group.protocol))}">`+chart +
-    `<div class="chart-legend">${[...series.keys()].map((key, j) => `<span tabindex="0" data-chart-model="${e(labels.get(key))}"><i class="dot" style="background:${seriesColor(j)}"></i>${e(labels.get(key))}</span>`).join("")}</div></div>`
+    `<div class="chart-legend">${[...series.keys()].map(key => `<span tabindex="0" data-chart-model="${e(labels.get(key))}"><i class="dot" style="background:${colors.get(key)}"></i>${e(labels.get(key))}</span>`).join("")}</div></div>`
   );
 }
 function comparisonResult(data) {
@@ -4060,7 +4211,8 @@ document.addEventListener("click", async (event) => {
       openDialog('Move competition',row.name,`<form data-form="move-workspace" data-run="${e(row.id)}">${selectField('Workspace','workspace_id',workspaceOptions(),row.workspace_id||'')}<button type="submit" class="button primary">Move</button></form>`);
     } else if (a === 'delete-workspace') {
       openDialog('Delete workspace',workspaceName(node.dataset.id),`<p>Competitions and configurations will become unassigned. Their files and results are kept.</p><form data-form="delete-workspace" data-id="${e(node.dataset.id)}"><div class="form-footer">${btn('Cancel','close-dialog')}<button type="submit" class="button primary">Delete workspace</button></div></form>`);
-    } else if (a === 'providers' || a === 'new-provider') providersDialog();
+    } else if (a === 'chart-colors' || a === 'run-chart-colors') chartColorsDialog(a==='run-chart-colors'?S.run:null);
+    else if (a === 'providers' || a === 'new-provider') providersDialog();
     else if (a === 'edit-provider') providersDialog(node.dataset.id);
     else if (a === 'provider-models') {node.disabled=true;try{await providerModels(node.dataset.id);}finally{node.disabled=false;}}
     else if (a === 'delete-provider') {await api('/api/provider/delete',{id:node.dataset.id},true);await refreshBoot();providersDialog();}
@@ -4531,7 +4683,19 @@ document.addEventListener("submit", async (event) => {
   try {
     const f = new FormData(form),
       type = form.dataset.form;
-    if(type === 'participant-group') {
+    if(type === 'chart-colors') {
+      const changes={providers:[],models:[]};
+      for(const row of form.querySelectorAll('[data-chart-color]')) {
+        const color=$('[data-color-custom]',row).checked?$('[data-color-picker]',row).value:null;
+        changes[row.dataset.chartColor].push([row.dataset.colorKey,color]);
+      }
+      const run=form.dataset.run;
+      const models=Object.fromEntries(changes.models);
+      S.boot.chart_colors=await api('/api/chart-colors',run?{run,models}:{models,providers:Object.fromEntries(changes.providers)},true);
+      $('#dialog').close();
+      await renderRoute();
+      toast('Chart colors saved.');
+    } else if(type === 'participant-group') {
       const saved=await api('/api/participant-group',{id:form.dataset.id||null,name:f.get('name'),members:f.getAll('member')},true);
       await refreshBoot();await renderRoute();participantGroupDialog(saved.id);toast('Group saved.');
     } else if(type === 'profile-groups') {
@@ -4762,6 +4926,13 @@ document.addEventListener("change", async (event) => {
     } else if (n.name === 'reference'  && n.closest('[data-form=reference-strategy]')) {
       const id=n.form.elements.id;
       if (id.value.startsWith('reference-')) id.value='reference-'+n.value;
+    } else if (n.matches('[data-color-picker], [data-color-custom]')) {
+      const row=n.closest('[data-chart-color]');
+      if(n.matches('[data-color-picker]'))$('[data-color-custom]',row).checked=true;
+      else if(!n.checked) {
+        const picker=$('[data-color-picker]',row);
+        picker.value=picker.dataset.inherited;
+      }
     } else if (n.name === "provider" && n.closest("[data-form=provider]")) {
       const binding = n.form.elements.api_key_env;
       if (!binding.value || ["openai", "anthropic", "gemini", "openai-compatible"].map(defaultKeyBinding).includes(binding.value))
@@ -4883,7 +5054,22 @@ document.addEventListener("change", async (event) => {
       $("#overview-conversation-filter").focus({ preventScroll: true });
     }
     else if (n.matches("[data-overview-filter]")) {
-      overviewSettings()[n.dataset.overviewFilter] = n.value;
+      const settings=overviewSettings();
+      if(n.dataset.overviewFilter==='referenceView') {
+        if(n.checked) {
+          settings.sourceBeforeReferences=settings.source;
+          settings.source='references';
+        } else {
+          settings.source=settings.sourceBeforeReferences||'competition';
+          if((S.detail.reference_evaluation?.opponents||[]).some(ref=>ref.id===runScope().model)) {
+            runScope().model='';
+            const hash=new URLSearchParams(location.hash.slice(1));
+            hash.delete('filter_model');
+            history.replaceState(null,'','#'+hash);
+          }
+        }
+        LiveDOM.replace($('#run-filters'),runFilters(S.detail));
+      } else settings[n.dataset.overviewFilter]=n.type==='checkbox'?n.checked:n.value;
       LiveDOM.update($("#run-content"),summary(S.detail, S.statistics));
       $(`[data-overview-filter="${n.dataset.overviewFilter}"]`)?.focus({
         preventScroll: true,

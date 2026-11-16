@@ -12,7 +12,7 @@ def feedback_for(sid, tournament):
     return PastFights(tournament.parent, sid).summary()
 
 
-def references(engine, config, out, journal, entrants, label, panel, *, incremental=False):
+def references(engine, config, out, journal, entrants, label, panel, *, incremental=False, pairs=None):
     """Both positions, identical reference opponents and final seeds for each branch."""
     root = out / "evaluations" / label
     root.mkdir(parents=True, exist_ok=True)
@@ -37,7 +37,8 @@ def references(engine, config, out, journal, entrants, label, panel, *, incremen
     fingerprint=lambda s:s['submission'].get('sha256') or digest(s['submission'])
     seal_signature=digest({'version':1,'entrants':sorted((s['id'],fingerprint(s)) for s in entrants),
                            'panel':sorted((s['id'],fingerprint(s)) for s in panel),
-                           'seeds':config['final_seeds'],'scenario':scenario_config,'incremental':incremental})
+                           'seeds':config['final_seeds'],'scenario':scenario_config,'incremental':incremental,
+                           **({'pairs':[(a['id'], b['id']) for a,b in pairs]} if pairs is not None else {})})
     if seal_path.is_file() and (root/'results.json').is_file():
         seal=read_json(seal_path)
         if (seal.get('signature')==seal_signature and seal.get('records')==listing()
@@ -50,6 +51,7 @@ def references(engine, config, out, journal, entrants, label, panel, *, incremen
     expected_keys=set()
     models={model['id']:model for model in config.get('models',[])}
     def fixed(source):
+        if source.get('fixed_reference'):return True
         if source.get('model') in models:return models[source['model']].get('provider')=='mock'
         return source['id'] in {'fixed-rush','fixed-single-shot','fixed-passive'}
     from .run_memory import shared
@@ -114,56 +116,57 @@ def references(engine, config, out, journal, entrants, label, panel, *, incremen
         try:value=path.stat()
         except FileNotFoundError:return None
         return value.st_mtime_ns,value.st_size
-    progress={'label':label,'total':len(entrants)*len(panel)*len(config['final_seeds'])*2,
+    pair_count = len(entrants)*len(panel) if pairs is None else len(pairs)
+    progress={'label':label,'total':pair_count*len(config['final_seeds'])*2,
               'checked':0,'reused':0,'completed':0,'failed':0}
     def jobs():
-        for entrant in entrants:
-            for opponent in panel:
-                for seed in config["final_seeds"]:
-                    for side in (0, 1):
-                        from .activity import poll_provider_failures
-                        poll_provider_failures()
-                        sources = [entrant, opponent] if side == 0 else [opponent, entrant]
-                        reference_only=all(fixed(source) for source in sources)
-                        key = digest({"entrant": entrant["id"], "opponent": opponent["id"], "seed": seed, "side": side})[:24]
-                        expected_keys.add(key)
-                        progress['checked']+=1
-                        record={}
-                        cached = root / "records" / (key + ".json")
-                        stored_name='records/'+key+'.json'
-                        stored_sha=store.sha256(stored_name)
-                        memo=verified.get(str(cached))
-                        if isinstance(memo,tuple) and memo[1]==(stored_sha or stamp(cached)):
-                            # Verified earlier in this process and unchanged on disk.
-                            results[key]=memo[2]
-                            progress['reused']+=1
-                            continue
-                        if stored_sha or cached.exists():
-                            record = store.get_json(stored_name) if stored_sha else hashes.read_record(cached) if hashes else read_json(cached)
-                            work = out / record["artifact_dir"]
-                            if (record['session'],record['opponent'],record['seed'],record['side'])!=(entrant['id'],opponent['id'],seed,side):raise ArenaError('Reference match metadata changed')
-                            if record["result"]["status"] == "completed" and (memo[0] if isinstance(memo,tuple) else memo)==digest(record):
-                                results[key]=record
-                                progress['reused']+=1
-                                continue
-                            if record["result"]["status"] == "completed":
-                                validate_record(record,sources,seed)
-                                if hashes and not stored_sha:hashes.remember_record(cached,record)
-                                if reference_only and not stored_sha:
-                                    from .reference_cache import seed as seed_reference
-                                    seed_reference(engine,[source['submission'] for source in sources],scenario_config,seed,work)
-                            else:
-                                cached = None
-                        if cached and (stored_sha or cached.exists()):
-                            verified[str(cached)]=(digest(record),stored_sha or stamp(cached),record)
+        from itertools import product
+        for entrant, opponent in product(entrants, panel) if pairs is None else pairs:
+            for seed in config["final_seeds"]:
+                for side in (0, 1):
+                    from .activity import poll_provider_failures
+                    poll_provider_failures()
+                    sources = [entrant, opponent] if side == 0 else [opponent, entrant]
+                    reference_only=all(fixed(source) for source in sources)
+                    key = digest({"entrant": entrant["id"], "opponent": opponent["id"], "seed": seed, "side": side})[:24]
+                    expected_keys.add(key)
+                    progress['checked']+=1
+                    record={}
+                    cached = root / "records" / (key + ".json")
+                    stored_name='records/'+key+'.json'
+                    stored_sha=store.sha256(stored_name)
+                    memo=verified.get(str(cached))
+                    if isinstance(memo,tuple) and memo[1]==(stored_sha or stamp(cached)):
+                        # Verified earlier in this process and unchanged on disk.
+                        results[key]=memo[2]
+                        progress['reused']+=1
+                        continue
+                    if stored_sha or cached.exists():
+                        record = store.get_json(stored_name) if stored_sha else hashes.read_record(cached) if hashes else read_json(cached)
+                        work = out / record["artifact_dir"]
+                        if (record['session'],record['opponent'],record['seed'],record['side'])!=(entrant['id'],opponent['id'],seed,side):raise ArenaError('Reference match metadata changed')
+                        if record["result"]["status"] == "completed" and (memo[0] if isinstance(memo,tuple) else memo)==digest(record):
                             results[key]=record
                             progress['reused']+=1
                             continue
-                        from .fight_store import attempt_path
-                        work=attempt_path(store,root,root/'matches'/key)
-                        yield {'entrant':entrant,'opponent':opponent,'sources':sources,'reference_only':reference_only,
-                               'key':key,'work':work,'side':side,'seed':seed,
-                               '_retry':record.get('retry_attempt',0)+1 if cached is None and record.get('retry_pending') else 0,'participants':[source['id'] for source in sources]}
+                        if record["result"]["status"] == "completed":
+                            validate_record(record,sources,seed)
+                            if hashes and not stored_sha:hashes.remember_record(cached,record)
+                            if reference_only and not stored_sha:
+                                from .reference_cache import seed as seed_reference
+                                seed_reference(engine,[source['submission'] for source in sources],scenario_config,seed,work)
+                        else:
+                            cached = None
+                    if cached and (stored_sha or cached.exists()):
+                        verified[str(cached)]=(digest(record),stored_sha or stamp(cached),record)
+                        results[key]=record
+                        progress['reused']+=1
+                        continue
+                    from .fight_store import attempt_path
+                    work=attempt_path(store,root,root/'matches'/key)
+                    yield {'entrant':entrant,'opponent':opponent,'sources':sources,'reference_only':reference_only,
+                           'key':key,'work':work,'side':side,'seed':seed,
+                           '_retry':record.get('retry_attempt',0)+1 if cached is None and record.get('retry_pending') else 0,'participants':[source['id'] for source in sources]}
     def execute(job):
         from .reference_cache import fight as cached_reference_fight
         from .fight_phases import callback

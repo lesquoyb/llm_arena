@@ -3,13 +3,15 @@ const LENGTH_CLASSES=[['decisive','Decisive','#3568c0'],['draw','Draw before the
 const LENGTH_FILTERS=[['all','All outcomes',['decisive','draw','capped']],['draws','All draws',['draw','capped']],['capped','Turn limit reached only',['capped']],['decisive','Decisive only',['decisive']]];
 
 function stageRound(stage) {
-  const match=String(stage).match(/g(\d+)-(?:tournament|panel|previous)$/);
+  const match=String(stage).match(/g(\d+)-(?:tournament|(?:references-)?panel|previous)$/);
   return match?Number(match[1]):0;
 }
 function stageInSource(stage,source) {
+  const tournament=stage==='tournament'||stage==='.'||/^g\d+-tournament$/.test(stage);
+  if(source==='references')return tournament||/-references-panel$/.test(stage);
   if(source==='evaluation')return /-panel$/.test(stage);
   if(source==='progression')return /-previous$/.test(stage);
-  return stage==='tournament'||stage==='.'||/^g\d+-tournament$/.test(stage);
+  return tournament;
 }
 async function loadFightLengths() {
   if(S.fightLengthsPending===S.run)return;
@@ -54,7 +56,7 @@ function fightLengthCard(d,data) {
     const models=[...new Set(series.map(row=>row.model).filter(model=>model!=='*'))]
       .map(model=>({model,total:sum(series.filter(row=>row.model===model))})).filter(row=>row.total.fights)
       .sort((a,b)=>shareOf(b.total,'capped')-shareOf(a.total,'capped')||a.model.localeCompare(b.model));
-    body=models.length?`<p class="muted">Each fight counts once for each model on its sides. Sorted by the share of fights reaching the turn limit.</p><div class="length-rows">${models.map(row=>lengthRow(row.model,row.total,value,classes,row.model,overviewColor(row.model))).join('')}</div>`:'<div class="overview-empty">No completed fights in this selection.</div>';
+    body=models.length?`<p class="muted">Each fight counts once for each model on its sides. Sorted by the share of fights reaching the turn limit.</p><div class="length-rows">${models.map(row=>lengthRow(referenceLabel(row.model),row.total,value,classes,row.model,overviewColor(row.model))).join('')}</div>`:'<div class="overview-empty">No completed fights in this selection.</div>';
   } else body=lengthHistogram(overall,value,classes);
   const legend=`<div class="overview-legend">${LENGTH_CLASSES.filter(([key])=>classes.includes(key)).map(([key,label,color])=>`<span><i style="background:${color}"></i>${label}</span>`).join('')}</div>`;
   return `<section class="overview-card" id="fight-lengths">${head}<p class="muted">Turns per completed fight in the selected category${focus?` for ${e(focus)}`:''}. Draws at the turn limit often mean neither strategy ever attacked; they dominate engine time.</p>${filters}${kpis}${body}${legend}</section>`;

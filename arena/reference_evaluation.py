@@ -1,10 +1,13 @@
 """Optional, unranked fights against versioned reference scripts."""
+import re
 from contextlib import closing
+from itertools import combinations, product
 
-from .core import ArenaError, digest, read_json
+from .core import ArenaError, digest, read_json, write_json
 
 
 SETTINGS = 'reference-evaluation.json'
+EVALUATION_STAGE = re.compile(r'^evaluations/g(\d+)-references-panel$')
 
 
 def settings(root):
@@ -27,20 +30,34 @@ def ranking_exclusions(root):
     return set(settings(root).get('excluded', []))
 
 
-def hidden_from_results(stage, kind, sides, states, policy):
+def evaluation_id(sid):
+    return bool(re.search(r'@[a-f0-9]{12}$', sid or ''))
+
+
+def evaluation_seeds(policy):
+    return {f'evaluations/g{generation}-references-panel': seeds
+            for generation, seeds in policy.get('round_seeds', {}).items()}
+
+
+def hidden_from_results(stage, kind, sides, states, policy, seed=None):
     if kind != 'training':
         excluded = policy.get('excluded', ())
         if any(states.get(sid, {}).get('model', sid) in excluded for sid in sides):
             return True
-    if stage.startswith('evaluations/') and stage.endswith('-references-panel'):
+    evaluation = EVALUATION_STAGE.fullmatch(stage)
+    if evaluation:
         enabled = {opponent_id(model) for model in policy.get('models', [])}
-        return all(sid not in enabled for sid in sides)
+        virtual = [sid for sid in sides if evaluation_id(sid)]
+        if not virtual or any(sid not in enabled for sid in virtual):
+            return True
+        allowed = policy.get('round_seeds', {}).get(evaluation[1])
+        if seed is not None and allowed is not None and str(seed) not in {str(value) for value in allowed}:
+            return True
     return False
 
 
 def refresh_standings(root):
     """Update generated score reports after changing exclusions."""
-    from .core import write_json
     from .fight_store import stage_records
     from .tournament import report
 
@@ -74,6 +91,8 @@ def run(root):
     from .core import scratch_directory, verify_source_files
 
     with experiment_lock(root):
+        if (root / 'export.json').exists():
+            raise ArenaError('Exported archives are read-only')
         metadata = read_json(root / 'experiment.json')
         policy = settings(root)
         engine = Engine()
@@ -84,7 +103,8 @@ def run(root):
         roster = snapshot(root) or {}
         config['_scenario_changes'] = roster.get('scenario_changes', [])
         config['_parallel_fights'] = poll(root, roster.get('parallel_fights', config.get('parallel_fights', 1)))
-        participants = {model['id']: model for model in config['models']}
+        inactive = set(roster.get('withdrawn', ())) | set(policy.get('excluded', ()))
+        participants = {model['id']: model for model in config['models'] if model['id'] not in inactive}
         journal = Journal(root)
         failed = 0
         with closing(journal.db), scratch_directory() as scratch:
@@ -93,26 +113,37 @@ def run(root):
                 entrants = []
                 for sid, state in states.items():
                     if (state.get('generation', 0) != generation or not state.get('submission')
-                            or state.get('validity') == 'invalid'
-                            or participants[state['model']]['provider'] == 'mock'):
+                            or state.get('validity') == 'invalid' or state['model'] not in participants):
                         continue
                     source = root / 'sessions' / sid / 'submission'
                     verify_source_files(source, state['submission'])
                     entrants.append({'id': sid, 'model': state['model'], 'path': source,
                                      'generation': generation, 'submission': state['submission']})
                 panel = []
+                scenario = scenario_for(config, generation)
+                official_versions = {(entry['model'], entry['submission']['sha256']) for entry in entrants}
                 for model in policy.get('models', []):
                     sid = opponent_id(model)
-                    strategy = for_scenario(model, scenario_for(config, generation))['strategy']
+                    strategy = for_scenario(model, scenario)['strategy']
+                    if (model['id'], strategy['submission']['sha256']) in official_versions:
+                        continue
                     source = scratch / str(generation) / sid
                     for name, content in strategy['files'].items():
                         file = source / name
                         file.parent.mkdir(parents=True, exist_ok=True)
                         file.write_bytes(content.encode('utf-8'))
                     verify_source_files(source, strategy['submission'])
-                    panel.append({'id': sid, 'path': source, 'submission': strategy['submission']})
-                if entrants and panel:
-                    results = references(engine, config, root, journal, entrants,
-                                         f'g{generation}-references-panel', panel)
+                    panel.append({'id': sid, 'path': source, 'submission': strategy['submission'],
+                                  'generation':generation, 'fixed_reference':True})
+                panel.sort(key=lambda entry: entry['id'])
+                pairs = [*product(entrants, panel), *combinations(panel, 2)]
+                if pairs:
+                    seeds = config['final_seeds'] if generation else config['seeds']
+                    round_seeds = policy.setdefault('round_seeds', {})
+                    if round_seeds.get(str(generation)) != seeds:
+                        round_seeds[str(generation)] = seeds
+                        write_json(root/SETTINGS, policy)
+                    results = references(engine, {**config, 'final_seeds':seeds}, root, journal, entrants,
+                                         f'g{generation}-references-panel', panel, pairs=pairs)
                     failed += sum(row['result']['status'] != 'completed' for row in results.values())
         return failed

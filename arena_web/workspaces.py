@@ -247,11 +247,14 @@ class Workspaces:
                         if side==0:group['internal_matches']+=weight
                         continue
                     state=sessions.get(sid,{})
+                    model=models.get(state.get('model'),{})
                     round_number,condition=track(sid)
                     key=digest({'descriptor':participant_key(sid),'round':round_number,'condition':condition})[:16]
                     row=group['models'].setdefault(key,{'id':key,'name':descriptor(sid)['variant'],
                         'round':round_number,'condition':condition,
                         'is_reference':sid in frozen or models.get(state.get('model'),{}).get('provider')=='mock',
+                        'chart_profile':{key:model[key] for key in ('provider','endpoint','api_key_env') if key in model}
+                            | {'reference':((model.get('strategy') or frozen.get(sid,{})).get('origin') or {}).get('reference')},
                         'model_size_billion':model_size(sid),
                         'wins':0,'draws':0,'losses':0,'failed':0,'conversations':defaultdict(lambda:[0,0,None,None,None,None,None])})
                     if row['model_size_billion']!=model_size(sid):row['model_size_billion']=None

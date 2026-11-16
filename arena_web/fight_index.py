@@ -378,7 +378,7 @@ class FightIndex:
                               db.execute(f'SELECT rowid,work,timings FROM fights WHERE rowid IN ({",".join("?" * len(chunk))})', chunk))
         return result
 
-    def stage_groups(self, root: Path):
+    def stage_groups(self, root: Path, *, stage_seeds=None):
         """Grouped outcome counts, recomputed only for stages whose records changed."""
         self.sync(root)
         run = str(root)
@@ -389,11 +389,15 @@ class FightIndex:
                 cache.pop(stage)
             rows = []
             for stage, stamp in sorted(stamps.items()):
+                seeds = tuple(str(seed) for seed in (stage_seeds or {}).get(stage, ()))
+                stamp = (stamp, seeds)
                 saved = cache.get(stage)
                 if saved is None or saved[0] != stamp:
+                    seed_filter = ' AND seed IN ('+','.join('?' for _ in seeds)+')' if seeds else ''
                     grouped = db.execute('SELECT kind,stage,mirror,a,b,candidate,candidate_side,status,winner,count(*),'
-                                         'coalesce(sum(cache_hit),0),max(modified) FROM fights WHERE run=? AND stage=? '
-                                         'GROUP BY mirror,a,b,candidate,candidate_side,status,winner', (run, stage)).fetchall()
+                                         'coalesce(sum(cache_hit),0),max(modified) FROM fights WHERE run=? AND stage=?'
+                                         + seed_filter + ' GROUP BY mirror,a,b,candidate,candidate_side,status,winner',
+                                         (run, stage, *seeds)).fetchall()
                     saved = cache[stage] = (stamp, grouped)
                 rows.extend(saved[1])
             return rows

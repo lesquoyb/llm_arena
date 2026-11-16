@@ -64,11 +64,11 @@ def previous_round(kind, candidate, opponent, models):
 def groups(store, root, states, models):
     """Interchangeable fights merged into counted groups, oriented canonically."""
     cutoffs = _attempt_cutoffs(states)
-    rows = store.fight_index.stage_groups(root)
+    from arena.reference_evaluation import evaluation_seeds, hidden_from_results, settings
+    policy = settings(root)
+    rows = store.fight_index.stage_groups(root, stage_seeds=evaluation_seeds(policy))
     training = store.fight_index.query(root, 'SELECT a,b,status,winner,modified FROM fights WHERE run=? AND kind=?', ('training',))
     ids = {};stage_ids = {};merged = {}
-    from arena.reference_evaluation import hidden_from_results, settings
-    policy = settings(root)
     def ref(table, value):
         if value not in table:
             table[value] = len(table)
@@ -119,14 +119,17 @@ def _identity_accept(item, scope):
 def _category(kind):
     """Python form of the Matches tab categories (before progression refinement)."""
     if kind == 'all':
-        return lambda fkind, mirror: True
+        return lambda fkind, mirror, stage: True
     if kind == 'selfplay':
-        return lambda fkind, mirror: bool(mirror)
+        return lambda fkind, mirror, stage: bool(mirror)
     if kind in (None, '', 'competition'):
-        return lambda fkind, mirror: fkind == 'competition' and not mirror
+        return lambda fkind, mirror, stage: fkind == 'competition' and not mirror
     if kind == 'progression':
-        return lambda fkind, mirror: fkind in ('progression', 'evaluation')
-    return lambda fkind, mirror: fkind == kind
+        return lambda fkind, mirror, stage: fkind in ('progression', 'evaluation')
+    if kind == 'references':
+        return lambda fkind, mirror, stage: not mirror and (
+            fkind == 'competition' or (fkind == 'evaluation' and stage.endswith('-references-panel')))
+    return lambda fkind, mirror, stage: fkind == kind
 
 
 def _rows(store, root, training=False):
@@ -151,16 +154,19 @@ def listing(store, root, states, models, detail_sessions, manifest, filters, sco
     selected = [];category_total = 0
     session_ids = {row['id'] for row in detail_sessions}
     stage_filter = filters.get('stage')
-    from arena.reference_evaluation import hidden_from_results, settings
+    entrant, opponent = filters.get('entrant'), filters.get('opponent')
+    from arena.reference_evaluation import evaluation_id, hidden_from_results, settings
+    from arena.scenario_rules import generation_of
     policy = settings(root)
     for (rowid, fkind, stage, mirror, a, b, candidate, candidate_side, seed, status, winner, turns, elapsed,
          errors_a, errors_b, limits_a, limits_b, cache_hit, modified) in _rows(store, root, training=kind in ('training', 'all')):
-        if not accept(fkind, mirror) or (stage_filter and stage != stage_filter):
+        if not accept(fkind, mirror, stage) or (stage_filter and stage != stage_filter):
             continue
         if fkind == 'training' and modified < cutoffs.get(a if a in states else b, 0):
             continue
         sides = [a, b]
-        hidden = hidden_from_results(stage, fkind, sides, states, policy)
+        reference_evaluation = fkind == 'evaluation' and stage.endswith('-references-panel')
+        hidden = hidden_from_results(stage, fkind, sides, states, policy, seed)
         if hidden and kind != 'all':
             continue
         if kind == 'progression' and fkind == 'evaluation':
@@ -178,9 +184,18 @@ def listing(store, root, states, models, detail_sessions, manifest, filters, sco
             entries = []
             focus = candidate_side if candidate_side is not None else (sides.index(candidate) if candidate in sides else -1)
             for side, sid in enumerate(sides):
-                if fkind in {'evaluation', 'progression'} and focus >= 0 and side != focus:
+                if entrant and sid != entrant:
+                    continue
+                if fkind in {'evaluation', 'progression'} and not reference_evaluation and focus >= 0 and side != focus:
                     continue
                 item = identity(sid)
+                if reference_evaluation and evaluation_id(sid):
+                    if all(evaluation_id(other) for other in sides):
+                        generation = generation_of(stage.rsplit('/', 1)[-1])
+                        item = {**item, 'generation':generation, 'condition':'reference' if generation else 'initial'}
+                    elif side != focus and focus >= 0:
+                        sample = identity(sides[focus])
+                        item = {**item, **{key: sample[key] for key in ('generation', 'condition', 'replicate')}}
                 if not _identity_accept(item, scope):continue
                 if filters.get('entrant_model') and item['model'] != filters['entrant_model']:continue
                 if filters.get('round') and filters['round'] != 'all' and item['generation'] + 1 != int(filters['round']):continue
@@ -191,7 +206,6 @@ def listing(store, root, states, models, detail_sessions, manifest, filters, sco
             if not entries:
                 continue
             scoped_side = entries[0]
-        entrant, opponent = filters.get('entrant'), filters.get('opponent')
         if entrant and entrant not in sides:
             continue
         if opponent and (opponent not in sides or (entrant and not any(sid == entrant and sides[1 - side] == opponent for side, sid in enumerate(sides)))):
@@ -218,7 +232,7 @@ def listing(store, root, states, models, detail_sessions, manifest, filters, sco
             result['reference_cache'] = {'hit': True}
         rows.append({'path': work, 'stage': stage, 'kind': fkind, 'sides': sides, 'candidate': candidate,
                      'candidate_side': candidate_side, 'seed': seed_value(seed), 'mirror': bool(mirror), 'result': result,
-                     'excluded_from_results': hidden_from_results(stage, fkind, sides, states, policy),
+                     'excluded_from_results': hidden_from_results(stage, fkind, sides, states, policy, seed),
                      'timings': json.loads(timings) if timings else {}})
     everyone = {sid for row in store.fight_index.stage_rows(root) for sid in (row[4], row[5]) if sid}
     participants = sorted({identity(sid)['model'] for sid in everyone})
@@ -253,10 +267,11 @@ def lengths(store, root, detail_sessions, manifest, max_turns):
          *_ignored) in _rows(store, root):
         if status != 'completed' or mirror or turns is None:
             continue
-        if hidden_from_results(stage, kind, (a, b), states, policy):
+        if hidden_from_results(stage, kind, (a, b), states, policy, seed):
             continue
         outcome = 'decisive' if winner in (0, 1) else 'capped' if limit and turns >= limit else 'draw'
-        models = {identity(candidate)['model']} if kind in {'evaluation', 'progression'} and candidate else {identity(a)['model'], identity(b)['model']}
+        candidate_only = kind in {'evaluation', 'progression'} and candidate and not stage.endswith('-references-panel')
+        models = {identity(candidate)['model']} if candidate_only else {identity(a)['model'], identity(b)['model']}
         for model in ('*', *models):
             entry = series.get((stage, model, outcome))
             if entry is None:
@@ -303,9 +318,9 @@ def fixtures(store, root, states, models, source, stage=None):
             ids[value] = len(ids)
         return ids[value]
     for (rowid, kind, fstage, mirror, a, b, candidate, candidate_side, seed, status, winner, *_ignored) in _rows(store, root):
-        if mirror or not accept(kind, mirror) or (stage and fstage != stage):
+        if mirror or not accept(kind, mirror, fstage) or (stage and fstage != stage):
             continue
-        if hidden_from_results(fstage, kind, (a, b), states, policy):
+        if hidden_from_results(fstage, kind, (a, b), states, policy, seed):
             continue
         seed = seed_value(seed)
         if not isinstance(seed, int):
