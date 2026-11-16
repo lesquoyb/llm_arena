@@ -410,6 +410,15 @@ class Store(Workspaces):
         result = copy.deepcopy(config)
         catalog = {model['id']: model for model in self.catalog()}
         from arena.reference_strategies import for_scenario
+        if 'evaluation_references' in result:
+            from arena.reference_evaluation import reference_model
+            refs = result['evaluation_references']
+            if not isinstance(refs, list):
+                raise ArenaError('Choose evaluation reference strategies')
+            resolved = [catalog.get(ref) if isinstance(ref, str) else ref for ref in refs]
+            if any(not isinstance(ref, dict) or not reference_model(ref) for ref in resolved):
+                raise ArenaError('Unknown evaluation reference strategy')
+            result['evaluation_references'] = copy.deepcopy(resolved)
         reused = set()
         if 'reuse_preparations' in result:
             from arena.preparation_reuse import model_ids, validate
@@ -745,7 +754,7 @@ class Store(Workspaces):
         policy = settings(root)
         return {"id": identifier, "revision": self.revision(root) if include_revision else None, "metadata": metadata, "roster":{key:value for key,value in roster.items() if key!='models'} if roster else None, "report": report, "report_sha256": digest(report),
                 "report_pricing": self.json(root/REPORT_PRICING, {}),
-                "reference_evaluation": {"selected": [m['id'] for m in policy.get('models', [])],
+                "reference_evaluation": {"selected": [m['id'] for m in policy.get('models', [])], 'automatic':bool(policy.get('automatic')),
                                          "opponents": [{"id": opponent_id(m), "label": m['id'],
                                                         "reference": m['strategy']['origin']['reference']}
                                                        for m in policy.get('models', [])],

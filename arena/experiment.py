@@ -39,7 +39,7 @@ def load_config(path: Path) -> dict:
 def validate_config(value: dict) -> dict:
     required = {"schema_version", "name", "models", "replicates", "budget_per_session",
                 "spending", "seeds", "scenario", "include_mirrors"}
-    optional = {"generations", "improvement_conditions", "prompt_language", "final_seeds", "parallel_requests", "parallel_fights", "request_order", "compare_previous_round", "evolutionary", "reuse_preparations"}
+    optional = {"generations", "improvement_conditions", "prompt_language", "final_seeds", "parallel_requests", "parallel_fights", "request_order", "compare_previous_round", "evolutionary", "reuse_preparations", "evaluation_references"}
     if (not isinstance(value, dict) or not required <= set(value) or set(value) - required - optional or
             type(value["schema_version"]) is not int or value["schema_version"] not in (1, 2)):
         raise ArenaError("Unsupported offline experiment schema")
@@ -190,6 +190,19 @@ def validate_config(value: dict) -> dict:
     if 'reuse_preparations' in value:
         from .preparation_reuse import validate
         validate(value)
+    references=value.get('evaluation_references', [])
+    if not isinstance(references, list):
+        raise ArenaError('Choose evaluation reference strategies')
+    from .reference_evaluation import reference_model
+    from .saved_strategy import validate as validate_saved
+    reference_ids=set()
+    for model in references:
+        if (not isinstance(model, dict) or not reference_model(model) or not isinstance(model.get('id'),str)
+                or not re.fullmatch(r'[a-zA-Z0-9][a-zA-Z0-9_-]{0,39}',model['id'])):
+            raise ArenaError('Choose saved evaluation reference strategies')
+        validate_saved(model)
+        if model['id'] in reference_ids:raise ArenaError('Evaluation references must be distinct')
+        reference_ids.add(model['id'])
     from .preparation_reuse import model_ids
     reused = model_ids(value)
     if (any(model['provider'] != 'mock' and model['id'] not in reused for model in models)
@@ -423,6 +436,15 @@ def _finish(sid, state, tools, journal, reason):
 
 def _prepare_provider_response(sid, state, model, config, journal):
     dispatcher=getattr(journal,'requests',None)
+    if dispatcher:
+        from .provider_limits import endpoint
+        if model.get('provider')!='mock' and endpoint(model) in dispatcher.unavailable:
+            state['status']='provider_unavailable'
+            state['failure']={'message':'Request held because another conversation detected an outage at this endpoint.',
+                              'phase':'provider request','retryable':True,'uncertain':False,
+                              'diagnostics':{'request_delivery':'not_sent','failure_kind':'endpoint_paused'}}
+            journal.save(sid,state,'provider_request_held',state['failure'])
+            return None
     if dispatcher and not dispatcher.can_start(sid,model):return None
     from .activity import operation
     with operation(journal.out,'request_preparation',participants=[sid],generation=state.get('generation',0)):
@@ -555,6 +577,7 @@ def _provider_response_once(sid, state, model, config, journal):
         response = context['future'].result() if 'future' in context else (provider.respond(history, session_tools, bound["output_bound"]) if paid
                     else provider.respond(history, session_tools, output_limit))
     except ProviderFailure as error:
+        if dispatcher:dispatcher.observe(model,error)
         from .recovery import zero_cost_requests
         uncertain_charge=error.uncertain and not zero_cost_requests(model)
         if error.uncertain:
@@ -595,6 +618,7 @@ def _provider_response_once(sid, state, model, config, journal):
     state["consecutive_context_recoveries"]=0
     state["automatic_retry_attempts"]=0
     state.pop("automatic_retry_at",None)
+    if dispatcher:dispatcher.observe(model)
     response["elapsed_seconds"] = context['completed_at']-context['submitted_at'] if 'completed_at' in context else time.monotonic() - started
     response['request_metrics'] = {'history_messages':len(history),
         'response_received_at':context.get('completed_wall_at',time.time()),
@@ -1029,13 +1053,11 @@ def run(config: dict, out: Path, resume=False, interrupt=None, prepare_only=Fals
             config['_compare_previous_round'] = (roster or {}).get('compare_previous_round',config.get('compare_previous_round',False))
             config['_scenario_changes'] = (roster or {}).get('scenario_changes',[])
             restore_generation(config, out, journal, 0)
+            from .reference_evaluation import initialize_automatic
+            initialize_automatic(out, config)
             if resume:
-                from .recovery import needs_reconciliation, recover_zero_cost_requests
+                from .recovery import recover_zero_cost_requests
                 recover_zero_cost_requests(journal,config["models"])
-                external = {m['id'] for m in config['models'] if m['provider'] != 'mock'}
-                blocked = [sid for sid,state in journal.metadata().items() if active(config,state) and needs_reconciliation(state, state['model'] in external)]
-                if blocked:
-                    raise ArenaError('Resolve billing for these conversations before resuming: ' + ', '.join(blocked))
                 if previous_identity != identity:
                     continuation=digest(identity)
                     prior_update=journal.db.execute("SELECT payload FROM events WHERE kind='runner_updated' AND session IS NULL ORDER BY id DESC LIMIT 1").fetchone()

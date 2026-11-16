@@ -27,10 +27,11 @@ completed model-call quota; immutable request attempt IDs are still retained.
 
 An interrupted external request may have been charged even if no usable response was received. Missing usage metadata can also leave a received response waiting for reconciliation.
 
-1. Stop the competition if it is still running.
-2. Click **Resolve billing** in the competition header or its conversation. **Resume** also lists unresolved requests.
-3. Check the provider's usage dashboard. Enter the additional cost for this unresolved request and a verification note. Enter zero for a confirmed uncharged request or a local provider.
-4. Click **Record and unlock**, then **Resume** or **Retry conversation**.
+1. Open **More → Provider recovery** in the competition. **Resume** also opens this review when billing is pending.
+2. Enter the additional amounts verified with the provider. Use zero for confirmed uncharged requests. Blank amounts remain unresolved. You can add a note to the batch.
+3. Choose **Record & retry** while a competition is running, or **Record & resume** to start it again. **Record amounts** saves the amounts without requesting a retry.
+
+When an endpoint appears unavailable, the scheduler keeps unsent requests on hold so other endpoints can continue. Held requests need no billing review. Requests that were already sent may still need an amount before they can be retried.
 
 A saved response continues with its pending tools. An unknown response is requested again and may incur a new charge. Recorded charges are added once; usage counters and earlier costs are preserved. Reconciliation does not invent missing token counts.
 

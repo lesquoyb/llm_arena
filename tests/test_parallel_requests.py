@@ -110,6 +110,9 @@ class ParallelRequestsTests(TestCase):
         try:
             from concurrent.futures import Future
             dispatcher.pending['one-r0']={'model':model,'future':Future()}  # an in-flight request
+            self.assertFalse(dispatcher.can_start('one-r1',model))
+            self.assertTrue(dispatcher.can_start('two-r0',config()['models'][1]))
+            dispatcher.observe(model)
             self.assertTrue(dispatcher.can_start('one-r1',model))
             self.assertTrue(dispatcher.can_start('variant-r0',variant))
             self.assertTrue(dispatcher.can_start('two-r0',config()['models'][1]))
@@ -166,6 +169,34 @@ class ParallelRequestsTests(TestCase):
                 self.assertEqual(states['one-r0']['calls'],1)
                 self.assertTrue(all(states[sid]['status']=='submitted' for sid in ('two-r0','three-r0')))
                 journal.verify()
+            finally:journal.db.close()
+
+    def test_outage_leaves_only_the_request_that_was_sent_awaiting_review(self):
+        from arena.api_providers import ProviderFailure
+        value=config()
+        one,two=value['models']
+        one['pricing']['output_per_million']='1'
+        value['models']=[one,{**one,'id':'peer','model':'peer'},two]
+        def respond(provider,history,tools,limit):
+            model=provider.model['id']
+            if model=='one':
+                raise ProviderFailure('Gateway timed out',uncertain=True,diagnostics={'http_status':504})
+            self.assertEqual(model,'two')
+            seen={message.get('name') for message in history if message['role']=='tool'}
+            tool='write_file' if 'write_file' not in seen else 'analyze' if 'analyze' not in seen else 'submit'
+            args={'path':'main.leek','content':'var v = 1;'} if tool=='write_file' else {}
+            return {'role':'assistant','content':'','native':{'role':'assistant','content':''},'tool_calls':[
+                {'id':tool,'name':tool,'arguments':args}],'usage':{'input_tokens':10,'output_tokens':1},'cost_usd':'0'}
+        with scratch_directory() as root:
+            journal=Journal(root)
+            try:
+                with mock.patch('arena.api_providers.APIProvider.respond',new=respond):
+                    prepare([(m['id']+'-r0',m) for m in value['models']],value,root,journal,CoordinatorEngine())
+                states=journal.states()
+                self.assertEqual(states['one-r0']['status'],'needs_reconciliation')
+                self.assertEqual(states['peer-r0']['status'],'provider_unavailable')
+                self.assertEqual(states['peer-r0']['calls'],0)
+                self.assertEqual(states['two-r0']['status'],'submitted')
             finally:journal.db.close()
 
     def test_engine_batches_yield_to_a_ready_model_response(self):

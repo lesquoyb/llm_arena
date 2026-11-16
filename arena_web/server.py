@@ -291,7 +291,7 @@ class Application:
             return self.jobs.retry_fights(data['run'])
         if route == '/api/run/reference-evaluation':
             return self.jobs.reference_evaluation(data['run'], data['selected'], data['rounds'],
-                                                  data['excluded'], data.get('evaluate', False))
+                                                  data['excluded'], data.get('evaluate', False),data.get('automatic'))
         if route == '/api/run/run-fights':
             return self.jobs.retry_fights(data['run'],include_ready=True)
         if route == "/api/launch":
@@ -307,6 +307,8 @@ class Application:
             return probe(self.jobs, data["run"], data["session"], data["mode"], data.get("confirm_paid"))
         if route == "/api/reconcile":
             return self.jobs.reconcile(data["run"], data["session"], data["cost_usd"], data["note"])
+        if route == "/api/reconcile-batch":
+            return self.jobs.reconcile_batch(data['run'],data.get('amounts', {}),resume=data.get('resume', False),note=data.get('note', ''))
         if route == "/api/stop":
             return self.jobs.stop(data["id"])
         if route == "/api/aggregate":

@@ -17,6 +17,33 @@ class Requests:
         self.local_owners={}
         self.models=dict(tasks)
         self.finished=set()
+        self.unavailable=set()
+        self.reachable=set()
+
+    def observe(self, model, error=None):
+        from .provider_limits import endpoint
+        if model.get('provider')=='mock':
+            return
+        key=endpoint(model)
+        if error is None:
+            self.reachable.add(key)
+            return
+        fields=error.diagnostics
+        status=fields.get('http_status')
+        network=fields.get('network_error')
+        if (status in {502,503,504} or network in {'dns_resolution_failed','connection_refused',
+                'network_unreachable','tls_certificate_verification_failed','connection_timeout','connection_unavailable'}
+                or (network=='response_read_failed' and fields.get('cause_type') in
+                    {'TimeoutError','ConnectionResetError','ConnectionAbortedError'})):
+            self.unavailable.add(key)
+        elif status is not None:
+            self.reachable.add(key)
+
+    def resume_endpoint(self, model):
+        from .provider_limits import endpoint
+        key=endpoint(model)
+        self.unavailable.discard(key)
+        self.reachable.discard(key)
 
     def local_key(self, model):
         endpoint=model.get('endpoint','')
@@ -40,6 +67,10 @@ class Requests:
         if self.out is not None and time.monotonic()-self.limits_checked>=.5:
             self.endpoint_limits=configured(self.out);self.limits_checked=time.monotonic()
         cap=limit(model,self.endpoint_limits)
+        endpoint_key=endpoint(model)
+        if (model.get('provider')!='mock' and endpoint_key not in self.reachable and
+                any(endpoint(context['model'])==endpoint_key for context in self.pending.values())):
+            return False
         busy=sum(endpoint(context['model'])==endpoint(model) and not context['future'].done() for context in self.pending.values())
         if cap is not None and busy>=cap:return False
         key=self.local_key(model)
@@ -182,6 +213,7 @@ def _prepare(tasks, config, out, journal, engine, interrupt=None, on_progress=No
     from .conversation_recovery import automatic_due, recover, commands
     retry_waiting={}
     def queue_recoveries():
+        from .provider_limits import endpoint
         from .retry_policy import apply
         for sid,paused in apply(out,journal):
             if not paused and sid in models:schedule_retry(sid,models[sid])
@@ -202,8 +234,12 @@ def _prepare(tasks, config, out, journal, engine, interrupt=None, on_progress=No
                 models[sid]=model;dispatcher.models[sid]=model
         for sid,model in commands(out,journal,config,tasks,dispatcher.pending):
             retry_waiting.pop(sid,None);dispatcher.finished.discard(sid)
+            dispatcher.resume_endpoint(model)
             if sid not in {item[0] for item in queue}:queue.append((sid,model))
         for sid,(model,due) in list(retry_waiting.items()):
+            if endpoint(model) in dispatcher.unavailable:
+                retry_waiting.pop(sid,None)
+                continue
             if time.time()<due:continue
             state=journal.state(sid)
             if state and state.get('status') in {'provider_unavailable','no_submission'}:
@@ -212,6 +248,9 @@ def _prepare(tasks, config, out, journal, engine, interrupt=None, on_progress=No
                 if sid not in {item[0] for item in queue}:queue.append((sid,model))
             retry_waiting.pop(sid,None)
     def schedule_retry(sid,model):
+        from .provider_limits import endpoint
+        if endpoint(model) in dispatcher.unavailable:
+            return
         state=journal.state(sid)
         due=automatic_due(state,config,journal.state(state['parent']) if state.get('parent') else None)
         if due is not None and sid not in retry_waiting:

@@ -40,11 +40,13 @@ def needs_reconciliation(state, external=True):
                 amount(state.get('money_reserved', '0')) > 0)
 
 
-def reconcile(journal, sid, cost, note, *, automatic=False):
+def reconcile(journal, sid, cost, note, *, automatic=False, command_id=None):
     import copy
     if not isinstance(note, str) or not note.strip():
         raise ArenaError('Explain how the request cost was checked')
     original = journal.state(sid)
+    if command_id and command_id in (original or {}).get('applied_billing_commands', []):
+        return original
     if not original or not needs_reconciliation(original):
         raise ArenaError('This conversation has no request awaiting reconciliation')
     charge = amount(cost)
@@ -62,6 +64,8 @@ def reconcile(journal, sid, cost, note, *, automatic=False):
     if state.get('pending'):
         state['retry_count'] = state.get('retry_count', 0) + 1
     state.pop('failure', None)
+    if command_id:
+        state['applied_billing_commands']=[*state.get('applied_billing_commands', []),command_id][-50:]
     journal.save(sid, state, 'billing_reconciled', {'cost_usd': str(charge), 'note':note.strip(),
         'previous_checkpoint_sha256':digest(original), 'previous_status':original['status'],
         'response_received':bool(state.get('pending')), 'usage_counters_preserved':True, 'automatic':automatic})

@@ -17,6 +17,9 @@ def evaluate(engine, config, out, journal, generation=0, *, final=False):
     poll(out,config.get('_parallel_fights',config.get('parallel_fights',1)))
     retry_epoch=getattr(journal,'_fight_retry_epoch',0)
     ready = entrants(journal, out, generation)
+    if ready:
+        from .reference_evaluation import evaluate_automatic
+        evaluate_automatic(engine, config, out, journal, generation, final=final)
     if len(ready) < 2 and not (ready and config['include_mirrors']):
         return None
     root = out/('tournament' if generation == 0 else f'g{generation}-tournament')

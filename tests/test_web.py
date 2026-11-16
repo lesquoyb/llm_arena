@@ -143,6 +143,59 @@ class WebContractTests(unittest.TestCase):
         self.assertEqual(self.store.states(root), {})
         self.assertEqual(self.store.events("starting"), {"total": 0, "events": []})
 
+    def test_reconcile_multiple_provider_requests_and_resume_once(self):
+        from contextlib import closing
+        from arena.experiment import Journal, initial_state
+        provider=api_model()
+        config=read_json(ROOT/'configs/offline-complete.json')
+        config.update(models=[provider],replicates=2,spending={'allow_paid_calls':True})
+        run=self.store.runs/'batch-recovery'
+        write_json(run/'experiment.json', {'config':config})
+        ids=[f"{provider['id']}-r{i}" for i in range(2)]
+        journal=Journal(run)
+        with closing(journal.db):
+            for sid in ids:
+                state=initial_state(sid,provider,config)
+                state.update(status='needs_reconciliation',in_flight=True,money_reserved='0.42',cost_spent='0.05')
+                journal.save(sid,state,'fixture')
+        app=Application(self.store)
+        with mock.patch.object(app.jobs,'launch') as launch:
+            response=app.post('/api/reconcile-batch', {'run':run.name,'amounts':{ids[0]:'0',ids[1]:'0.1'},'resume':True})
+            self.assertEqual(response,{'recorded':2,'queued':0,'resumed':True})
+            launch.assert_called_once()
+        for sid, expected in zip(ids, ('0.05','0.15')):
+            state=self.store.session(run.name,sid)
+            self.assertEqual(state['status'],'provider_unavailable')
+            self.assertEqual(state['cost_spent'],expected)
+
+    def test_live_batch_recovery_queues_billing_and_held_requests_together(self):
+        from contextlib import closing
+        from arena.conversation_recovery import commands
+        from arena.experiment import Journal, initial_state
+        provider=api_model()
+        config=read_json(ROOT/'configs/offline-complete.json')
+        config.update(models=[provider],replicates=2,spending={'allow_paid_calls':True})
+        run=self.store.runs/'live-recovery'
+        write_json(run/'experiment.json', {'config':config})
+        blocked,held=[f"{provider['id']}-r{i}" for i in range(2)]
+        journal=Journal(run)
+        with closing(journal.db):
+            uncertain=initial_state(blocked,provider,config)
+            uncertain.update(status='needs_reconciliation',in_flight=True,cost_spent='0.05',money_reserved='0.2')
+            journal.save(blocked,uncertain,'fixture')
+            not_sent=initial_state(held,provider,config)
+            not_sent.update(status='provider_unavailable',failure={'diagnostics':{'failure_kind':'endpoint_paused'}})
+            journal.save(held,not_sent,'fixture')
+            app=Application(self.store)
+            with mock.patch.object(app.jobs,'running',return_value=(object(),{'status':'running'})):
+                reply=app.post('/api/reconcile-batch', {'run':run.name,'amounts':{blocked:'0.1'},'resume':True})
+            self.assertEqual(reply['queued'],2)
+            self.assertEqual(journal.state(blocked)['status'],'needs_reconciliation')
+            queued=commands(run,journal,config,[(blocked,provider),(held,provider)])
+            self.assertEqual({sid for sid,_ in queued},{blocked,held})
+            self.assertEqual(journal.state(blocked)['cost_spent'],'0.15')
+            self.assertFalse(journal.state(blocked)['in_flight'])
+
     def test_competition_reasoning_overrides_survive_profile_resolution(self):
         model = {**api_model(), 'provider':'openai-compatible', 'endpoint':'http://localhost:11434/v1/chat/completions',
                  'parameters':{'reasoning_effort':'high', 'seed':17}}

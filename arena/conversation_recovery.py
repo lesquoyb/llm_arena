@@ -83,6 +83,13 @@ def commands(out, journal, config, tasks, pending=()):
                     if sid in pending and hasattr(pending,'get'):
                         control=pending[sid].get('control')
                         if control:control.cancel()
+                elif command['action']=='reconcile':
+                    if sid in pending:continue
+                    from .recovery import reconcile
+                    state=reconcile(journal,sid,command['cost_usd'],command['note'],command_id=command_id)
+                    if command.get('retry'):
+                        recover(sid,state,config,out,journal,command_id=command_id)
+                        queued.append((sid,models[sid]))
                 else:
                     if sid in pending:continue
                     recover(sid,state,config,out,journal,restart=command['action']=='restart',command_id=command_id,

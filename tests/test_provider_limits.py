@@ -26,6 +26,7 @@ class ProviderLimitTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory);requests=Requests(8,out=root)
             try:
+                requests.observe(model)
                 requests.pending['one']={'model':model,'future':Future()}
                 self.assertFalse(requests.can_start('two',model))
                 write_json(root/'provider-control.json',{'endpoint_limits':{endpoint(model):2}})

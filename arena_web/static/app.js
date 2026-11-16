@@ -393,6 +393,10 @@ async function runResource(path,args) {
   entry.checkedAt=Date.now();entry.error=null;
   const pending=api(path,args,false,{persistent:true}).then(value=>{
     entry.value=value;entry.revision=revision;entry.pending=null;entry.checkedAt=Date.now();
+    if(path==='/api/fight-lengths'&&S.view==='run'&&args.run===S.run&&S.tab==='summary') {
+      const chart=$('#fight-lengths');
+      if(chart)LiveDOM.replace(chart,fightLengthCard());
+    }
     if(hadValue&&S.view==='run'&&args.run===S.run) {
       if(path==='/api/faults') {S.overviewFaults=value;S.overviewFaultTime=Date.now();}
       const tabs={'/api/matches':['summary','matches'],'/api/files':['files'],'/api/versions':['code'],'/api/faults':['faults','summary']};
@@ -1896,6 +1900,15 @@ function competitionReasoningOverrides(form) {
     return participant.checked&&!reuse?.checked&&effort&&effort.value!=='profile'?[[participant.value,effort.value||null]]:[];
   }));
 }
+function competitionReferenceFields(config) {
+  const references=new Map((config.evaluation_references||[]).map(model=>[model.id,model]));
+  const candidates=new Map(references);
+  for(const {spec} of S.boot.participants)if(spec.strategy?.origin?.reference&&!candidates.has(spec.id))candidates.set(spec.id,spec);
+  return `<details class="form-section" ${references.size?'open':''}><summary>Automatic reference evaluation${references.size?` (${references.size})`:''}</summary>
+    <p class="muted">Selected references play as submissions become available in each round. These fights can be shown in results and are separate from official standings and model feedback.</p>
+    ${[...candidates].map(([id])=>`<label class="check"><input type="checkbox" name="evaluation_reference" value="${e(id)}"
+      ${references.has(id)?'checked':''}>${e(participantName(id))}</label>`).join('')||'<p>Add a saved reference under Participants → Add reference strategy.</p>'}</details>`;
+}
 function reusableCompetitionModels(detail) {
   const config=detail.metadata.config;
   if(!config||config.evolutionary||config.generations===null||detail.roster?.scenario_changes?.length)return [];
@@ -1937,7 +1950,7 @@ function competitionEditor() {
       ],
       c.generations === null ? "manual" : "fixed",
     )}${field("Number of rounds", "generations", c.generations ?? 2, "number", "Includes the initial round. Later rounds run the improvement tracks selected below.", c.generations === null ? 'disabled min="1" step="1"' : 'min="1" step="1"')}</div> ${selectField("Competition type", "competition_type", [["standard","Standard improvement"],["evolutionary","Evolutionary population"]], c.evolutionary ? "evolutionary" : "standard")}
-<div id="population-settings" ${c.evolutionary ? "" : "hidden"}>${field("Replacements per model per round", "population_replace", c.evolutionary?.replace ?? 1, "number", "Keep the best strategies and replace the lowest ranked slots. At least two repetitions must survive.", 'min="1" step="1"')}<label class="check"><input type="checkbox" name="population_cross_models" ${c.evolutionary?.cross_models ? "checked" : ""}>Cross models (experimental)</label><p class="muted">The receiving model writes the child. Enabling this shares one selected parent's code and results across models, measuring cross-model recombination.</p></div>${improvementTrackFields(c)}${learningMetricFields(c.compare_previous_round)}<h3 class="section-label">Official participants</h3>${S.editReuse?notice(`Reusing preparations from ${S.editReuse.source}. Changing a participant’s reasoning reruns that participant from Round 1. Selected participants without reuse start from Round 1. Fights use the new line-up.`):""}<p class="muted">Select any fixed references that should play in the ranked tournament.</p>${competitionGroupPicker()}<div class="competition-roster-toolbar"><input type="search" id="competition-participant-search" placeholder="Search profiles" aria-label="Search competition participants"><label class="check"><input type="checkbox" id="competition-selected-only">Selected only</label></div><div class="competition-model-list" role="group" aria-label="Competition participants">${S.choiceModels.map(model=>competitionParticipant(model,selectedModels.get(model.id))).join("")}</div>${btn("Manage profiles", "go", 'data-view="participants"')}</section>
+<div id="population-settings" ${c.evolutionary ? "" : "hidden"}>${field("Replacements per model per round", "population_replace", c.evolutionary?.replace ?? 1, "number", "Keep the best strategies and replace the lowest ranked slots. At least two repetitions must survive.", 'min="1" step="1"')}<label class="check"><input type="checkbox" name="population_cross_models" ${c.evolutionary?.cross_models ? "checked" : ""}>Cross models (experimental)</label><p class="muted">The receiving model writes the child. Enabling this shares one selected parent's code and results across models, measuring cross-model recombination.</p></div>${improvementTrackFields(c)}${learningMetricFields(c.compare_previous_round)}<h3 class="section-label">Official participants</h3>${S.editReuse?notice(`Reusing preparations from ${S.editReuse.source}. Changing a participant’s reasoning reruns that participant from Round 1. Selected participants without reuse start from Round 1. Fights use the new line-up.`):""}<p class="muted">Select any fixed references that should play in the ranked tournament.</p>${competitionGroupPicker()}<div class="competition-roster-toolbar"><input type="search" id="competition-participant-search" placeholder="Search profiles" aria-label="Search competition participants"><label class="check"><input type="checkbox" id="competition-selected-only">Selected only</label></div><div class="competition-model-list" role="group" aria-label="Competition participants">${S.choiceModels.map(model=>competitionParticipant(model,selectedModels.get(model.id))).join("")}</div>${btn("Manage profiles", "go", 'data-view="participants"')}${competitionReferenceFields(c)}</section>
  <section class="panel editor-section" id="editor-scenario"><div class="section-heading"><span>02</span><h2>Scenario</h2></div><div class="scenario-presets">${btn("<strong>Simple duel</strong><small>1 level-300 leek · weapons only</small>", "preset-simple", `aria-pressed="${!c.scenario.source && c.scenario.preset !== 'llm-team'}"`)}${btn("<strong>Dream team</strong><small>4 complex builds · saved roster</small>", "preset-dream", `aria-pressed="${!!c.scenario.source}"`)}${btn("<strong>AI-built team</strong><small>Each model builds its own roster</small>", "preset-llm", `aria-pressed="${c.scenario.preset === 'llm-team'}"`)}</div><p id="preset-status" role="status" class="muted">${c.scenario.source ? `Based on public team · original snapshot ${e(c.scenario.source.snapshot_sha256.slice(0, 12))}. The roster below can be edited. Published final stats include component bonuses; component selections and alteration deltas are preserved without adding bonuses twice.` : c.scenario.preset === "llm-team" ? "Each LLM freely chooses 1–4 leeks, their levels (1–300), stats, scripts, equipment and component alterations. preview_build and validate_team check official game rules. No character stats or equipment lists are imposed." : "Starting preset: one level-300 gunner per team, direct-damage weapons, no chips. Edit each character independently below."}</p>${c.scenario.source ? raw(c.scenario.source, "Public source and frozen snapshot") : ""}<details><summary>Refresh or replace the saved Dream team</summary>${btn("Refetch current top farmer", "preset-dream-refresh")}<p class="muted">Only this button reads the current farmer ranking and fetches four leeks of its first player. The saved preset is reused until an explicit refresh; existing competitions keep their frozen roster.</p><p class="muted">Use scripts/import_dream_team.py on a machine with access to leekwars.com, then paste its snapshot JSON here.</p><textarea id="dream-snapshot" class="mono" aria-label="Public team snapshot JSON" rows="4"></textarea>${btn("Import snapshot", "preset-dream-json")}</details></section><section class="panel editor-section" id="editor-rules"><div class="section-heading"><span>03</span><h2>Match rules & roster</h2></div><p class="muted">Every distinct pair plays A vs B and B vs A on the same seed. Both sides count toward standings. Use a shared roster or let each LLM build its team.</p><div class="form-grid">${selectField(
    "Team setup",
    "team_mode",
@@ -1969,6 +1982,11 @@ function readCompetition(form) {
     real = models.some(m=>m.provider!=='mock'&&!reused.includes(m.id));
   base.name = f.get("name");
   base.models = models;
+  const savedReferences=new Map((base.evaluation_references||[]).map(model=>[model.id,model]));
+  const evaluationReferences=f.getAll('evaluation_reference').map(id=>savedReferences.get(id)||
+    S.boot.participants.find(({spec})=>spec.id===id)?.spec||id);
+  if(evaluationReferences.length)base.evaluation_references=evaluationReferences;
+  else delete base.evaluation_references;
   base.replicates = n("replicates");
   base.parallel_requests = n("parallel_requests");
   base.request_order = f.get("request_order");
@@ -2146,7 +2164,8 @@ function referenceEvaluationDialog() {
     ${official?`<fieldset><legend>Exclude official references from results</legend><p>All fights involving a checked reference are excluded for both sides. Completed fights stay in Matches.</p>${official}</fieldset>`:''}
     <fieldset><legend>Enable evaluation opponents</legend><p>References fight all active submitted strategies and each other on the tournament seeds. These fights do not use model APIs or affect official standings or feedback. Uncheck a reference to hide its evaluation results.</p>
     ${opponents||'<p>Add a reference in Participants → Add reference strategy.</p>'}</fieldset>
-    <fieldset><legend>Rounds to evaluate</legend>${chosenRounds||'<p>No submitted model strategies yet.</p>'}</fieldset>
+    <label class="check"><input type="checkbox" name="automatic" ${policy.automatic?'checked':''}>Automatically evaluate new submissions</label>
+    <fieldset><legend>Rounds for manual evaluation</legend>${chosenRounds||'<p>No submitted model strategies yet.</p>'}</fieldset>
     <div class="form-footer">${btn('Cancel','close-dialog')}<button type="submit" class="button">Save settings</button>
     <button type="submit" name="evaluate" value="yes" class="button primary" ${!profiles.length||!rounds.length?'disabled':''}>Save & run evaluation</button></div></form>`);
 }
@@ -2154,13 +2173,31 @@ function resumeRecoveryMarkup(detail) {
   const failed=detail.sessions.filter(s=>!s.withdrawn && !s.planned_frozen && ["provider_unavailable","generation_failed","no_submission"].includes(s.status));
   return failed.length ? `<section class="form-section"><h3>Conversation recovery</h3>${failed.map(s=>`<div class="info-row"><span>${e(s.model)} · ${e(sessionLabel(s))}${s.failure?.message ? `<small>${e(s.failure.message)}</small>` : ""}</span><strong>${s.retry_allowed ? (s.context_recovery_required ? "Will retry with a fresh context" : "Will retry") : "Blocked"}${!s.retry_allowed ? `<small>${e(s.retry_reason)}</small>` : ""}</strong></div>`).join("")}<p>Resuming sends another request. A provider that is still unavailable may reject it again.</p></section>` : "";
 }
+function billingRecoveryDialog(detail=S.detail, selected=null) {
+  const live=activeJobs().some(job=>job.run===S.run);
+  const blocked=detail.sessions.filter(s=>!s.withdrawn&&s.reconciliation_required&&(!live||s.status==='needs_reconciliation'));
+  const retryable=detail.sessions.filter(s=>!s.withdrawn&&s.status==='provider_unavailable'&&s.retry_allowed);
+  const title=blocked.length?'Review provider billing':'Retry provider conversations';
+  openDialog(title,detail.metadata.config.name,`<form data-form="reconcile-batch">
+    ${blocked.length?`<p>Enter the additional amount verified with the provider for each request. Use $0 for a confirmed uncharged request. Leave an amount blank to keep that conversation on hold.</p>
+      <div class="run-participant-list">${blocked.map(s=>`<label class="field"><strong>${e(participantName(s.model))} · ${e(sessionLabel(s))}</strong>
+        ${s.failure?.message?`<small>${e(s.failure.message)}</small>`:''}
+        <input type="number" min="0" step="any" data-billing-session="${e(s.id)}" placeholder="Additional cost (USD)"></label>`).join('')}</div>
+      ${btn('Fill blank amounts with $0','billing-fill-zero','type="button"')}
+      <label class="field">Optional note<input name="note" maxlength="12000"></label>`:''}
+    ${retryable.length?`<p>${retryable.length} provider conversation${retryable.length===1?' can':'s can'} be retried.</p>`:''}
+    <div class="form-footer">${btn('Cancel','close-dialog','type="button"')}
+       ${blocked.length?`<button type="submit" name="action" value="record" class="button">Record amounts</button>`:''}
+       <button type="submit" name="action" value="retry" class="button primary">${blocked.length?(live?'Record & retry':'Record & resume'):(live?'Retry provider requests':'Retry & resume')}</button>
+    </div><small>Retrying authorizes new API requests under the competition’s saved spending limit.</small></form>`);
+  if(selected)$$('#dialog [data-billing-session]').find(input=>input.dataset.billingSession===selected)?.focus();
+}
 async function launchDialog(draftId = null, runId = null) {
   if (runId) {
     S.detail = await api("/api/run", {run:runId});
     const blocked = S.detail.sessions.filter(s => !s.withdrawn && s.reconciliation_required);
-    if (blocked.length) {
-      openDialog("Resolve billing before resuming", S.detail.metadata.config.name,
-        `<p>These conversations have unresolved provider requests. Record their costs, then resume. All saved submissions and matches are retained.</p>${blocked.map(s => `<div class="info-row"><span>${e(s.model)} · ${e(sessionLabel(s))}</span>${btn("Resolve billing", "reconcile-session", `data-session="${e(s.id)}"`)}</div>`).join("")}`);
+    if (blocked.length||S.detail.sessions.some(s=>!s.withdrawn&&s.status==='provider_unavailable'&&s.retry_allowed)) {
+      billingRecoveryDialog();
       return;
     }
   }
@@ -2192,11 +2229,6 @@ function resumeConversationDialog(sid) {
   const efforts=session?.retry_allowed&&!session.finalize_allowed?session.reported_reasoning_efforts:[];
   const reasoning=efforts?.length?`<label>Reasoning effort<select name="reasoning_effort" required><option value="" disabled selected>Select a level</option>${efforts.map(level=>`<option value="${e(level)}">${e(level)}</option>`).join('')}<option value="provider-default">Provider default</option></select></label><small>The provider rejected the previous level. This change applies to this conversation.</small>`:'';
   openDialog('Resume conversation',strategyName(sid),`<form data-form="resume-conversation" data-session="${e(sid)}">${reasoning}<label>Optional continuation message<textarea name="message" maxlength="12000" placeholder="Continue from your saved files, use the tools, and submit your strategy."></textarea></label><p>Continues the same history and workspace within the remaining budgets. An active request finishes before the message is sent. Use Pause first to interrupt a stalled request.</p><div class="form-footer">${btn('Cancel','close-dialog')}<button type="submit" class="button primary">Resume</button></div></form>`);
-}
-function reconciliationDialog(sid) {
-  const session = S.detail.sessions.find(s => s.id === sid);
-  openDialog("Resolve request billing", strategyName(sid),
-    `<form data-form="reconcile" data-session="${e(sid)}"><p>The provider request was interrupted or returned incomplete usage. Its response may have been charged. Check the provider's usage dashboard before repeating it.</p><p>If a response was saved, its pending tools will continue. Otherwise the request can be retried. Existing files and other participants' results are kept.</p><label>Additional cost for this unresolved request (USD)<input name="cost_usd" type="number" min="0" step="any" required placeholder="0 if confirmed uncharged or local"></label><small>Enter only the unresolved charge, not the conversation total. Already recorded cost: ${money(session.recorded_cost_spent ?? session.cost_spent ?? 0)}.</small><label>Verification note<textarea name="note" required placeholder="How you checked the charge; for a local model, state that it runs locally."></textarea></label><div class="form-footer">${btn("Cancel", "close-dialog")}<button class="button primary" type="submit">Record and unlock</button></div></form>`);
 }
 async function retryDialog(sid) {
   const session = S.detail.sessions.find((s) => s.id === sid),
@@ -2290,7 +2322,7 @@ function runHeader(d) {
     job = S.boot.jobs.find((j) => j.run === S.run),
     active = job && ["running", "stopping"].includes(job.status),
     experiment = !!d.metadata.config;
-  return `<a class="back-link" href="#view=competitions">← Competitions</a>` + head(config.name, "", `${active ? btn("■ Stop", "stop-job", `data-id="${e(job.id)}"`) : experiment && !d.archived ? btn("Resume", "resume", "", true) : ""}<details class="action-menu"><summary class="button">More <svg class="menu-chevron" viewBox="0 0 12 12" width="12" height="12" aria-hidden="true"><path d="M2.5 4.5 6 8l3.5-3.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></summary><div>${experiment && !d.archived ? btn("Edit participants","edit-run-participants")+btn("Reference strategies","run-reference-strategies")+btn("Execution & metrics","run-metric-collection")+btn("Chart settings","run-chart-colors")+(config.models?.some(model=>model.provider!=="mock")?btn("Recalculate costs","report-pricing"):"") : ""}${btn('Load diagnostics','load-diagnostics')}${experiment?btn('Engine performance','engine-performance')+btn('Copy scheduling diagnostics','copy-scheduling-diagnostics'):''}${btn("Move to workspace","move-workspace",`data-run="${e(S.run)}"`)}<a class="button" href="/api/results.csv?${query({run:S.run})}" download>Download results CSV</a><a class="button" href="/api/results.csv?${query({run:S.run,table:"fights"})}" download>Download match results CSV</a><a class="button" href="/api/results.csv?${query({run:S.run,table:"sessions"})}" download>Download sessions CSV</a>${experiment ? btn("Clone configuration", "clone-run") + (reusableCompetitionModels(d).length?btn("Clone with saved preparations","clone-run-reuse"):"") + btn("Export competition", "export-run") : ""}${storageMenuItem(d)}</div></details>`) +
+  return `<a class="back-link" href="#view=competitions">← Competitions</a>` + head(config.name, "", `${active ? btn("■ Stop", "stop-job", `data-id="${e(job.id)}"`) : experiment && !d.archived ? btn("Resume", "resume", "", true) : ""}<details class="action-menu"><summary class="button">More <svg class="menu-chevron" viewBox="0 0 12 12" width="12" height="12" aria-hidden="true"><path d="M2.5 4.5 6 8l3.5-3.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></summary><div>${experiment && !d.archived ? btn("Edit participants","edit-run-participants")+btn("Reference strategies","run-reference-strategies")+btn("Execution & metrics","run-metric-collection")+btn("Chart settings","run-chart-colors")+(config.models?.some(model=>model.provider!=="mock")?btn("Recalculate costs","report-pricing"):"") : ""}${experiment&&d.sessions.some(s=>s.status==='needs_reconciliation'||s.status==='provider_unavailable')?btn('Provider recovery','billing-recovery'):''}${btn('Load diagnostics','load-diagnostics')}${experiment?btn('Engine performance','engine-performance')+btn('Copy scheduling diagnostics','copy-scheduling-diagnostics'):''}${btn("Move to workspace","move-workspace",`data-run="${e(S.run)}"`)}<a class="button" href="/api/results.csv?${query({run:S.run})}" download>Download results CSV</a><a class="button" href="/api/results.csv?${query({run:S.run,table:"fights"})}" download>Download match results CSV</a><a class="button" href="/api/results.csv?${query({run:S.run,table:"sessions"})}" download>Download sessions CSV</a>${experiment ? btn("Clone configuration", "clone-run") + (reusableCompetitionModels(d).length?btn("Clone with saved preparations","clone-run-reuse"):"") + btn("Export competition", "export-run") : ""}${storageMenuItem(d)}</div></details>`) +
     `<div class="toolbar run-toolbar">${job ? status(job.status === "failed" && d.report?.incomplete ? "incomplete" : job.status) : ""}${job?.mode==='retry_fights'?badge('Engine recovery · no model calls'):''}${config.models ? badge(config.models.every(m=>m.provider==="mock") ? "Built-in strategies" : "Model competition") : badge("Provided strategies")}${d.archived ? badge("Exported copy", "orange") : ""}<span class="run-id mono" title="Competition ID">${e(S.run)}</span><span class="spacer"></span><label class="check live-toggle"><input id="follow-live" type="checkbox" ${S.follow ? "checked" : ""}>Live</label>${job ? btn("Run log", "job-log", `data-id="${e(job.id)}"`) : ""}</div>` + (S.tab==='activity'?'':competitionActivity()) +
     `<nav class="tabs" aria-label="Competition views">${TABS.map(([key,label])=>`<button class="tab ${S.tab===key ? "active" : ""}" ${S.tab===key ? 'aria-current="page"' : ""} data-action="tab" data-tab="${key}">${label}</button>`).join("")}</nav>`;
 }
@@ -2373,6 +2405,10 @@ async function renderRun(epoch, liveUpdate=false) {
     const fights=await runResource('/api/fight-groups',{run:S.run});
     const statistics={training_matches:fights.training_matches||0};
     if (epoch !== S.epoch) return;
+    const run=S.run;
+    runResource('/api/fight-lengths',{run}).catch(error=>{
+      if(error.name!=='AbortError'&&epoch===S.epoch)toast(error.message,true);
+    });
     S.overviewMatches = expandFightGroups(fights);
     S.overviewIndexing = fights.indexing;
     S.overviewProgression=fights.progression||[];
@@ -2655,7 +2691,7 @@ function overviewSettings() {
   return (S.overviews[S.run] ||= {
     round: "all",
     model: "",
-    source: "competition",
+    source: S.detail?.id===S.run&&S.detail.reference_evaluation?.automatic&&S.detail.reference_evaluation.selected.length?'references':'competition',
     matrix: "models",
   });
 }
@@ -3390,11 +3426,11 @@ function summary(d, statistics = null) {
         Number(s.money_reserved || 0) > 0,
     ),
     cost = sessions.reduce((n, s) => n + Number(s.cost_spent || 0), 0);
-  return `<div class="competition-overview">${indexingNotice(S.overviewIndexing)}${overviewFilters(d, data)}${d.metadata.config?.reuse_preparations?notice(`Historical preparation metrics are included for: ${d.metadata.config.reuse_preparations.models.map(participantName).join(", ")}. Their strategies were reused from ${d.metadata.config.reuse_preparations.source}.`):""}${data.scope.source==='references'?notice('This view combines tournament fights and additional fights against evaluation references. The official ranking uses tournament fights.'):''}${data.scope.source==='progression'?notice('Unscored progression diagnostic: current LLM versions face the preceding round. This includes same-model historical opponents; results do not change tournament standings or model feedback.'):''}${failures.length ? `<div class="overview-alert">${failures.length} conversation${failures.length === 1 ? "" : "s"} need attention. <button class="table-button" data-action="overview-failures">Review & retry</button></div>` : ""}<div class="overview-kpis"><div><span>Completed fights</span><strong>${fmt(fightCount(data.selected.filter((v) => v.match.result.status === "completed")))}</strong><small>${fmt(fightCount(data.selected.filter((v) => v.match.result.status !== "completed")))} failed</small></div><div><span>Submitted strategies</span><strong>${sessions.length ? sessions.filter((s) => s.submission || s.status === "submitted").length : d.metadata.manifest?.strategies?.filter(s=>overviewAccept(overviewIdentity(s.id),data.scope)).length ?? data.models.length}${sessions.length ? `<small> / ${sessions.length}</small>` : ""}</strong><small>${d.metadata.config ? d.metadata.config.models.filter(model=>!d.roster?.withdrawn.includes(model.id)&&(!data.scope.model||data.scope.model===model.id)).length : data.models.length} active participants</small></div><div><span>Estimated API cost</span><strong>${sessions.length ? (costUnknown ? "Unknown" : money(cost)) : "N/A"}</strong><small>Selected versions</small></div><div><span>Tokens · selected versions</span><strong>${known.length ? fmt(tokens) : real.length ? "Unknown" : "N/A"}</strong><small>${known.length ? (known.length < real.length || known.some(u=>!u.complete) ? "Partial reported usage" : "Input + output") : real.length ? "Not reported by provider" : "No measured LLM usage"}</small></div></div>
+  return `<div class="competition-overview">${indexingNotice(S.overviewIndexing)}${overviewFilters(d, data)}${d.metadata.config?.reuse_preparations?notice(`Historical preparation metrics are included for: ${d.metadata.config.reuse_preparations.models.map(participantName).join(", ")}. Their strategies were reused from ${d.metadata.config.reuse_preparations.source}.`):""}${data.scope.source==='references'?notice('This view combines tournament fights and additional fights against evaluation references. The official ranking uses tournament fights.'):''}${data.scope.source==='progression'?notice('Unscored progression diagnostic: current LLM versions face the preceding round. This includes same-model historical opponents; results do not change tournament standings or model feedback.'):''}${failures.length ? `<div class="overview-alert">${failures.length} conversation${failures.length === 1 ? "" : "s"} need attention. <button class="table-button" data-action="overview-failures">Review & retry</button> <button class="table-button" data-action="billing-recovery">Provider recovery</button></div>` : ""}<div class="overview-kpis"><div><span>Completed fights</span><strong>${fmt(fightCount(data.selected.filter((v) => v.match.result.status === "completed")))}</strong><small>${fmt(fightCount(data.selected.filter((v) => v.match.result.status !== "completed")))} failed</small></div><div><span>Submitted strategies</span><strong>${sessions.length ? sessions.filter((s) => s.submission || s.status === "submitted").length : d.metadata.manifest?.strategies?.filter(s=>overviewAccept(overviewIdentity(s.id),data.scope)).length ?? data.models.length}${sessions.length ? `<small> / ${sessions.length}</small>` : ""}</strong><small>${d.metadata.config ? d.metadata.config.models.filter(model=>!d.roster?.withdrawn.includes(model.id)&&(!data.scope.model||data.scope.model===model.id)).length : data.models.length} active participants</small></div><div><span>Estimated API cost</span><strong>${sessions.length ? (costUnknown ? "Unknown" : money(cost)) : "N/A"}</strong><small>Selected versions</small></div><div><span>Tokens · selected versions</span><strong>${known.length ? fmt(tokens) : real.length ? "Unknown" : "N/A"}</strong><small>${known.length ? (known.length < real.length || known.some(u=>!u.complete) ? "Partial reported usage" : "Input + output") : real.length ? "Not reported by provider" : "No measured LLM usage"}</small></div></div>
   <div class="overview-charts"><section class="overview-card"><div class="overview-section-head"><h2>${data.scope.source==='references'?"Scores including evaluation references":"Model ranking"}</h2><div class="chart-controls"><label class="check"><input type="checkbox" data-overview-filter="compactRanking" ${data.scope.compactRanking?'checked':''}>Compact</label>${chartActions()}</div></div>${overviewRanking(data)}</section><section class="overview-card"><div class="overview-section-head"><h2>Evolution</h2>${chartActions()}</div>${overviewEvolution(data)}</section></div><section class="overview-card">${resourcePanel(overviewResourcePoints(d,data),"overview")}</section>
   ${modelUsageCharts(d,data.scope)}
   ${lineageChart(d,data)}
-  ${fightLengthCard(d,data)}
+  ${fightLengthCard(data.scope)}
   ${repetitionVariance(d,data)}
   ${learningProgression(d)}
   ${overviewErrors(d,data)}
@@ -4800,7 +4836,12 @@ document.addEventListener("click", async (event) => {
       await renderRoute();
     }
     else if (a === "resume") await launchDialog(null, S.run);
-    else if (a === "reconcile-session") reconciliationDialog(node.dataset.session);
+    else if (a === 'billing-recovery'||a==='reconcile-session') {
+      const detail=await api('/api/run',{run:S.run});
+      billingRecoveryDialog(detail,node.dataset.session);
+    } else if (a === 'billing-fill-zero') {
+      for(const input of node.form.querySelectorAll('[data-billing-session]'))if(!input.value)input.value='0';
+    }
     else if (a === 'pause-conversation') {
       await api('/api/conversation/recover',{run:S.run,session:node.dataset.session,action:'pause'},true);
       toast('Pause requested. Saved files and history are retained.');await refreshBoot();
@@ -5218,15 +5259,19 @@ document.addEventListener("submit", async (event) => {
         mode:f.get("mode"),confirm_paid:f.has("confirm_paid")},true);
       openDialog("API test result", result.accepted ? "Request accepted" : "Request rejected",
         `<textarea readonly rows="20">${e(pretty(result))}</textarea>`);
-    } else if (type === "reconcile") {
-      await api("/api/reconcile", {run:S.run, session:form.dataset.session,
-        cost_usd:f.get("cost_usd"), note:f.get("note")}, true);
-      $("#dialog").close();
-      await renderRoute();
-      toast("Billing recorded. Resume the competition or retry this conversation.");
+    } else if(type==='reconcile-batch') {
+      const amounts=Object.fromEntries([...form.querySelectorAll('[data-billing-session]')]
+        .filter(input=>input.value!=='').map(input=>[input.dataset.billingSession,input.value]));
+      const result=await api('/api/reconcile-batch',{run:S.run,amounts,note:f.get('note')||'',
+        resume:event.submitter?.value==='retry'},true);
+      $('#dialog').close();
+      await refreshBoot();await renderRoute();
+      if(result.resume_error)toast(`Billing updated. Resume failed. ${result.resume_error}`,true);
+      else toast(result.resumed?'Competition resuming.':result.queued?'Recovery queued.':'Billing updated.');
     } else if(type==='reference-evaluation') {
       const evaluate=event.submitter?.name==='evaluate';
-      await api('/api/run/reference-evaluation',{run:S.run,selected:f.getAll('reference'),rounds:f.getAll('round').map(Number),excluded:f.getAll('excluded'),evaluate},true);
+      await api('/api/run/reference-evaluation',{run:S.run,selected:f.getAll('reference'),rounds:f.getAll('round').map(Number),excluded:f.getAll('excluded'),evaluate,
+        automatic:f.has('automatic')},true);
       $('#dialog').close();
       runReadCache.clear();S.detailFetchedAt=0;
       await refreshBoot();await renderRoute();
@@ -5320,7 +5365,7 @@ document.addEventListener("change", async (event) => {
       LiveDOM.replace($('#learning-progress'),learningProgression(S.detail));
     } else if(n.matches('[data-length-setting]')) {
       overviewSettings()[n.dataset.lengthSetting]=n.value;clearChartHover();
-      LiveDOM.replace($('#fight-lengths'),fightLengthCard(S.detail,overviewData(S.detail)));
+      LiveDOM.replace($('#fight-lengths'),fightLengthCard());
     } else if(n.matches('[data-evolution-view]')) {
       overviewSettings().evolution=n.value;clearChartHover();$('#overview-evolution-chart').innerHTML=n.value==='lines'?overviewEvolutionLines(overviewData(S.detail)):overviewEvolutionBars(overviewData(S.detail));
     } else if(n.name==='participant_group_filter') {

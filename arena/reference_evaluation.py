@@ -16,8 +16,77 @@ def settings(root):
 
 
 def reference_model(model):
+    strategy=model.get('strategy')
+    origin=strategy.get('origin') if isinstance(strategy,dict) else None
     return (model.get('provider') == 'mock' and model.get('profile') == 'saved-strategy'
-            and bool((model['strategy'].get('origin') or {}).get('reference')))
+            and isinstance(origin,dict) and bool(origin.get('reference')))
+
+
+def initialize_automatic(root, config):
+    if config.get('evaluation_references') and not (root / SETTINGS).exists():
+        write_json(root / SETTINGS, {'models':config['evaluation_references'], 'automatic':True,
+                                    'rounds':[], 'excluded':[]})
+
+
+def evaluate_round(engine, config, root, journal, generation, policy, scratch):
+    from .core import verify_source_files
+    from .evolution import references
+    from .greedy import entrants
+    from .reference_strategies import for_scenario
+    from .scenario_rules import scenario_for
+
+    inactive = set(config.get('_withdrawn_models', ())) | set(policy.get('excluded', ()))
+    states = journal.metadata()
+    ready = [entry for entry in entrants(journal, root, generation)
+             if entry['model'] not in inactive and states[entry['id']].get('validity') != 'invalid']
+    if not ready:
+        return None
+    scenario = scenario_for(config, generation)
+    official = {(entry['model'],entry['submission']['sha256']) for entry in ready}
+    panel = []
+    for model in policy.get('models', []):
+        strategy = for_scenario(model, scenario)['strategy']
+        if (model['id'],strategy['submission']['sha256']) in official:
+            continue
+        sid = opponent_id(model)
+        source = scratch / sid
+        for name, content in strategy['files'].items():
+            file = source / name
+            file.parent.mkdir(parents=True, exist_ok=True)
+            file.write_bytes(content.encode('utf-8'))
+        verify_source_files(source, strategy['submission'])
+        panel.append({'id':sid,'path':source,'submission':strategy['submission'],
+                      'generation':generation,'fixed_reference':True})
+    panel.sort(key=lambda entry:entry['id'])
+    pairs = [*product(ready, panel), *combinations(panel, 2)]
+    if not pairs:
+        return None
+    seeds = config['final_seeds'] if generation else config['seeds']
+    if policy.setdefault('round_seeds', {}).get(str(generation)) != seeds or generation not in policy.get('rounds', []):
+        policy['round_seeds'][str(generation)] = seeds
+        policy['rounds'] = sorted(set(policy.get('rounds', ())) | {generation})
+        write_json(root / SETTINGS, policy)
+    return references(engine, {**config,'final_seeds':seeds}, root, journal, ready,
+                      f'g{generation}-references-panel', panel, pairs=pairs)
+
+
+def evaluate_automatic(engine, config, root, journal, generation, *, final=False):
+    from .core import scratch_directory
+    from .run_memory import shared
+    policy = settings(root)
+    if not policy.get('automatic') or not policy.get('models'):
+        return
+    states = journal.metadata()
+    signature = digest([policy['models'], policy.get('excluded', []), config.get('_withdrawn_models', []),
+                        [(sid, row['submission']['sha256'], row.get('validity')) for sid,row in sorted(states.items())
+                         if row.get('generation', 0) == generation and row.get('submission')]])
+    attempted = shared(root, 'automatic_reference_evaluations')
+    if attempted.get(generation) == (signature, True) or attempted.get(generation) == (signature, final):
+        return
+    with scratch_directory() as scratch:
+        results = evaluate_round(engine, config, root, journal, generation, policy, scratch)
+    attempted[generation] = (signature, final or results is None or
+                             all(row['result']['status']=='completed' for row in results.values()))
 
 
 def opponent_id(model):
@@ -80,15 +149,12 @@ def refresh_standings(root):
 
 
 def run(root):
+    from .core import scratch_directory
     from .engine import Engine
-    from .evolution import references
     from .experiment import Journal, experiment_lock
     from .execution_control import poll
     from .recovery import engine_compatible
-    from .reference_strategies import for_scenario
     from .roster import effective, snapshot
-    from .scenario_rules import scenario_for
-    from .core import scratch_directory, verify_source_files
 
     with experiment_lock(root):
         if (root / 'export.json').exists():
@@ -102,48 +168,12 @@ def run(root):
         config = effective(root, metadata['config'])
         roster = snapshot(root) or {}
         config['_scenario_changes'] = roster.get('scenario_changes', [])
+        config['_withdrawn_models'] = roster.get('withdrawn', [])
         config['_parallel_fights'] = poll(root, roster.get('parallel_fights', config.get('parallel_fights', 1)))
-        inactive = set(roster.get('withdrawn', ())) | set(policy.get('excluded', ()))
-        participants = {model['id']: model for model in config['models'] if model['id'] not in inactive}
         journal = Journal(root)
         failed = 0
         with closing(journal.db), scratch_directory() as scratch:
-            states = journal.states()
             for generation in policy.get('rounds', []):
-                entrants = []
-                for sid, state in states.items():
-                    if (state.get('generation', 0) != generation or not state.get('submission')
-                            or state.get('validity') == 'invalid' or state['model'] not in participants):
-                        continue
-                    source = root / 'sessions' / sid / 'submission'
-                    verify_source_files(source, state['submission'])
-                    entrants.append({'id': sid, 'model': state['model'], 'path': source,
-                                     'generation': generation, 'submission': state['submission']})
-                panel = []
-                scenario = scenario_for(config, generation)
-                official_versions = {(entry['model'], entry['submission']['sha256']) for entry in entrants}
-                for model in policy.get('models', []):
-                    sid = opponent_id(model)
-                    strategy = for_scenario(model, scenario)['strategy']
-                    if (model['id'], strategy['submission']['sha256']) in official_versions:
-                        continue
-                    source = scratch / str(generation) / sid
-                    for name, content in strategy['files'].items():
-                        file = source / name
-                        file.parent.mkdir(parents=True, exist_ok=True)
-                        file.write_bytes(content.encode('utf-8'))
-                    verify_source_files(source, strategy['submission'])
-                    panel.append({'id': sid, 'path': source, 'submission': strategy['submission'],
-                                  'generation':generation, 'fixed_reference':True})
-                panel.sort(key=lambda entry: entry['id'])
-                pairs = [*product(entrants, panel), *combinations(panel, 2)]
-                if pairs:
-                    seeds = config['final_seeds'] if generation else config['seeds']
-                    round_seeds = policy.setdefault('round_seeds', {})
-                    if round_seeds.get(str(generation)) != seeds:
-                        round_seeds[str(generation)] = seeds
-                        write_json(root/SETTINGS, policy)
-                    results = references(engine, {**config, 'final_seeds':seeds}, root, journal, entrants,
-                                         f'g{generation}-references-panel', panel, pairs=pairs)
-                    failed += sum(row['result']['status'] != 'completed' for row in results.values())
+                results = evaluate_round(engine, config, root, journal, generation, policy, scratch / str(generation))
+                failed += sum(row['result']['status'] != 'completed' for row in (results or {}).values())
         return failed

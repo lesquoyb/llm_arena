@@ -122,14 +122,10 @@ class Jobs:
                 roster = snapshot(out) or {}
                 withdrawn = set(roster.get('withdrawn', []))
                 frozen_tracks = roster.get('frozen_tracks', {})
-                from arena.recovery import needs_reconciliation, zero_cost_requests
-                external = {m['id'] for m in config['models'] if m['provider'] != 'mock'}
+                from arena.recovery import zero_cost_requests
                 free = {m['id'] for m in config['models'] if zero_cost_requests(m)}
                 from arena.session_metadata import FIELDS
                 states=self.store.states(out,FIELDS)
-                blocked = [sid for sid,state in states.items() if state['model'] not in withdrawn and needs_reconciliation(state, state['model'] in external) and (state['model'] not in free or amount(state.get('money_reserved','0'))>0)]
-                if blocked:
-                    raise ArenaError('Resolve billing in Conversations before resuming: ' + ', '.join(blocked))
                 for state in states.values():
                     if state['model'] in free and state.get('status')=='needs_reconciliation' and amount(state.get('money_reserved','0'))==0:
                         state.update(status='provider_unavailable' if state.get('in_flight') else 'running',in_flight=False)
@@ -361,7 +357,7 @@ class Jobs:
             write_json(root/'execution-control.json',command)
             return {**command,'status':'requested'}
 
-    def reference_evaluation(self, run_id, selected, rounds, excluded, evaluate):
+    def reference_evaluation(self, run_id, selected, rounds, excluded, evaluate, automatic=None):
         from arena.experiment import experiment_lock
         from arena.reference_evaluation import SETTINGS, reference_model, refresh_standings, settings
         from arena.roster import effective, snapshot
@@ -370,7 +366,8 @@ class Jobs:
                 raise ArenaError('Choose distinct reference strategies')
         if not isinstance(rounds, list) or any(type(value) is not int or value < 0 for value in rounds):
             raise ArenaError('Choose valid rounds')
-        if type(evaluate) is not bool or (evaluate and (not selected or not rounds)):
+        if (type(evaluate) is not bool or (automatic is not None and type(automatic) is not bool)
+                or (evaluate and (not selected or not rounds))):
             raise ArenaError('Choose references and at least one round to evaluate')
         with self.lock:
             root = self.store.run_path(run_id)
@@ -391,7 +388,8 @@ class Jobs:
                 if set(rounds) - available:raise ArenaError('Choose rounds with submitted strategies')
                 previous = settings(root)
                 write_json(root/SETTINGS, {**previous, 'models': [catalog[key] for key in selected],
-                                          'rounds': sorted(set(rounds)), 'excluded': sorted(excluded)})
+                                          'rounds': sorted(set(rounds)), 'excluded': sorted(excluded),
+                                          'automatic':previous.get('automatic',False) if automatic is None else automatic})
                 if set(previous.get('excluded', [])) != set(excluded):
                     refresh_standings(root)
             return self.retry_fights(run_id, reference_evaluation=True) if evaluate else {'status':'saved'}
@@ -483,6 +481,68 @@ class Jobs:
                 # that here made a settings change wait up to a minute.
                     state = reconcile(journal, sid, cost, note)
             return {'session':sid, 'status':state['status']}
+
+    def reconcile_batch(self, run_id, amounts, *, resume=False, note=''):
+        from contextlib import closing
+        from arena.experiment import Journal, experiment_lock
+        from arena.recovery import needs_reconciliation, reconcile
+        from arena.retries import retry_reason
+        from arena.roster import effective, snapshot
+        from arena.provider_limits import endpoint
+        if not isinstance(amounts, dict) or type(resume) is not bool or not isinstance(note,str) or len(note)>12000:
+            raise ArenaError('Provide amounts per conversation and choose whether to resume')
+        if not amounts and not resume:
+            raise ArenaError('Enter at least one amount')
+        checked={sid:str(amount(value)) for sid,value in amounts.items() if value is not None and str(value).strip()}
+        if len(checked)!=len(amounts):raise ArenaError('Enter an amount for every selected conversation')
+        note=note.strip() or 'Amount reported by the user during batch reconciliation.'
+        with self.lock:
+            root=self.store.run_path(run_id)
+            metadata=read_json(root/'experiment.json')
+            if 'config' not in metadata or (root/'export.json').exists():
+                raise ArenaError('Only original competitions can be recovered')
+            config=effective(root,metadata['config'])
+            from arena.session_metadata import FIELDS
+            states=self.store.states(root,FIELDS)
+            models={model['id']:model for model in config['models'] if model['provider']!='mock'}
+            withdrawn=set((snapshot(root) or {}).get('withdrawn', []))
+            process,job=self.running(run_id)
+            if process is not None and job['status']!='running':
+                raise ArenaError('This competition is stopping')
+            for sid in checked:
+                state=states.get(sid,{})
+                if (state.get('model') not in models or state.get('model') in withdrawn or not needs_reconciliation(state)
+                        or (process is not None and state.get('status')!='needs_reconciliation')):
+                    raise ArenaError(f'{sid} is no longer awaiting billing review')
+            if process is None:
+                if checked:
+                    with experiment_lock(root):
+                        journal=Journal(root,audit_cache=False)
+                        with closing(journal.db):
+                            for sid,value in checked.items():reconcile(journal,sid,value,note)
+                if resume:
+                    try:
+                        self.launch(run_id=run_id,confirm_paid=True,ceiling=config['spending'].get('max_total_usd'),
+                                    allow_updated_runner=True)
+                    except ArenaError as error:
+                        if not checked:
+                            raise
+                        return {'recorded':len(checked),'queued':0,'resumed':False,'resume_error':str(error)}
+                return {'recorded':len(checked),'queued':0,'resumed':resume}
+            endpoints={endpoint(models[states[sid]['model']]) for sid in checked}
+            commands=[{'session':sid,'action':'reconcile','cost_usd':value,'note':note,'retry':resume}
+                      for sid,value in checked.items()]
+            if resume:
+                commands.extend({'session':sid,'action':'continue'} for sid,state in states.items()
+                    if state['model'] in models and state['model'] not in withdrawn and sid not in checked
+                    and state.get('status')=='provider_unavailable' and not state.get('conversation_paused')
+                    and (not endpoints or (state.get('failure',{}).get('diagnostics',{}).get('failure_kind')=='endpoint_paused'
+                                           and endpoint(models[state['model']]) in endpoints))
+                    and retry_reason(state,config['budget_per_session'],states.get(state.get('parent'))) is None)
+            for command in commands:
+                command.update(id=uuid4().hex, requested_at=time.time())
+                write_json(root/'recovery-commands'/(command['id']+'.json'),command)
+            return {'recorded':0,'queued':len(commands),'resumed':False}
 
     def _watch(self, process, row):
         code = process.wait()

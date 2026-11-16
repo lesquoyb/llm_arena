@@ -10,6 +10,37 @@ from arena.fight_store import FightStore, read_bytes, release, stage_records, ve
 
 
 class FightStoreTests(unittest.TestCase):
+    @unittest.skipUnless((ROOT/'.arena/engine.json').is_file(), 'Build engine')
+    def test_automatic_reference_fights_start_with_the_first_submission(self):
+        from arena.core import copy_submission, submission
+        from arena.engine import Engine
+        from arena.experiment import Journal
+        from arena.greedy import evaluate
+        from arena.reference_evaluation import initialize_automatic, settings
+        from arena.reference_strategies import participant
+
+        config=read_json(ROOT/'configs/offline-complete.json')
+        config['seeds']=[101]
+        config['include_mirrors']=False
+        config['scenario']['max_turns']=1
+        config['evaluation_references']=[participant('rush','reference-rush',config['scenario'])]
+        strategy=ROOT/'examples/strategies/single-shot'
+        info=submission(strategy)
+        with scratch_directory() as root, contextlib.redirect_stdout(io.StringIO()):
+            initialize_automatic(root,config)
+            journal=Journal(root)
+            with contextlib.closing(journal.db):
+                first=config['models'][0]['id']
+                sid=f'{first}-r0'
+                copy_submission(strategy,root/'sessions'/sid/'submission',info)
+                journal.save(sid,{'model':first,'replicate':0,'status':'submitted','generation':0,
+                                  'submission':info,'history':[]},'fixture')
+                self.assertIsNone(evaluate(Engine(), config, root, journal))
+                results=read_json(root/'evaluations/g0-references-panel/results.json')
+                self.assertEqual(len(results),2)
+                self.assertTrue(all(record['session']==sid and record['result']['status']=='completed' for record in results.values()))
+                self.assertEqual(settings(root)['rounds'],[0])
+
     def test_contents_are_deduplicated_compressed_and_checked(self):
         with scratch_directory() as root:
             store = FightStore.at(root / 'stage', create=True)

@@ -13,26 +13,15 @@ function stageInSource(stage,source) {
   if(source==='progression')return /-previous$/.test(stage);
   return tournament;
 }
-async function loadFightLengths() {
-  if(S.fightLengthsPending===S.run)return;
-  const run=S.run;S.fightLengthsPending=run;
-  try {
-    const value=await runResource('/api/fight-lengths',{run});
-    S.fightLengths={run,value};
-    const node=$('#fight-lengths');
-    if(node&&run===S.run&&S.tab==='summary')LiveDOM.replace(node,fightLengthCard(S.detail,overviewData(S.detail)));
-  } catch(error) {if(error.name!=='AbortError')toast(error.message,true);}
-  finally {if(S.fightLengthsPending===run)S.fightLengthsPending=null;}
-}
-function fightLengthCard(d,data) {
+function fightLengthCard(scopeSettings=overviewSettings()) {
   const head='<div class="overview-section-head"><h2>Fight length</h2>'+chartActions()+'</div>';
-  if(S.fightLengths?.run!==S.run) {loadFightLengths();return `<section class="overview-card" id="fight-lengths">${head}<p class="muted">Loading fight lengths…</p></section>`;}
-  const value=S.fightLengths.value,settings=overviewSettings();
-  const view=settings.lengthView||'global',filter=settings.lengthFilter||'all';
+  const value=runReadCache.get(JSON.stringify(['/api/fight-lengths',{run:S.run}]))?.value;
+  if(!value)return `<section class="overview-card" id="fight-lengths">${head}<p class="muted">Loading fight lengths…</p></section>`;
+  const view=scopeSettings.lengthView||'global',filter=scopeSettings.lengthFilter||'all';
   const classes=LENGTH_FILTERS.find(row=>row[0]===filter)[2];
-  const stage=data.scope.round?.startsWith('stage:')?data.scope.round.slice(6):null;
-  const scope=runScope(),focus=scope.model||settings.model||'';
-  const series=value.series.filter(row=>(stage?row.stage===stage:stageInSource(row.stage,data.scope.source))&&classes.includes(row.outcome)
+  const stage=scopeSettings.round?.startsWith('stage:')?scopeSettings.round.slice(6):null;
+  const scope=runScope(),focus=scope.model||scopeSettings.model||'';
+  const series=value.series.filter(row=>(stage?row.stage===stage:stageInSource(row.stage,scopeSettings.source))&&classes.includes(row.outcome)
     &&(!scope.round||stageRound(row.stage)+1===Number(scope.round)));
   const empty=()=>Array(value.bins).fill(0);
   const sum=(rows)=>{const out={counts:Object.fromEntries(LENGTH_CLASSES.map(([key])=>[key,empty()])),fights:0,turns:0,seconds:0,byClass:{}};

@@ -828,6 +828,10 @@ Expand **Freeze preparation** to keep a track fighting with its preceding submit
 strategy without further model calls. Freeze and pool changes are audited; already
 submitted versions are never regenerated. See [recovery details](recovery.md#change-participants-without-restarting).
 
+During setup, choose **Automatic reference evaluation** to schedule reference
+fights as strategies are submitted in each round. The overview starts with
+these fights included in the comparison view.
+
 **More → Reference strategies** is available once the competition stops. Check an
 official reference under **Exclude official references from results** to remove
 its fights from both sides of the standings. **Matches → All fights** keeps the
