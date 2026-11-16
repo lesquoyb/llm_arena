@@ -216,6 +216,10 @@ both participants and exclude self-play diagnostics. Filters remain in the URL, 
 can be reloaded or shared. **Clear filters** restores the full match list.
 A zero count opens an empty filtered list rather than selecting an unrelated fight.
 
+Use **Export PNG** on a chart to download its current view, including the
+title, selected filters, and legend. Models hidden from an interactive chart
+are omitted from both the exported plot and legend.
+
 The schematic replay supports play/pause, speed, stepping and seeking. It shows
 positions, HP, attacks, healing, deaths and recorded resurrections. It does not
 reproduce all official client effects or animations. Raw events and final engine

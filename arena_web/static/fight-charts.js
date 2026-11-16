@@ -25,7 +25,7 @@ async function loadFightLengths() {
   finally {if(S.fightLengthsPending===run)S.fightLengthsPending=null;}
 }
 function fightLengthCard(d,data) {
-  const head='<div class="overview-section-head"><h2>Fight length</h2>'+chartFullScreenButton()+'</div>';
+  const head='<div class="overview-section-head"><h2>Fight length</h2>'+chartActions()+'</div>';
   if(S.fightLengths?.run!==S.run) {loadFightLengths();return `<section class="overview-card" id="fight-lengths">${head}<p class="muted">Loading fight lengths…</p></section>`;}
   const value=S.fightLengths.value,settings=overviewSettings();
   const view=settings.lengthView||'global',filter=settings.lengthFilter||'all';
@@ -110,7 +110,7 @@ function lineageChart(d,data) {
   const sessions=d.sessions.filter(session=>session.submission&&scopeAccept(overviewIdentity(session.id))&&(!data.scope.model||session.model===data.scope.model));
   const scores=lineageScores(data);
   const nodes=sessions.map(session=>{const score=scores.get(session.id);return {...session,generation:session.generation||0,score:score?.completed?score.points/score.completed:null,completed:score?.completed||0};}).filter(node=>node.score!=null);
-  const head='<div class="overview-section-head"><h2>Strategy lineages</h2>'+chartFullScreenButton()+'</div>';
+  const head='<div class="overview-section-head"><h2>Strategy lineages</h2>'+chartActions()+'</div>';
   if(!nodes.length)return `<section class="overview-card" id="strategy-lineages">${head}<div class="overview-empty">Lineages appear once submitted strategies have tournament results.</div></section>`;
   const byId=new Map(nodes.map(node=>[node.id,node]));
   const rounds=[...new Set(nodes.map(node=>node.generation))].sort((a,b)=>a-b);

@@ -1119,7 +1119,7 @@ function resourcePanel(points, context) {
   points=points.map(p=>({...p,color:p.color||seriesColor(names.indexOf(p.model||p.label))}));
   S.resourcePoints ||= {};S.resourcePoints[context]=points;
   const metric=S.resourceMetric||'tools';
-  return `<div class="resource-chart" data-chart-key="resource:${e(context)}:${e(context==='workspace'?S.workspace:S.run)}"><div class="overview-section-head"><h3>Performance vs resources</h3><div class="chart-controls">${chartFullScreenButton()}<label class="field">Display<select data-resource-view="${context}" aria-label="Resource chart display"><option value="bars" ${S.resourceView!=='points'?'selected':''}>Bars</option><option value="points" ${S.resourceView==='points'?'selected':''}>Points</option></select></label><label class="field">Compare by<select data-resource-axis="${context}">${[['size','Model size'],['cost','Preparation cost'],['time','Preparation time'],['tools','Tool calls'],['tests','Preparation fights'],['replays','Replay reads']].map(([id,name])=>`<option value="${id}" ${id===metric?'selected':''}>${name}</option>`).join('')}</select></label></div></div><div id="${context}-resource-chart">${renderResourceChart(context)}</div><p class="muted">Tool calls count every invocation, including failures; hover a model for its total. Preparation fights count both starting sides. Replay reads count read_replay and read_past_fight calls, including pagination.</p></div>`;
+  return `<div class="resource-chart" data-chart-key="resource:${e(context)}:${e(context==='workspace'?S.workspace:S.run)}"><div class="overview-section-head"><h3>Performance vs resources</h3><div class="chart-controls">${chartActions()}<label class="field">Display<select data-resource-view="${context}" aria-label="Resource chart display"><option value="bars" ${S.resourceView!=='points'?'selected':''}>Bars</option><option value="points" ${S.resourceView==='points'?'selected':''}>Points</option></select></label><label class="field">Compare by<select data-resource-axis="${context}">${[['size','Model size'],['cost','Preparation cost'],['time','Preparation time'],['tools','Tool calls'],['tests','Preparation fights'],['replays','Replay reads']].map(([id,name])=>`<option value="${id}" ${id===metric?'selected':''}>${name}</option>`).join('')}</select></label></div></div><div id="${context}-resource-chart">${renderResourceChart(context)}</div><p class="muted">Tool calls count every invocation, including failures; hover a model for its total. Preparation fights count both starting sides. Replay reads count read_replay and read_past_fight calls, including pagination.</p></div>`;
 }
 function overviewModelSize(d, id) {
   const pinned=d.model_metadata?.[id]?.model_size_billion;
@@ -1154,7 +1154,7 @@ function workspacePerformance(group) {
   if(!group)return '<p class="muted">No evaluation results yet.</p>';
   const run=group.runs.length===1?group.runs[0]:null;
   const models=group.models.map(m=>({...m,color:comparisonChartColor(m.name,m.chart_profile,run)}));
-  return resourcePanel(models.map(m=>({model:m.name,color:m.color,reference:m.is_reference,toolTotal:m.total_tool_calls,tools:m.mean_tool_calls,tests:m.mean_test_matches,replays:m.mean_replay_reads,label:`${participantName(m.name)} · ${m.round ? "R"+m.round : "Frozen"} · ${text(m.condition)}`,score:m.score,size:m.model_size_billion,cost:m.mean_cost_usd,time:m.mean_wall_seconds==null?null:m.mean_wall_seconds/60})),"workspace")+`<section class="workspace-chart"><div class="overview-section-head"><h3>Model scores</h3>${chartFullScreenButton()}</div><div class="workspace-bars">${models.map(m=>`<div class="workspace-bar"><div><strong title="${e(m.name)}">${e(participantName(m.name))}</strong><small>${m.round ? `Round ${m.round}` : 'Frozen strategy'} · ${e(text(m.condition))}</small></div><div class="workspace-bar-track"><span style="width:${Math.max(0,Math.min(100,(m.score||0)*100))}%;${m.color?`background:${m.color}`:''}"></span></div><strong>${pct(m.score)}</strong></div>`).join('')}</div></section>`+
+  return resourcePanel(models.map(m=>({model:m.name,color:m.color,reference:m.is_reference,toolTotal:m.total_tool_calls,tools:m.mean_tool_calls,tests:m.mean_test_matches,replays:m.mean_replay_reads,label:`${participantName(m.name)} · ${m.round ? "R"+m.round : "Frozen"} · ${text(m.condition)}`,score:m.score,size:m.model_size_billion,cost:m.mean_cost_usd,time:m.mean_wall_seconds==null?null:m.mean_wall_seconds/60})),"workspace")+`<section class="workspace-chart"><div class="overview-section-head"><h3>Model scores</h3>${chartActions()}</div><div class="workspace-bars">${models.map(m=>`<div class="workspace-bar"><div><strong title="${e(m.name)}">${e(participantName(m.name))}</strong><small>${m.round ? `Round ${m.round}` : 'Frozen strategy'} · ${e(text(m.condition))}</small></div><div class="workspace-bar-track"><span style="width:${Math.max(0,Math.min(100,(m.score||0)*100))}%;${m.color?`background:${m.color}`:''}"></span></div><strong>${pct(m.score)}</strong></div>`).join('')}</div></section>`+
     table(['Participant','Size (B)','Score / B','Round / track','Win / draw / loss','Failed fights','Strategies'],group.models.map(m=>`<tr><td title="${e(m.name)}">${e(participantName(m.name))}</td><td>${fmt(m.model_size_billion,3)}</td><td>${fmt(m.score_per_billion,4)}</td><td>${m.round??'Frozen'} · ${e(text(m.condition))}</td><td>${m.wins} / ${m.draws} / ${m.losses}</td><td>${m.failed}</td><td>${m.conversations}</td></tr>`))+
     `<p class="muted">Mean score per conversation: win 1, draw 0.5, loss 0. ${group.internal_matches} same-model fights excluded. ${group.runs.length} competitions in this group.</p><details class="quiet-details"><summary>Included competitions & scenario</summary><div class="actions">${group.runs.map(id=>btn(e(S.boot.runs.find(r=>r.id===id)?.name||id),'open-run',`data-run="${e(id)}"`)).join('')}</div>${raw(group.scenario,'Scenario settings')}</details>`;
 }
@@ -2416,7 +2416,7 @@ function faultRateBars(rows,metric='tools') {
 function overviewErrors(d,data) {
   const sessions=new Set(data.sessions.map(session=>session.id));
   const rows=(S.overviewFaults?.sessions||[]).filter(row=>sessions.has(row.session)&&d.metadata.config?.models.find(model=>model.id===row.model)?.provider!=='mock');
-  return `<section class="overview-card" id="overview-errors">${S.overviewFaults?.loading?'<p class="muted">Loading error statistics…</p>':''}<div class="overview-section-head"><h2>Errors</h2><div class="actions">${chartFullScreenButton()}${btn('Details & incidents','open-errors')}</div></div><div class="error-rate-grid"><section><h3>Tool call errors</h3>${faultRateBars(rows,'tools')}</section><section><h3>Compilation failure rate</h3>${faultRateBars(rows,'compilation')}</section></div><p class="muted">Uses the overview model and round filters. Failed attempts / executed calls or compilation checks. API failures are separate; these rates are not a direct hallucination score.</p></section>`;
+  return `<section class="overview-card" id="overview-errors">${S.overviewFaults?.loading?'<p class="muted">Loading error statistics…</p>':''}<div class="overview-section-head"><h2>Errors</h2><div class="actions">${chartActions()}${btn('Details & incidents','open-errors')}</div></div><div class="error-rate-grid"><section><h3>Tool call errors</h3>${faultRateBars(rows,'tools')}</section><section><h3>Compilation failure rate</h3>${faultRateBars(rows,'compilation')}</section></div><p class="muted">Uses the overview model and round filters. Failed attempts / executed calls or compilation checks. API failures are separate; these rates are not a direct hallucination score.</p></section>`;
 }
 function faultsPage() {
   const data=S.faults || {sessions:[],incidents:[]};
@@ -2674,6 +2674,47 @@ function overviewFilters(d,data) {
 }
 
 function chartFullScreenButton() {return btn(document.fullscreenElement||$('.chart-expanded')?'Exit full screen':'Full screen','expand-chart');}
+function chartActions() {
+  return chartFullScreenButton()+btn('Export PNG','export-chart');
+}
+async function downloadChart(node) {
+  const chart=node.closest('.resource-chart,.overview-card,.comparison-chart,.workspace-chart');
+  if(!chart)return;
+  const heading=chart.querySelector('.overview-section-head h2,.overview-section-head h3,.panel-title h2')?.textContent.trim();
+  const title=chart.classList.contains('comparison-chart')?`Scores across competitions · ${heading}`:
+    chart.querySelector('#overview-evolution-chart')?'Scores by round':heading||'Arena chart';
+  const context=[];
+  const comparisonNote=chart.querySelector(':scope > .panel-title small')?.textContent.trim();
+  if(comparisonNote)context.push(comparisonNote);
+  if(S.view==='run'&&S.detail) {
+    const name=S.detail.metadata.config?.name||S.detail.metadata.manifest?.name;
+    if(name)context.push(name);
+    const scope=runScope();
+    if(scope.model)context.push(participantName(scope.model));
+    if(scope.round)context.push(`Round ${scope.round}`);
+    if(scope.track)context.push({initial:'Initial strategy',feedback:'With feedback',control:'Without feedback'}[scope.track]);
+    if(scope.replicate)context.push(`Repetition ${scope.replicate}`);
+    if(chart.querySelector('.overview-matrix,.overview-ranking,#overview-evolution-chart,.resource-scatter,.resource-bar-list')
+      || chart.id==='fight-lengths' || (chart.id==='repetition-variance'&&(S.repetitionMetric||'score')==='score')
+      || (chart.id==='learning-progress'&&overviewSettings().progressionMode==='score_change')) {
+      const view=overviewSettings();
+      context.push({competition:'Tournament',references:'Tournament + evaluation references',
+                   evaluation:'Fixed baseline',progression:'Previous-round comparison'}[view.source]);
+      if(chart.querySelector('.overview-matrix'))context.push(view.matrix==='versions'?'By strategy version':'By model');
+    }
+  } else if(S.view==='workspaces') {
+    context.push(workspaceName(S.workspace));
+    const group=S.workspaceSummary?.groups[S.workspaceGroup||0];
+    if(group)context.push(workspaceStage(group.stage));
+  }
+  node.disabled=true;
+  try {
+    await exportChartPng(chart,{title,context:context.filter(Boolean),name:[title,context[0]].filter(Boolean).join(' - ')});
+    toast('Chart exported as PNG.');
+  } finally {
+    node.disabled=false;
+  }
+}
 async function toggleChartFullScreen(node) {
   const chart=node.closest('.resource-chart,.overview-card,.comparison-chart,.workspace-chart,.conversation-panel');
   if(document.fullscreenElement){await document.exitFullscreen();return;}
@@ -2906,7 +2947,7 @@ function learningProgression(d) {
   const details=mode==='score_change'
     ?table(['Model','Track','Latest round','Current score','Vs previous round','Since Round 1','Relative to Round 1'],rows.map(row=>`<tr><td title="${e(row.model)}">${e(participantName(row.model))}</td><td>${e(text(row.condition))}</td><td>R${row.generation+1}</td><td>${pct(row.currentScore)}</td><td>${progressionPoints(row.score)}</td><td>${progressionPoints(row.totalDelta)}<small>R1: ${pct(row.initialScore)}</small></td><td>${row.relativeChange==null?'N/A':(row.relativeChange>0?'+':'')+pct(row.relativeChange)}</td></tr>`))
     :table(['Model','Track','Latest round','Head-to-head score','Win / draw / loss','Opponent versions','Completed fights'],rows.map(row=>`<tr><td title="${e(row.model)}">${e(participantName(row.model))}</td><td>${e(text(row.condition))}</td><td>R${row.generation+1}</td><td>${pct(row.score)}</td><td>${row.wins} / ${row.draws} / ${row.losses}</td><td>${row.opponent_versions}</td><td>${row.completed}${row.failures?` · ${row.failures} failed`:''}</td></tr>`));
-  return `<section class="overview-card" id="learning-progress"><div class="overview-section-head"><h2>Learning progress</h2><div class="chart-controls">${chartFullScreenButton()}<label class="field">Comparison<select data-learning-mode aria-label="Learning progress comparison">${PROGRESSION_MODES.map(([id,label])=>`<option value="${id}" ${mode===id?'selected':''}>${e(label)}</option>`).join('')}</select></label><label class="field">Display<select data-learning-view aria-label="Learning progress display">${[['bars','Grouped bars'],['lines','Lines'],['latest','Latest values']].map(([id,label])=>`<option value="${id}" ${view===id?'selected':''}>${label}</option>`).join('')}</select></label></div></div><p class="muted">${descriptions[mode]} ${mode!=='score_change'?'Net wins (%) = 100 × (wins − losses) / completed fights. For example, 6 wins and 4 losses gives +20%; 4 wins and 6 losses gives −20%. Draws contribute zero. Zero is parity.':''}</p>${needsExtra&&enabled?'<p class="progression-availability">Previous-round metric collection is enabled. Missing engine fights run after preparation; resume a stopped run to fill gaps.</p>':''}${needsExtra&&!enabled?`<div class="progression-availability">Round 2 reuses existing Round 1 comparisons. To collect comparisons at every later round, including unlimited runs, enable <strong>Also collect current-vs-previous comparisons at every round</strong> in More → Execution & metrics, then resume. ${btn('Execution & metrics','run-metric-collection')}</div>`:''}${missing?`<p class="muted">${missing} round/track observations have no usable comparison yet. Missing values are not scored as zero.</p>`:''}${view==='latest'?details:measured.length?view==='lines'?overviewEvolutionLines(chartData):overviewEvolutionBars(chartData):'<div class="overview-empty">No completed comparison for the selected model and round yet.</div>'}${view!=='latest'&&rows.length?`<details class="overview-details"><summary>Latest values by model and track</summary>${details}</details>`:''}<small class="muted">Completed fights only; model and round filters apply. ${mode==='score_change'?'Changes describe the selected category; they do not establish improvement against fixed opponents.':'Historical comparisons are unscored diagnostics and are not sent as model feedback.'}</small></section>`;
+  return `<section class="overview-card" id="learning-progress"><div class="overview-section-head"><h2>Learning progress</h2><div class="chart-controls">${chartActions()}<label class="field">Comparison<select data-learning-mode aria-label="Learning progress comparison">${PROGRESSION_MODES.map(([id,label])=>`<option value="${id}" ${mode===id?'selected':''}>${e(label)}</option>`).join('')}</select></label><label class="field">Display<select data-learning-view aria-label="Learning progress display">${[['bars','Grouped bars'],['lines','Lines'],['latest','Latest values']].map(([id,label])=>`<option value="${id}" ${view===id?'selected':''}>${label}</option>`).join('')}</select></label></div></div><p class="muted">${descriptions[mode]} ${mode!=='score_change'?'Net wins (%) = 100 × (wins − losses) / completed fights. For example, 6 wins and 4 losses gives +20%; 4 wins and 6 losses gives −20%. Draws contribute zero. Zero is parity.':''}</p>${needsExtra&&enabled?'<p class="progression-availability">Previous-round metric collection is enabled. Missing engine fights run after preparation; resume a stopped run to fill gaps.</p>':''}${needsExtra&&!enabled?`<div class="progression-availability">Round 2 reuses existing Round 1 comparisons. To collect comparisons at every later round, including unlimited runs, enable <strong>Also collect current-vs-previous comparisons at every round</strong> in More → Execution & metrics, then resume. ${btn('Execution & metrics','run-metric-collection')}</div>`:''}${missing?`<p class="muted">${missing} round/track observations have no usable comparison yet. Missing values are not scored as zero.</p>`:''}${view==='latest'?details:measured.length?view==='lines'?overviewEvolutionLines(chartData):overviewEvolutionBars(chartData):'<div class="overview-empty">No completed comparison for the selected model and round yet.</div>'}${view!=='latest'&&rows.length?`<details class="overview-details"><summary>Latest values by model and track</summary>${details}</details>`:''}<small class="muted">Completed fights only; model and round filters apply. ${mode==='score_change'?'Changes describe the selected category; they do not establish improvement against fixed opponents.':'Historical comparisons are unscored diagnostics and are not sent as model feedback.'}</small></section>`;
 }
 
 function overviewMatchLink(data, who, other, outcome, value, description) {
@@ -3083,13 +3124,13 @@ function summary(d, statistics = null) {
     ),
     cost = sessions.reduce((n, s) => n + Number(s.cost_spent || 0), 0);
   return `<div class="competition-overview">${indexingNotice(S.overviewIndexing)}${overviewFilters(d, data)}${data.scope.source==='references'?notice('This view combines tournament fights and additional fights against evaluation references. The official ranking uses tournament fights.'):''}${data.scope.source==='progression'?notice('Unscored progression diagnostic: current LLM versions face the preceding round. This includes same-model historical opponents; results do not change tournament standings or model feedback.'):''}${failures.length ? `<div class="overview-alert">${failures.length} conversation${failures.length === 1 ? "" : "s"} need attention. <button class="table-button" data-action="overview-failures">Review & retry</button></div>` : ""}<div class="overview-kpis"><div><span>Completed fights</span><strong>${fmt(fightCount(data.selected.filter((v) => v.match.result.status === "completed")))}</strong><small>${fmt(fightCount(data.selected.filter((v) => v.match.result.status !== "completed")))} failed</small></div><div><span>Submitted strategies</span><strong>${sessions.length ? sessions.filter((s) => s.submission || s.status === "submitted").length : d.metadata.manifest?.strategies?.filter(s=>overviewAccept(overviewIdentity(s.id),data.scope)).length ?? data.models.length}${sessions.length ? `<small> / ${sessions.length}</small>` : ""}</strong><small>${d.metadata.config ? d.metadata.config.models.filter(model=>!d.roster?.withdrawn.includes(model.id)&&(!data.scope.model||data.scope.model===model.id)).length : data.models.length} active participants</small></div><div><span>Estimated API cost</span><strong>${sessions.length ? (costUnknown ? "Unknown" : money(cost)) : "N/A"}</strong><small>Selected versions</small></div><div><span>Tokens · selected versions</span><strong>${known.length ? fmt(tokens) : real.length ? "Unknown" : "N/A"}</strong><small>${known.length ? (known.length < real.length || known.some(u=>!u.complete) ? "Partial reported usage" : "Input + output") : real.length ? "Not reported by provider" : "No measured LLM usage"}</small></div></div>
-  <div class="overview-charts"><section class="overview-card"><div class="overview-section-head"><h2>${data.scope.source==='references'?"Scores including evaluation references":"Model ranking"}</h2><div class="chart-controls"><label class="check"><input type="checkbox" data-overview-filter="compactRanking" ${data.scope.compactRanking?'checked':''}>Compact</label>${chartFullScreenButton()}</div></div>${overviewRanking(data)}</section><section class="overview-card"><div class="overview-section-head"><h2>Evolution</h2>${chartFullScreenButton()}</div>${overviewEvolution(data)}</section></div><section class="overview-card">${resourcePanel(overviewResourcePoints(d,data),"overview")}</section>
+  <div class="overview-charts"><section class="overview-card"><div class="overview-section-head"><h2>${data.scope.source==='references'?"Scores including evaluation references":"Model ranking"}</h2><div class="chart-controls"><label class="check"><input type="checkbox" data-overview-filter="compactRanking" ${data.scope.compactRanking?'checked':''}>Compact</label>${chartActions()}</div></div>${overviewRanking(data)}</section><section class="overview-card"><div class="overview-section-head"><h2>Evolution</h2>${chartActions()}</div>${overviewEvolution(data)}</section></div><section class="overview-card">${resourcePanel(overviewResourcePoints(d,data),"overview")}</section>
   ${lineageChart(d,data)}
   ${fightLengthCard(d,data)}
   ${repetitionVariance(d,data)}
   ${learningProgression(d)}
   ${overviewErrors(d,data)}
-  ${data.matrix.length ? `<section class="overview-card overview-head-to-head"><div class="overview-section-head"><h2>Match matrix</h2>${chartFullScreenButton()}</div>${overviewMatrix(data)}</section>` : `<div class="overview-empty">${data.selected.length ? "No head-to-head pairs in this selection." : `No ${data.scope.source === "competition" ? "tournament" : data.scope.source==='progression'?"previous-round comparison":"reference"} matches yet.`}${statistics?.training_matches ? ` ${statistics.training_matches} preparation tests recorded; excluded from standings. ${btn("View preparation tests", "show-training")}` : ""}</div>`}
+  ${data.matrix.length ? `<section class="overview-card overview-head-to-head"><div class="overview-section-head"><h2>Match matrix</h2>${chartActions()}</div>${overviewMatrix(data)}</section>` : `<div class="overview-empty">${data.selected.length ? "No head-to-head pairs in this selection." : `No ${data.scope.source === "competition" ? "tournament" : data.scope.source==='progression'?"previous-round comparison":"reference"} matches yet.`}${statistics?.training_matches ? ` ${statistics.training_matches} preparation tests recorded; excluded from standings. ${btn("View preparation tests", "show-training")}` : ""}</div>`}
   ${overviewDetails(d, data, statistics)}</div>`;
 }
 let conversationValues = [];
@@ -4097,7 +4138,7 @@ function comparisonResult(data) {
     data.groups
       .map(
         (g, i) =>
-          `<section class="panel comparison-chart"><div class="panel-title"><div><h2>Comparison group ${i + 1}</h2><small>${g.runs.length} competitions; same rules, seeds and fixed opponents</small></div>${chartFullScreenButton()}${badge(g.protocol.simulated ? "Simulation" : "Real API calls", g.protocol.simulated ? "blue" : "orange")}</div>${lineChart(g)}<div style="margin-top:22px">${table(
+          `<section class="panel comparison-chart"><div class="panel-title"><div><h2>Comparison group ${i + 1}</h2><small>${g.runs.length} competitions; same rules, seeds and fixed opponents</small></div>${chartActions()}${badge(g.protocol.simulated ? "Simulation" : "Real API calls", g.protocol.simulated ? "blue" : "orange")}</div>${lineChart(g)}<div style="margin-top:22px">${table(
             [
               "Model / condition",
               "Size (B)",
@@ -4378,6 +4419,7 @@ document.addEventListener("click", async (event) => {
       overviewSettings().round='all';overviewSettings().model='';
       navigate('run',{run:S.run,tab:S.tab});
     } else if(a==='expand-chart') {await toggleChartFullScreen(node);
+    } else if(a==='export-chart') {await downloadChart(node);
     } else if (a === 'expand-activity') {
       const details=$('#competition-activity-details');
       if(details){details.open=true;$('summary',details).focus();}
