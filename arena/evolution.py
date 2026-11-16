@@ -228,6 +228,8 @@ def run_generation(config, out, journal, engine, initial, interrupt=None, retry_
     from .experiment import run_session, PROMPT, initial_state
     from .analysis import analyze_evolution
     from .roster import active
+    from .preparation_reuse import restore_generation
+    restore_generation(config, out, journal, generation)
     models = {m["id"]: m for m in config["models"]}
     initial_states = {s["id"]: journal.state(s["id"]) for s in initial}
     branches = []

@@ -613,6 +613,18 @@ readable through this mechanism.
 
 ### Reuse submitted strategies
 
+To rerun a standard competition with a fixed round count, choose **More >
+Clone with saved preparations**. A participant needs a settled submission
+for every repetition, round and feedback track. Eligible participants start
+selected for reuse. Changing their **Reasoning effort**, or clearing **Reuse
+previous preparation**, starts that participant from scratch. Keep the
+original scenario, round count, repetitions and feedback tracks.
+
+The new competition plays its own fights. Reused preparations supply the
+original submission for each slot and keep their historical usage and cost
+in comparisons. Only new provider requests consume the new spending limit.
+Fresh preparations receive feedback from the new competition.
+
 In a competition, open a conversation or the overview's conversation table and
 choose **Save as participant**. Give the frozen strategy a unique participant ID.
 It then appears in **Participants** and can be selected in another competition.

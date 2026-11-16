@@ -47,7 +47,15 @@ def validate_effective(config, withdrawn):
         spending=config['spending']
         if selected and all(model['provider']=='mock' for model in selected):
             spending={'allow_paid_calls':False,'max_total_usd':0}
-        validate_config({**config,'models':selected,'spending':spending})
+        checked={**config,'models':selected,'spending':spending}
+        if config.get('reuse_preparations'):
+            reuse=config['reuse_preparations']
+            reused=[model['id'] for model in selected if model['id'] in reuse['models']]
+            if reused:
+                checked['reuse_preparations']={**reuse,'models':reused}
+            else:
+                checked.pop('reuse_preparations')
+        validate_config(checked)
     check([model for model in models if model['id'] not in withdrawn])
     for start in range(0,len(models),20):
         check(models[start:start+20])

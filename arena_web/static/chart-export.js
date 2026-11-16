@@ -46,15 +46,18 @@ function compactExportBars(chart) {
     Object.assign(row.style,{gridTemplateColumns:`${workspace.labels}px minmax(0,1fr) ${valueColumn}`,gap:'8px'});
   }
   const resources = columns('.resource-score-row',':scope > strong',52,196);
+  let resourceValues = 80;
   if (resources.rows.length) {
+    const amountWidth = columns('.resource-score-row', '.resource-amount', 104, 174).labels;
+    const layout = {gridTemplateColumns:`${resources.labels}px minmax(0,1fr) ${amountWidth}px`,gap:'8px'};
     const head = chart.querySelector('.resource-bar-head');
-    if (head) Object.assign(head.style,{gridTemplateColumns:`${resources.labels}px minmax(0,1fr) 8.5em`,gap:'8px'});
+    if (head) Object.assign(head.style,{...layout,padding:'4px 0',lineHeight:'1.2'});
     for (const row of resources.rows) {
-      Object.assign(row.style,{gridTemplateColumns:`${resources.labels}px minmax(0,1fr) 8.5em`,gap:'8px'});
+      Object.assign(row.style,{...layout,padding:'4px 0',lineHeight:'1.25'});
     }
+    resourceValues=amountWidth+36;
   }
   const labelWidth = Math.max(rank.labels,workspace.labels,resources.labels);
-  const resourceValues = resources.rows.length ? 152 : 80;
   return Math.max(320,labelWidth+220+resourceValues);
 }
 
@@ -97,7 +100,11 @@ function prepareChartImage(chart, title, context, caption='') {
   }
   if (clone.querySelector('.resource-bar-list')) {
     for (const row of clone.querySelectorAll('.resource-bar-head,.resource-score-row')) {
-      row.append(row.children[1]);
+      row.append(row.querySelector('.resource-amount'));
+    }
+    for (const total of clone.querySelectorAll('.resource-score-row .resource-amount small')) {
+      total.prepend(' / ');
+      Object.assign(total.style,{display:'inline',whiteSpace:'nowrap'});
     }
     clone.querySelector('.chart-legend')?.remove();
   }

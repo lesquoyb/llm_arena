@@ -39,7 +39,7 @@ def load_config(path: Path) -> dict:
 def validate_config(value: dict) -> dict:
     required = {"schema_version", "name", "models", "replicates", "budget_per_session",
                 "spending", "seeds", "scenario", "include_mirrors"}
-    optional = {"generations", "improvement_conditions", "prompt_language", "final_seeds", "parallel_requests", "parallel_fights", "request_order", "compare_previous_round", "evolutionary"}
+    optional = {"generations", "improvement_conditions", "prompt_language", "final_seeds", "parallel_requests", "parallel_fights", "request_order", "compare_previous_round", "evolutionary", "reuse_preparations"}
     if (not isinstance(value, dict) or not required <= set(value) or set(value) - required - optional or
             type(value["schema_version"]) is not int or value["schema_version"] not in (1, 2)):
         raise ArenaError("Unsupported offline experiment schema")
@@ -96,8 +96,6 @@ def validate_config(value: dict) -> dict:
                 size=model['model_size_billion']
                 if type(size) not in (int,float) or not 0<size<=1_000_000 or not math.isfinite(size):
                     raise ArenaError('Model size must be a positive finite number in billions of parameters')
-            if not spending["allow_paid_calls"] or ("max_total_usd" in spending and amount(spending["max_total_usd"]) == 0):
-                raise ArenaError("Real providers require explicit paid activation and a positive ceiling if configured")
             if not isinstance(model["model"], str) or not model["model"]:
                 raise ArenaError("An exact model identifier is required")
             if not isinstance(model["api_key_env"], str) or not re.fullmatch(r"[A-Za-z_][A-Za-z_0-9]*", model["api_key_env"]):
@@ -189,6 +187,15 @@ def validate_config(value: dict) -> dict:
     if "evolutionary" in value:
         from .population import validate
         validate(value)
+    if 'reuse_preparations' in value:
+        from .preparation_reuse import validate
+        validate(value)
+    from .preparation_reuse import model_ids
+    reused = model_ids(value)
+    if (any(model['provider'] != 'mock' and model['id'] not in reused for model in models)
+            and (not spending['allow_paid_calls'] or
+                 ('max_total_usd' in spending and amount(spending['max_total_usd']) == 0))):
+        raise ArenaError("Real providers require explicit paid activation and a positive ceiling if configured")
     return value
 
 
@@ -201,17 +208,22 @@ def plan(config: dict) -> dict:
                           sum(m.get("profile") != "saved-strategy" for m in config["models"])
                           if config.get("evolutionary") else n * tracks)
     planned_sessions = None if config.get("generations", 1) is None else n + requests_per_round * (config.get("generations", 1) - 1)
-    paid = [m for m in config["models"] if m["provider"] != "mock"]
+    from .preparation_reuse import model_ids
+    reused = model_ids(config)
+    paid = [m for m in config["models"] if m["provider"] != "mock" and m["id"] not in reused]
+    reused_sessions = len(reused)*config['replicates']*(1 + tracks*((config.get('generations', 1) or 1)-1))
     learned=sum(model['provider']!='mock' for model in config['models'])*config['replicates']
     previous_matches=(None if config.get('generations',1) is None else 2*tracks*tracks*learned*learned*max(0,config.get('generations',1)-2)*len(config.get('final_seeds',[]))) if config.get('compare_previous_round') and learned else 0
     return {"previous_comparison_matches":previous_matches, "parallel_requests":config.get("_parallel_requests",config.get("parallel_requests",1)), "request_order":config.get("_request_order",config.get("request_order","models")), "parallel_fights":config.get("_parallel_fights",config.get("parallel_fights",1)), "sessions": planned_sessions, "generation": None if config.get("generations", 1) is None else config.get("generations", 1) - 1,
-            "provider": "mixed" if paid else "mock", "simulated": not paid,
+            "provider": "mixed" if paid or reused else "mock", "simulated": not paid and not reused,
+            "paid_calls": bool(paid), "fresh_api_models":[m['id'] for m in paid],
+            "reused_models": sorted(reused), "reused_sessions":reused_sessions,
             "ranked_matches_if_all_submit": n * (n - 1) * len(config["seeds"]),
             "mirrors_if_all_submit": n * len(config["seeds"]) if config["include_mirrors"] else 0,
             "g1_contemporary_matches": (tracks*n*(tracks*n-1) + (tracks*n if config["include_mirrors"] else 0)) *
                                       len(config.get("final_seeds", [])) * (config["generations"]-1) if evolved and config.get("generations") is not None else None if evolved else 0,
             "common_reference_matches": (1+tracks*(config["generations"]-1))*n*(n+3)*2*len(config.get("final_seeds", [])) if evolved and config.get("generations") is not None else None if evolved else 0,
-            "max_preparation_matches": (None if planned_sessions is None else planned_sessions * config["budget_per_session"]["max_test_matches"]) if "max_test_matches" in config["budget_per_session"] else None,
+            "max_preparation_matches": (None if planned_sessions is None else (planned_sessions-reused_sessions) * config["budget_per_session"]["max_test_matches"]) if "max_test_matches" in config["budget_per_session"] else None,
             "offspring_per_round": requests_per_round if config.get("evolutionary") else None,
             "max_cost_usd": config["spending"].get("max_total_usd"),
             "financial_ceiling": ("best_effort_with_reservations" if "max_total_usd" in config["spending"] else "unlimited") if paid else "no_paid_calls",
@@ -464,7 +476,7 @@ def _build_provider_response(sid, state, model, config, journal):
             return None
         spent = amount(state.get("cost_spent", "0"))
         total = sum(amount(s.get("cost_spent", "0")) + amount(s.get("discarded_attempt_cost_usd", "0")) + amount(s.get("money_reserved", "0"))
-                    for s in journal.metadata().values())
+                    for s in journal.metadata().values() if not s.get('reused_from'))
         if state.get("calibration"):
             from .calibration import study_spending
             total = study_spending(journal)
@@ -917,7 +929,7 @@ def status(out: Path) -> dict:
     return {"sessions": states}
 
 
-def run(config: dict, out: Path, resume=False, interrupt=None, prepare_only=False, retry_session=None, allow_updated_runner=False, retry_reasoning_effort=None) -> dict:
+def run(config: dict, out: Path, resume=False, interrupt=None, prepare_only=False, retry_session=None, allow_updated_runner=False, retry_reasoning_effort=None, reuse_snapshot=None) -> dict:
     validate_config(config)
     if retry_reasoning_effort is not None and not retry_session:
         raise ArenaError("An effort override requires a specific failed conversation")
@@ -946,6 +958,15 @@ def run(config: dict, out: Path, resume=False, interrupt=None, prepare_only=Fals
                                       for name in ("rush", "single-shot", "passive")}}
     # Keep older frozen studies reproducible; new studies sample fixed code once.
     prior=read_json(out/'experiment.json') if resume and (out/'experiment.json').exists() else {}
+    from .preparation_reuse import restore_generation
+    if config.get('reuse_preparations'):
+        snapshot_root = out / 'reused-preparations' if resume else reuse_snapshot
+        if snapshot_root is None or prepare_only:
+            raise ArenaError('Launch this competition with its saved preparation snapshot')
+        snapshot_manifest = snapshot_root / 'manifest.json'
+        if read_json(snapshot_manifest)['reuse'] != config['reuse_preparations']:
+            raise ArenaError('The snapshot does not match the planned reuse')
+        identity['reuse_snapshot_sha256'] = file_hash(snapshot_manifest)
     if not resume or 'fixed_reference_repetitions' in prior:
         identity['fixed_reference_repetitions']=1
     if resume:
@@ -966,6 +987,8 @@ def run(config: dict, out: Path, resume=False, interrupt=None, prepare_only=Fals
                 raise ArenaError("Frozen documentation changed")
         else:
             import shutil
+            if config.get('reuse_preparations'):
+                shutil.copytree(reuse_snapshot, out / 'reused-preparations')
             for source in corpus_files:
                 if source.is_file():
                     target = out / "corpus" / source.relative_to(docs)
@@ -1005,6 +1028,7 @@ def run(config: dict, out: Path, resume=False, interrupt=None, prepare_only=Fals
             config['_roster_revision'] = (roster or {}).get('revision',0)
             config['_compare_previous_round'] = (roster or {}).get('compare_previous_round',config.get('compare_previous_round',False))
             config['_scenario_changes'] = (roster or {}).get('scenario_changes',[])
+            restore_generation(config, out, journal, 0)
             if resume:
                 from .recovery import needs_reconciliation, recover_zero_cost_requests
                 recover_zero_cost_requests(journal,config["models"])

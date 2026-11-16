@@ -52,6 +52,8 @@ def parser():
         action.add_argument("config", type=Path)
         if name in {"run", "init"}:
             action.add_argument("--out", type=Path, required=True)
+        if name == "run":
+            action.add_argument("--reuse-snapshot", type=Path)
     action = actions.add_parser('retry-fights',help='Retry frozen engine fixtures without making model requests')
     action.add_argument('directory',type=Path)
     action.add_argument('--include-ready',action='store_true',help='Schedule and drain all available frozen submissions too')
@@ -153,7 +155,8 @@ def main(argv=None):
             from .experiment import load_config, plan, run, status
             if args.action in {"plan", "run", "init"}:
                 config = load_config(args.config.absolute())
-                result = plan(config) if args.action == "plan" else run(config, args.out.absolute(), prepare_only=args.action == "init")
+                result = plan(config) if args.action == "plan" else run(config, args.out.absolute(), prepare_only=args.action == "init",
+                                                                        reuse_snapshot=getattr(args, 'reuse_snapshot', None))
             elif args.action=='retry-fights':
                 from .fight_recovery import run as retry_fights
                 result=retry_fights(args.directory.absolute(),include_ready=args.include_ready)

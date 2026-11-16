@@ -5,11 +5,13 @@ import os
 import json
 import re
 from pathlib import Path
+import shutil
 import signal
 import subprocess
 import sys
 import threading
 import time
+from tempfile import TemporaryDirectory
 from uuid import uuid4
 
 from arena.core import ArenaError, ROOT, digest, read_json, write_json
@@ -162,7 +164,9 @@ class Jobs:
                 validate_config(config)
             if retry_reasoning_effort is not None and retry_session is None:
                 raise ArenaError('Choose a specific failed conversation to change reasoning effort')
-            requested_models = [m for m in config['models'] if draft_id is not None or m['id'] not in withdrawn]
+            from arena.preparation_reuse import model_ids
+            reused = model_ids(config)
+            requested_models = [m for m in config['models'] if m['id'] not in reused and (draft_id is not None or m['id'] not in withdrawn)]
             if draft_id is None and retry_session is None:
                 from arena.reference_strategies import repetitions
                 sampled={**config,'_fixed_reference_repetitions':metadata.get('fixed_reference_repetitions',config['replicates'])}
@@ -223,6 +227,17 @@ class Jobs:
                 manifest = logs / (identifier + ".json")
                 write_json(manifest, config)
                 args = ["experiment", "run", str(manifest), "--out", str(out)]
+                if reused:
+                    from arena.preparation_reuse import stage
+                    source_id = config['reuse_preparations']['source']
+                    source = self.store.run_path(source_id)
+                    sessions = {row['id']:row for row in self.store.detail(source_id, include_revision=False)['sessions']}
+                    archived = logs / (identifier + "-preparations")
+                    with TemporaryDirectory(dir=logs) as temporary:
+                        stage(config, source, Path(temporary), sessions, {sid:row.get('usage_receipts') for sid,row in sessions.items()},
+                              lambda sid: self.store.session(source_id, sid))
+                        Path(temporary).rename(archived)
+                    args.extend(['--reuse-snapshot', str(archived)])
             else:
                 args = (["experiment", "retry", str(out), "--session", retry_session] if retry_session
                         else ["experiment", "resume", str(out)])
@@ -471,6 +486,7 @@ class Jobs:
 
     def _watch(self, process, row):
         code = process.wait()
+        shutil.rmtree(self.store.state / 'jobs' / (row['id'] + '-preparations'), ignore_errors=True)
         with self.lock:
             report_path = self.store.runs / row['run'] / 'report.json'
             try: report = read_json(report_path) if report_path.exists() else {}

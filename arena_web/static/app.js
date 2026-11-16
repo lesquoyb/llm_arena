@@ -1859,6 +1859,8 @@ function updateCompetitionSelection() {
     row.hidden=!row.dataset.search.includes(search)||(selectedOnly&&!selected);
     const effort=$('[data-competition-effort]',row);
     if(effort)effort.disabled=!selected;
+    const reuse=$('[name=reuse_preparation]',row);
+    if(reuse)reuse.disabled=!selected;
   }
   const count=$$('#competition-form input[name=participant]:checked').length;
   $('#competition-selection-count').textContent=`${count} of ${rows.length} participants selected`;
@@ -1875,19 +1877,41 @@ function competitionParticipant(model, saved) {
     ...[...new Set([...levels,...(recorded?[recorded]:[])])].map(value=>[value,value]),
   ]:[];
   const selected=!explicit&&recorded===profile?'profile':recorded;
+  const reusable=S.editReuse?.eligible.includes(id);
+  const reuse=saved&&S.editConfig?.reuse_preparations?.models.includes(id);
   return `<div class="choice competition-model" data-search="${e(`${id} ${name} ${provider} ${identifier}`.toLowerCase())}">
     <label class="competition-model-pick"><input type="checkbox" name="participant" value="${e(id)}" ${saved?'checked':''}>
       <span><strong title="${e(id)}">${e(name)}</strong><small>${e(provider)} · ${e(identifier)}</small></span></label>
     ${options.length?`<label class="competition-effort">Reasoning effort
       <select data-competition-effort aria-label="Reasoning effort for ${e(name)}" ${saved?'':'disabled'}>
         ${options.map(([value,label])=>`<option value="${e(value)}" ${value===selected?'selected':''}>${e(label)}</option>`).join('')}
-      </select></label>`:''}</div>`;
+      </select></label>`:''}
+    ${reusable?`<label class="check competition-effort"><input type="checkbox" name="reuse_preparation" value="${e(id)}"
+      ${reuse?'checked':''} ${saved?'':'disabled'}>Reuse previous preparation</label>`:''}</div>`;
 }
 function competitionReasoningOverrides(form) {
   return Object.fromEntries($$('.competition-model',form).flatMap(row=>{
     const participant=$('[name=participant]',row),effort=$('[data-competition-effort]',row);
-    return participant.checked&&effort&&effort.value!=='profile'?[[participant.value,effort.value||null]]:[];
+    const reuse=$('[name=reuse_preparation]',row);
+    return participant.checked&&!reuse?.checked&&effort&&effort.value!=='profile'?[[participant.value,effort.value||null]]:[];
   }));
+}
+function reusableCompetitionModels(detail) {
+  const config=detail.metadata.config;
+  if(!config||config.evolutionary||config.generations===null||detail.roster?.scenario_changes?.length)return [];
+  const settled=new Set(detail.sessions.filter(s=>s.submission&&!s.withdrawn&&!s.in_flight&&
+    !(Number(s.money_reserved)>0)&&['submitted','budget_exhausted'].includes(s.status)).map(s=>s.id));
+  return config.models.filter(model=>{
+    if(model.provider==='mock')return false;
+    for(let rep=0;rep<config.replicates;rep++) {
+      const id=`${model.id}-r${rep}`;
+      if(!settled.has(id))return false;
+      for(let generation=1;generation<(config.generations??1);generation++) {
+        for(const track of improvementTracks(config))if(!settled.has(`${id}-g${generation}-${track}`))return false;
+      }
+    }
+    return true;
+  }).map(model=>model.id);
 }
 function competitionEditor() {
   const c = S.editConfig || structuredClone(S.boot.default_config),
@@ -1913,7 +1937,7 @@ function competitionEditor() {
       ],
       c.generations === null ? "manual" : "fixed",
     )}${field("Number of rounds", "generations", c.generations ?? 2, "number", "Includes the initial round. Later rounds run the improvement tracks selected below.", c.generations === null ? 'disabled min="1" step="1"' : 'min="1" step="1"')}</div> ${selectField("Competition type", "competition_type", [["standard","Standard improvement"],["evolutionary","Evolutionary population"]], c.evolutionary ? "evolutionary" : "standard")}
-<div id="population-settings" ${c.evolutionary ? "" : "hidden"}>${field("Replacements per model per round", "population_replace", c.evolutionary?.replace ?? 1, "number", "Keep the best strategies and replace the lowest ranked slots. At least two repetitions must survive.", 'min="1" step="1"')}<label class="check"><input type="checkbox" name="population_cross_models" ${c.evolutionary?.cross_models ? "checked" : ""}>Cross models (experimental)</label><p class="muted">The receiving model writes the child. Enabling this shares one selected parent's code and results across models, measuring cross-model recombination.</p></div>${improvementTrackFields(c)}${learningMetricFields(c.compare_previous_round)}<h3 class="section-label">Official participants</h3><p class="muted">Select any fixed references that should play in the ranked tournament.</p>${competitionGroupPicker()}<div class="competition-roster-toolbar"><input type="search" id="competition-participant-search" placeholder="Search profiles" aria-label="Search competition participants"><label class="check"><input type="checkbox" id="competition-selected-only">Selected only</label></div><div class="competition-model-list" role="group" aria-label="Competition participants">${S.choiceModels.map(model=>competitionParticipant(model,selectedModels.get(model.id))).join("")}</div>${btn("Manage profiles", "go", 'data-view="participants"')}</section>
+<div id="population-settings" ${c.evolutionary ? "" : "hidden"}>${field("Replacements per model per round", "population_replace", c.evolutionary?.replace ?? 1, "number", "Keep the best strategies and replace the lowest ranked slots. At least two repetitions must survive.", 'min="1" step="1"')}<label class="check"><input type="checkbox" name="population_cross_models" ${c.evolutionary?.cross_models ? "checked" : ""}>Cross models (experimental)</label><p class="muted">The receiving model writes the child. Enabling this shares one selected parent's code and results across models, measuring cross-model recombination.</p></div>${improvementTrackFields(c)}${learningMetricFields(c.compare_previous_round)}<h3 class="section-label">Official participants</h3>${S.editReuse?notice(`Reusing preparations from ${S.editReuse.source}. Changing a participant’s reasoning reruns that participant from Round 1. Selected participants without reuse start from Round 1. Fights use the new line-up.`):""}<p class="muted">Select any fixed references that should play in the ranked tournament.</p>${competitionGroupPicker()}<div class="competition-roster-toolbar"><input type="search" id="competition-participant-search" placeholder="Search profiles" aria-label="Search competition participants"><label class="check"><input type="checkbox" id="competition-selected-only">Selected only</label></div><div class="competition-model-list" role="group" aria-label="Competition participants">${S.choiceModels.map(model=>competitionParticipant(model,selectedModels.get(model.id))).join("")}</div>${btn("Manage profiles", "go", 'data-view="participants"')}</section>
  <section class="panel editor-section" id="editor-scenario"><div class="section-heading"><span>02</span><h2>Scenario</h2></div><div class="scenario-presets">${btn("<strong>Simple duel</strong><small>1 level-300 leek · weapons only</small>", "preset-simple", `aria-pressed="${!c.scenario.source && c.scenario.preset !== 'llm-team'}"`)}${btn("<strong>Dream team</strong><small>4 complex builds · saved roster</small>", "preset-dream", `aria-pressed="${!!c.scenario.source}"`)}${btn("<strong>AI-built team</strong><small>Each model builds its own roster</small>", "preset-llm", `aria-pressed="${c.scenario.preset === 'llm-team'}"`)}</div><p id="preset-status" role="status" class="muted">${c.scenario.source ? `Based on public team · original snapshot ${e(c.scenario.source.snapshot_sha256.slice(0, 12))}. The roster below can be edited. Published final stats include component bonuses; component selections and alteration deltas are preserved without adding bonuses twice.` : c.scenario.preset === "llm-team" ? "Each LLM freely chooses 1–4 leeks, their levels (1–300), stats, scripts, equipment and component alterations. preview_build and validate_team check official game rules. No character stats or equipment lists are imposed." : "Starting preset: one level-300 gunner per team, direct-damage weapons, no chips. Edit each character independently below."}</p>${c.scenario.source ? raw(c.scenario.source, "Public source and frozen snapshot") : ""}<details><summary>Refresh or replace the saved Dream team</summary>${btn("Refetch current top farmer", "preset-dream-refresh")}<p class="muted">Only this button reads the current farmer ranking and fetches four leeks of its first player. The saved preset is reused until an explicit refresh; existing competitions keep their frozen roster.</p><p class="muted">Use scripts/import_dream_team.py on a machine with access to leekwars.com, then paste its snapshot JSON here.</p><textarea id="dream-snapshot" class="mono" aria-label="Public team snapshot JSON" rows="4"></textarea>${btn("Import snapshot", "preset-dream-json")}</details></section><section class="panel editor-section" id="editor-rules"><div class="section-heading"><span>03</span><h2>Match rules & roster</h2></div><p class="muted">Every distinct pair plays A vs B and B vs A on the same seed. Both sides count toward standings. Use a shared roster or let each LLM build its team.</p><div class="form-grid">${selectField(
    "Team setup",
    "team_mode",
@@ -1934,12 +1958,15 @@ function readCompetition(form) {
     ids = f.getAll("participant"),
     base = structuredClone(S.editConfig || S.boot.default_config),
     models = S.choiceModels.filter(m=>ids.includes(m.id));
+  const reused=f.getAll('reuse_preparation').filter(id=>ids.includes(id));
+  if(reused.length)base.reuse_preparations={source:S.editReuse.source,models:reused};
+  else delete base.reuse_preparations;
   const array = (k) =>
       String(f.get(k) || "")
         .split(/[\s,;]+/)
         .filter(Boolean)
         .map(Number),
-    real = models.some((m) => m.provider !== "mock");
+    real = models.some(m=>m.provider!=='mock'&&!reused.includes(m.id));
   base.name = f.get("name");
   base.models = models;
   base.replicates = n("replicates");
@@ -2146,7 +2173,7 @@ async function launchDialog(draftId = null, runId = null) {
   openDialog(
     runId ? "Resume competition" : "Launch competition",
     config.name,
-    `<form data-form="launch">${runId ? notice("Retryable conversations will continue from their checkpoints. Saved strategies and completed matches are retained.") : ""}${runId ? resumeRecoveryMarkup(S.detail) : ""}${planMarkup(p)}${p.simulated ? notice("Mock participants, real matches. No LLM calls or API charges.") : notice("Calls use the configured keys and prices. Calculated costs are not confirmed provider bills.", "warn")}<div>${config.models.filter(m=>!p.active_models||p.active_models.includes(m.id)).map((m) => `<div class="info-row"><span>${e(m.id)}${m.provider !== "mock" ? `<small>${e(m.endpoint || (m.provider === "anthropic" ? "https://api.anthropic.com/v1/messages" : m.provider === "gemini" ? "https://generativelanguage.googleapis.com/v1beta" : "https://api.openai.com/v1/chat/completions"))}<br>Key: ${e(m.api_key_env)}</small>` : ""}</span><strong>${e(m.model || m.profile)}${m.provider !== "mock" ? `<small>Reasoning: ${e(reasoningLabel(m.parameters))}<br>Seed: ${m.parameters?.seed ?? (m.provider === "anthropic" ? "not available" : "not set")}</small>` : ""}</strong></div>`).join("")}</div>${!p.simulated ? `<label class="check" style="margin-top:20px"><input type="checkbox" name="confirm_paid" required>I authorize API calls ${config.spending.max_total_usd == null ? "without an arena spending limit" : "with a configured total spending limit of " + money(config.spending.max_total_usd)}.</label>` : ""}<div class="form-footer">${btn("Cancel", "close-dialog")}<button type="submit" class="button primary">${runId ? "Resume" : "Start competition"}</button></div></form>`,
+    `<form data-form="launch">${runId ? notice("Retryable conversations will continue from their checkpoints. Saved strategies and completed matches are retained.") : ""}${runId ? resumeRecoveryMarkup(S.detail) : ""}${planMarkup(p)}${p.reused_models?.length?notice(`Reused: ${p.reused_models.join(", ")}. Their original resource metrics are included in results. Only new requests count toward the API spending limit.${p.fresh_api_models?.length?` Fresh API preparations: ${p.fresh_api_models.join(", ")}.`:""}`):""}${p.simulated ? notice("Mock participants, real matches. No LLM calls or API charges.") : p.paid_calls ? notice("Calls use the configured keys and prices. Calculated costs are not confirmed provider bills.", "warn"):""}<div>${config.models.filter(m=>!p.active_models||p.active_models.includes(m.id)).map((m) => `<div class="info-row"><span>${e(m.id)}${m.provider !== "mock" ? `<small>${e(m.endpoint || (m.provider === "anthropic" ? "https://api.anthropic.com/v1/messages" : m.provider === "gemini" ? "https://generativelanguage.googleapis.com/v1beta" : "https://api.openai.com/v1/chat/completions"))}<br>Key: ${e(m.api_key_env)}</small>` : ""}</span><strong>${e(m.model || m.profile)}${m.provider !== "mock" ? `<small>Reasoning: ${e(reasoningLabel(m.parameters))}<br>Seed: ${m.parameters?.seed ?? (m.provider === "anthropic" ? "not available" : "not set")}</small>` : ""}</strong></div>`).join("")}</div>${p.paid_calls ? `<label class="check" style="margin-top:20px"><input type="checkbox" name="confirm_paid" required>I authorize API calls ${config.spending.max_total_usd == null ? "without an arena spending limit" : "with a configured total spending limit of " + money(config.spending.max_total_usd)}.</label>` : ""}<div class="form-footer">${btn("Cancel", "close-dialog")}<button type="submit" class="button primary">${runId ? "Resume" : "Start competition"}</button></div></form>`,
   );
 }
 function retryButton(session) {
@@ -2263,7 +2290,7 @@ function runHeader(d) {
     job = S.boot.jobs.find((j) => j.run === S.run),
     active = job && ["running", "stopping"].includes(job.status),
     experiment = !!d.metadata.config;
-  return `<a class="back-link" href="#view=competitions">← Competitions</a>` + head(config.name, "", `${active ? btn("■ Stop", "stop-job", `data-id="${e(job.id)}"`) : experiment && !d.archived ? btn("Resume", "resume", "", true) : ""}<details class="action-menu"><summary class="button">More <svg class="menu-chevron" viewBox="0 0 12 12" width="12" height="12" aria-hidden="true"><path d="M2.5 4.5 6 8l3.5-3.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></summary><div>${experiment && !d.archived ? btn("Edit participants","edit-run-participants")+btn("Reference strategies","run-reference-strategies")+btn("Execution & metrics","run-metric-collection")+btn("Chart settings","run-chart-colors")+(config.models?.some(model=>model.provider!=="mock")?btn("Recalculate costs","report-pricing"):"") : ""}${btn('Load diagnostics','load-diagnostics')}${experiment?btn('Engine performance','engine-performance')+btn('Copy scheduling diagnostics','copy-scheduling-diagnostics'):''}${btn("Move to workspace","move-workspace",`data-run="${e(S.run)}"`)}<a class="button" href="/api/results.csv?${query({run:S.run})}" download>Download results CSV</a><a class="button" href="/api/results.csv?${query({run:S.run,table:"fights"})}" download>Download match results CSV</a><a class="button" href="/api/results.csv?${query({run:S.run,table:"sessions"})}" download>Download sessions CSV</a>${experiment ? btn("Clone configuration", "clone-run") + btn("Export competition", "export-run") : ""}${storageMenuItem(d)}</div></details>`) +
+  return `<a class="back-link" href="#view=competitions">← Competitions</a>` + head(config.name, "", `${active ? btn("■ Stop", "stop-job", `data-id="${e(job.id)}"`) : experiment && !d.archived ? btn("Resume", "resume", "", true) : ""}<details class="action-menu"><summary class="button">More <svg class="menu-chevron" viewBox="0 0 12 12" width="12" height="12" aria-hidden="true"><path d="M2.5 4.5 6 8l3.5-3.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></summary><div>${experiment && !d.archived ? btn("Edit participants","edit-run-participants")+btn("Reference strategies","run-reference-strategies")+btn("Execution & metrics","run-metric-collection")+btn("Chart settings","run-chart-colors")+(config.models?.some(model=>model.provider!=="mock")?btn("Recalculate costs","report-pricing"):"") : ""}${btn('Load diagnostics','load-diagnostics')}${experiment?btn('Engine performance','engine-performance')+btn('Copy scheduling diagnostics','copy-scheduling-diagnostics'):''}${btn("Move to workspace","move-workspace",`data-run="${e(S.run)}"`)}<a class="button" href="/api/results.csv?${query({run:S.run})}" download>Download results CSV</a><a class="button" href="/api/results.csv?${query({run:S.run,table:"fights"})}" download>Download match results CSV</a><a class="button" href="/api/results.csv?${query({run:S.run,table:"sessions"})}" download>Download sessions CSV</a>${experiment ? btn("Clone configuration", "clone-run") + (reusableCompetitionModels(d).length?btn("Clone with saved preparations","clone-run-reuse"):"") + btn("Export competition", "export-run") : ""}${storageMenuItem(d)}</div></details>`) +
     `<div class="toolbar run-toolbar">${job ? status(job.status === "failed" && d.report?.incomplete ? "incomplete" : job.status) : ""}${job?.mode==='retry_fights'?badge('Engine recovery · no model calls'):''}${config.models ? badge(config.models.every(m=>m.provider==="mock") ? "Built-in strategies" : "Model competition") : badge("Provided strategies")}${d.archived ? badge("Exported copy", "orange") : ""}<span class="run-id mono" title="Competition ID">${e(S.run)}</span><span class="spacer"></span><label class="check live-toggle"><input id="follow-live" type="checkbox" ${S.follow ? "checked" : ""}>Live</label>${job ? btn("Run log", "job-log", `data-id="${e(job.id)}"`) : ""}</div>` + (S.tab==='activity'?'':competitionActivity()) +
     `<nav class="tabs" aria-label="Competition views">${TABS.map(([key,label])=>`<button class="tab ${S.tab===key ? "active" : ""}" ${S.tab===key ? 'aria-current="page"' : ""} data-action="tab" data-tab="${key}">${label}</button>`).join("")}</nav>`;
 }
@@ -3363,7 +3390,7 @@ function summary(d, statistics = null) {
         Number(s.money_reserved || 0) > 0,
     ),
     cost = sessions.reduce((n, s) => n + Number(s.cost_spent || 0), 0);
-  return `<div class="competition-overview">${indexingNotice(S.overviewIndexing)}${overviewFilters(d, data)}${data.scope.source==='references'?notice('This view combines tournament fights and additional fights against evaluation references. The official ranking uses tournament fights.'):''}${data.scope.source==='progression'?notice('Unscored progression diagnostic: current LLM versions face the preceding round. This includes same-model historical opponents; results do not change tournament standings or model feedback.'):''}${failures.length ? `<div class="overview-alert">${failures.length} conversation${failures.length === 1 ? "" : "s"} need attention. <button class="table-button" data-action="overview-failures">Review & retry</button></div>` : ""}<div class="overview-kpis"><div><span>Completed fights</span><strong>${fmt(fightCount(data.selected.filter((v) => v.match.result.status === "completed")))}</strong><small>${fmt(fightCount(data.selected.filter((v) => v.match.result.status !== "completed")))} failed</small></div><div><span>Submitted strategies</span><strong>${sessions.length ? sessions.filter((s) => s.submission || s.status === "submitted").length : d.metadata.manifest?.strategies?.filter(s=>overviewAccept(overviewIdentity(s.id),data.scope)).length ?? data.models.length}${sessions.length ? `<small> / ${sessions.length}</small>` : ""}</strong><small>${d.metadata.config ? d.metadata.config.models.filter(model=>!d.roster?.withdrawn.includes(model.id)&&(!data.scope.model||data.scope.model===model.id)).length : data.models.length} active participants</small></div><div><span>Estimated API cost</span><strong>${sessions.length ? (costUnknown ? "Unknown" : money(cost)) : "N/A"}</strong><small>Selected versions</small></div><div><span>Tokens · selected versions</span><strong>${known.length ? fmt(tokens) : real.length ? "Unknown" : "N/A"}</strong><small>${known.length ? (known.length < real.length || known.some(u=>!u.complete) ? "Partial reported usage" : "Input + output") : real.length ? "Not reported by provider" : "No measured LLM usage"}</small></div></div>
+  return `<div class="competition-overview">${indexingNotice(S.overviewIndexing)}${overviewFilters(d, data)}${d.metadata.config?.reuse_preparations?notice(`Historical preparation metrics are included for: ${d.metadata.config.reuse_preparations.models.map(participantName).join(", ")}. Their strategies were reused from ${d.metadata.config.reuse_preparations.source}.`):""}${data.scope.source==='references'?notice('This view combines tournament fights and additional fights against evaluation references. The official ranking uses tournament fights.'):''}${data.scope.source==='progression'?notice('Unscored progression diagnostic: current LLM versions face the preceding round. This includes same-model historical opponents; results do not change tournament standings or model feedback.'):''}${failures.length ? `<div class="overview-alert">${failures.length} conversation${failures.length === 1 ? "" : "s"} need attention. <button class="table-button" data-action="overview-failures">Review & retry</button></div>` : ""}<div class="overview-kpis"><div><span>Completed fights</span><strong>${fmt(fightCount(data.selected.filter((v) => v.match.result.status === "completed")))}</strong><small>${fmt(fightCount(data.selected.filter((v) => v.match.result.status !== "completed")))} failed</small></div><div><span>Submitted strategies</span><strong>${sessions.length ? sessions.filter((s) => s.submission || s.status === "submitted").length : d.metadata.manifest?.strategies?.filter(s=>overviewAccept(overviewIdentity(s.id),data.scope)).length ?? data.models.length}${sessions.length ? `<small> / ${sessions.length}</small>` : ""}</strong><small>${d.metadata.config ? d.metadata.config.models.filter(model=>!d.roster?.withdrawn.includes(model.id)&&(!data.scope.model||data.scope.model===model.id)).length : data.models.length} active participants</small></div><div><span>Estimated API cost</span><strong>${sessions.length ? (costUnknown ? "Unknown" : money(cost)) : "N/A"}</strong><small>Selected versions</small></div><div><span>Tokens · selected versions</span><strong>${known.length ? fmt(tokens) : real.length ? "Unknown" : "N/A"}</strong><small>${known.length ? (known.length < real.length || known.some(u=>!u.complete) ? "Partial reported usage" : "Input + output") : real.length ? "Not reported by provider" : "No measured LLM usage"}</small></div></div>
   <div class="overview-charts"><section class="overview-card"><div class="overview-section-head"><h2>${data.scope.source==='references'?"Scores including evaluation references":"Model ranking"}</h2><div class="chart-controls"><label class="check"><input type="checkbox" data-overview-filter="compactRanking" ${data.scope.compactRanking?'checked':''}>Compact</label>${chartActions()}</div></div>${overviewRanking(data)}</section><section class="overview-card"><div class="overview-section-head"><h2>Evolution</h2>${chartActions()}</div>${overviewEvolution(data)}</section></div><section class="overview-card">${resourcePanel(overviewResourcePoints(d,data),"overview")}</section>
   ${modelUsageCharts(d,data.scope)}
   ${lineageChart(d,data)}
@@ -4636,6 +4663,7 @@ document.addEventListener("click", async (event) => {
       if(node.dataset.workspace)setWorkspace(node.dataset.workspace);
       S.editDraft = null;
       S.editReasoningOverrides = {};
+      S.editReuse = null;
       S.editConfig =
         a === "new-demo" ? structuredClone(S.boot.demo_config) : freshConfig();
       navigate("editor");
@@ -4683,6 +4711,16 @@ document.addEventListener("click", async (event) => {
       S.editDraft = d.id;
       S.editConfig = structuredClone(d.config);
       S.editReasoningOverrides = d.reasoning_overrides||{};
+      const reuse=d.config.reuse_preparations;
+      S.editReuse=reuse?{source:reuse.source,eligible:reuse.models}:null;
+      if(reuse) {
+        try {
+          const source=await api('/api/run',{run:reuse.source});
+          S.editReuse.eligible=reusableCompetitionModels(source);
+        } catch(error) {
+          toast(error.message,true);
+        }
+      }
       navigate("editor");
     } else if(a==='expand-messages'||a==='collapse-messages') {
       for(const message of $$('.message-shell'))message.open=a==='expand-messages';
@@ -4701,10 +4739,18 @@ document.addEventListener("click", async (event) => {
       openDialog('Delete competition configuration?',draft.config.name,
         `<p>This permanently deletes this saved configuration and its settings. Existing runs, conversations, strategies and match results are kept.</p><form data-form="delete-draft" data-id="${e(draft.id)}"><div class="form-footer">${btn('Cancel','close-dialog')}<button type="submit" class="button danger">Delete configuration</button></div></form>`);
       $('#dialog .form-footer [data-action="close-dialog"]').focus();
-    } else if (a === "clone-run") {
+    } else if (a === "clone-run" || a === 'clone-run-reuse') {
       S.editDraft = null;
       S.editConfig = structuredClone(S.detail.metadata.config);
       S.editReasoningOverrides = {};
+      delete S.editConfig.reuse_preparations;
+      S.editReuse=null;
+      if(a==='clone-run-reuse') {
+        const eligible=reusableCompetitionModels(S.detail);
+        if(!eligible.length)throw Error('No API participant has a settled submission for every round, repetition and feedback track.');
+        S.editReuse={source:S.run,eligible};
+        S.editConfig.reuse_preparations={source:S.run,models:eligible};
+      }
       S.editConfig.name += " (copy)";
       navigate("editor");
     } else if (a === "preview-plan") {
@@ -4716,6 +4762,7 @@ document.addEventListener("click", async (event) => {
       await api("/api/plan", { config }, true);
       S.editConfig = config;
       S.editReasoningOverrides = {};
+      S.editReuse=config.reuse_preparations?{source:config.reuse_preparations.source,eligible:config.reuse_preparations.models}:null;
       $("#main").innerHTML = competitionEditor();
       updateStatPreviews();
       toast("Configuration imported. Review before saving.");
@@ -5257,7 +5304,10 @@ document.addEventListener("change", async (event) => {
       $('#faults-content').outerHTML=faultsPage();
       return;
     }
-    if(n.matches('#competition-form input[name=participant]') || n.id==='competition-selected-only') {
+    if(n.matches('[data-competition-effort]')) {
+      const reuse=$('[name=reuse_preparation]',n.closest('.competition-model'));
+      if(reuse)reuse.checked=false;
+    } else if(n.matches('#competition-form input[name=participant]') || n.id==='competition-selected-only') {
       updateCompetitionSelection();
     } else if(n.matches('[data-repetition-metric],[data-repetition-rounds]')) {
       if(n.matches('[data-repetition-rounds]'))S.repetitionRounds=n.value;else S.repetitionMetric=n.value;clearChartHover();LiveDOM.replace($('#repetition-variance'),repetitionVariance(S.detail,overviewData(S.detail)));

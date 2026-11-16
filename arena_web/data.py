@@ -406,16 +406,37 @@ class Store(Workspaces):
             write_json(self.state / "participants.json", [m for m in self.catalog() if m["id"] != identifier])
         return {"deleted": identifier}
 
-    def resolve_models(self, config, reasoning_overrides=None):
+    def resolve_models(self, config, reasoning_overrides=None, *, bind_reuse_source=True):
         result = copy.deepcopy(config)
         catalog = {model['id']: model for model in self.catalog()}
         from arena.reference_strategies import for_scenario
-        result['models'] = [for_scenario(catalog.get(model['id'], model),result['scenario']) for model in result['models']]
+        reused = set()
+        if 'reuse_preparations' in result:
+            from arena.preparation_reuse import model_ids, validate
+            validate(result)
+            reused = model_ids(result)
+        result['models'] = [for_scenario(model if model['id'] in reused else catalog.get(model['id'], model),
+                                         result['scenario']) for model in result['models']]
+        if reused and bind_reuse_source:
+            source = self.run_path(result['reuse_preparations']['source'])
+            from arena.roster import effective, snapshot
+            prior = effective(source, read_json(source/'experiment.json').get('config', {}))
+            defaults = {'generations':1, 'improvement_conditions':['control', 'feedback']}
+            if (prior.get('evolutionary') or (snapshot(source) or {}).get('scenario_changes')
+                    or any(prior.get(key, defaults.get(key)) != result.get(key, defaults.get(key))
+                           for key in ('scenario', 'replicates', 'generations', 'improvement_conditions'))):
+                raise ArenaError('Reused preparations require the same scenario, rounds, repetitions and feedback tracks')
+            profiles = {model['id']:model for model in prior.get('models', []) if model['provider'] != 'mock'}
+            if reused - profiles.keys():
+                raise ArenaError('The original competition has no matching API participant for reuse')
+            result['models'] = [copy.deepcopy(profiles[model['id']]) if model['id'] in reused else model for model in result['models']]
         if reasoning_overrides is not None:
             from arena.reasoning import apply_overrides, validate_effort
             models = {model['id']: model for model in result['models']}
             if not isinstance(reasoning_overrides, dict) or reasoning_overrides.keys() - models.keys():
                 raise ArenaError('Reasoning overrides must refer to selected participants')
+            if reused & reasoning_overrides.keys():
+                raise ArenaError('Rerun a participant before changing its reasoning effort')
             for identifier, effort in reasoning_overrides.items():
                 model = models[identifier]
                 if model['provider'] not in {'openai', 'openai-compatible', 'anthropic'}:
@@ -429,7 +450,7 @@ class Store(Workspaces):
         rows = [self.json(p) for p in sorted((self.state / "competitions").glob("*.json"))]
         memberships=self.workspace_index()['drafts']
         return [{**row, 'workspace_id':memberships.get(row['id']),
-                 'config':self.resolve_models(row['config'], row.get('reasoning_overrides'))} for row in rows]
+                 'config':self.resolve_models(row['config'], row.get('reasoning_overrides'), bind_reuse_source=False)} for row in rows]
 
     def save_draft(self, config, identifier=None, *, reasoning_overrides=None, **options):
         identifier = identifier or uuid4().hex[:12]
@@ -463,7 +484,7 @@ class Store(Workspaces):
         if result is None:
             raise ArenaError("Configuration not found")
         return {**result, "workspace_id":self.workspace_index()['drafts'].get(identifier),
-                "config":self.resolve_models(result["config"], result.get('reasoning_overrides'))}
+                "config":self.resolve_models(result["config"], result.get('reasoning_overrides'), bind_reuse_source=False)}
 
     def run_path(self, identifier):
         root = safe_path(self.runs, identifier)
@@ -642,7 +663,7 @@ class Store(Workspaces):
             metadata = {**metadata, 'config':effective(root,metadata['config'])}
         models = {m['id']: m for m in metadata.get('config', {}).get('models', [])}
         prices = self.json(root/REPORT_PRICING, {}).get('models', {})
-        states = self.states(root, ('model', 'provider_parameter_overrides'))
+        states = self.states(root, ('model', 'provider_parameter_overrides', 'reused_usage'))
         decoded = [(sid, kind, json.loads(reference)) for sid, kind, reference in rows]
         receipts = self.receipts.many('usage', [(reference['sha256'], lambda reference=reference: safe_path(root, reference['artifact'])) for _, _, reference in decoded],
                                       lambda value: {field: value.get(field) for field in ('usage', 'cost_usd', 'stop_reason', 'finish_reason')})
@@ -664,7 +685,8 @@ class Store(Workspaces):
                 if recalculated is not None and receipt.get('cost_usd') is not None:
                     receipt['cost_adjustment_usd'] = str(Decimal(recalculated) - Decimal(receipt['cost_usd']))
             grouped.setdefault(sid, []).append(receipt)
-        return {sid: summarize(receipts) for sid, receipts in grouped.items()}
+        return {**{sid: summarize(receipts) for sid, receipts in grouped.items()},
+                **{sid: state['reused_usage'] for sid, state in states.items() if state.get('reused_usage') is not None}}
 
     @measure('detail')
     def detail(self, identifier, *, include_revision=True):
@@ -678,7 +700,7 @@ class Store(Workspaces):
         sessions = []
         keys = ("model", "participant_revision", "replicate", "generation", "condition", "parent", "parents", "replaces", "parent_checkpoint_sha256",
                 "status", "validity", "conversation_paused", "automatic_retries_paused", "automatic_retry_at", "automatic_retry_attempts", "calls", "completed_calls", "failure", "context_recoveries", "manual_frozen", "steps", "test_matches", "replay_reads", "wall_seconds", "cost_spent",
-                "money_reserved", "token_usage_known", "input_tokens", "output_tokens", "submission", "in_flight", "reserved", "retry_count", "continuation_identity", "provider_parameter_overrides", "budget_stop")
+                "money_reserved", "token_usage_known", "input_tokens", "output_tokens", "submission", "in_flight", "reserved", "retry_count", "continuation_identity", "provider_parameter_overrides", "budget_stop", "reused_from")
         from arena.retries import retry_reason
         from arena.reasoning import reported_efforts
         from arena.budget_context import tool_budget_exhausted

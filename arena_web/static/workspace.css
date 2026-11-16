@@ -310,6 +310,7 @@ body[data-view=workspaces] .panel-title select { min-width: 0; width: 100%; max-
 .competition-model-pick { display:flex; align-items:start; gap:8px; min-width:0; cursor:pointer; }
 .competition-effort { display:grid; gap:3px; min-width:0; font-size:11px; color:var(--muted); }
 .competition-effort select { width:100%; min-width:0; }
+.competition-effort.check { display:flex; align-items:center; gap:6px; }
 .competition-model:not(:has([name=participant]:checked)) .competition-effort { display:none; }
 .competition-model-list .choice span { min-width:0; }
 .competition-model-list .choice strong,.competition-model-list .choice small { overflow-wrap:anywhere; white-space:normal; }
