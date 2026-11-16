@@ -102,18 +102,24 @@ class WebContractTests(unittest.TestCase):
         })
         self.assertEqual(global_colors['providers']['connection:Mistral'], '#abcdef')
         scoped = app.post('/api/chart-colors', {'run':run.name, 'models':{'model':'#001122'},
-                                                'display_name':'  Eco sprint  '})
+                                                'display_name':'  Eco sprint  ',
+                                                'candidate_order':['fixed-rush', 'model']})
         self.assertEqual(scoped['runs'][run.name]['model'], '#001122')
         self.assertEqual(scoped['run_names'][run.name], 'Eco sprint')
+        self.assertEqual(scoped['run_candidate_orders'][run.name], ['fixed-rush', 'model'])
         self.assertEqual(scoped['models']['model'], '#544299')
         self.assertEqual(Store(self.store.runs, self.store.state).chart_colors(), scoped)
         cleared = app.post('/api/chart-colors', {'run':run.name, 'models':{'model':None}})
         self.assertFalse(cleared['runs'])
         self.assertEqual(cleared['run_names'], {run.name:'Eco sprint'})
+        self.assertEqual(cleared['run_candidate_orders'], scoped['run_candidate_orders'])
         with self.assertRaises(ArenaError):
             app.post('/api/chart-colors', {'models':{'model':'red;display:none'}})
+        with self.assertRaises(ArenaError):
+            app.post('/api/chart-colors', {'run':run.name, 'candidate_order':['model', 'model']})
         self.assertEqual(self.store.chart_colors(), cleared)
         self.assertFalse(app.post('/api/chart-colors', {'run':run.name, 'display_name':''})['run_names'])
+        self.assertFalse(app.post('/api/chart-colors', {'run':run.name, 'candidate_order':[]})['run_candidate_orders'])
         self.assertEqual(read_json(run/'experiment.json'), frozen)
 
     def test_pinned_equipment_catalog_and_reference_documents(self):
@@ -136,6 +142,21 @@ class WebContractTests(unittest.TestCase):
         (root / "journal.sqlite").touch()
         self.assertEqual(self.store.states(root), {})
         self.assertEqual(self.store.events("starting"), {"total": 0, "events": []})
+
+    def test_competition_reasoning_overrides_survive_profile_resolution(self):
+        model = {**api_model(), 'provider':'openai-compatible', 'endpoint':'http://localhost:11434/v1/chat/completions',
+                 'parameters':{'reasoning_effort':'high', 'seed':17}}
+        self.store.save_participant(model)
+        config = read_json(ROOT/'configs/offline-complete.json')
+        config.update(models=[model], spending={'allow_paid_calls':True})
+        app = Application(self.store)
+        request = {'config':config, 'reasoning_overrides':{model['id']:None}}
+        saved = app.post('/api/competition', request)
+        self.assertEqual(self.store.draft(saved['id'])['config']['models'][0]['parameters'], {'seed':17})
+        self.assertEqual(self.store.drafts()[0]['config'], app.post('/api/plan', request)['config'])
+        self.assertEqual(next(spec for spec in self.store.catalog() if spec['id']==model['id'])['parameters'], model['parameters'])
+        restored = app.post('/api/competition', {**request, 'id':saved['id'], 'reasoning_overrides':{}})
+        self.assertEqual(restored['config']['models'][0]['parameters'], model['parameters'])
 
     def test_versions_require_successful_receipts_and_preserve_inherited_history(self):
         fixture(self.store)

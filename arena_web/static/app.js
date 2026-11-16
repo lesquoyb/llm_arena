@@ -891,6 +891,10 @@ function chartColorsDialog(run=null) {
     .filter(model=>model.provider!=='mock'||model.strategy?.origin?.reference||refs.has(model.id))
     .map(model=>[model.id,model]));
   const sorted=[...models.values()].sort((a,b)=>a.id.localeCompare(b.id));
+  const candidateIds=[...new Set([...current,...evaluation,...(S.detail?.sessions||[]).map(row=>({id:row.model})),
+    ...(S.detail?.metadata.manifest?.strategies||[]).map(row=>({id:row.origin?.variant||row.id}))].map(row=>row.id))];
+  const defaultOrder=run?orderCandidates(candidateIds,id=>id,undefined,{run:null,references:overviewReferenceLevels(S.detail,true)}):[];
+  const candidateOrder=run?orderCandidates(candidateIds,id=>id):[];
   const providerOptions=new Map((S.boot.providers||[]).map(({spec})=>[`connection:${spec.id}`,spec.id]));
   for(const model of sorted)for(const [key,label] of colorProviderOptions(model))providerOptions.set(key,label);
   const row=(layer,id,label,help,color,inherited)=>`<div class="chart-color-row" data-chart-color="${layer}" data-color-key="${e(id)}">
@@ -910,9 +914,14 @@ function chartColorsDialog(run=null) {
     return row('models',id,participantName(id),[detail,participantName(id)!==profile||profile!==id?profile:''].filter(Boolean).join(' · '),
       savedChartColor(overrides,id),inherited||REFERENCE_COLORS.get(level)||seriesColor(i%SERIES_COLORS.length));
   });
-  openDialog(run?'Competition chart settings':'Chart colors',run?S.detail.metadata.config.name:'Default colors for your participants',
+  openDialog(run?'Competition chart settings':'Chart colors',run?S.detail.metadata.config?.name||S.detail.metadata.manifest?.name:'Default colors for your participants',
     `<form data-form="chart-colors" data-run="${e(run||'')}"><p>${run?'Overrides here apply only to this competition. Clear Custom to use the inherited color.':'Models inherit their provider color. References use the difficulty palette by default. Clear Custom to restore inheritance.'}</p>
     ${run?field('Display name for charts','display_name',chartRunName(run),'text','Optional short title for exports and comparison charts.','maxlength="80"'):''}
+    ${candidateOrder.length?`<section class="form-section"><h3>Candidate order</h3>
+      <p class="muted">Set the order in comparison charts and on both axes of the match matrix. The default puts references last, from easiest to hardest. Rankings are sorted by their measured value.</p>
+      <label class="field">Candidates<select size="${Math.min(8,Math.max(2,candidateOrder.length))}" data-candidate-order>
+        ${candidateOrder.map(id=>`<option value="${e(id)}" data-default-index="${defaultOrder.indexOf(id)}">${e(participantName(id))}</option>`).join('')}
+      </select></label><div class="actions">${btn('Move up','candidate-up','type="button"')}${btn('Move down','candidate-down','type="button"')}${btn('Restore default','candidate-order-reset','type="button"')}</div></section>`:''}
     ${run?'':`<section class="form-section"><h3>Providers</h3>${providerRows.join('')||'<p class="muted">No providers configured.</p>'}</section>`}
     <details class="form-section" ${run?'open':''}><summary>Model and reference overrides</summary>${modelRows.join('')||'<p class="muted">No participant profiles.</p>'}</details>
     <div class="form-footer">${run?btn('Global colors','chart-colors'):''}${btn('Cancel','close-dialog')}<button type="submit" class="button primary">${run?'Save chart settings':'Save colors'}</button></div></form>`);
@@ -1112,10 +1121,10 @@ function workspaceStage(stage) {
   const match=stage.match(/g(\d+)-(tournament|panel)/);
   return match?`Round ${Number(match[1])+1}`:stage;
 }
-function resourceScatter(points, metric='size') {
+function resourceScatter(points, metric='size', order) {
   const labels={size:'Model size (B parameters)',cost:'Mean preparation cost ($ / strategy)',time:'Mean preparation time (minutes / strategy)',tools:'Mean tool calls / strategy',tests:'Mean preparation fights / strategy',replays:'Mean replay read calls / strategy'};
   const eligible=points.filter(p=>!['cost','time','tools','tests','replays'].includes(metric)||!p.reference);
-  const valid=eligible.filter(p=>p.score!=null && Number.isFinite(p[metric]) && p[metric]>=0 && (metric!=='size'||p[metric]>0));
+  const valid=orderCandidates(eligible.filter(p=>p.score!=null && Number.isFinite(p[metric]) && p[metric]>=0 && (metric!=='size'||p[metric]>0)),p=>p.model||p.label,undefined,order);
   if(!valid.length)return `<p class="muted">${metric==='size'?'No model sizes recorded for this selection. Set the optional size in Participants.':'No complete measurements for this selection.'}</p>`;
   const W=760,H=260,L=56,R=728,T=20,B=208,max=Math.max(...valid.map(p=>p[metric]))*1.1||1;
   const x=v=>L+(R-L)*v/max,y=v=>B-(B-T)*v;
@@ -1123,36 +1132,56 @@ function resourceScatter(points, metric='size') {
     ${[0,.5,1].map(v=>`<line x1="${L}" x2="${R}" y1="${y(v)}" y2="${y(v)}" stroke="#e0e7e4"/><text x="${L-8}" y="${y(v)+4}" text-anchor="end">${v*100}%</text>`).join('')}
     ${[0,.25,.5,.75,1].map(v=>`<text x="${x(v*max)}" y="${B+20}" text-anchor="middle">${fmt(v*max,metric==='cost'?4:2)}</text>`).join('')}
     <text x="${(L+R)/2}" y="${H-5}" text-anchor="middle">${e(labels[metric])}</text>
-    ${valid.map((p,i)=>`<circle cx="${x(p[metric])}" cy="${y(p.score)}" r="6" fill="${p.color||seriesColor(i)}" stroke="white" stroke-width="1.5" tabindex="0" data-chart-model="${e(p.model||p.label)}" data-chart-label="${e(p.label)} · ${pct(p.score)} · ${fmt(p[metric],metric==='cost'?6:2)} ${e(labels[metric])}${toolTotalText(p)}"><title>${e(p.label)}: ${pct(p.score)} · ${fmt(p[metric],metric==='cost'?6:3)}${metric==='size'?'B':metric==='time'?' min':metric==='tools'?' tool calls':metric==='tests'?' preparation fights':metric==='replays'?' replay reads':' USD'}</title></circle>`).join('')}</svg>
-    <div class="chart-legend">${valid.map((p,i)=>`<span tabindex="0" data-chart-model="${e(p.model||p.label)}" data-chart-label="${e(p.label)} · ${pct(p.score)}"><i class="dot" style="background:${p.color||seriesColor(i)}"></i>${e(p.label)} · ${pct(p.score)} · ${metric==='cost'?money(p.cost):fmt(p[metric],3)+(metric==='size'?'B':metric==='tools'?' tool calls':metric==='tests'?' preparation fights':metric==='replays'?' replay reads':' min')}</span>`).join('')}</div>
+    ${valid.map((p,i)=>`<circle cx="${x(p[metric])}" cy="${y(p.score)}" r="6" fill="${p.color||seriesColor(i)}" stroke="white" stroke-width="1.5" tabindex="0" data-chart-model="${e(p.model||p.label)}" data-chart-label="${e(resourcePointLabel(p,metric))}"/>`).join('')}</svg>
+    <div class="chart-legend">${valid.map((p,i)=>`<span tabindex="0" data-chart-model="${e(p.model||p.label)}"><i class="dot" style="background:${p.color||seriesColor(i)}"></i>${e(resourcePointLabel(p,metric))}</span>`).join('')}</div>
     ${valid.length<eligible.length?`<p class="muted">${eligible.length-valid.length} entries with missing measurements excluded from this chart.</p>`:''}`;
 }
 const RESOURCE_LABELS={size:'Size (B)',cost:'Mean cost ($)',time:'Mean time (min)',tools:'Mean tool calls',tests:'Mean preparation fights',replays:'Mean replay reads'};
 const RESOURCE_UNITS={size:'B parameters',cost:'$',time:'minute',tools:'tool call',tests:'preparation fight',replays:'replay read'};
-function resourceBars(points,metric) {
+const RESOURCE_AMOUNT_LABELS={size:'Model size (B)',cost:'Cost (USD)',time:'Time (min)',tools:'Tool calls',tests:'Preparation fights',replays:'Replay reads'};
+function resourceValue(value,metric) {
+  return metric==='cost'?money(value):fmt(value,2);
+}
+function resourceTotalLabel(point,metric) {
+  const total=point.totals?.[metric];
+  return Number.isFinite(total)?resourceValue(total,metric)+' total':'Total unavailable';
+}
+function resourceEfficiencyCaption(metric) {
+  return metric==='size'?'Match score in percentage points divided by model size in billions of parameters.':
+    'Match score in percentage points divided by average resource use per strategy.';
+}
+function resourcePointLabel(point,metric) {
+  const units={size:'B parameters',cost:'',time:'min',tools:'tool calls',tests:'preparation fights',replays:'replay reads'};
+  const value=[resourceValue(point[metric],metric),units[metric]].filter(Boolean).join(' ');
+  return `${point.label} · ${pct(point.score)} · ${value}${metric==='size'?'':` / strategy · ${resourceTotalLabel(point,metric)}`}`;
+}
+function resourceBars(points,metric,order) {
   const eligible=points.filter(p=>metric==='size'||!p.reference);
-  const rows=eligible.filter(p=>p.score!=null&&Number.isFinite(p[metric])&&p[metric]>0)
-    .map(p=>({...p,efficiency:100*p.score/p[metric]}))
-    .sort((a,b)=>b.efficiency-a.efficiency||a.label.localeCompare(b.label));
+  const rows=orderCandidates(eligible.filter(p=>p.score!=null&&Number.isFinite(p[metric])&&p[metric]>0)
+    .map(p=>({...p,efficiency:100*p.score/p[metric]})),p=>p.model||p.label,
+    (a,b)=>b.efficiency-a.efficiency||a.label.localeCompare(b.label),order);
   if(!rows.length)return '<p class="muted">No positive resource measurements for this selection. Efficiency is undefined for zero consumption.</p>';
   const unit=RESOURCE_UNITS[metric];
   const maximum=Math.max(...rows.map(p=>p.efficiency))||1;
-  return `<p class="muted">Score points per ${e(unit)} = score (0–100) ÷ ${e(RESOURCE_LABELS[metric].toLowerCase())}. Higher is better.</p><div class="resource-bar-head"><span>Model</span><span>Resource / strategy</span><span>Points / ${e(unit)} ↓</span></div><div class="resource-bar-list" role="region" aria-label="Performance per ${e(unit)}" tabindex="0">${rows.map(row=>{
+  const amountHeading=RESOURCE_AMOUNT_LABELS[metric];
+  return `<p class="muted">${resourceEfficiencyCaption(metric)}</p><div class="resource-bar-head"><span>Model</span><span class="resource-amount">${amountHeading}${metric==='size'?'':'<small>Avg. / total</small>'}</span><span>pp / ${e(unit)}</span></div><div class="resource-bar-list" role="region" aria-label="Performance per ${e(unit)}" tabindex="0">${rows.map(row=>{
     const value=fmt(row.efficiency,metric==='cost'?2:3);
-    const label=`${row.label} · ${value} score points / ${unit} · score ${pct(row.score)} · ${RESOURCE_LABELS[metric]}: ${fmt(row[metric],metric==='cost'?6:2)}${toolTotalText(row)}`;
-    return `<div class="resource-score-row" data-chart-model="${e(row.model||row.label)}" data-chart-label="${e(label)}" tabindex="0"><strong>${e(row.label)}</strong><span>${metric==='cost'?money(row[metric]):fmt(row[metric],2)}</span><div class="resource-score"><div class="workspace-bar-track"><span style="width:${100*row.efficiency/maximum}%;background:${row.color}"></span></div><b>${value}</b></div></div>`;
+    const label=`${resourcePointLabel(row,metric)} · ${value} percentage points / ${unit}`;
+    const total=row.totals?.[metric];
+    return `<div class="resource-score-row" data-chart-model="${e(row.model||row.label)}" data-chart-label="${e(label)}" tabindex="0"><strong>${e(row.label)}</strong><span class="resource-amount">${resourceValue(row[metric],metric)}${metric==='size'?'':`<small>${Number.isFinite(total)?resourceValue(total,metric):'Unavailable'}</small>`}</span><div class="resource-score"><div class="workspace-bar-track"><span style="width:${100*row.efficiency/maximum}%;background:${row.color}"></span></div><b>${value}</b></div></div>`;
   }).join('')}</div><div class="chart-legend">${[...new Map(rows.map(row=>[row.model||row.label,row])).values()].map(row=>`<span tabindex="0" data-chart-model="${e(row.model||row.label)}"><i class="dot" style="background:${row.color}"></i>${e(row.model||row.label)}</span>`).join('')}</div>${rows.length<eligible.length?`<small>${eligible.length-rows.length} entries with missing or zero resource measurements excluded; division by zero is undefined.</small>`:''}`;
 }
 function renderResourceChart(context) {
   const points=S.resourcePoints?.[context]||[],metric=S.resourceMetric||'tools';
-  return S.resourceView==='points'?resourceScatter(points,metric):resourceBars(points,metric);
+  const order=context==='workspace'?S.workspaceResourceOrder:undefined;
+  return S.resourceView==='points'?resourceScatter(points,metric,order):resourceBars(points,metric,order);
 }
 function resourcePanel(points, context) {
   const names=[...new Set(points.map(p=>p.model||p.label))].sort();
   points=points.map(p=>({...p,color:p.color||seriesColor(names.indexOf(p.model||p.label))}));
   S.resourcePoints ||= {};S.resourcePoints[context]=points;
   const metric=S.resourceMetric||'tools';
-  return `<div class="resource-chart" data-chart-key="resource:${e(context)}:${e(context==='workspace'?S.workspace:S.run)}"><div class="overview-section-head"><h3>Performance vs resources</h3><div class="chart-controls">${chartActions()}<label class="field">Display<select data-resource-view="${context}" aria-label="Resource chart display"><option value="bars" ${S.resourceView!=='points'?'selected':''}>Bars</option><option value="points" ${S.resourceView==='points'?'selected':''}>Points</option></select></label><label class="field">Compare by<select data-resource-axis="${context}">${[['size','Model size'],['cost','Preparation cost'],['time','Preparation time'],['tools','Tool calls'],['tests','Preparation fights'],['replays','Replay reads']].map(([id,name])=>`<option value="${id}" ${id===metric?'selected':''}>${name}</option>`).join('')}</select></label></div></div><div id="${context}-resource-chart">${renderResourceChart(context)}</div><p class="muted">Tool calls count every invocation, including failures; hover a model for its total. Preparation fights count both starting sides. Replay reads count read_replay and read_past_fight calls, including pagination.</p></div>`;
+  return `<div class="resource-chart" data-chart-key="resource:${e(context)}:${e(context==='workspace'?S.workspace:S.run)}"><div class="overview-section-head"><h3>Performance vs resources</h3><div class="chart-controls">${chartActions()}<label class="field">Display<select data-resource-view="${context}" aria-label="Resource chart display"><option value="bars" ${S.resourceView!=='points'?'selected':''}>Bars</option><option value="points" ${S.resourceView==='points'?'selected':''}>Points</option></select></label><label class="field">Compare by<select data-resource-axis="${context}">${[['size','Model size'],['cost','Preparation cost'],['time','Preparation time'],['tools','Tool calls'],['tests','Preparation fights'],['replays','Replay reads']].map(([id,name])=>`<option value="${id}" ${id===metric?'selected':''}>${name}</option>`).join('')}</select></label></div></div><div id="${context}-resource-chart">${renderResourceChart(context)}</div><p class="muted">Tool calls include failures. Preparation fights count both starting sides. Replay reads include pagination.</p></div>`;
 }
 function overviewModelSize(d, id) {
   const pinned=d.model_metadata?.[id]?.model_size_billion;
@@ -1165,29 +1194,34 @@ function overviewResourcePoints(d,data) {
   const scores=new Map(data.models.map(row=>[row.model,row.score]));
   const ids=[...new Set([...scores.keys(),...data.sessions.map(session=>session.model)])];
   return ids.map(id=>{
-    const sessions=data.sessions.filter(session=>session.model===id),costKnown=sessions.length && sessions.every(session=>session.status!=='needs_reconciliation'&&!Number(session.money_reserved||0));
-    const total=sessions.reduce((sum,session)=>sum+(session.steps||0),0);
+    const sessions=data.sessions.filter(session=>session.model===id);
+    const {cost}=aggregateModelUsage(sessions);
+    const complete=field=>sessions.length&&sessions.every(s=>s[field]!=null)
+      ?sessions.reduce((total,session)=>total+session[field],0):null;
+    const seconds=complete('wall_seconds');
+    const totals={
+      tools:sessions.reduce((total,session)=>total+(session.steps||0),0),
+      tests:sessions.reduce((total,session)=>total+(session.test_matches||0),0),
+      replays:complete('replay_reads'),
+      cost:cost.partial?null:cost.value,
+      time:seconds==null?null:seconds/60,
+    };
+    const averages=Object.fromEntries(Object.entries(totals).map(([metric,total])=>
+      [metric,total!=null&&sessions.length?total/sessions.length:null]));
     return {reference:d.metadata.config?.models.find(model=>model.id===id)?.provider==='mock' || (!sessions.length && !!d.metadata.manifest),
       model:id,label:participantName(id),color:overviewColor(id),score:scores.get(id)??null,size:overviewModelSize(d,id),
-      toolTotal:total,tools:sessions.length?total/sessions.length:null,
-      tests:sessions.length?sessions.reduce((sum,s)=>sum+(s.test_matches||0),0)/sessions.length:null,
-      replays:sessions.length&&sessions.every(s=>s.replay_reads!=null)?sessions.reduce((sum,s)=>sum+s.replay_reads,0)/sessions.length:null,
-      cost:costKnown?sessions.reduce((sum,session)=>sum+Number(session.cost_spent||0),0)/sessions.length:null,
-      time:sessions.length&&sessions.every(session=>session.wall_seconds!=null)?sessions.reduce((sum,session)=>sum+session.wall_seconds,0)/sessions.length/60:null};
+      totals,...averages};
   });
-}
-function toolTotalText(point) {return Number.isFinite(point.toolTotal)?` · ${fmt(point.toolTotal)} tool calls in total`:'';}
-function toolCallTotals(points) {
-  const rows=points.filter(point=>!point.reference&&Number.isFinite(point.toolTotal)).sort((a,b)=>b.toolTotal-a.toolTotal);
-  const max=Math.max(1,...rows.map(row=>row.toolTotal));
-  return rows.length?`<div class="tool-call-bars">${rows.map(row=>`<div tabindex="0" data-chart-model="${e(row.model||row.label)}" data-chart-label="${e(row.label)} · ${fmt(row.toolTotal)} tool calls"><span title="${e(row.label)}">${e(row.label)}</span><div class="workspace-bar-track"><span style="width:${100*row.toolTotal/max}%;background:${row.color||COLORS[0]}"></span></div><strong>${fmt(row.toolTotal)}</strong></div>`).join('')}</div>`:'<p class="muted">No model tool calls recorded for this selection.</p>';
 }
 
 function workspacePerformance(group) {
   if(!group)return '<p class="muted">No evaluation results yet.</p>';
   const run=group.runs.length===1?group.runs[0]:null;
-  const models=group.models.map(m=>({...m,color:comparisonChartColor(m.name,m.chart_profile,run)}));
-  return resourcePanel(models.map(m=>({model:m.name,color:m.color,reference:m.is_reference,toolTotal:m.total_tool_calls,tools:m.mean_tool_calls,tests:m.mean_test_matches,replays:m.mean_replay_reads,label:`${participantName(m.name)} · ${m.round ? "R"+m.round : "Frozen"} · ${text(m.condition)}`,score:m.score,size:m.model_size_billion,cost:m.mean_cost_usd,time:m.mean_wall_seconds==null?null:m.mean_wall_seconds/60})),"workspace")+`<section class="workspace-chart"><div class="overview-section-head"><h3>Model scores</h3>${chartActions()}</div><div class="workspace-bars">${models.map(m=>`<div class="workspace-bar"><div><strong title="${e(m.name)}">${e(participantName(m.name))}</strong><small>${m.round ? `Round ${m.round}` : 'Frozen strategy'} · ${e(text(m.condition))}</small></div><div class="workspace-bar-track"><span style="width:${Math.max(0,Math.min(100,(m.score||0)*100))}%;${m.color?`background:${m.color}`:''}"></span></div><strong>${pct(m.score)}</strong></div>`).join('')}</div></section>`+
+  const references=new Map(group.models.filter(m=>m.is_reference).map(m=>[m.name,m.chart_profile?.reference||'other']));
+  S.workspaceResourceOrder={run,references};
+  const models=[...group.models].sort((a,b)=>(b.score??-1)-(a.score??-1))
+    .map(m=>({...m,color:comparisonChartColor(m.name,m.chart_profile,run)}));
+  return resourcePanel(models.map(m=>({model:m.name,color:m.color,reference:m.is_reference,totals:{tools:m.total_tool_calls,tests:m.total_test_matches,replays:m.total_replay_reads,cost:m.total_cost_usd,time:m.total_wall_seconds==null?null:m.total_wall_seconds/60},tools:m.mean_tool_calls,tests:m.mean_test_matches,replays:m.mean_replay_reads,label:`${participantName(m.name)} · ${m.round ? "R"+m.round : "Frozen"} · ${text(m.condition)}`,score:m.score,size:m.model_size_billion,cost:m.mean_cost_usd,time:m.mean_wall_seconds==null?null:m.mean_wall_seconds/60})),"workspace")+`<section class="workspace-chart"><div class="overview-section-head"><h3>Model scores</h3>${chartActions()}</div><div class="workspace-bars">${models.map(m=>`<div class="workspace-bar"><div><strong title="${e(m.name)}">${e(participantName(m.name))}</strong><small>${m.round ? `Round ${m.round}` : 'Frozen strategy'} · ${e(text(m.condition))}</small></div><div class="workspace-bar-track"><span style="width:${Math.max(0,Math.min(100,(m.score||0)*100))}%;${m.color?`background:${m.color}`:''}"></span></div><strong>${pct(m.score)}</strong></div>`).join('')}</div></section>`+
     table(['Participant','Size (B)','Score / B','Round / track','Win / draw / loss','Failed fights','Strategies'],group.models.map(m=>`<tr><td title="${e(m.name)}">${e(participantName(m.name))}</td><td>${fmt(m.model_size_billion,3)}</td><td>${fmt(m.score_per_billion,4)}</td><td>${m.round??'Frozen'} · ${e(text(m.condition))}</td><td>${m.wins} / ${m.draws} / ${m.losses}</td><td>${m.failed}</td><td>${m.conversations}</td></tr>`))+
     `<p class="muted">Mean score per conversation: win 1, draw 0.5, loss 0. ${group.internal_matches} same-model fights excluded. ${group.runs.length} competitions in this group.</p><details class="quiet-details"><summary>Included competitions & scenario</summary><div class="actions">${group.runs.map(id=>btn(e(S.boot.runs.find(r=>r.id===id)?.name||id),'open-run',`data-run="${e(id)}"`)).join('')}</div>${raw(group.scenario,'Scenario settings')}</details>`;
 }
@@ -1256,6 +1290,15 @@ function anthropicEfforts(model) {
   if (/^claude-opus-4-5(?:-|$)/.test(name)) return ["low", "medium", "high"];
   if (/^claude-(?:3(?:[.-]|$)|(?:haiku|sonnet)-4-5(?:-|$)|(?:opus|sonnet)-4(?:-[01])?(?:-[0-9]{8}|$))/.test(name)) return [];
   return ["low", "medium", "high", "xhigh", "max"];
+}
+function reasoningEffort(provider, parameters={}) {
+  return (provider==='anthropic'?parameters.output_config?.effort:parameters.reasoning_effort)??'';
+}
+function reasoningEffortLevels(provider, model) {
+  if(provider==='anthropic')return anthropicEfforts(model);
+  if(!['openai','openai-compatible'].includes(provider))return [];
+  return model.toLowerCase()==='gpt-6.1-sol'
+    ?['low','medium','high','xhigh']:['none','minimal','low','medium','high','xhigh'];
 }
 function reasoningField(provider, parameters = {}, model = "") {
   if (provider === "anthropic") {
@@ -1811,14 +1854,46 @@ async function rebuildStatFields() {
 function updateCompetitionSelection() {
   const rows=$$('.competition-model'), search=($('#competition-participant-search')?.value||'').toLowerCase();
   const selectedOnly=$('#competition-selected-only')?.checked;
-  for(const row of rows)row.hidden=!row.dataset.search.includes(search)||(selectedOnly&&!$('input',row).checked);
+  for(const row of rows) {
+    const selected=$('[name=participant]',row).checked;
+    row.hidden=!row.dataset.search.includes(search)||(selectedOnly&&!selected);
+    const effort=$('[data-competition-effort]',row);
+    if(effort)effort.disabled=!selected;
+  }
   const count=$$('#competition-form input[name=participant]:checked').length;
   $('#competition-selection-count').textContent=`${count} of ${rows.length} participants selected`;
+}
+function competitionParticipant(model, saved) {
+  const {id,provider}=model,name=participantName(id),identifier=model.model||model.profile;
+  const profile=reasoningEffort(provider,model.parameters);
+  const overrides=S.editReasoningOverrides||{};
+  const explicit=Object.hasOwn(overrides,id);
+  const recorded=explicit?overrides[id]??'':saved?.provider===provider?reasoningEffort(provider,saved.parameters):profile;
+  const levels=reasoningEffortLevels(provider,model.model||'');
+  const options=levels.length?[
+    ['profile',`Use profile (${profile||'provider default'})`],['','Provider default'],
+    ...[...new Set([...levels,...(recorded?[recorded]:[])])].map(value=>[value,value]),
+  ]:[];
+  const selected=!explicit&&recorded===profile?'profile':recorded;
+  return `<div class="choice competition-model" data-search="${e(`${id} ${name} ${provider} ${identifier}`.toLowerCase())}">
+    <label class="competition-model-pick"><input type="checkbox" name="participant" value="${e(id)}" ${saved?'checked':''}>
+      <span><strong title="${e(id)}">${e(name)}</strong><small>${e(provider)} · ${e(identifier)}</small></span></label>
+    ${options.length?`<label class="competition-effort">Reasoning effort
+      <select data-competition-effort aria-label="Reasoning effort for ${e(name)}" ${saved?'':'disabled'}>
+        ${options.map(([value,label])=>`<option value="${e(value)}" ${value===selected?'selected':''}>${e(label)}</option>`).join('')}
+      </select></label>`:''}</div>`;
+}
+function competitionReasoningOverrides(form) {
+  return Object.fromEntries($$('.competition-model',form).flatMap(row=>{
+    const participant=$('[name=participant]',row),effort=$('[data-competition-effort]',row);
+    return participant.checked&&effort&&effort.value!=='profile'?[[participant.value,effort.value||null]]:[];
+  }));
 }
 function competitionEditor() {
   const c = S.editConfig || structuredClone(S.boot.default_config),
     b = c.budget_per_session;
-  const choices = new Map(c.models.map((m) => [m.id, m]));
+  const selectedModels=new Map(c.models.map(model=>[model.id,model]));
+  const choices = new Map(selectedModels);
   S.boot.participants.forEach(({ spec: m }) => {
     choices.set(m.id, m);
   });
@@ -1838,7 +1913,7 @@ function competitionEditor() {
       ],
       c.generations === null ? "manual" : "fixed",
     )}${field("Number of rounds", "generations", c.generations ?? 2, "number", "Includes the initial round. Later rounds run the improvement tracks selected below.", c.generations === null ? 'disabled min="1" step="1"' : 'min="1" step="1"')}</div> ${selectField("Competition type", "competition_type", [["standard","Standard improvement"],["evolutionary","Evolutionary population"]], c.evolutionary ? "evolutionary" : "standard")}
-<div id="population-settings" ${c.evolutionary ? "" : "hidden"}>${field("Replacements per model per round", "population_replace", c.evolutionary?.replace ?? 1, "number", "Keep the best strategies and replace the lowest ranked slots. At least two repetitions must survive.", 'min="1" step="1"')}<label class="check"><input type="checkbox" name="population_cross_models" ${c.evolutionary?.cross_models ? "checked" : ""}>Cross models (experimental)</label><p class="muted">The receiving model writes the child. Enabling this shares one selected parent's code and results across models, measuring cross-model recombination.</p></div>${improvementTrackFields(c)}${learningMetricFields(c.compare_previous_round)}<h3 class="section-label">Official participants</h3><p class="muted">Select any fixed references that should play in the ranked tournament.</p>${competitionGroupPicker()}<div class="competition-roster-toolbar"><input type="search" id="competition-participant-search" placeholder="Search profiles" aria-label="Search competition participants"><label class="check"><input type="checkbox" id="competition-selected-only">Selected only</label></div><div class="competition-model-list" role="group" aria-label="Competition participants">${S.choiceModels.map((m) => `<label class="choice competition-model" data-search="${e(`${m.id} ${participantName(m.id)} ${m.provider} ${m.model||m.profile}`.toLowerCase())}"><input type="checkbox" name="participant" value="${e(m.id)}" ${c.models.some((v) => v.id === m.id) ? "checked" : ""}><span><strong title="${e(m.id)}">${e(participantName(m.id))}</strong><small>${e(m.provider)} · ${e(m.model || m.profile)}</small></span></label>`).join("")}</div>${btn("Manage profiles", "go", 'data-view="participants"')}</section>
+<div id="population-settings" ${c.evolutionary ? "" : "hidden"}>${field("Replacements per model per round", "population_replace", c.evolutionary?.replace ?? 1, "number", "Keep the best strategies and replace the lowest ranked slots. At least two repetitions must survive.", 'min="1" step="1"')}<label class="check"><input type="checkbox" name="population_cross_models" ${c.evolutionary?.cross_models ? "checked" : ""}>Cross models (experimental)</label><p class="muted">The receiving model writes the child. Enabling this shares one selected parent's code and results across models, measuring cross-model recombination.</p></div>${improvementTrackFields(c)}${learningMetricFields(c.compare_previous_round)}<h3 class="section-label">Official participants</h3><p class="muted">Select any fixed references that should play in the ranked tournament.</p>${competitionGroupPicker()}<div class="competition-roster-toolbar"><input type="search" id="competition-participant-search" placeholder="Search profiles" aria-label="Search competition participants"><label class="check"><input type="checkbox" id="competition-selected-only">Selected only</label></div><div class="competition-model-list" role="group" aria-label="Competition participants">${S.choiceModels.map(model=>competitionParticipant(model,selectedModels.get(model.id))).join("")}</div>${btn("Manage profiles", "go", 'data-view="participants"')}</section>
  <section class="panel editor-section" id="editor-scenario"><div class="section-heading"><span>02</span><h2>Scenario</h2></div><div class="scenario-presets">${btn("<strong>Simple duel</strong><small>1 level-300 leek · weapons only</small>", "preset-simple", `aria-pressed="${!c.scenario.source && c.scenario.preset !== 'llm-team'}"`)}${btn("<strong>Dream team</strong><small>4 complex builds · saved roster</small>", "preset-dream", `aria-pressed="${!!c.scenario.source}"`)}${btn("<strong>AI-built team</strong><small>Each model builds its own roster</small>", "preset-llm", `aria-pressed="${c.scenario.preset === 'llm-team'}"`)}</div><p id="preset-status" role="status" class="muted">${c.scenario.source ? `Based on public team · original snapshot ${e(c.scenario.source.snapshot_sha256.slice(0, 12))}. The roster below can be edited. Published final stats include component bonuses; component selections and alteration deltas are preserved without adding bonuses twice.` : c.scenario.preset === "llm-team" ? "Each LLM freely chooses 1–4 leeks, their levels (1–300), stats, scripts, equipment and component alterations. preview_build and validate_team check official game rules. No character stats or equipment lists are imposed." : "Starting preset: one level-300 gunner per team, direct-damage weapons, no chips. Edit each character independently below."}</p>${c.scenario.source ? raw(c.scenario.source, "Public source and frozen snapshot") : ""}<details><summary>Refresh or replace the saved Dream team</summary>${btn("Refetch current top farmer", "preset-dream-refresh")}<p class="muted">Only this button reads the current farmer ranking and fetches four leeks of its first player. The saved preset is reused until an explicit refresh; existing competitions keep their frozen roster.</p><p class="muted">Use scripts/import_dream_team.py on a machine with access to leekwars.com, then paste its snapshot JSON here.</p><textarea id="dream-snapshot" class="mono" aria-label="Public team snapshot JSON" rows="4"></textarea>${btn("Import snapshot", "preset-dream-json")}</details></section><section class="panel editor-section" id="editor-rules"><div class="section-heading"><span>03</span><h2>Match rules & roster</h2></div><p class="muted">Every distinct pair plays A vs B and B vs A on the same seed. Both sides count toward standings. Use a shared roster or let each LLM build its team.</p><div class="form-grid">${selectField(
    "Team setup",
    "team_mode",
@@ -1858,7 +1933,7 @@ function readCompetition(form) {
     n = (k) => Number(f.get(k)),
     ids = f.getAll("participant"),
     base = structuredClone(S.editConfig || S.boot.default_config),
-    models = S.choiceModels.filter((m) => ids.includes(m.id));
+    models = S.choiceModels.filter(m=>ids.includes(m.id));
   const array = (k) =>
       String(f.get(k) || "")
         .split(/[\s,;]+/)
@@ -2063,10 +2138,9 @@ async function launchDialog(draftId = null, runId = null) {
     }
   }
   if (draftId) await refreshBoot();
-  let config = draftId
-    ? S.boot.drafts.find((d) => d.id === draftId).config
-    : S.detail.metadata.config;
-  const p = await api("/api/plan", { config, frozen: !!runId, run:runId }, true);
+  const draft=draftId?S.boot.drafts.find(d=>d.id===draftId):null;
+  let config = draft ? draft.config : S.detail.metadata.config;
+  const p = await api("/api/plan", { config, reasoning_overrides:draft?.reasoning_overrides, frozen: !!runId, run:runId }, true);
   config = p.config;
   S.launch = { draftId, runId, config, expectedHash: p.config_sha256 };
   openDialog(
@@ -2440,11 +2514,48 @@ function measuredUsage(session) {
     complete: !!session.token_usage_known && !session.in_flight,
   };
 }
+function aggregateModelUsage(sessions) {
+  const cost={value:null,partial:false},tokens={value:null,partial:false};
+  for(const session of sessions) {
+    const pending=session.in_flight||session.status==='needs_reconciliation'||Number(session.money_reserved||0)>0;
+    const usage=measuredUsage(session);
+    const input=usage.input_tokens||0,output=usage.output_tokens||0;
+    const attempted=pending||session.calls||usage.responses||input||output;
+    if(usage.complete||input||output||!attempted)tokens.value=(tokens.value??0)+input+output;
+    if(pending||(attempted&&!usage.complete))tokens.partial=true;
+    const recorded=session.cost_spent==null?null:Number(session.cost_spent);
+    if(Number.isFinite(recorded)||!attempted)cost.value=(cost.value??0)+(recorded||0);
+    if(pending||(attempted&&!Number.isFinite(recorded)))cost.partial=true;
+  }
+  return {cost,tokens};
+}
+function modelUsageCharts(d,scope) {
+  const builtIns=new Set(d.metadata.config?.models.filter(model=>model.provider==='mock').map(model=>model.id));
+  const groups=new Map();
+  for(const session of d.sessions) {
+    if(builtIns.has(session.model)||!overviewAccept(overviewIdentity(session.id),scope))continue;
+    if(!groups.has(session.model))groups.set(session.model,[]);
+    groups.get(session.model).push(session);
+  }
+  const usage=[...groups].map(([model,sessions])=>({model,...aggregateModelUsage(sessions)}));
+  if(!usage.length)return '';
+  return `<div class="overview-charts">${[
+    ['cost','Total estimated API cost',money],['tokens','Total tokens',value=>fmt(value)],
+  ].map(([metric,title,format])=>{
+    const rows=usage.map(row=>({...row[metric],model:row.model,label:participantName(row.model)}))
+      .sort((a,b)=>(b.value??-1)-(a.value??-1)||a.label.localeCompare(b.label));
+    const max=Math.max(0,...rows.map(row=>row.value??0))||1;
+    return `<section class="overview-card usage-chart" id="model-usage-${metric}"><div class="overview-section-head"><h2>${title}</h2>${chartActions()}</div><div class="workspace-bars">${rows.map(row=>{
+      const value=row.value==null?'Unknown':format(row.value);
+      return `<div class="workspace-bar" data-chart-model="${e(row.model)}" tabindex="0"><div><strong>${e(row.label)}</strong></div><div class="workspace-bar-track"><span style="width:${100*(row.value??0)/max}%;background:${overviewColor(row.model)}"></span></div><strong>${value}${row.partial&&row.value!=null?'<small>Partial</small>':''}</strong></div>`;
+    }).join('')}</div></section>`;
+  }).join('')}</div>`;
+}
 function faultRateBars(rows,metric='tools') {
   const numerator=metric==='tools'?'tool_errors':'failed_analyses',denominator=metric==='tools'?'tool_calls':'completed_analyses';
   const models=new Map();
   for(const row of rows) {const group=models.get(row.model)||{errors:0,attempts:0};group.errors+=row[numerator]||0;group.attempts+=row[denominator]||0;models.set(row.model,group);}
-  return [...models].sort((a,b)=>(b[1].errors/(b[1].attempts||1))-(a[1].errors/(a[1].attempts||1))).map(([model,value])=>`<div class="error-rate-row"><strong title="${e(model)}">${e(participantName(model))}</strong><div class="workspace-bar-track"><span style="width:${100*value.errors/(value.attempts||1)}%;background:${metric==='tools'?'#bd5c52':'#b8863c'}"></span></div><span>${value.errors} / ${value.attempts} · ${value.attempts?pct(value.errors/value.attempts):'N/A'}</span></div>`).join('')||'<p class="muted">No observations for this selection.</p>';
+  return orderCandidates(models,([model])=>model,(a,b)=>(b[1].errors/(b[1].attempts||1))-(a[1].errors/(a[1].attempts||1))).map(([model,value])=>`<div class="error-rate-row"><strong title="${e(model)}">${e(participantName(model))}</strong><div class="workspace-bar-track"><span style="width:${100*value.errors/(value.attempts||1)}%;background:${metric==='tools'?'#bd5c52':'#b8863c'}"></span></div><span>${value.errors} / ${value.attempts} · ${value.attempts?pct(value.errors/value.attempts):'N/A'}</span></div>`).join('')||'<p class="muted">No observations for this selection.</p>';
 }
 function overviewErrors(d,data) {
   const sessions=new Set(data.sessions.map(session=>session.id));
@@ -2736,7 +2847,7 @@ async function downloadChart(node) {
   const heading=chart.querySelector('.overview-section-head h2,.overview-section-head h3,.panel-title h2')?.textContent.trim();
   let title=chart.classList.contains('comparison-chart')?`Scores across competitions · ${heading}`:
     chart.querySelector('#overview-evolution-chart')?'Scores by round':heading||'Arena chart';
-  if(chart.querySelector('.overview-ranking,.workspace-bars'))title='Overall match score';
+  if(chart.querySelector('.overview-ranking')||chart.classList.contains('workspace-chart'))title='Overall match score';
   if(chart.classList.contains('resource-chart')) {
     const metric=S.resourceMetric||'tools';
     title=chart.querySelector('.resource-bar-list')?`Match score per ${metric==='cost'?'US dollar':RESOURCE_UNITS[metric]}`:
@@ -2777,11 +2888,13 @@ async function downloadChart(node) {
 }
 function chartExportCaption(chart) {
   const score='Match score = (wins + ½ draws) ÷ fights.';
+  if(chart.id==='model-usage-cost')return 'Estimated preparation cost in USD.';
+  if(chart.id==='model-usage-tokens')return 'Input + output tokens used during preparation.';
   if(chart.querySelector('.overview-matrix')) {
     return 'Each cell shows the row competitor’s result against the column competitor. W = wins · D = draws · L = losses.';
   }
   if(chart.querySelector('.overview-ranking,.workspace-bars,#overview-evolution-chart'))return score;
-  if(chart.querySelector('.resource-bar-list'))return 'Score points (0–100) divided by resource use per strategy.';
+  if(chart.querySelector('.resource-bar-list'))return resourceEfficiencyCaption(chart.querySelector('[data-resource-axis]')?.value);
   switch(chart.id) {
     case 'learning-progress': {
       const mode=chart.querySelector('[data-learning-mode]')?.value;
@@ -2829,7 +2942,9 @@ function overviewRanking(data) {
   if (!data.models.length)
     return '<div class="overview-empty">No scored matches in this selection.</div>';
   const resultLink=(row,outcome,value)=>`<a href="#${query({view:'run',run:S.run,tab:'matches',...scopeURL(),kind:data.scope.source,entrant_model:row.model,round:data.scope.round,outcome,scored:'1',exclude_same_model:data.scope.source==='progression'?undefined:'1'})}">${value}</a>`;
-  return `<p class="muted">${data.scope.source==='references'?'Scores combine tournament fights and fights against evaluation references.':data.scope.source==='progression'?'Against previous-round versions, including the same model.':'Against other models only.'} Click a result to inspect its fights. Counts are appearances across selected submitted versions: fixed references have fewer repetitions. Cache reuse counts as a completed scheduled fight.</p><ol class="overview-ranking${data.scope.compactRanking?' compact':''}">${data.models.map((r, i) => `<li><span class="overview-rank">${i + 1}</span><div class="overview-rank-body"><div><strong title="${e(r.model)}">${e(participantName(r.model))}</strong><span>${resultLink(r,"completed",pct(r.score))}</span></div><div class="overview-bar"><span style="width:${100 * (r.score || 0)}%;background:${overviewColor(r.model)}"></span></div><small title="Tournament fights count for both sides. Same-model fights are excluded. Fixed references have one sample; generated participants include repetitions. Cache reuse still counts every scheduled fight.">${resultLink(r,"win",r.wins+"W")} · ${resultLink(r,"draw",r.draws+"D")} · ${resultLink(r,"loss",r.losses+"L")}${r.failures ? ` · ${resultLink(r,"failure",r.failures+" failed")}` : ""} · ${fmt(r.completed)} fights · ${referenceLabel(r.model)!==r.model?"fixed reference":`${data.sessions.filter(session=>session.model===r.model&&session.submission).length} submitted strategies`}${data.selected.some(v=>v.entries.some(item=>item.model===r.model)&&v.match.result.reference_cache?.hit)?" · includes cached fights":""}</small></div></li>`).join("")}</ol>`;
+  const compact=data.scope.compactRanking;
+  const subtitle=compact?'':`<p class="muted">${data.scope.source==='references'?'Scores combine tournament fights and fights against evaluation references.':data.scope.source==='progression'?'Against previous-round versions, including the same model.':'Against other models only.'} Click a result to inspect its fights. Counts are appearances across selected submitted versions: fixed references have fewer repetitions. Cache reuse counts as a completed scheduled fight.</p>`;
+  return `${subtitle}<ol class="overview-ranking${compact?' compact':''}">${data.models.map((r,i) => `<li><span class="overview-rank">${i + 1}</span><div class="overview-rank-body"><div><strong title="${e(r.model)}">${e(participantName(r.model))}</strong><span>${resultLink(r,"completed",pct(r.score))}</span></div><div class="overview-bar"><span style="width:${100 * (r.score || 0)}%;background:${overviewColor(r.model)}"></span></div>${compact?'':`<small title="Tournament fights count for both sides. Same-model fights are excluded. Fixed references have one sample; generated participants include repetitions. Cache reuse still counts every scheduled fight.">${resultLink(r,"win",r.wins+"W")} · ${resultLink(r,"draw",r.draws+"D")} · ${resultLink(r,"loss",r.losses+"L")}${r.failures ? ` · ${resultLink(r,"failure",r.failures+" failed")}` : ""} · ${fmt(r.completed)} fights · ${referenceLabel(r.model)!==r.model?"fixed reference":`${data.sessions.filter(session=>session.model===r.model&&session.submission).length} submitted strategies`}${data.selected.some(v=>v.entries.some(item=>item.model===r.model)&&v.match.result.reference_cache?.hit)?" · includes cached fights":""}</small>`}</div></li>`).join("")}</ol>`;
 }
 // A fixed light-to-dark ladder, independent of measured scores and entrant order.
 const REFERENCE_COLORS = new Map([
@@ -2841,17 +2956,30 @@ const REFERENCE_COLORS = new Map([
   ['human-weapon','#114d2b'],
 ]);
 let overviewPalette={};
-function overviewReferenceLevels(detail) {
+function overviewReferenceLevels(detail, includeUnclassified=false) {
   const levels=new Map([...REFERENCE_COLORS].map(([level])=>['fixed-'+level,level]));
   for(const row of [...(detail?.metadata.config?.models||[]), ...(detail?.metadata.manifest?.strategies||[])]) {
     const level=row.strategy?.origin?.reference||row.origin?.reference;
-    if(level)levels.set(row.id,level);
+    if(level)levels.set(row.origin?.variant||row.id,level);
+    else if(includeUnclassified&&row.provider==='mock')levels.set(row.id,'other');
   }
   for(const row of detail?.reference_evaluation?.opponents||[]) {
     const level=row.reference||S.boot?.participants?.find(model=>model.spec.id===row.label)?.spec.strategy?.origin?.reference;
-    if(level)levels.set(row.id,level);
+    if(level||includeUnclassified)levels.set(row.id,level||'other');
   }
   return levels;
+}
+function orderCandidates(rows, modelOf, compare, {run=S.view==='run'?S.run:null,references=overviewReferenceLevels(S.view==='run'?S.detail:null,true)}={}) {
+  const saved=run?S.boot?.chart_colors?.run_candidate_orders?.[run]||[]:[];
+  const positions=new Map(saved.map((id,index)=>[id,index]));
+  const levels=new Map([...REFERENCE_COLORS.keys()].map((level,index)=>[level,index+1]));
+  const difficulty=id=>references.has(id)?levels.get(references.get(id))??levels.size+1:0;
+  return [...rows].sort((a,b)=>{
+    const left=modelOf(a),right=modelOf(b);
+    return (positions.get(left)??saved.length)-(positions.get(right)??saved.length)||
+      difficulty(left)-difficulty(right)||(compare?compare(a,b):participantName(left).localeCompare(participantName(right)))||
+      left.localeCompare(right);
+  });
 }
 function overviewColor(model) {
   const settings=S.boot?.chart_colors, providers=S.boot?.providers;
@@ -2911,7 +3039,7 @@ function evolutionTrackNote(conditions, lines=false) {
 }
 function overviewEvolutionBars(data) {
   if(!data.history.length)return '<div class="overview-empty">Evolution appears as rounds finish.</div>';
-  const models=[...new Set(data.history.map(row=>row.model))].sort();
+  const models=orderCandidates(new Set(data.history.map(row=>row.model)),id=>id);
   const rounds=[...new Set(data.history.map(row=>row.generation))].sort((a,b)=>a-b);
   const gap=24,L=data.signed?70:42,R=12,T=20,B=210,H=255;
   const available=Math.max(320,Math.min(1200,$('#overview-evolution-chart')?.clientWidth||($('#main')?.clientWidth||innerWidth)-96));
@@ -2948,7 +3076,7 @@ function overviewEvolutionBars(data) {
 function overviewEvolutionLines(data) {
   if (!data.history.length)
     return '<div class="overview-empty">Evolution appears as rounds finish.</div>';
-  const models = [...new Set(data.history.map((r) => r.model))];
+  const models = orderCandidates(new Set(data.history.map(row=>row.model)),id=>id);
   const conditions=new Set(data.history.filter(row=>row.score!=null&&(data.signed||!isReferenceModel(row.model)))
     .map(row=>row.condition));
   const generations = [...new Set(data.history.map((r) => r.generation))].sort(
@@ -3041,7 +3169,8 @@ function learningProgression(d) {
     previous_pool:'Available fights against previous-round LLM versions, including your own. Fixed reference scripts are excluded. Zero is parity.',
     score_change:'Score at round t minus score at t-1 in the category selected above, in percentage points. Opponent pools and evaluation seeds can change between rounds.'};
   const latest=new Map();for(const row of data.history) {const key=JSON.stringify([row.model,row.condition]);if(!latest.has(key)||latest.get(key).generation<row.generation)latest.set(key,row);}
-  const rows=[...latest.values()].sort((a,b)=>a.model.localeCompare(b.model)||a.condition.localeCompare(b.condition));
+  const rows=orderCandidates(latest.values(),row=>row.model,
+    (a,b)=>participantName(a.model).localeCompare(participantName(b.model))||a.condition.localeCompare(b.condition));
   const measured=data.history.filter(row=>row.score!=null),missing=data.history.length-measured.length;
   const chartData=mode==='score_change'?data:{...data,signed:true,signedUnit:'net_wins',parity:false,history:data.history.map(row=>({...row,score:row.score==null?null:2*row.score-1,tooltip:`${participantName(row.model)} · ${overviewRound(row.condition,row.generation)} · Net wins: ${progressionNet(row.score==null?null:2*row.score-1)} · ${row.wins} wins / ${row.draws} draws / ${row.losses} losses · ${row.completed} fights`}))};
   const extra=mode==='own_previous'||mode==='previous_pool';
@@ -3094,8 +3223,16 @@ function overviewMatchLink(data, who, other, outcome, value, description) {
 function overviewMatrix(data) {
   if (!data.matrix.length)
     return '<div class="overview-empty">Head-to-head results appear after opponents meet.</div>';
-  const names = [...new Set(data.matrix.map((r) => r.other))].sort();
-  const rows = [...new Set(data.matrix.map(r=>r.who))].sort();
+  const versionOrder=(a,b)=>{
+    const left=overviewIdentity(a),right=overviewIdentity(b);
+    return participantName(left.model).localeCompare(participantName(right.model))||
+      left.generation-right.generation||left.condition.localeCompare(right.condition)||left.replicate-right.replicate;
+  };
+  const axisOrder=ids=>data.scope.matrix==='versions'
+    ?orderCandidates(new Set(ids),id=>overviewIdentity(id).model,versionOrder)
+    :orderCandidates(new Set(ids),id=>id);
+  const names = axisOrder(data.matrix.map(r=>r.other));
+  const rows = axisOrder(data.matrix.map(r=>r.who));
   const short = participantName;
   const label = (name) => {
     if (data.scope.matrix === "versions" && (S.detail.sessions.some(s=>s.id===name) || S.detail.metadata.manifest?.strategies?.some(s=>s.id===name && s.origin))) {
@@ -3228,6 +3365,7 @@ function summary(d, statistics = null) {
     cost = sessions.reduce((n, s) => n + Number(s.cost_spent || 0), 0);
   return `<div class="competition-overview">${indexingNotice(S.overviewIndexing)}${overviewFilters(d, data)}${data.scope.source==='references'?notice('This view combines tournament fights and additional fights against evaluation references. The official ranking uses tournament fights.'):''}${data.scope.source==='progression'?notice('Unscored progression diagnostic: current LLM versions face the preceding round. This includes same-model historical opponents; results do not change tournament standings or model feedback.'):''}${failures.length ? `<div class="overview-alert">${failures.length} conversation${failures.length === 1 ? "" : "s"} need attention. <button class="table-button" data-action="overview-failures">Review & retry</button></div>` : ""}<div class="overview-kpis"><div><span>Completed fights</span><strong>${fmt(fightCount(data.selected.filter((v) => v.match.result.status === "completed")))}</strong><small>${fmt(fightCount(data.selected.filter((v) => v.match.result.status !== "completed")))} failed</small></div><div><span>Submitted strategies</span><strong>${sessions.length ? sessions.filter((s) => s.submission || s.status === "submitted").length : d.metadata.manifest?.strategies?.filter(s=>overviewAccept(overviewIdentity(s.id),data.scope)).length ?? data.models.length}${sessions.length ? `<small> / ${sessions.length}</small>` : ""}</strong><small>${d.metadata.config ? d.metadata.config.models.filter(model=>!d.roster?.withdrawn.includes(model.id)&&(!data.scope.model||data.scope.model===model.id)).length : data.models.length} active participants</small></div><div><span>Estimated API cost</span><strong>${sessions.length ? (costUnknown ? "Unknown" : money(cost)) : "N/A"}</strong><small>Selected versions</small></div><div><span>Tokens · selected versions</span><strong>${known.length ? fmt(tokens) : real.length ? "Unknown" : "N/A"}</strong><small>${known.length ? (known.length < real.length || known.some(u=>!u.complete) ? "Partial reported usage" : "Input + output") : real.length ? "Not reported by provider" : "No measured LLM usage"}</small></div></div>
   <div class="overview-charts"><section class="overview-card"><div class="overview-section-head"><h2>${data.scope.source==='references'?"Scores including evaluation references":"Model ranking"}</h2><div class="chart-controls"><label class="check"><input type="checkbox" data-overview-filter="compactRanking" ${data.scope.compactRanking?'checked':''}>Compact</label>${chartActions()}</div></div>${overviewRanking(data)}</section><section class="overview-card"><div class="overview-section-head"><h2>Evolution</h2>${chartActions()}</div>${overviewEvolution(data)}</section></div><section class="overview-card">${resourcePanel(overviewResourcePoints(d,data),"overview")}</section>
+  ${modelUsageCharts(d,data.scope)}
   ${lineageChart(d,data)}
   ${fightLengthCard(d,data)}
   ${repetitionVariance(d,data)}
@@ -4174,10 +4312,14 @@ function lineChart(group) {
   if (!runs.length) return "";
   const series = new Map(),
     labels = new Map(),
-    colors = new Map();
+    colors = new Map(),
+    candidates = new Map(),
+    references = overviewReferenceLevels(null);
   for (const p of group.series) {
     if (p.score == null || p.failed) continue;
     const key = `${p.model_signature}/g${p.generation}/${p.condition}`;
+    candidates.set(key,p.model);
+    if(p.participant?.reference)references.set(p.model,p.participant.reference);
     labels.set(
       key,
       `${participantName(p.model)} · ${generationLabel(p.generation)} ${text(p.condition)}${savedParticipantName(p.model)?'':' · '+p.model_id}`,
@@ -4188,6 +4330,7 @@ function lineChart(group) {
     if (!data.has(p.run)) data.set(p.run, []);
     data.get(p.run).push(p.score);
   }
+  const keys=orderCandidates(series.keys(),key=>candidates.get(key),undefined,{run:runs.length===1?runs[0][0]:null,references});
   const W = 780,
     H = 260,
     L = 48,
@@ -4239,7 +4382,7 @@ function lineChart(group) {
     .join("")}</svg>`;
   return (
     `<div class="chart-filterable" data-chart-key="history:${e(JSON.stringify(group.protocol))}">`+chart +
-    `<div class="chart-legend">${[...series.keys()].map(key => `<span tabindex="0" data-chart-model="${e(key)}" data-chart-label="${e(labels.get(key))}"><i class="dot" style="background:${colors.get(key)}"></i>${e(labels.get(key))}</span>`).join("")}</div></div>`
+    `<div class="chart-legend">${keys.map(key => `<span tabindex="0" data-chart-model="${e(key)}" data-chart-label="${e(labels.get(key))}"><i class="dot" style="background:${colors.get(key)}"></i>${e(labels.get(key))}</span>`).join("")}</div></div>`
   );
 }
 function comparisonResult(data) {
@@ -4388,6 +4531,20 @@ document.addEventListener("click", async (event) => {
     } else if (a === 'delete-workspace') {
       openDialog('Delete workspace',workspaceName(node.dataset.id),`<p>Competitions and configurations will become unassigned. Their files and results are kept.</p><form data-form="delete-workspace" data-id="${e(node.dataset.id)}"><div class="form-footer">${btn('Cancel','close-dialog')}<button type="submit" class="button primary">Delete workspace</button></div></form>`);
     } else if (a === 'chart-colors' || a === 'run-chart-colors') chartColorsDialog(a==='run-chart-colors'?S.run:null);
+    else if (['candidate-up','candidate-down','candidate-order-reset'].includes(a)) {
+      const select=$('[data-candidate-order]',node.form),selected=select.options[select.selectedIndex];
+      if(a==='candidate-order-reset') {
+        const options=[...select.options].sort((left,right)=>Number(left.dataset.defaultIndex)-Number(right.dataset.defaultIndex));
+        select.append(...options);
+        select.dataset.orderChange='reset';
+      } else {
+        const neighbor=a==='candidate-up'?selected?.previousElementSibling:selected?.nextElementSibling;
+        if(!neighbor)return;
+        if(a==='candidate-up')neighbor.before(selected);else neighbor.after(selected);
+        select.dataset.orderChange='custom';
+      }
+      if(selected)select.value=selected.value;
+    }
     else if (a === 'report-pricing') await reportPricingDialog();
     else if (a === 'providers' || a === 'new-provider') providersDialog();
     else if (a === 'edit-provider') providersDialog(node.dataset.id);
@@ -4478,6 +4635,7 @@ document.addEventListener("click", async (event) => {
     } else if (a === "new-competition" || a === "new-demo") {
       if(node.dataset.workspace)setWorkspace(node.dataset.workspace);
       S.editDraft = null;
+      S.editReasoningOverrides = {};
       S.editConfig =
         a === "new-demo" ? structuredClone(S.boot.demo_config) : freshConfig();
       navigate("editor");
@@ -4489,7 +4647,8 @@ document.addEventListener("click", async (event) => {
       a === "preset-dream-refresh" ||
       a === "preset-llm"
     ) {
-      const config = readCompetition($("#competition-form"));
+      const form=$("#competition-form"),config=readCompetition(form);
+      const reasoningOverrides=competitionReasoningOverrides(form);
       node.disabled = true;
       try {
         if (a === "preset-simple")
@@ -4510,6 +4669,7 @@ document.addEventListener("click", async (event) => {
           config.scenario = (await api("/api/dream-team", args, true)).scenario;
         }
         S.editConfig = config;
+        S.editReasoningOverrides = reasoningOverrides;
         await renderRoute();
       } catch (error) {
         $("#preset-status").textContent =
@@ -4522,6 +4682,7 @@ document.addEventListener("click", async (event) => {
       const d = S.boot.drafts.find((d) => d.id === node.dataset.id);
       S.editDraft = d.id;
       S.editConfig = structuredClone(d.config);
+      S.editReasoningOverrides = d.reasoning_overrides||{};
       navigate("editor");
     } else if(a==='expand-messages'||a==='collapse-messages') {
       for(const message of $$('.message-shell'))message.open=a==='expand-messages';
@@ -4543,16 +4704,18 @@ document.addEventListener("click", async (event) => {
     } else if (a === "clone-run") {
       S.editDraft = null;
       S.editConfig = structuredClone(S.detail.metadata.config);
+      S.editReasoningOverrides = {};
       S.editConfig.name += " (copy)";
       navigate("editor");
     } else if (a === "preview-plan") {
-      const config = readCompetition($("#competition-form")),
-        p = await api("/api/plan", { config }, true);
+      const form=$("#competition-form"),config=readCompetition(form),
+        p = await api("/api/plan", { config, reasoning_overrides:competitionReasoningOverrides(form) }, true);
       $("#plan-preview").innerHTML = planMarkup(p);
     } else if (a === "import-config") {
       const config = JSON.parse($("#import-config").value);
       await api("/api/plan", { config }, true);
       S.editConfig = config;
+      S.editReasoningOverrides = {};
       $("#main").innerHTML = competitionEditor();
       updateStatPreviews();
       toast("Configuration imported. Review before saving.");
@@ -4877,7 +5040,10 @@ document.addEventListener("submit", async (event) => {
       }
       const run=form.dataset.run;
       const models=Object.fromEntries(changes.models);
-      S.boot.chart_colors=await api('/api/chart-colors',run?{run,models,display_name:f.get('display_name')}:{models,providers:Object.fromEntries(changes.providers)},true);
+      const order=$('[data-candidate-order]',form);
+      const candidate_order=order?.dataset.orderChange==='custom'?[...order.options].map(option=>option.value):
+        order?.dataset.orderChange==='reset'?[]:undefined;
+      S.boot.chart_colors=await api('/api/chart-colors',run?{run,models,display_name:f.get('display_name'),candidate_order}:{models,providers:Object.fromEntries(changes.providers)},true);
       $('#dialog').close();
       await renderRoute();
       toast(run?'Chart settings saved.':'Chart colors saved.');
@@ -4994,7 +5160,8 @@ document.addEventListener("submit", async (event) => {
       toast("Participant saved.");
     } else if (type === "competition") {
       const config = readCompetition(form);
-      await api("/api/competition", { config, id: S.editDraft, workspace_id:f.get("workspace_id")||null }, true);
+      await api("/api/competition", { config, id: S.editDraft, workspace_id:f.get("workspace_id")||null,
+        reasoning_overrides:competitionReasoningOverrides(form) }, true);
       if(S.workspace)setWorkspace(f.get('workspace_id')||'unassigned');
       await refreshBoot();
       navigate("competitions");

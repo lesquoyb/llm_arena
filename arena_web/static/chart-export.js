@@ -41,8 +41,9 @@ function compactExportBars(chart) {
     row.style.gridTemplateColumns = `${rank.labels}px minmax(0,1fr) 6ch`;
   }
   const workspace = columns('.workspace-bar',':scope > div:first-child > strong, :scope > div:first-child > small',52,196);
+  const valueColumn = chart.classList.contains('usage-chart') ? '12ch' : '6ch';
   for (const row of workspace.rows) {
-    Object.assign(row.style,{gridTemplateColumns:`${workspace.labels}px minmax(0,1fr) 6ch`,gap:'8px'});
+    Object.assign(row.style,{gridTemplateColumns:`${workspace.labels}px minmax(0,1fr) ${valueColumn}`,gap:'8px'});
   }
   const resources = columns('.resource-score-row',':scope > strong',52,196);
   if (resources.rows.length) {

@@ -53,10 +53,10 @@ function fightLengthCard(d,data) {
     body=`<div class="length-rows">${rounds.map(round=>{const total=sum(series.filter(row=>stageRound(row.stage)===round&&row.model===(focus||'*')));
       return lengthRow(`Round ${round+1}`,total,value,classes,`round-${round}`);}).join('')}</div>`;
   } else if(view==='models') {
-    const models=[...new Set(series.map(row=>row.model).filter(model=>model!=='*'))]
-      .map(model=>({model,total:sum(series.filter(row=>row.model===model))})).filter(row=>row.total.fights)
-      .sort((a,b)=>shareOf(b.total,'capped')-shareOf(a.total,'capped')||a.model.localeCompare(b.model));
-    body=models.length?`<p class="muted">Each fight counts once for each model on its sides. Sorted by the share of fights reaching the turn limit.</p><div class="length-rows">${models.map(row=>lengthRow(participantName(row.model),row.total,value,classes,row.model,overviewColor(row.model))).join('')}</div>`:'<div class="overview-empty">No completed fights in this selection.</div>';
+    const totals=[...new Set(series.map(row=>row.model).filter(model=>model!=='*'))]
+      .map(model=>({model,total:sum(series.filter(row=>row.model===model))})).filter(row=>row.total.fights);
+    const models=orderCandidates(totals,row=>row.model,(a,b)=>shareOf(b.total,'capped')-shareOf(a.total,'capped'));
+    body=models.length?`<p class="muted">Each fight counts once for each model on its sides.</p><div class="length-rows">${models.map(row=>lengthRow(participantName(row.model),row.total,value,classes,row.model,overviewColor(row.model))).join('')}</div>`:'<div class="overview-empty">No completed fights in this selection.</div>';
   } else body=lengthHistogram(overall,value,classes);
   const legend=`<div class="overview-legend">${LENGTH_CLASSES.filter(([key])=>classes.includes(key)).map(([key,label,color])=>`<span><i style="background:${color}"></i>${label}</span>`).join('')}</div>`;
   return `<section class="overview-card" id="fight-lengths">${head}<p class="muted">Turns per completed fight in the selected category${focus?` for ${e(participantName(focus))}`:''}. Draws at the turn limit often mean neither strategy ever attacked; they dominate engine time.</p>${filters}${kpis}${body}${legend}</section>`;
@@ -129,6 +129,6 @@ function lineageChart(d,data) {
     for(const parent of parents)edges+=`<path d="M${x(parent.generation)+jitter(parent)},${y(parent.score)} L${x(node.generation)+jitter(node)},${y(node.score)}" fill="none" stroke="${color}" stroke-width="1.6" stroke-opacity=".75" ${node.condition==='control'?'stroke-dasharray="4 4"':''} data-chart-model="${e(node.model)}" data-chart-label="${e(label)}"/>`;
     dots+=`<circle cx="${x(node.generation)+jitter(node)}" cy="${y(node.score)}" r="4.5" fill="${node.condition==='control'?'#fff':color}" stroke="${color}" stroke-width="1.8" tabindex="0" data-chart-model="${e(node.model)}" data-chart-label="${e(label)}"/>`;
   }
-  const models=[...new Set(nodes.map(node=>node.model))].sort();
+  const models=orderCandidates(new Set(nodes.map(node=>node.model)),id=>id);
   return `<section class="overview-card" id="strategy-lineages">${head}<p class="muted">Each point shows one submitted strategy’s tournament score (wins + ½ draws, divided by completed fights), including fights against other repetitions of the same model. Lines join a version to its parent strategies. Solid lines and filled points: with feedback; dashed lines and hollow points: without feedback. Hover a model to follow its descendants.</p><div class="chart-filterable" data-chart-key="lineage:${e(S.run)}"><div class="evolution-scroll"><svg class="lineage-chart" style="min-width:${W}px" viewBox="0 0 ${W} ${H}" role="img" aria-label="Strategy lineages across rounds">${[0,.25,.5,.75,1].map(v=>`<line x1="${L}" x2="${W-R}" y1="${y(v)}" y2="${y(v)}" stroke="#e0e7e4"/><text x="${L-7}" y="${y(v)+4}" text-anchor="end">${pct(v)}</text>`).join('')}${rounds.map(round=>`<text x="${x(round)}" y="${B+24}" text-anchor="middle">Round ${round+1}</text>`).join('')}${edges}${dots}</svg></div><div class="overview-legend">${models.map(model=>`<span tabindex="0" data-chart-model="${e(model)}"><i style="background:${overviewColor(model)}"></i>${e(participantName(model))}</span>`).join('')}</div></div></section>`;
 }

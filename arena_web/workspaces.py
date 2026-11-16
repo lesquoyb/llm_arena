@@ -277,10 +277,11 @@ class Workspaces:
                 row['score']=sum(averages)/len(averages) if averages else None
                 row['conversations']=len(averages)
                 row['score_per_billion']=row['score']/row['model_size_billion'] if row['score'] is not None and row['model_size_billion'] else None
-                for field,index in (('mean_cost_usd',2),('mean_wall_seconds',3),('mean_tool_calls',4),('mean_test_matches',5),('mean_replay_reads',6)):
+                for metric,index in (('cost_usd',2),('wall_seconds',3),('tool_calls',4),('test_matches',5),('replay_reads',6)):
                     values=[value[index] for value in conversations]
-                    row[field]=sum(values)/len(values) if values and all(value is not None for value in values) else None
-                row['total_tool_calls']=sum(value[4] for value in conversations) if all(value[4] is not None for value in conversations) else None
+                    total=sum(values) if values and all(value is not None for value in values) else None
+                    row[f'total_{metric}']=total
+                    row[f'mean_{metric}']=total/len(values) if total is not None else None
             group['models']=sorted(group['models'].values(),key=lambda row:-(row['score'] if row['score'] is not None else -1))
         for row in [totals,*resources.values()]:
             for key in ('known_cost_usd','reserved_usd'):row[key]=str(row[key])

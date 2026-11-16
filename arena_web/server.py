@@ -236,7 +236,7 @@ class Application:
             return self.store.save_participant_name(data['id'], data['display_name'])
         if route == "/api/chart-colors":
             return self.store.save_chart_colors(run=data.get('run'), providers=data.get('providers'), models=data.get('models'),
-                                                display_name=data.get('display_name'))
+                                                display_name=data.get('display_name'), candidate_order=data.get('candidate_order'))
         if route == "/api/participant/delete":
             return self.store.delete_participant(data["id"])
         if route == '/api/participant-group':
@@ -247,7 +247,7 @@ class Application:
             return self.store.set_participant_groups(data['participant'],data.get('groups',[]))
         if route == "/api/competition":
             options={'workspace_id':data['workspace_id']} if 'workspace_id' in data else {}
-            return self.store.save_draft(data["config"], data.get("id"),**options)
+            return self.store.save_draft(data["config"], data.get("id"), reasoning_overrides=data.get('reasoning_overrides'), **options)
         if route == '/api/workspace':
             return self.store.save_workspace(data['name'],data.get('id'),data.get('description',''))
         if route == '/api/workspace/delete':
@@ -270,7 +270,7 @@ class Application:
                          '_parallel_requests':roster.get('parallel_requests',config.get('parallel_requests',1)),
                          '_fixed_reference_repetitions':read_json(root/'experiment.json').get('fixed_reference_repetitions',config['replicates'])}
                 return {**plan(planned),'active_models':[model['id'] for model in selected['models']], 'config':config,'config_sha256':digest(config)}
-            config = data['config'] if data.get('frozen') else self.store.resolve_models(data['config'])
+            config = data['config'] if data.get('frozen') else self.store.resolve_models(data['config'], data.get('reasoning_overrides'))
             return {**plan(validate_config(config)), 'config':config, 'config_sha256':digest(config)}
         if route == '/api/run/participants':
             return self.jobs.participants(data['run'], data.get('participants'), data.get('frozen_tracks'), data.get('compare_previous_round'), data.get('parallel_fights'), data.get('request_order'), data.get('parallel_requests'), data.get('rule_change'), data.get('max_retries'))

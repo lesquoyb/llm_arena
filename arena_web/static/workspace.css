@@ -275,6 +275,7 @@ dialog:has(form[data-form=participant]) .dialog-error:not([hidden]) { margin: 16
 .workspace-bar { display: grid; grid-template-columns: minmax(130px,1fr) minmax(60px,2fr) 60px; gap: 16px; align-items: center; }
 .workspace-bar > div:first-child { overflow-wrap: anywhere; }
 .workspace-bar > strong { text-align: right; font-variant-numeric: tabular-nums; }
+.usage-chart .workspace-bar { grid-template-columns:minmax(80px,1fr) minmax(45px,2fr) 12ch; gap:8px; }
 .workspace-bar-track { height: 10px; background: var(--blue-soft); border-radius: 6px; overflow: hidden; }
 .workspace-bar-track span { display: block; height: 100%; background: var(--blue); border-radius: inherit; }
 body[data-view=workspaces] .panel-title { flex-wrap: wrap; gap: 12px; }
@@ -305,7 +306,11 @@ body[data-view=workspaces] .panel-title select { min-width: 0; width: 100%; max-
 .competition-roster-toolbar { display:flex; align-items:center; flex-wrap:wrap; gap:12px; margin:14px 0 10px; }
 .competition-roster-toolbar input[type=search] { flex:1 1 180px; min-width:0; }
 .competition-model-list { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(210px,100%),1fr)); gap:8px; max-height:300px; overflow-y:auto; overscroll-behavior:contain; padding:2px 6px 2px 2px; margin-bottom:14px; scrollbar-gutter:stable; }
-.competition-model-list .choice { margin:0; padding:10px; min-width:0; align-items:start; }
+.competition-model-list .choice { display:grid; gap:8px; margin:0; padding:10px; min-width:0; align-content:start; }
+.competition-model-pick { display:flex; align-items:start; gap:8px; min-width:0; cursor:pointer; }
+.competition-effort { display:grid; gap:3px; min-width:0; font-size:11px; color:var(--muted); }
+.competition-effort select { width:100%; min-width:0; }
+.competition-model:not(:has([name=participant]:checked)) .competition-effort { display:none; }
 .competition-model-list .choice span { min-width:0; }
 .competition-model-list .choice strong,.competition-model-list .choice small { overflow-wrap:anywhere; white-space:normal; }
 .competition-model-list .choice:has(input:checked) { background:var(--blue-soft); border-color:#8bb9a9; }

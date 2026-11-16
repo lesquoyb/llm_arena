@@ -1778,7 +1778,7 @@ dialog::backdrop {
   color: var(--muted);
 }
 .overview-ranking.compact {
-  gap: 10px;
+  gap: 6px;
 }
 .overview-ranking.compact li {
   gap: 8px;
@@ -1786,7 +1786,7 @@ dialog::backdrop {
 .overview-ranking.compact .overview-rank-body {
   display: grid;
   grid-template-columns: minmax(0, 1.4fr) minmax(28px, 1fr) 6ch;
-  gap: 3px 8px;
+  column-gap: 8px;
   align-items: center;
   font-size: 13px;
 }
@@ -1804,9 +1804,6 @@ dialog::backdrop {
 .overview-ranking.compact .overview-rank-body > div:first-child > span {
   grid-area: 1 / 3;
   text-align: right;
-}
-.overview-ranking.compact .overview-rank-body small {
-  grid-column: 1 / -1;
 }
 .overview-evolution {
   width: 100%;
@@ -2204,6 +2201,7 @@ svg rect[data-chart-model]:focus-visible,svg rect.chart-selected { outline:none;
 .resource-score-row { padding:10px 0; border-bottom:1px solid #edf0f3; font-size:12px; }
 .resource-score-row strong { overflow-wrap:anywhere; font-weight:550; }
 .resource-score-row > span { font-variant-numeric:tabular-nums; }
+.resource-amount small { display:block; color:var(--muted); }
 .resource-score { display:flex; gap:8px; align-items:center; }
 .resource-score .workspace-bar-track { flex:1; min-width:35px; }
 .resource-score b { min-width:42px; text-align:right; font-size:12px; font-variant-numeric:tabular-nums; }

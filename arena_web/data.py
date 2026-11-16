@@ -141,11 +141,18 @@ class Store(Workspaces):
             self._write_participant_name(identifier, name)
         return {'saved': identifier}
 
-    def save_chart_colors(self, *, run=None, providers=None, models=None, display_name=None):
+    def save_chart_colors(self, *, run=None, providers=None, models=None, display_name=None, candidate_order=None):
         if display_name is not None:
             if run is None:
                 raise ArenaError('Choose a competition for the chart display name')
             display_name = self.validate_display_name(display_name)
+        if candidate_order is not None:
+            if run is None:
+                raise ArenaError('Choose a competition for the candidate order')
+            if (not isinstance(candidate_order, list) or any(
+                not isinstance(key, str) or not key or len(key) > 512 for key in candidate_order
+            ) or len(candidate_order) != len(set(candidate_order))):
+                raise ArenaError('Candidate order must contain distinct candidate IDs')
         if run is not None:
             if not isinstance(run, str):
                 raise ArenaError('Invalid competition ID')
@@ -185,6 +192,12 @@ class Store(Workspaces):
                         names[run] = display_name
                     else:
                         names.pop(run, None)
+                if candidate_order is not None:
+                    orders = colors.setdefault('run_candidate_orders', {})
+                    if candidate_order:
+                        orders[run] = candidate_order
+                    else:
+                        orders.pop(run, None)
             write_json(self.state/'chart-colors.json', colors)
         return colors
 
@@ -393,25 +406,44 @@ class Store(Workspaces):
             write_json(self.state / "participants.json", [m for m in self.catalog() if m["id"] != identifier])
         return {"deleted": identifier}
 
-    def resolve_models(self, config):
+    def resolve_models(self, config, reasoning_overrides=None):
         result = copy.deepcopy(config)
         catalog = {model['id']: model for model in self.catalog()}
         from arena.reference_strategies import for_scenario
         result['models'] = [for_scenario(catalog.get(model['id'], model),result['scenario']) for model in result['models']]
+        if reasoning_overrides is not None:
+            from arena.reasoning import apply_overrides, validate_effort
+            models = {model['id']: model for model in result['models']}
+            if not isinstance(reasoning_overrides, dict) or reasoning_overrides.keys() - models.keys():
+                raise ArenaError('Reasoning overrides must refer to selected participants')
+            for identifier, effort in reasoning_overrides.items():
+                model = models[identifier]
+                if model['provider'] not in {'openai', 'openai-compatible', 'anthropic'}:
+                    raise ArenaError(f'{identifier} does not support a reasoning effort override')
+                validate_effort(model, effort)
+                models[identifier] = apply_overrides(model, {'provider_parameter_overrides': {'reasoning_effort': effort}})
+            result['models'] = [models[model['id']] for model in result['models']]
         return result
 
     def drafts(self):
         rows = [self.json(p) for p in sorted((self.state / "competitions").glob("*.json"))]
         memberships=self.workspace_index()['drafts']
-        return [{**row, 'workspace_id':memberships.get(row['id']), 'config': self.resolve_models(row['config'])} for row in rows]
+        return [{**row, 'workspace_id':memberships.get(row['id']),
+                 'config':self.resolve_models(row['config'], row.get('reasoning_overrides'))} for row in rows]
 
-    def save_draft(self, config, identifier=None, **options):
-        config = self.resolve_models(config)
-        validate_config(config)
+    def save_draft(self, config, identifier=None, *, reasoning_overrides=None, **options):
         identifier = identifier or uuid4().hex[:12]
         path = safe_path(self.state / "competitions", identifier + ".json")
-        value = {"id": identifier, "updated_at": time.time(), "config": config}
         with self.lock:
+            if reasoning_overrides is None:
+                reasoning_overrides = (self.json(path, {}) or {}).get('reasoning_overrides', {})
+                selected = {model['id'] for model in config['models']}
+                reasoning_overrides = {key: effort for key, effort in reasoning_overrides.items() if key in selected}
+            config = self.resolve_models(config, reasoning_overrides)
+            validate_config(config)
+            value = {"id": identifier, "updated_at": time.time(), "config": config}
+            if reasoning_overrides:
+                value['reasoning_overrides'] = reasoning_overrides
             if options.get('workspace_id') is not None: self.workspace(options['workspace_id'])
             write_json(path, value)
             if 'workspace_id' in options:
@@ -430,7 +462,8 @@ class Store(Workspaces):
         result = self.json(safe_path(self.state / "competitions", identifier + ".json"))
         if result is None:
             raise ArenaError("Configuration not found")
-        return {**result, "workspace_id":self.workspace_index()['drafts'].get(identifier), "config": self.resolve_models(result["config"])}
+        return {**result, "workspace_id":self.workspace_index()['drafts'].get(identifier),
+                "config":self.resolve_models(result["config"], result.get('reasoning_overrides'))}
 
     def run_path(self, identifier):
         root = safe_path(self.runs, identifier)

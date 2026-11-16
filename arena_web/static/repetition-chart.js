@@ -42,7 +42,8 @@ function repetitionVariance(d,data) {
     observations=S.repetitionFixtures.observations;
   }
   const byRound=RepetitionStats.summarize(sessions,observations,metric);
-  const rows=S.repetitionRounds==='model'?RepetitionStats.poolModels(byRound):S.repetitionRounds==='pooled'?RepetitionStats.poolRounds(byRound):byRound;
+  const grouped=S.repetitionRounds==='model'?RepetitionStats.poolModels(byRound):S.repetitionRounds==='pooled'?RepetitionStats.poolRounds(byRound):byRound;
+  const rows=orderCandidates(grouped,row=>row.model);
   for(const row of rows)row.expected=Math.max(row.points.length,runScope().replicate?1:Number(d.metadata.config?.replicates||0));
   const names={score:'Combat score',cost:'Preparation cost',tools:'Tool calls',time:'Preparation time (min)',tokens:'Preparation tokens'};
   const format=value=>value===null||!Number.isFinite(value)?'—':metric==='score'?pct(value):metric==='cost'?money(value):fmt(value,1);
