@@ -634,10 +634,11 @@ Set **Display name** when creating or editing a participant to use a shorter
 label in charts, rankings, and matrices, including existing competitions.
 The participant ID remains available on the profile and in the run data.
 
-Open **Participants → Chart colors** to set provider defaults and model
-overrides. Use **More → Chart colors** in a competition to override a model
-there only. Clear **Custom** to restore the inherited color. Built-in
-references use their fixed difficulty palette.
+Open **Participants → Chart colors** to set provider defaults and overrides
+for individual models and references. Use **More → Chart colors** in a
+competition to apply an override there only. Clear **Custom** to restore
+the inherited color. References use the difficulty palette by default and
+can also have individual display names.
 
 In Participants, open **Providers & bulk add**. Save a named protocol, endpoint and
 API key environment variable. A key entered here stays in server memory until

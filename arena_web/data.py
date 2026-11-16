@@ -116,6 +116,31 @@ class Store(Workspaces):
     def participant_names(self):
         return self.json(self.state/'participant-names.json', {})
 
+    @staticmethod
+    def validate_participant_name(display_name):
+        if not isinstance(display_name, str):
+            raise ArenaError('Display name must be text')
+        name = display_name.strip()
+        if len(name) > 80 or any(ord(char) < 32 for char in name):
+            raise ArenaError('Display name must be a single line of up to 80 characters')
+        return name
+
+    def _write_participant_name(self, identifier, name):
+        names = self.participant_names()
+        if name:
+            names[identifier] = name
+        else:
+            names.pop(identifier, None)
+        write_json(self.state/'participant-names.json', names)
+
+    def save_participant_name(self, identifier, display_name):
+        name = self.validate_participant_name(display_name)
+        with self.lock:
+            if not any(model['id'] == identifier for model in self.catalog()):
+                raise ArenaError('Unknown participant')
+            self._write_participant_name(identifier, name)
+        return {'saved': identifier}
+
     def save_chart_colors(self, *, run=None, providers=None, models=None):
         if run is not None:
             if not isinstance(run, str):
@@ -270,11 +295,7 @@ class Store(Workspaces):
 
     def save_participant(self, model, secret=None, *, display_name=None):
         if display_name is not None:
-            if not isinstance(display_name, str):
-                raise ArenaError('Display name must be text')
-            display_name = display_name.strip()
-            if len(display_name) > 80 or any(ord(char) < 32 for char in display_name):
-                raise ArenaError('Display name must be a single line of up to 80 characters')
+            display_name = self.validate_participant_name(display_name)
         self.validate_model(model)
         from arena.reasoning import validate_effort
         validate_effort(model, model.get('parameters', {}).get('reasoning_effort'))
@@ -290,12 +311,7 @@ class Store(Workspaces):
             models = [m for m in models if m["id"] != model["id"]] + [model]
             write_json(self.state / "participants.json", models)
             if display_name is not None:
-                names = self.participant_names()
-                if display_name:
-                    names[model["id"]] = display_name
-                else:
-                    names.pop(model["id"], None)
-                write_json(self.state / "participant-names.json", names)
+                self._write_participant_name(model['id'], display_name)
             if secret:
                 self.secrets[model["api_key_env"]] = secret
         return {"saved": model["id"]}

@@ -67,6 +67,18 @@ class WebContractTests(unittest.TestCase):
         self.addCleanup(self.tmp.__exit__, None, None, None)
         self.store = Store(self.root / "runs", self.root / "ui")
 
+    def test_rename_reference_keeps_its_frozen_submission(self):
+        app = Application(self.store)
+        app.post('/api/participant/reference', {'id':'rush-test', 'reference':'rush'})
+        original = self.store.catalog()
+        app.post('/api/participant/name', {'id':'rush-test', 'display_name':'Rush standard'})
+        self.assertEqual(self.store.participant_names(), {'rush-test':'Rush standard'})
+        self.assertEqual(self.store.catalog(), original)
+        with self.assertRaises(ArenaError):
+            app.post('/api/participant/name', {'id':'unknown', 'display_name':'Unknown'})
+        app.post('/api/participant/name', {'id':'rush-test', 'display_name':''})
+        self.assertFalse(self.store.participant_names())
+
     def test_participant_display_name_is_separate_from_model_identity(self):
         app = Application(self.store)
         profile = self.store.catalog()[0]

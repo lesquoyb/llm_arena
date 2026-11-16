@@ -855,22 +855,29 @@ function colorProviderOptions(model) {
 function savedChartColor(colors, key) {
   return key && Object.hasOwn(colors||{},key) ? colors[key] : undefined;
 }
+function providerChartColor(model, settings) {
+  return colorProviderOptions(model).map(([key])=>savedChartColor(settings?.providers,key)).find(Boolean);
+}
 function configuredChartColor(id, model, run=null) {
   const settings=S.boot?.chart_colors;
   const overrides=savedChartColor(settings?.runs,run);
-  return savedChartColor(overrides,id)||savedChartColor(settings?.models,id)||
-    colorProviderOptions(model).map(([key])=>savedChartColor(settings?.providers,key)).find(Boolean);
+  const profile=referenceLabel(id);
+  return savedChartColor(overrides,id)||savedChartColor(overrides,profile)||
+    savedChartColor(settings?.models,profile)||providerChartColor(model,settings);
 }
 function comparisonChartColor(id, model, run) {
   const spec=model?.provider ? model : (S.boot?.participants||[]).find(row=>row.spec.id===id)?.spec;
   const reference=model?.reference||spec?.strategy?.origin?.reference;
-  return reference ? REFERENCE_COLORS.get(reference) : configuredChartColor(id,spec,run);
+  return configuredChartColor(id,spec,run)||(reference?REFERENCE_COLORS.get(reference):undefined);
 }
 function chartColorsDialog(run=null) {
   const settings=S.boot.chart_colors||{};
   const current=S.view==='run'?S.detail?.metadata.config?.models||[]:[];
-  const models=new Map((run?current:[...current,...S.boot.participants.map(row=>row.spec)])
-    .filter(model=>model.provider!=='mock').map(model=>[model.id,model]));
+  const refs=overviewReferenceLevels(S.view==='run'?S.detail:null);
+  const evaluation=run?(S.detail.reference_evaluation?.opponents||[]).map(row=>({id:row.id,provider:'mock'})):[];
+  const models=new Map((run?[...current,...evaluation]:[...current,...S.boot.participants.map(row=>row.spec)])
+    .filter(model=>model.provider!=='mock'||model.strategy?.origin?.reference||refs.has(model.id))
+    .map(model=>[model.id,model]));
   const sorted=[...models.values()].sort((a,b)=>a.id.localeCompare(b.id));
   const providerOptions=new Map((S.boot.providers||[]).map(({spec})=>[`connection:${spec.id}`,spec.id]));
   for(const model of sorted)for(const [key,label] of colorProviderOptions(model))providerOptions.set(key,label);
@@ -882,13 +889,19 @@ function chartColorsDialog(run=null) {
     .map(([id,label],i)=>row('providers',id,label,id.startsWith('connection:')?'Saved connection':id.startsWith('endpoint:')?'API host':'Provider default',
       savedChartColor(settings.providers,id),seriesColor(i%SERIES_COLORS.length)));
   const overrides=run?savedChartColor(settings.runs,run):settings.models;
-  const modelRows=sorted.map((model,i)=>row('models',model.id,model.id,
-    colorProviderOptions(model)[0]?.[1],savedChartColor(overrides,model.id),
-    configuredChartColor(model.id,model)||seriesColor(i%SERIES_COLORS.length)));
-  openDialog(run?'Competition chart colors':'Chart colors',run?S.detail.metadata.config.name:'Default colors for your models',
-    `<form data-form="chart-colors" data-run="${e(run||'')}"><p>${run?'Overrides here apply only to this competition. Clear Custom to inherit the global model or provider color.':'Models inherit their provider color unless they have a model override. Clear Custom to restore inheritance.'}</p>
+  const modelRows=sorted.map((model,i)=>{
+    const id=model.id,profile=referenceLabel(id),level=refs.get(id)||model.strategy?.origin?.reference;
+    const inherited=run
+      ? (profile!==id && savedChartColor(overrides,profile))||configuredChartColor(id,model)
+      : providerChartColor(model,settings);
+    const detail=level?(profile===id?'Fixed reference':'Evaluation reference'):colorProviderOptions(model)[0]?.[1];
+    return row('models',id,participantName(id),[detail,participantName(id)!==profile||profile!==id?profile:''].filter(Boolean).join(' · '),
+      savedChartColor(overrides,id),inherited||REFERENCE_COLORS.get(level)||seriesColor(i%SERIES_COLORS.length));
+  });
+  openDialog(run?'Competition chart colors':'Chart colors',run?S.detail.metadata.config.name:'Default colors for your participants',
+    `<form data-form="chart-colors" data-run="${e(run||'')}"><p>${run?'Overrides here apply only to this competition. Clear Custom to use the inherited color.':'Models inherit their provider color. References use the difficulty palette by default. Clear Custom to restore inheritance.'}</p>
     ${run?'':`<section class="form-section"><h3>Providers</h3>${providerRows.join('')||'<p class="muted">No providers configured.</p>'}</section>`}
-    <details class="form-section" ${run?'open':''}><summary>Model overrides</summary>${modelRows.join('')||'<p class="muted">No model profiles.</p>'}</details>
+    <details class="form-section" ${run?'open':''}><summary>Model and reference overrides</summary>${modelRows.join('')||'<p class="muted">No participant profiles.</p>'}</details>
     <div class="form-footer">${run?btn('Global colors','chart-colors'):''}${btn('Cancel','close-dialog')}<button type="submit" class="button primary">Save colors</button></div></form>`);
 }
 function participantGroups(id) {
@@ -1231,7 +1244,10 @@ function participantDialog(identifier = null, provider = null, connection = null
     : connection || {};
   if (m.profile === 'saved-strategy') {
     const origin=m.strategy.origin;
-    openDialog(m.id,'Saved strategy',`<p>${origin.reference && !origin.run ? "Fixed reference code. Adapts to the selected scenario and roster when added; unchanged during the competition. No model calls." : "Frozen code and team. No model calls; unchanged in every round. Use its original scenario."}</p><p>Source: ${e(origin.reference || origin.run)}${origin.session ? ' · '+e(origin.session) : ''}</p><p>${Object.keys(m.strategy.files).length} files</p>${origin.run ? `<a class="button" href="#${query({view:'run',run:origin.run,tab:'code',session:origin.session})}" data-action="saved-source" data-run="${e(origin.run)}" data-session="${e(origin.session)}">Inspect source</a>` : `<pre>${e(m.strategy.files['main.leek'])}</pre>`}`);
+    openDialog(participantName(m.id),`Saved strategy · ${m.id}`,`<form data-form="participant-name" data-id="${e(m.id)}">
+      ${field("Display name","display_name",savedParticipantName(m.id),"text","Optional label for charts. Leave blank to use the participant ID.",'maxlength="80"')}
+      <div class="form-footer"><button type="submit" class="button primary">Save name</button></div></form>
+      <p>${origin.reference && !origin.run ? "Fixed reference code. Adapts to the selected scenario and roster when added; unchanged during the competition. No model calls." : "Frozen code and team. No model calls; unchanged in every round. Use its original scenario."}</p><p>Source: ${e(origin.reference || origin.run)}${origin.session ? ' · '+e(origin.session) : ''}</p><p>${Object.keys(m.strategy.files).length} files</p>${origin.run ? `<a class="button" href="#${query({view:'run',run:origin.run,tab:'code',session:origin.session})}" data-action="saved-source" data-run="${e(origin.run)}" data-session="${e(origin.session)}">Inspect source</a>` : `<pre>${e(m.strategy.files['main.leek'])}</pre>`}`);
     return;
   }
   S.editParticipant = identifier;
@@ -1984,8 +2000,8 @@ function referenceEvaluationDialog() {
   const rounds = [...new Set(detail.sessions.filter(session=>!session.withdrawn&&session.submission&&session.validity!=='invalid')
     .map(session=>session.generation||0))].sort((a,b)=>a-b);
   const checks = (name, rows, checked) => rows.map(([value,label])=>`<label class="check"><input type="checkbox" name="${name}" value="${e(value)}" ${checked.includes(value)?'checked':''}>${e(label)}</label>`).join('');
-  const official = checks('excluded',(policy.official||[]).map(id=>[id,id]),policy.excluded||[]);
-  const opponents = checks('reference',profiles.map(model=>[model.id,model.id]),policy.selected||[]);
+  const official = checks('excluded',(policy.official||[]).map(id=>[id,participantName(id)]),policy.excluded||[]);
+  const opponents = checks('reference',profiles.map(model=>[model.id,participantName(model.id)]),policy.selected||[]);
   const chosenRounds = checks('round',rounds.map(round=>[round,`Round ${round+1}`]),policy.rounds||rounds);
   if (activeJobs().some(job=>job.run===S.run)) {
     openDialog('Reference strategies',detail.metadata.config.name,'<p>Stop the competition or wait for it to finish before changing reference settings.</p>'+btn('Close','close-dialog'));
@@ -2100,7 +2116,7 @@ function runFilters(d) {
     (S.tab==='matches' && ['references','evaluation','all'].includes(S.matchFilters?.kind));
   const models=runModels(d).map(model=>[model.id,savedParticipantName(model.id)||model.id]);
   for(const reference of d.reference_evaluation?.opponents||[]) {
-    if(showReferences||scope.model===reference.id) models.push([reference.id,`${reference.label} · evaluation`]);
+    if(showReferences||scope.model===reference.id) models.push([reference.id,`${participantName(reference.id)} · evaluation`]);
   }
   const control=(label,key,options)=>`<label>${label}<select data-run-filter="${key}" aria-label="Competition ${label.toLowerCase()}">${options.map(([value,text])=>`<option value="${e(value)}" ${scope[key]===String(value)?'selected':''}>${e(text)}</option>`).join('')}</select></label>`;
   return `<section id="run-filters" class="run-filters" aria-label="Competition filters">${control('Model','model',[['','All models'],...models])}${control('Round','round',[['','All rounds'],...(rounds.length?rounds:[1]).map(round=>[String(round),'Round '+round])])}${control('Track','track',[['','All tracks'],['initial','Initial'],['control','No feedback'],['feedback','With feedback']])}${control('Repetition','replicate',[['','All repetitions'],...Array.from({length:repetitions},(_,i)=>[String(i+1),'Repetition '+(i+1)])])}${scopeActive()?btn('Reset','reset-run-filters'):''}<small>${S.tab==='activity'||S.tab==='config'?'Competition totals; exploration filters are kept.':'Shared across statistics, conversations, code, matches and journal.'}</small></section>`;
@@ -2683,12 +2699,12 @@ function overviewRanking(data) {
 }
 // A fixed light-to-dark ladder, independent of measured scores and entrant order.
 const REFERENCE_COLORS = new Map([
-  ['passive','#9aa2ad'],
-  ['evasive','#818c9b'],
-  ['turret','#697586'],
-  ['single-shot','#536071'],
-  ['rush','#3d495b'],
-  ['human-weapon','#283345'],
+  ['passive','#93cda0'],
+  ['evasive','#72b783'],
+  ['turret','#52a065'],
+  ['single-shot','#37864e'],
+  ['rush','#236a3a'],
+  ['human-weapon','#114d2b'],
 ]);
 let overviewPalette={};
 function overviewReferenceLevels(detail) {
@@ -2714,7 +2730,7 @@ function overviewColor(model) {
     const colors=new Map(names.filter(name=>!references.has(name)).map((name,i)=>[
       name,configuredChartColor(name,specs.get(name)||catalog.get(name),S.run)||seriesColor(i),
     ]));
-    for(const [id,level] of references)colors.set(id,REFERENCE_COLORS.get(level)||'#697586');
+    for(const [id,level] of references)colors.set(id,configuredChartColor(id,null,S.run)||REFERENCE_COLORS.get(level)||REFERENCE_COLORS.get('turret'));
     overviewPalette={matches:S.overviewMatches,detail:S.detail,settings,providers,colors,references};
   }
   return overviewPalette.colors.get(model)||seriesColor(0);
@@ -4755,6 +4771,12 @@ document.addEventListener("submit", async (event) => {
     } else if (type === 'saved-strategy') {
       await api('/api/participant/import',{run:S.run,session:form.dataset.session,id:f.get('id')},true);
       await refreshBoot(); $('#dialog').close(); toast('Saved strategy participant created');
+    } else if (type === 'participant-name') {
+      await api('/api/participant/name',{id:form.dataset.id,display_name:f.get('display_name')},true);
+      $('#dialog').close();
+      await refreshBoot();
+      await renderRoute();
+      toast('Display name saved.');
     } else if (type === "participant") {
       const provider = f.get("provider"),
         spec = { id: f.get("id"), provider };
