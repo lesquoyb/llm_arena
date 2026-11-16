@@ -904,6 +904,25 @@ function chartColorsDialog(run=null) {
     <details class="form-section" ${run?'open':''}><summary>Model and reference overrides</summary>${modelRows.join('')||'<p class="muted">No participant profiles.</p>'}</details>
     <div class="form-footer">${run?btn('Global colors','chart-colors'):''}${btn('Cancel','close-dialog')}<button type="submit" class="button primary">Save colors</button></div></form>`);
 }
+async function reportPricingDialog() {
+  const run=S.run;
+  const {candidates,applied}=await api('/api/run/report-pricing',{run});
+  const active=Object.keys(applied.models||{}).length;
+  const changed=candidates.filter(row=>row.changed);
+  const missing=candidates.filter(row=>!row.catalog);
+  const rates=p=>p?[p.input_per_million,p.cached_input_per_million??p.input_per_million,
+    p.output_per_million,p.cache_creation_per_million??'Default'].join(' / '):'Unavailable';
+  openDialog('Recalculate costs',S.detail.metadata.config.name,`<form data-form="report-pricing" data-run="${e(run)}">
+    <p>Apply current catalog prices to saved token receipts. This updates the estimated costs in statistics and CSV exports. The recorded charges and spending limits are kept.</p>
+    ${active?`<p>${fmt(active)} model profiles already use updated prices for this competition.</p>`:''}
+    ${changed.length?`<p class="muted">USD per million tokens. Input / cached input / output / cache write.</p>${table(
+      ['Model','Original rates','Current catalog rates'],changed.map(row=>`<tr><td>${e(participantName(row.id))}</td><td>${e(rates(row.original))}</td><td>${e(rates(row.catalog))}</td></tr>`))}`
+      :'<p>No matching profiles have updated rates.</p>'}
+    ${missing.length?`<p class="muted">No matching catalog profile for ${e(missing.map(row=>participantName(row.id)).join(', '))}.</p>`:''}
+    <div class="form-footer">${btn('Cancel','close-dialog')}
+    <button type="submit" class="button primary" value="apply" ${changed.length?'':'disabled'}>Recalculate</button>
+    ${active?'<button type="submit" class="button" value="reset">Restore original estimates</button>':''}</div></form>`);
+}
 function participantGroups(id) {
   return S.boot.participant_groups.filter(group=>group.members.includes(id));
 }
@@ -1062,9 +1081,9 @@ function workspacesPage() {
   if(!scoped(S.boot.runs).length)return title+draftPanel+empty(drafts.length?'No runs yet':'No competitions yet',drafts.length?'Launch a saved configuration above, or create another competition.':'Create a competition here, or add an existing one.');
   if(!data)return title+draftPanel+workspaceSkeleton('Statistics')+`<section class="panel flush"><div class="panel-head"><h2>Competitions</h2></div>${runTable(scoped(S.boot.runs))}</section>`;
   return title+draftPanel+
-    `<div class="metrics">${metric('Competitions',fmt(t.competitions),'Exported copies excluded')}${metric('Strategies',`${t.submitted+t.frozen_strategies} / ${t.sessions+t.frozen_strategies}`,`${t.frozen_strategies} frozen · ${t.invalid} invalid · ${t.attention} need attention`)}${metric('Completed fights',data.performance_pending?'Loading…':fmt(t.completed_matches),data.performance_pending?'Reading fight results':`${t.preparation_matches} preparation · ${t.failed_matches} engine failures`)}${metric('Recorded API cost',money(t.known_cost_usd),`${money(t.reserved_usd)} reserved${t.unresolved_sessions?` · ${t.unresolved_sessions} unresolved`:''}`)}</div>
+    `<div class="metrics">${metric('Competitions',fmt(t.competitions),'Exported copies excluded')}${metric('Strategies',`${t.submitted+t.frozen_strategies} / ${t.sessions+t.frozen_strategies}`,`${t.frozen_strategies} frozen · ${t.invalid} invalid · ${t.attention} need attention`)}${metric('Completed fights',data.performance_pending?'Loading…':fmt(t.completed_matches),data.performance_pending?'Reading fight results':`${t.preparation_matches} preparation · ${t.failed_matches} engine failures`)}${metric('Estimated API cost',money(t.known_cost_usd),`${money(t.reserved_usd)} reserved${t.unresolved_sessions?` · ${t.unresolved_sessions} unresolved`:''}`)}</div>
     <section class="panel workspace-resources"><div class="panel-title"><h2>Model resources</h2><details class="action-menu"><summary class="button">Download CSV</summary><div>${['summary','fights','sessions','results'].map(table=>`<a class="button" href="/api/results.csv?${query({workspace:id,table})}">${table==='summary'?'Workspace scores':table==='fights'?'Match results':table==='sessions'?'Usage & conversations':'Raw strategy results'}</a>`).join('')}</div></details></div>
-    ${data.models.length?table(['Participant','Size (B)','Submitted','Input / output tokens','Recorded cost','Tool calls','Preparation time'],data.models.map(m=>`<tr><td><strong>${e(m.name)}</strong><small>${e(m.model||'Built-in strategy')}</small>${raw(m.configuration,'Configuration')}</td><td>${fmt(m.model_size_billion,3)}</td><td>${m.submitted} / ${m.sessions}<small>${m.invalid} invalid</small></td><td>${fmt(m.input_tokens)} / ${fmt(m.output_tokens)}${m.unmeasured_sessions?`<small>${m.unmeasured_sessions} conversations with missing measurements</small>`:''}</td><td>${money(m.known_cost_usd)}${Number(m.reserved_usd)?`<small>${money(m.reserved_usd)} reserved</small>`:''}</td><td>${fmt(m.tool_calls)}</td><td>${fmt(m.wall_seconds/60,1)} min</td></tr>`)):'<p class="muted">No model conversations yet.</p>'}</section>
+    ${data.models.length?table(['Participant','Size (B)','Submitted','Input / output tokens','Estimated cost','Tool calls','Preparation time'],data.models.map(m=>`<tr><td><strong>${e(m.name)}</strong><small>${e(m.model||'Built-in strategy')}</small>${raw(m.configuration,'Configuration')}</td><td>${fmt(m.model_size_billion,3)}</td><td>${m.submitted} / ${m.sessions}<small>${m.invalid} invalid</small></td><td>${fmt(m.input_tokens)} / ${fmt(m.output_tokens)}${m.unmeasured_sessions?`<small>${m.unmeasured_sessions} conversations with missing measurements</small>`:''}</td><td>${money(m.known_cost_usd)}${Number(m.reserved_usd)?`<small>${money(m.reserved_usd)} reserved</small>`:''}</td><td>${fmt(m.tool_calls)}</td><td>${fmt(m.wall_seconds/60,1)} min</td></tr>`)):'<p class="muted">No model conversations yet.</p>'}</section>
     ${data.performance_pending?workspaceSkeleton('Performance'):`<section class="panel"><div class="panel-title"><h2>Performance</h2><label class="field">Comparison group<select id="workspace-group">${data.groups.map((g,i)=>`<option value="${i}" ${i===(S.workspaceGroup||0)?'selected':''}>${g.kind==='evaluation'?'Fixed-baseline evaluation':g.kind==='progression'?'Previous-round comparison':'Tournament'} · ${workspaceStage(g.stage)} · ${e(workspaceScenario(g.scenario))} · ${g.runs.length} competition${g.runs.length===1?'':'s'} · Group ${i+1}</option>`).join('')}</select></label></div><p class="muted">Groups keep different scenarios, preparation settings and opponent pools separate. Same-model fights are excluded from tournament scores.</p><div id="workspace-performance">${workspacePerformance(data.groups[S.workspaceGroup||0]||data.groups[0])}</div></section>`}
 
     <section class="panel flush"><div class="panel-head"><h2>Competitions</h2>${btn('New competition','new-competition')}</div>${runTable(scoped(S.boot.runs))}</section>
@@ -2062,7 +2081,7 @@ function resumeConversationDialog(sid) {
 function reconciliationDialog(sid) {
   const session = S.detail.sessions.find(s => s.id === sid);
   openDialog("Resolve request billing", strategyName(sid),
-    `<form data-form="reconcile" data-session="${e(sid)}"><p>The provider request was interrupted or returned incomplete usage. Its response may have been charged. Check the provider's usage dashboard before repeating it.</p><p>If a response was saved, its pending tools will continue. Otherwise the request can be retried. Existing files and other participants' results are kept.</p><label>Additional cost for this unresolved request (USD)<input name="cost_usd" type="number" min="0" step="any" required placeholder="0 if confirmed uncharged or local"></label><small>Enter only the unresolved charge, not the conversation total. Already recorded cost: ${money(session.cost_spent || 0)}.</small><label>Verification note<textarea name="note" required placeholder="How you checked the charge; for a local model, state that it runs locally."></textarea></label><div class="form-footer">${btn("Cancel", "close-dialog")}<button class="button primary" type="submit">Record and unlock</button></div></form>`);
+    `<form data-form="reconcile" data-session="${e(sid)}"><p>The provider request was interrupted or returned incomplete usage. Its response may have been charged. Check the provider's usage dashboard before repeating it.</p><p>If a response was saved, its pending tools will continue. Otherwise the request can be retried. Existing files and other participants' results are kept.</p><label>Additional cost for this unresolved request (USD)<input name="cost_usd" type="number" min="0" step="any" required placeholder="0 if confirmed uncharged or local"></label><small>Enter only the unresolved charge, not the conversation total. Already recorded cost: ${money(session.recorded_cost_spent ?? session.cost_spent ?? 0)}.</small><label>Verification note<textarea name="note" required placeholder="How you checked the charge; for a local model, state that it runs locally."></textarea></label><div class="form-footer">${btn("Cancel", "close-dialog")}<button class="button primary" type="submit">Record and unlock</button></div></form>`);
 }
 async function retryDialog(sid) {
   const session = S.detail.sessions.find((s) => s.id === sid),
@@ -2156,7 +2175,7 @@ function runHeader(d) {
     job = S.boot.jobs.find((j) => j.run === S.run),
     active = job && ["running", "stopping"].includes(job.status),
     experiment = !!d.metadata.config;
-  return `<a class="back-link" href="#view=competitions">← Competitions</a>` + head(config.name, "", `${active ? btn("■ Stop", "stop-job", `data-id="${e(job.id)}"`) : experiment && !d.archived ? btn("Resume", "resume", "", true) : ""}<details class="action-menu"><summary class="button">More <svg class="menu-chevron" viewBox="0 0 12 12" width="12" height="12" aria-hidden="true"><path d="M2.5 4.5 6 8l3.5-3.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></summary><div>${experiment && !d.archived ? btn("Edit participants","edit-run-participants")+btn("Reference strategies","run-reference-strategies")+btn("Execution & metrics","run-metric-collection")+btn("Chart colors","run-chart-colors") : ""}${btn('Load diagnostics','load-diagnostics')}${experiment?btn('Engine performance','engine-performance')+btn('Copy scheduling diagnostics','copy-scheduling-diagnostics'):''}${btn("Move to workspace","move-workspace",`data-run="${e(S.run)}"`)}<a class="button" href="/api/results.csv?${query({run:S.run})}" download>Download results CSV</a><a class="button" href="/api/results.csv?${query({run:S.run,table:"fights"})}" download>Download match results CSV</a><a class="button" href="/api/results.csv?${query({run:S.run,table:"sessions"})}" download>Download sessions CSV</a>${experiment ? btn("Clone configuration", "clone-run") + btn("Export competition", "export-run") : ""}${storageMenuItem(d)}</div></details>`) +
+  return `<a class="back-link" href="#view=competitions">← Competitions</a>` + head(config.name, "", `${active ? btn("■ Stop", "stop-job", `data-id="${e(job.id)}"`) : experiment && !d.archived ? btn("Resume", "resume", "", true) : ""}<details class="action-menu"><summary class="button">More <svg class="menu-chevron" viewBox="0 0 12 12" width="12" height="12" aria-hidden="true"><path d="M2.5 4.5 6 8l3.5-3.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></summary><div>${experiment && !d.archived ? btn("Edit participants","edit-run-participants")+btn("Reference strategies","run-reference-strategies")+btn("Execution & metrics","run-metric-collection")+btn("Chart colors","run-chart-colors")+(config.models?.some(model=>model.provider!=="mock")?btn("Recalculate costs","report-pricing"):"") : ""}${btn('Load diagnostics','load-diagnostics')}${experiment?btn('Engine performance','engine-performance')+btn('Copy scheduling diagnostics','copy-scheduling-diagnostics'):''}${btn("Move to workspace","move-workspace",`data-run="${e(S.run)}"`)}<a class="button" href="/api/results.csv?${query({run:S.run})}" download>Download results CSV</a><a class="button" href="/api/results.csv?${query({run:S.run,table:"fights"})}" download>Download match results CSV</a><a class="button" href="/api/results.csv?${query({run:S.run,table:"sessions"})}" download>Download sessions CSV</a>${experiment ? btn("Clone configuration", "clone-run") + btn("Export competition", "export-run") : ""}${storageMenuItem(d)}</div></details>`) +
     `<div class="toolbar run-toolbar">${job ? status(job.status === "failed" && d.report?.incomplete ? "incomplete" : job.status) : ""}${job?.mode==='retry_fights'?badge('Engine recovery · no model calls'):''}${config.models ? badge(config.models.every(m=>m.provider==="mock") ? "Built-in strategies" : "Model competition") : badge("Provided strategies")}${d.archived ? badge("Exported copy", "orange") : ""}<span class="run-id mono" title="Competition ID">${e(S.run)}</span><span class="spacer"></span><label class="check live-toggle"><input id="follow-live" type="checkbox" ${S.follow ? "checked" : ""}>Live</label>${job ? btn("Run log", "job-log", `data-id="${e(job.id)}"`) : ""}</div>` + (S.tab==='activity'?'':competitionActivity()) +
     `<nav class="tabs" aria-label="Competition views">${TABS.map(([key,label])=>`<button class="tab ${S.tab===key ? "active" : ""}" ${S.tab===key ? 'aria-current="page"' : ""} data-action="tab" data-tab="${key}">${label}</button>`).join("")}</nav>`;
 }
@@ -2444,19 +2463,23 @@ function tokenLimitAccounting(d, sessions) {
 }
 function usageAccounting(d) {
   const models = d.metadata.config?.models || [];
+  const prices=d.report_pricing?.models||{};
   const rows = models.filter(m => m.provider !== "mock").map(model => {
     const sessions = d.sessions.filter(s => s.model === model.id);
     const usages = sessions.map(measuredUsage);
     const sum = key => usages.reduce((n, u) => n + (u[key] || 0), 0);
     const input = sum("input_tokens"), cached = sum("cached_input_tokens");
-    const p = model.pricing || {};
+    const p = prices[model.id] || model.pricing || {};
     return `<tr><td>${e(model.id)}</td><td>${fmt(input)}</td><td>${fmt(sum("output_tokens"))}</td><td>${usages.some(u => u.cached_input_tokens == null || u.missing_cache_usage) ? "Unknown / partial" : `${fmt(cached)} (${input ? (100*cached/input).toFixed(1) : 0}%)`}</td><td>${usages.some(u=>u.cache_creation_input_tokens == null || u.missing_cache_creation_usage) ? "Not reported / partial" : fmt(sum("cache_creation_input_tokens"))}</td><td>${usages.some(u=>u.reasoning_tokens == null || u.missing_reasoning_usage) ? "Unknown / partial" : fmt(sum("reasoning_tokens"))}</td><td>${money(sessions.reduce((n,s) => n+Number(s.cost_spent || 0),0))}</td><td>${e([p.input_per_million, p.cached_input_per_million ?? p.input_per_million, p.output_per_million].join(" / "))}</td></tr>`;
   });
   const incomplete = d.sessions.some(s => s.calls && models.find(m=>m.id===s.model)?.provider !== "mock" && !measuredUsage(s).complete);
   const paid = d.sessions.filter(s=>models.find(m=>m.id===s.model)?.provider !== "mock");
   const totalTokens = paid.reduce((n,s)=>n+measuredUsage(s).input_tokens+measuredUsage(s).output_tokens,0);
   const totalCost = paid.reduce((n,s)=>n+Number(s.cost_spent || 0),0);
-  return `<h3>Whole competition API usage</h3>${btn("Copy usage diagnostics", "copy-usage-diagnostics")}<p><strong>${fmt(totalTokens)} tokens · ${money(totalCost)} estimated${incomplete ? " (partial)" : ""}</strong></p><p>All rounds, both tracks, retries and API diagnostics. ${incomplete ? "Partial: requests are in progress or usage is missing." : ""}</p>${table(["Model", "Input", "Output", "Cached input", "Cache writes", "Reasoning", "Estimated USD", "USD / 1M input / cached / output"], rows)}<p class="muted">Cached input is included in input; reasoning is included in output. Configured prices are frozen. GPT-6.1 cache writes default to 1.25 times input price unless explicitly configured. Old receipts with recorded cache-write usage are repriced for this view; their original charges are preserved. These are calculated estimates, not the provider's invoice. Compare the same project, model and time range in the provider dashboard; other competitions are separate.</p>`;
+  const repriced=paid.reduce((n,s)=>n+(s.usage_receipts?.repriced_responses||0),0);
+  const skipped=paid.reduce((n,s)=>n+(s.usage_receipts?.unrepriced_responses||0),0);
+  const priceNote=Object.keys(prices).length?`<p class="muted">Updated catalog rates applied to ${fmt(repriced)} saved responses.${skipped?` ${fmt(skipped)} responses kept their recorded amounts because billing or token details were incomplete.`:''}</p>`:'';
+  return `<h3>Whole competition API usage</h3>${btn("Copy usage diagnostics", "copy-usage-diagnostics")}<p><strong>${fmt(totalTokens)} tokens · ${money(totalCost)} estimated${incomplete || skipped ? " (partial)" : ""}</strong></p><p>All rounds, both tracks, retries and API diagnostics. ${incomplete ? "Partial: requests are in progress or usage is missing." : ""}</p>${priceNote}${table(["Model", "Input", "Output", "Cached input", "Cache writes", "Reasoning", "Estimated USD", "USD / 1M input / cached / output"], rows)}<p class="muted">Cached input is included in input; reasoning is included in output. Spending limits use the original prices. GPT-6.1 cache writes default to 1.25 times input price unless explicitly configured. Old receipts with recorded cache-write usage are repriced for this view; their original charges are preserved. These are calculated estimates, not the provider's invoice. Compare the same project, model and time range in the provider dashboard; other competitions are separate.</p>`;
 }
 function tokenDisplay(d) {
   const models = new Map(
@@ -4278,6 +4301,7 @@ document.addEventListener("click", async (event) => {
     } else if (a === 'delete-workspace') {
       openDialog('Delete workspace',workspaceName(node.dataset.id),`<p>Competitions and configurations will become unassigned. Their files and results are kept.</p><form data-form="delete-workspace" data-id="${e(node.dataset.id)}"><div class="form-footer">${btn('Cancel','close-dialog')}<button type="submit" class="button primary">Delete workspace</button></div></form>`);
     } else if (a === 'chart-colors' || a === 'run-chart-colors') chartColorsDialog(a==='run-chart-colors'?S.run:null);
+    else if (a === 'report-pricing') await reportPricingDialog();
     else if (a === 'providers' || a === 'new-provider') providersDialog();
     else if (a === 'edit-provider') providersDialog(node.dataset.id);
     else if (a === 'provider-models') {node.disabled=true;try{await providerModels(node.dataset.id);}finally{node.disabled=false;}}
@@ -4750,7 +4774,15 @@ document.addEventListener("submit", async (event) => {
   try {
     const f = new FormData(form),
       type = form.dataset.form;
-    if(type === 'chart-colors') {
+    if(type === 'report-pricing') {
+      const action=submit?.value;
+      await api('/api/run/report-pricing',{run:form.dataset.run,action},true);
+      $('#dialog').close();
+      runReadCache.clear();S.detailFetchedAt=0;
+      await refreshBoot();
+      await renderRoute();
+      toast(action==='reset'?'Original cost estimates restored.':'Cost estimates recalculated.');
+    } else if(type === 'chart-colors') {
       const changes={providers:[],models:[]};
       for(const row of form.querySelectorAll('[data-chart-color]')) {
         const color=$('[data-color-custom]',row).checked?$('[data-color-picker]',row).value:null;

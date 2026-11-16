@@ -644,6 +644,11 @@ competition to apply an override there only. Clear **Custom** to restore
 the inherited color. References use the difficulty palette by default and
 can also have individual display names.
 
+Use **More → Recalculate costs** in an existing competition to apply current
+catalog rates to saved token receipts. The recalculated estimates appear in
+statistics and CSV exports. Recorded charges and spending limits are kept.
+Use **Restore original estimates** to remove the catalog rates.
+
 In Participants, open **Providers & bulk add**. Save a named protocol, endpoint and
 API key environment variable. A key entered here stays in server memory until
 shutdown; set the named variable in the repository-root `.env` file to reuse it after restarting. Copy `.env.example` to get started.

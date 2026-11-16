@@ -75,6 +75,8 @@ def export(runs, out, catalog=None):
                 'usage_complete':bool(measured if has_receipts else state.get('token_usage_known')) and state.get('token_usage_known') is not False and not state.get('in_flight') and state.get('status')!='needs_reconciliation',
                 'cost_usd':None if state.get('status')=='needs_reconciliation' else str(Decimal(state.get('cost_spent','0')) + Decimal(receipt.get('cost_adjustment_usd','0'))),
                 'recorded_cost_usd':state.get('cost_spent','0'),
+                'repriced_responses':receipt.get('repriced_responses',0),
+                'unrepriced_responses':receipt.get('unrepriced_responses',0),
                 'reserved_usd':state.get('money_reserved','0')})
         for sid,strategy in frozen.items():
             origin=strategy.get('origin',{})
@@ -111,7 +113,8 @@ def export(runs, out, catalog=None):
                 'score':sum(r['points'] for r in done)/len(done) if done else None})
     resource_fields = ('cost_usd','recorded_cost_usd','input_tokens','output_tokens','cached_input_tokens',
                        'cache_creation_input_tokens','reasoning_tokens','calls','tool_calls','preparation_matches','replay_reads','messages',
-                       'system_messages','user_messages','assistant_messages','tool_messages','wall_seconds','usage_complete')
+                       'system_messages','user_messages','assistant_messages','tool_messages','wall_seconds','usage_complete',
+                       'repriced_responses','unrepriced_responses')
     resources = {(row['run_id'],row['participant']):row for row in sessions}
     results = []
     for score in scores:

@@ -18,7 +18,7 @@ from arena.core import ArenaError, ROOT, STATE_ROOT, digest, file_hash, is_link,
 from arena.experiment import plan, validate_config
 from arena.preparation import local_path
 from .workspaces import Workspaces
-from .accounting import token_budget_stop
+from .accounting import REPORT_PRICING, token_budget_stop
 from .performance import measure, History, TimedRLock, request_cached
 
 
@@ -191,6 +191,37 @@ class Store(Workspaces):
         keys=('id','provider','model','endpoint')
         current=next((row for row in (self.catalog() if catalog is None else catalog) if all(row.get(key)==model.get(key) for key in keys)),{})
         return current.get('model_size_billion')
+
+    def report_pricing(self, identifier, action=None):
+        from .accounting import price_profile_key, price_rates
+        from arena.roster import effective
+        root = self.run_path(identifier)
+        with self.lock:
+            metadata = self.json(root/'experiment.json', {})
+            if 'config' not in metadata or (root/'export.json').exists():
+                raise ArenaError('Only original model competitions support cost recalculation')
+            config = effective(root, metadata['config'])
+            catalog = {price_profile_key(model): model for model in self.catalog() if model.get('pricing')}
+            applied = self.json(root/REPORT_PRICING, {})
+            candidates = []
+            for model in config['models']:
+                if model['provider'] == 'mock':
+                    continue
+                current = catalog.get(price_profile_key(model))
+                candidates.append({'id':model['id'], 'original':model.get('pricing'), 'catalog':current['pricing'] if current else None,
+                                   'changed':bool(current and price_rates(model) != price_rates(current))})
+            if action == 'apply':
+                prices = {row['id']:row['catalog'] for row in candidates if row['changed']}
+                if not prices:
+                    raise ArenaError('No updated catalog prices match the models in this competition')
+                applied = {'models':prices, 'updated_at':time.time()}
+                write_json(root/REPORT_PRICING, applied)
+            elif action == 'reset':
+                (root/REPORT_PRICING).unlink(missing_ok=True)
+                applied = {}
+            elif action is not None:
+                raise ArenaError('Unknown cost recalculation action')
+        return {'candidates':candidates, 'applied':applied}
 
     def participant_groups(self):
         return self.json(self.state/'participant-groups.json',[])
@@ -483,7 +514,7 @@ class Store(Workspaces):
 
     def _listing_row(self, path, identifier):
         stamps=[]
-        for name in ('experiment.json','report.json','journal.sqlite','journal.sqlite-wal','export.json'):
+        for name in ('experiment.json','report.json','journal.sqlite','journal.sqlite-wal','export.json',REPORT_PRICING):
             try:stat=(path/name).stat();stamps.append((name,stat.st_mtime_ns,stat.st_size))
             except FileNotFoundError:stamps.append((name,None))
         with self.lock:cached=getattr(self,'_listing_rows',{}).get(identifier)
@@ -497,6 +528,12 @@ class Store(Workspaces):
             from arena.roster import snapshot
             withdrawn=set((snapshot(path) or {}).get('withdrawn',[]))
             report = self.json(path / "report.json", {})
+            estimates = self.report_summary(report)
+            if estimates['cost_usd'] is not None and self.json(path/REPORT_PRICING, {}).get('models'):
+                from decimal import Decimal
+                adjustments = self.usage_receipts(path)
+                estimates['cost_usd'] = str(Decimal(estimates['cost_usd']) + sum(
+                    Decimal(receipt['cost_adjustment_usd']) for receipt in adjustments.values()))
             row={"id": identifier, "name": config.get("name", identifier),
                  "kind": "experiment" if "config" in metadata else "tournament",
                  "created_at": (path / "experiment.json").stat().st_mtime,
@@ -505,7 +542,7 @@ class Store(Workspaces):
                               if "models" in config else None,
                  "models": sum(model['id'] not in withdrawn for model in config['models']) if 'models' in config else len(config.get('strategies',[])),
                  "withdrawn_models":len(withdrawn),
-                 "replicates": config.get("replicates"), "report": self.report_summary(report),
+                 "replicates": config.get("replicates"), "report": estimates,
                  "report_sha256": digest(report),
                  "complete": bool(report) and not any(report.get(k) for k in
                       ("incomplete", "failed", "pending", "assessment_failures", "unresolved_sessions"))
@@ -535,7 +572,7 @@ class Store(Workspaces):
                     event_id = connection.execute('SELECT coalesce(max(id),0) FROM events'+('' if include_events else " WHERE kind='participants_updated'")).fetchone()[0]
         files = [root/'report.json', root/'analysis.json'] if include_records and include_reports else [root/'experiment.json']
         from arena.reference_evaluation import SETTINGS
-        files.append(root/SETTINGS)
+        files.extend((root/SETTINGS,root/REPORT_PRICING))
         stamps=[]
         for path in files:
             try:stat=path.stat()
@@ -547,7 +584,7 @@ class Store(Workspaces):
     @measure('usage_receipts')
     def usage_receipts(self, root):
         """Each response is counted once; usage_event repeats model_response."""
-        from .accounting import summarize
+        from .accounting import adjust_receipt_price, summarize
         path = root / 'journal.sqlite'
         if not path.is_file():
             return {}
@@ -561,6 +598,7 @@ class Store(Workspaces):
             from arena.roster import effective
             metadata = {**metadata, 'config':effective(root,metadata['config'])}
         models = {m['id']: m for m in metadata.get('config', {}).get('models', [])}
+        prices = self.json(root/REPORT_PRICING, {}).get('models', {})
         states = self.states(root, ('model', 'provider_parameter_overrides'))
         decoded = [(sid, kind, json.loads(reference)) for sid, kind, reference in rows]
         receipts = self.receipts.many('usage', [(reference['sha256'], lambda reference=reference: safe_path(root, reference['artifact'])) for _, _, reference in decoded],
@@ -576,6 +614,9 @@ class Store(Workspaces):
             if 'cache_write_tokens' in details:
                 provider = 'openai-responses' if 'input_tokens' in raw_usage else 'openai'
                 receipt['usage'] = normalize(provider, raw_usage)
+            if model.get('id') in prices:
+                adjust_receipt_price(receipt, model, prices[model['id']])
+            elif 'cache_write_tokens' in details:
                 recalculated = cost(receipt['usage'], effective_pricing(model))
                 if recalculated is not None and receipt.get('cost_usd') is not None:
                     receipt['cost_adjustment_usd'] = str(Decimal(recalculated) - Decimal(receipt['cost_usd']))
@@ -638,6 +679,7 @@ class Store(Workspaces):
         from arena.reference_evaluation import settings, reference_model, opponent_id
         policy = settings(root)
         return {"id": identifier, "revision": self.revision(root) if include_revision else None, "metadata": metadata, "roster":{key:value for key,value in roster.items() if key!='models'} if roster else None, "report": report, "report_sha256": digest(report),
+                "report_pricing": self.json(root/REPORT_PRICING, {}),
                 "reference_evaluation": {"selected": [m['id'] for m in policy.get('models', [])],
                                          "opponents": [{"id": opponent_id(m), "label": m['id'],
                                                         "reference": m['strategy']['origin']['reference']}
@@ -1273,6 +1315,7 @@ class Store(Workspaces):
             group = groups.setdefault(key, {"id": key, "protocol": protocol, "runs": [], "series": [], "models": {}})
             group["runs"].append(identifier)
             models = {m["id"]: m for m in config["models"]}
+            costs = {session['id']:session.get('cost_spent') for session in detail['sessions']} if detail['report_pricing'] else {}
             for row in analysis["rows"]:
                 if row["panel"] != "controls":
                     continue
@@ -1283,6 +1326,8 @@ class Store(Workspaces):
                 point = {**row, "run": identifier, "created_at": (root / "experiment.json").stat().st_mtime,
                          "model_signature": model_key, "model_id": descriptor.get("model", descriptor.get("profile")),
                          "participant": descriptor}
+                if point.get('cost_usd') is not None and costs.get(row['session']) is not None:
+                    point['cost_usd'] = costs[row['session']]
                 group["series"].append(point)
                 group["models"].setdefault(k, []).append(point)
         for group in groups.values():

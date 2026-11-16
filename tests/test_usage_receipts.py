@@ -1,6 +1,7 @@
 """Receipt accounting must include cached input without adding it twice."""
 import tempfile
 import unittest
+from contextlib import closing
 from pathlib import Path
 
 from arena.experiment import Journal
@@ -10,6 +11,48 @@ from arena_web.data import Store
 
 
 class UsageReceiptTests(unittest.TestCase):
+    def test_competition_repricing_snapshots_catalog_rates_and_preserves_recorded_charges(self):
+        from arena.core import read_json, write_json
+        from arena_web.accounting import REPORT_PRICING
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            store = Store(base/'runs', base/'ui')
+            root = store.runs/'run'
+            pricing = {'currency':'USD','date':'2026-01-01','input_per_million':'2','output_per_million':'4'}
+            model = {'id':'m','provider':'openai','model':'fixture','pricing':pricing}
+            changed = {**pricing, 'input_per_million':'3','output_per_million':'6','cached_input_per_million':'1'}
+            competitor = {**model,'id':'different','model':'frozen-model'}
+            config = {'config':{'models':[model,competitor],'budget_per_session':{}}}
+            write_json(root/'experiment.json', config)
+            write_json(root/'report.json', {'cost_usd':'3.8'})
+            write_json(store.state/'participants.json', [
+                {**model,'pricing':changed},
+                {**competitor,'model':'new-model','pricing':changed},
+            ])
+            journal = Journal(root)
+            with closing(journal.db):
+                state = {'model':'m','status':'submitted','history':[],'cost_spent':'3.8'}
+                for cached, original in ((500_000,'2.2'), (None,'1.2'), (0,None)):
+                    journal.save('m-r0', state, 'model_response', {
+                        'usage':{'input_tokens':1_000_000,'output_tokens':50_000,
+                                 'cached_input_tokens':cached,'cache_creation_input_tokens':0},
+                        'cost_usd':original,
+                    })
+            self.assertFalse(store.report_pricing('run')['candidates'][1]['changed'])
+            store.report_pricing('run', 'apply')
+            self.assertEqual(read_json(root/REPORT_PRICING)['models'], {'m':changed})
+            write_json(store.state/'participants.json', [{**model,'pricing':pricing}])
+            detail = store.detail('run')['sessions'][0]
+            self.assertEqual(detail['recorded_cost_spent'], '3.8')
+            self.assertEqual(detail['cost_spent'], '3.9')
+            receipts = detail['usage_receipts']
+            self.assertEqual((receipts['repriced_responses'], receipts['unrepriced_responses']), (1, 2))
+            self.assertEqual(store.listing()[0]['report']['cost_usd'], '3.9')
+            self.assertEqual(read_json(root/'experiment.json'), config)
+            self.assertEqual(read_json(root/'report.json')['cost_usd'], '3.8')
+            store.report_pricing('run', 'reset')
+            self.assertEqual(store.detail('run')['sessions'][0]['cost_spent'], '3.8')
+
     def test_cached_and_reasoning_are_subsets_of_input_and_output(self):
         usage = normalize('openai-responses', {
             'input_tokens': 700000, 'output_tokens': 26000,

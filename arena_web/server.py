@@ -68,6 +68,8 @@ class Application:
         store, run, sid = self.store, value("run"), value("session")
         if route == "/api/bootstrap":
             return self.bootstrap()
+        if route == '/api/run/report-pricing':
+            return store.report_pricing(run)
         if route == "/api/reference":
             documents = {"authoring": "authoring.md", "rules": "corpus/rules.md",
                          "api-guide": "corpus/api-guide.md", "api": "leekscript-v1/api.md",
@@ -271,6 +273,8 @@ class Application:
             return {**plan(validate_config(config)), 'config':config, 'config_sha256':digest(config)}
         if route == '/api/run/participants':
             return self.jobs.participants(data['run'], data.get('participants'), data.get('frozen_tracks'), data.get('compare_previous_round'), data.get('parallel_fights'), data.get('request_order'), data.get('parallel_requests'), data.get('rule_change'), data.get('max_retries'))
+        if route == '/api/run/report-pricing':
+            return self.store.report_pricing(data['run'], data['action'])
         if route == '/api/run/provider-limits':
             return self.jobs.provider_limits(data['run'],data['endpoint_limits'])
         if route == '/api/conversation/retry-policy':
