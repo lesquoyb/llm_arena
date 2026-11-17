@@ -130,6 +130,8 @@ def _category(kind):
         return lambda fkind, mirror, stage: fkind == 'competition' and not mirror
     if kind == 'progression':
         return lambda fkind, mirror, stage: fkind in ('progression', 'evaluation')
+    if kind == 'reference_strategies':
+        return lambda fkind, mirror, stage: not mirror and fkind == 'evaluation' and stage.endswith('-references-panel')
     if kind == 'references':
         return lambda fkind, mirror, stage: not mirror and (
             fkind == 'competition' or (fkind == 'evaluation' and stage.endswith('-references-panel')))
@@ -242,8 +244,12 @@ def listing(store, root, states, models, detail_sessions, manifest, filters, sco
     participants = sorted({identity(sid)['model'] for sid in everyone})
     rounds = sorted({identity(sid)['generation'] + 1 for sid in everyone} | {int(s.get('generation') or 0) + 1 for s in detail_sessions})
     training_total = store.fight_index.query(root, "SELECT count(*) FROM fights WHERE run=? AND kind='training'")[0][0]
+    reference_total = sum(1 for row in store.fight_index.stage_rows(root)
+                          if row[1] == 'evaluation' and not row[3] and row[2].endswith('-references-panel')
+                          and not hidden_from_results(row[2], row[1], (row[4], row[5]), states, policy, row[8]))
     return {'matches': rows, 'total': len(selected), 'category_total': category_total, 'limit': MATCH_LIMIT,
-            'participants': participants, 'rounds': rounds, 'training_matches': training_total}
+            'participants': participants, 'rounds': rounds, 'training_matches': training_total,
+            'reference_matches': reference_total}
 
 
 def _bins(limit):

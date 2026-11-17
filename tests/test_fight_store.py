@@ -168,6 +168,11 @@ class IndexedOverviewTests(unittest.TestCase):
             combined = store.fight_page('run', {**filters,'entrant_model':'model'}, {})['matches']
             self.assertEqual([row['path'] for row in official], ['g1-tournament/matches/model-duel'])
             self.assertEqual({row['path'] for row in combined}, {official[0]['path'], model_wins[0]['path']})
+            # The reference strategies have their own category, announced from the default view.
+            ranked = store.fight_page('run', {}, {})
+            self.assertEqual(ranked['reference_matches'], 2)
+            only = store.fight_page('run', {'kind':'reference_strategies'}, {})['matches']
+            self.assertEqual({row['path'] for row in only}, {f'{stage}/matches/0', f'{stage}/matches/1'})
             self.assertEqual(len(store.fight_fixtures('run', 'references')['rows']), 4 * 5)
 
     def test_index_reads_stored_and_legacy_records_incrementally(self):

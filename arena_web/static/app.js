@@ -2284,7 +2284,7 @@ function runFilters(d) {
   const scope=runScope(),rounds=[...new Set(d.sessions.map(row=>Number(row.generation||0)+1))].sort((a,b)=>a-b);
   const repetitions=Math.max(1,d.metadata.config?.replicates||0,...d.sessions.map(row=>Number(row.replicate||0)+1));
   const showReferences=(S.tab==='summary' && overviewSettings().source==='references') ||
-    (S.tab==='matches' && ['references','evaluation','all'].includes(S.matchFilters?.kind));
+    (S.tab==='matches' && ['references','reference_strategies','evaluation','all'].includes(S.matchFilters?.kind));
   const models=runModels(d).map(model=>[model.id,savedParticipantName(model.id)||model.id]);
   for(const reference of d.reference_evaluation?.opponents||[]) {
     if(showReferences||scope.model===reference.id) models.push([reference.id,`${participantName(reference.id)} · evaluation`]);
@@ -4145,6 +4145,7 @@ function matchCategory(match,kind) {
   if(kind==='all')return true;
   if(kind==='selfplay')return !!match.mirror;
   if(!kind||kind==='competition')return match.kind==='competition'&&!match.mirror;
+  if(kind==='reference_strategies')return !match.mirror&&isReferenceEvaluation(match);
   if(kind==='references')return !match.mirror&&(match.kind==='competition'||isReferenceEvaluation(match));
   if(kind==='progression')return match.kind==='progression'||match.previous_round_comparison;
   return match.kind===(kind||'competition');
@@ -4181,17 +4182,19 @@ function matchesPage() {
   const rows = matchSubset();
   const categoryTotal = page.category_total;
   const trainingCount = page.training_matches;
+  const referenceCount = page.reference_matches || 0;
   S.matchPath =
     rows.find((m) => m.path === S.matchPath)?.path || rows[0]?.path || null;
-  return `${indexingNotice(page.indexing)}<details class="fight-category-guide"><summary>Which fights count toward standings?</summary>${fightPurposeGuide()}<p>Self-play means the same strategy and team on both sides (A vs A); it is a diagnostic. Swapping two different strategies (A vs B, then B vs A) is standard tournament play and both fights count. Engine failures (process timeout, crash or unreadable output) are unscored and retried when the fight pool runs again, including Resume. Their logs are available in the fight details. Preparation tests are separate and unscored. Self-play outcome filters refer to the blue side.</p></details>${trainingCount ? `<p id="training-count">${trainingCount} preparation tests stored separately. ${btn("View preparation tests", "show-training")}</p>` : ""}${selectField(
+  return `${indexingNotice(page.indexing)}<details class="fight-category-guide"><summary>Which fights count toward standings?</summary>${fightPurposeGuide()}<p>Self-play means the same strategy and team on both sides (A vs A); it is a diagnostic. Swapping two different strategies (A vs B, then B vs A) is standard tournament play and both fights count. Engine failures (process timeout, crash or unreadable output) are unscored and retried when the fight pool runs again, including Resume. Their logs are available in the fight details. Preparation tests are separate and unscored. Self-play outcome filters refer to the blue side.</p></details>${trainingCount ? `<p id="training-count">${trainingCount} preparation tests stored separately. ${btn("View preparation tests", "show-training")}</p>` : ""}${referenceCount && f.kind!=='reference_strategies' ? `<p id="reference-count">${fmt(referenceCount)} fights against the reference strategies, unscored and listed separately. ${btn("View reference fights", "show-reference-fights")}</p>` : ""}${selectField(
     "Match category",
     "match-kind",
     [
       ["competition", "Ranked tournament fights"],
+      ["reference_strategies", "Fights against reference strategies (unscored)"],
       ["selfplay", "Self-play diagnostics (A vs A, unscored)"],
       ["training", "Preparation tests (unscored)"],
       ["evaluation", "Fixed-baseline evaluations (unscored)"],
-      ["references", "Tournament + evaluation reference fights"],
+      ["references", "Tournament + reference strategy fights"],
       ["progression", "Previous-round comparisons (unscored)"],
       ["all", "All fights"],
     ],
@@ -4895,6 +4898,8 @@ document.addEventListener("click", async (event) => {
       toast("Configuration imported. Review before saving.");
     } else if (a === "show-training")
       navigate("run", { run: S.run, tab: "matches", kind: "training" });
+    else if (a === "show-reference-fights")
+      navigate("run", { run: S.run, tab: "matches", kind: "reference_strategies" });
     else if (a === 'show-engine-failures')
       navigate('run',{run:S.run,tab:'matches',kind:'all',stage:node.dataset.stage,outcome:'failure'});
     else if (a === "launch") await launchDialog(node.dataset.id);
