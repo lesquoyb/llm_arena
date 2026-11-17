@@ -284,7 +284,7 @@ Score is `(wins + 0.5 * draws) / completed appearances`. The ranking pools the s
 
 Round 1 is the initial submission. Round 2 has two alternative branches, with and without feedback. Tournament opponents may change between rounds; use Reference tests to compare against frozen initial submissions and built-in scripts. Reference tests count only the candidate side, including tests against its own initial strategy. The evolution chart uses the same selected matches and rounds as the ranking.
 
-Matrix cells show score and wins / draws / losses from the row model's perspective. Click a result to open the relevant fights. Tournament diagonals are omitted because versions of the same model are grouped. The accounting section reconciles tournament, reference and diagnostic mirror counts for the whole competition; preparation tests are listed separately.
+Matrix cells show score and wins / draws / losses from the row model's perspective; each model name carries its chart color on both axes, and the cell tint deepens with the size of the lead. Click a result to open the relevant fights. Tournament diagonals are omitted because versions of the same model are grouped. The accounting section reconciles tournament, reference and diagnostic mirror counts for the whole competition; preparation tests are listed separately.
 
 Cost and tokens describe preparation of the selected versions regardless of match category. Reported tokens are counted even at zero prices and without limits; missing usage remains unknown or is marked partial. Mock participants have no LLM tokens. Replay legends identify the models by side and color.
 

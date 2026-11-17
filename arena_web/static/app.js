@@ -3300,28 +3300,30 @@ function overviewMatrix(data) {
   const label = (name) => {
     if (data.scope.matrix === "versions" && (S.detail.sessions.some(s=>s.id===name) || S.detail.metadata.manifest?.strategies?.some(s=>s.id===name && s.origin))) {
       const identity=overviewIdentity(name);
-      return `<abbr title="${e(strategyName(name))}" tabindex="0">${referenceSwatch(identity.model)}${e(short(identity.model))}<small>${e(overviewRound(identity.condition,identity.generation))} · #${identity.replicate+1}</small></abbr>`;
+      return `<abbr title="${e(strategyName(name))}" tabindex="0">${overviewSwatch(overviewColor(identity.model))}${e(short(identity.model))}<small>${e(overviewRound(identity.condition,identity.generation))} · #${identity.replicate+1}</small></abbr>`;
     }
-    return `<abbr title="${e(name)}" tabindex="0">${referenceSwatch(name)}${e(short(name))}</abbr>`;
+    return `<abbr title="${e(name)}" tabindex="0">${overviewSwatch(overviewColor(name))}${e(short(name))}</abbr>`;
   };
-  return `<div class="overview-matrix-wrap"><table class="overview-matrix" style="min-width:${120 + names.length * 140}px" aria-label="Head-to-head results by selected grouping"><thead><tr><th scope="col" class="matrix-axis">Row model ↓<br>Opponent →</th>${names.map((name) => `<th scope="col">${label(name)}</th>`).join("")}</tr></thead><tbody>${rows
+  const modelOf = (name) => data.scope.matrix === "versions" ? overviewIdentity(name).model : name;
+  const head = (name, scope) => `<th scope="${scope}" style="--model-color:${overviewColor(modelOf(name))}">${label(name)}</th>`;
+  return `<div class="overview-matrix-wrap"><table class="overview-matrix" style="min-width:${110 + names.length * 78}px" aria-label="Head-to-head results by selected grouping"><thead><tr><th scope="col" class="matrix-axis">Row ↓ vs →</th>${names.map((name) => head(name, "col")).join("")}</tr></thead><tbody>${rows
     .map(
       (who) =>
-        `<tr><th scope="row">${label(who)}</th>${names
+        `<tr>${head(who, "row")}${names
           .map((other) => {
             const r = data.matrix.find(
               (row) => row.who === who && row.other === other,
             );
             if (!r) return '<td class="overview-no-match">·</td>';
             const relation=r.score==null?'No completed fights':r.score>.5?'Row leads':r.score<.5?'Column leads':'Even';
-            const tint=r.score==null?'transparent':`rgba(${r.score>.5?'38,131,106':r.score<.5?'188,59,80':'113,123,145'},${.04+Math.abs((r.score??.5)-.5)*.28})`;
-            return `<td style="background:${tint}" aria-label="${e(who)} against ${e(other)}: ${r.wins} wins, ${r.draws} draws, ${r.losses} losses for ${e(who)}"><small class="matrix-relation">${relation}</small><div class="overview-cell-score">${overviewMatchLink(data, who, other, "completed", pct(r.score), countLabel(r.completed, "completed match", "completed matches"))}</div><div class="overview-cell-results">${overviewMatchLink(data, who, other, "win", r.wins+" W", `${who} beats ${other}: ${countLabel(r.wins, "win")}`)}<span> / </span>${overviewMatchLink(data, who, other, "draw", r.draws+" D", `${who} draws against ${other}: ${countLabel(r.draws, "draw")}`)}<span> / </span>${overviewMatchLink(data, who, other, "loss", r.losses+" L", `${who} loses against ${other}: ${countLabel(r.losses, "loss", "losses")}`)}</div>${r.failures ? `<small>${overviewMatchLink(data, who, other, "failure", r.failures + " failed", countLabel(r.failures, "failure"))}</small>` : ""}</td>`;
+            const tint=r.score==null?'transparent':`rgba(${r.score>.5?'38,131,106':r.score<.5?'188,59,80':'113,123,145'},${.06+Math.abs((r.score??.5)-.5)*.6})`;
+            return `<td style="background:${tint}" title="${e(relation)}" aria-label="${e(who)} against ${e(other)}: ${r.wins} wins, ${r.draws} draws, ${r.losses} losses for ${e(who)}"><div class="overview-cell-score">${overviewMatchLink(data, who, other, "completed", pct(r.score), countLabel(r.completed, "completed match", "completed matches"))}</div><div class="overview-cell-results">${overviewMatchLink(data, who, other, "win", r.wins+" W", `${who} beats ${other}: ${countLabel(r.wins, "win")}`)}<span> / </span>${overviewMatchLink(data, who, other, "draw", r.draws+" D", `${who} draws against ${other}: ${countLabel(r.draws, "draw")}`)}<span> / </span>${overviewMatchLink(data, who, other, "loss", r.losses+" L", `${who} loses against ${other}: ${countLabel(r.losses, "loss", "losses")}`)}</div>${r.failures ? `<small>${overviewMatchLink(data, who, other, "failure", r.failures + " failed", countLabel(r.failures, "failure"))}</small>` : ""}</td>`;
           })
           .join("")}</tr>`,
     )
     .join(
       "",
-    )}</tbody></table></div><div class="overview-caption">Read each cell from the row model’s perspective against the column opponent. W = row wins, D = draws, L = row losses. Green favors the row; red favors the column. Click a score or count to open those fights.${data.scope.matrix === "versions" ? " · Each entry is a frozen strategy, identified by round, track and repetition." : " · Switch to strategy versions to inspect fights between rounds or feedback tracks of the same model."}</div>`;
+    )}</tbody></table></div><div class="overview-caption">Read each cell from the row model’s perspective against the column opponent. W = row wins, D = draws, L = row losses. Green favors the row; red favors the column; darker means a clearer lead. The colored bar next to each name is the model’s chart color. Click a score or count to open those fights.${data.scope.matrix === "versions" ? " · Each entry is a frozen strategy, identified by round, track and repetition." : " · Switch to strategy versions to inspect fights between rounds or feedback tracks of the same model."}</div>`;
 }
 function overviewConversations(data) {
   const attention = overviewSettings().conversations === "attention";
