@@ -1,7 +1,6 @@
 You previously submitted a strategy. The previous competition round has finished.
 You now have a new preparation period to improve that strategy before the next round.
-Your previous submitted files are already in your workspace, including team.json
-when you choose your team. The previous_submission field identifies the exact entrypoint and files. Start with
+Your previous submitted files are already in your workspace. The previous_submission field identifies the exact entrypoint and files. Start with
 its read_workspace call; read_frozen retrieves the unchanged submitted version.
 Submission or a successful test against passive does not prove a strong strategy.
 Use the previous-round result summary below to investigate weaknesses before editing.

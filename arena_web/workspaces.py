@@ -256,8 +256,12 @@ class Workspaces:
                         'chart_profile':{key:model[key] for key in ('provider','endpoint','api_key_env') if key in model}
                             | {'reference':((model.get('strategy') or frozen.get(sid,{})).get('origin') or {}).get('reference')},
                         'model_size_billion':model_size(sid),
-                        'wins':0,'draws':0,'losses':0,'failed':0,'conversations':defaultdict(lambda:[0,0,None,None,None,None,None])})
+                        'wins':0,'draws':0,'losses':0,'failed':0,'operations':0,'operation_turns':0,'operation_fights':0,
+                        'conversations':defaultdict(lambda:[0,0,None,None,None,None,None,None,None])})
                     if row['model_size_billion']!=model_size(sid):row['model_size_billion']=None
+                    if match.get('operations'):
+                        row['operations']+=match['operations']['sides'][side]
+                        row['operation_turns']+=match['operations']['turns'];row['operation_fights']+=match['operations']['fights']
                     if not done:row['failed']+=weight;continue
                     outcome='draws' if result.get('winner_side')==-1 else 'wins' if result.get('winner_side')==side else 'losses'
                     row[outcome]+=weight
@@ -269,6 +273,8 @@ class Workspaces:
                         entry[4]=state.get('steps',0)
                         entry[5]=state.get('test_matches',0)
                         entry[6]=state.get('replay_reads')
+                        code=state.get('code_metrics') or {}
+                        entry[7]=code.get('lines');entry[8]=code.get('functions')
         for group in groups.values():
             group['runs']=sorted(group['runs'])
             for row in group['models'].values():
@@ -282,6 +288,13 @@ class Workspaces:
                     total=sum(values) if values and all(value is not None for value in values) else None
                     row[f'total_{metric}']=total
                     row[f'mean_{metric}']=total/len(values) if total is not None else None
+                # Code size averages the submissions that could be measured; frozen references have none.
+                for metric,index in (('code_lines',7),('code_functions',8)):
+                    values=[value[index] for value in conversations if value[index] is not None]
+                    row[f'mean_{metric}']=sum(values)/len(values) if values else None
+                operations,turns,fights=row.pop('operations'),row.pop('operation_turns'),row.pop('operation_fights')
+                row['mean_operations_per_turn']=operations/turns if turns else None
+                row['mean_operations_per_fight']=operations/fights if fights else None
             group['models']=sorted(group['models'].values(),key=lambda row:-(row['score'] if row['score'] is not None else -1))
         for row in [totals,*resources.values()]:
             for key in ('known_cost_usd','reserved_usd'):row[key]=str(row[key])

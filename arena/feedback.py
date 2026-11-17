@@ -5,6 +5,9 @@ from .core import ArenaError, digest, read_json
 FEEDBACK_NAMES = {'list_past_fights', 'read_past_fight'}
 METRICS = ('operations', 'errors', 'operation_limit_hits', 'stack_overflows', 'turns',
            'damage_dealt', 'damage_taken', 'healing_given', 'healing_received', 'ai_turns')
+# Characteristics visible to everyone in a standard game, for both teams.
+PUBLIC_STATS = ('level', 'life', 'strength', 'wisdom', 'agility', 'resistance', 'science', 'magic',
+                'frequency', 'cores', 'ram', 'tp', 'mp')
 ACTION_GUIDE = {0: 'Fight started', 4: 'Fight ended', 5: 'Death: entity, killer',
     6: 'New turn: turn number', 7: 'Entity turn started: entity', 8: 'Entity turn ended: entity',
     9: 'Summon: caster, summoned entity, target cell, result',
@@ -164,14 +167,17 @@ class PastFights:
         if record is None:
             raise ArenaError('Fight is not available to this feedback branch')
         section = arguments.get('section', 'overview')
-        if section not in {'overview', 'actions', 'turns', 'logs'}:
+        if section not in {'overview', 'actions', 'turns', 'logs', 'teams'}:
             raise ArenaError('Unknown fight section')
         view = self.overview(arguments['fight_id'], record)
         if section == 'overview':
             content = {**view, 'guide': 'own_side is 0 or 1; runtime entity IDs are listed in actions. HP=health, AP=action points, MP=movement points. operations counts LeekScript work, errors counts script errors. Top-level turns is fight length; own_metrics.turns sums executed entity turns. operation_limit_hits counts script turns that hit their operation cap. Missing metrics are unknown.',
-                       'sections': {'actions': 'Ordered combat events with an action argument guide and initial entities.',
+                       'sections': {'teams': 'Both teams as configured for this fight: every leek with its level, characteristics, weapons, chips and components, as visible to all players.',
+                                    'actions': 'Ordered combat events with an action argument guide and initial entities.',
                                     'turns': 'Your per-turn and per-leek numeric metrics.',
                                     'logs': 'Only your side debug/error logs; never opposing scripts or logs.'}}
+        elif section == 'teams':
+            content = fight_teams(record.get('_root', self.root), record['directory'], view['own_side'])
         else:
             from .preparation import local_path
             replay_path = local_path(record.get('_root', self.root), record['directory']) / 'outcome.json'
@@ -201,7 +207,36 @@ class PastFights:
                     if action[0] == 7 and len(action)>1: actor = action[1]
                     events.append({'turn': turn, 'actor': actor, 'action': ACTION_GUIDE.get(action[0], 'Other public engine action'), 'code': action[0], 'arguments': action[1:]})
                 content = {'own_side': side, 'guide': 'Events are chronological. actor is the active entity; team is 1 for side 0, 2 for side 1. Chip/weapon IDs here are replay templates, not runtime item IDs. String debug/chat payloads are excluded.',
-                           'entities': [{k:v for k,v in leek.items() if k in {'id','team','life','cellPos','summon','level','strength','tp','mp'}} for leek in fight.get('leeks', [])], 'events': events}
+                           'entities': [{k:v for k,v in leek.items() if k in {'id','team','cellPos','summon',*PUBLIC_STATS}} for leek in fight.get('leeks', [])], 'events': events}
         from .model_content import compact, page
         return {**page(compact(content),arguments,name,{'fight_id':arguments['fight_id'],'section':section},default=4000),
                 'round':view['round'], 'own_submission':view['own_submission']}
+
+
+def fight_teams(root, directory, own_side):
+    """Both rosters of a past fight: public characteristics and equipment, never scripts or entrypoints."""
+    from .core import ROOT
+    from .equipment import catalog
+    from .fight_store import exists, read_json as read_artifact
+    from .preparation import local_path
+    work = local_path(root, directory)
+    if not exists(work / 'scenario.json'):
+        raise ArenaError('No team record was kept for this fight; read actions for its initial entities')
+    scenario = read_artifact(work / 'scenario.json')
+    runtime = {}
+    if exists(work / 'outcome.json'):
+        outcome = read_artifact(work / 'outcome.json')
+        runtime = {leek.get('name'): leek.get('id') for leek in (outcome.get('fight') or {}).get('leeks', []) if not leek.get('summon')}
+    data = ROOT / 'docs/leekscript-v1'
+    names = {kind: catalog(data, kind, include_special=True) for kind in ('weapons', 'chips')}
+    def items(kind, values):
+        return [{'id': value, 'name': names[kind].get(str(value), {}).get('name')} for value in values or []]
+    teams = []
+    for side, members in enumerate(scenario.get('entities') or []):
+        teams.append({'side': side, 'yours': side == own_side, 'members': [{
+            'entity_id': runtime.get(member.get('name')), 'name': member.get('name'),
+            'characteristics': {key: member[key] for key in PUBLIC_STATS if key in member},
+            'weapons': items('weapons', member.get('weapons')), 'chips': items('chips', member.get('chips')),
+            'components': member.get('components') or []} for member in members]})
+    return {'own_side': own_side, 'teams': teams,
+            'guide': 'Each team lists its leeks as configured for this fight. Weapon IDs are runtime item IDs and chip IDs are catalog IDs, the same IDs configure_team accepts. entity_id matches the actions section. Components list template IDs with their alteration stats. Scripts and entrypoints are never shown.'}

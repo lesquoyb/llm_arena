@@ -84,6 +84,19 @@ configuration. Write those scripts, then call `configure_team`; this repeats
 validation and requires existing sources. `analyze`, `test` and `submit` use the
 saved team. All requests and validation results are recorded in the conversation.
 
+Illegal builds are rejected with the reason: capital above the level's total,
+more weapons than the level's slots (2 below level 100, 3 at 100–199, 4 from
+200), more chips than RAM, equipment above the leek level, duplicates,
+boss-only or summon-only chips, and items outside the competition allowlists.
+Legal but possibly unintended choices are listed under `warnings`: unspent
+capital, unused weapon or chip slots, and fewer members than allowed.
+
+The team is not locked between rounds. A later round starts from the team you
+configured before; you can change the number of leeks, their levels, builds,
+equipment and scripts with `configure_team`. With fight feedback,
+`read_past_fight` section `teams` shows both teams of a past fight: each leek's
+level, characteristics, weapons, chips and components, as any player sees them.
+
 ## Testing your own alternative scripts
 
 `test` defaults to the built-in passive opponent. To compare your own code,

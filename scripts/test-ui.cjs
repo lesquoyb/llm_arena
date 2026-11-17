@@ -1387,8 +1387,8 @@ async function main() {
     assert.deepEqual(directions, ["descending", "ascending"]);
     await page.getByText("Detailed metrics", { exact: true }).click();
     await page.getByRole("heading", { name: "Match matrix" }).waitFor();
-    assert(
-      /1 W\s*0 D\s*0 L/.test(await page.locator(".overview-matrix").innerText()),
+    await page.waitForFunction(() =>
+      /1 W\s*0 D\s*0 L/.test(document.querySelector(".overview-matrix")?.innerText || ""),
     );
     await page.screenshot({
       path: path.join(artifacts, "summary.png"),
@@ -1463,16 +1463,17 @@ async function main() {
     );
     await page.getByRole("button", { name: "Matches", exact: true }).click();
     await page.locator("#replay-board circle").first().waitFor();
-    assert(
-      (await page.locator(".replay-legend").innerText()).includes(
-        "Side 1 · Blue",
-      ),
-    );
-    assert(
-      (await page.locator(".replay-legend").innerText()).includes(
-        "Side 2 · Orange",
-      ),
-    );
+    // Distinct model chart colors replace blue/orange; each side's leeks share its column and color.
+    const replaySides = await page.evaluate(() => {
+      const legend = [...document.querySelectorAll(".replay-legend p")].map(p => [p.textContent, p.style.borderLeftColor]);
+      const columns = [...document.querySelectorAll("#replay-entities .entity-column")].map(column =>
+        [...new Set([...column.querySelectorAll(".entity-card strong")].map(node => node.style.color))]);
+      return { legend, columns };
+    });
+    assert.equal(replaySides.legend.length, 2);
+    assert(replaySides.legend[0][0].startsWith("Side 1") && replaySides.legend[1][0].startsWith("Side 2"));
+    assert.notEqual(replaySides.legend[0][1], replaySides.legend[1][1]);
+    assert.deepEqual(replaySides.columns, replaySides.legend.map(([, color]) => [color]));
     assert.equal(await page.locator('[data-summon="true"]').count(), 0);
     assert(
       !(await page.locator("#replay-entities").innerText()).includes(

@@ -395,7 +395,14 @@ class FightIndex:
                 if saved is None or saved[0] != stamp:
                     seed_filter = ' AND seed IN ('+','.join('?' for _ in seeds)+')' if seeds else ''
                     grouped = db.execute('SELECT kind,stage,mirror,a,b,candidate,candidate_side,status,winner,count(*),'
-                                         'coalesce(sum(cache_hit),0),max(modified) FROM fights WHERE run=? AND stage=?'
+                                         'coalesce(sum(cache_hit),0),max(modified),'
+                                         # Engine operations per side, only over fights where both sides and turns are known.
+                                         "coalesce(sum(CASE WHEN status='completed' AND ops_a IS NOT NULL AND ops_b IS NOT NULL AND turns>0 THEN ops_a END),0),"
+                                         "coalesce(sum(CASE WHEN status='completed' AND ops_a IS NOT NULL AND ops_b IS NOT NULL AND turns>0 THEN ops_b END),0),"
+                                         "coalesce(sum(CASE WHEN status='completed' AND ops_a IS NOT NULL AND ops_b IS NOT NULL AND turns>0 THEN turns END),0),"
+                                         "coalesce(sum(CASE WHEN status='completed' AND ops_a IS NOT NULL AND ops_b IS NOT NULL AND turns>0 THEN 1 END),0),"
+                                         "coalesce(sum(CASE WHEN status='completed' THEN limits_a END),0),coalesce(sum(CASE WHEN status='completed' THEN limits_b END),0) "
+                                         'FROM fights WHERE run=? AND stage=?'
                                          + seed_filter + ' GROUP BY mirror,a,b,candidate,candidate_side,status,winner',
                                          (run, stage, *seeds)).fetchall()
                     saved = cache[stage] = (stamp, grouped)

@@ -73,7 +73,7 @@ def groups(store, root, states, models):
         if value not in table:
             table[value] = len(table)
         return table[value]
-    for kind, stage, mirror, a, b, candidate, candidate_side, status, winner, count, cached, _ in rows:
+    for kind, stage, mirror, a, b, candidate, candidate_side, status, winner, count, cached, _, ops_a, ops_b, turns, measured, limits_a, limits_b in rows:
         if hidden_from_results(stage, kind, (a, b), states, policy):
             continue
         completed = status == 'completed'
@@ -81,14 +81,17 @@ def groups(store, root, states, models):
         # A-vs-B and B-vs-A together so a pair costs one row per outcome.
         if candidate is None and not mirror and str(b) < str(a):
             a, b = b, a
+            ops_a, ops_b, limits_a, limits_b = ops_b, ops_a, limits_b, limits_a
             if completed and winner in (0, 1):
                 winner = 1 - winner
         key = (KINDS.index(kind), ref(stage_ids, stage), mirror, ref(ids, a), ref(ids, b),
                ref(ids, candidate) if candidate is not None else -1, -1 if candidate_side is None else candidate_side)
-        counts = merged.setdefault(key, [0, 0, 0, 0, 0])
+        counts = merged.setdefault(key, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
         index = 3 if not completed else 2 if winner == -1 else winner
         counts[index] += count
         counts[4] += cached
+        for offset, value in enumerate((ops_a, ops_b, turns, measured, limits_a, limits_b), 5):
+            counts[offset] += value
     sessions_training = sum(1 for a, b, status, winner, modified in training
                             if modified >= cutoffs.get(a if a in states else b, 0))
     identity = identities([{'id': sid, **state} for sid, state in states.items()])
@@ -103,9 +106,10 @@ def groups(store, root, states, models):
         opponent = names[b] if names[a] == cand_id else names[a]
         previous.append(int(previous_round(KINDS[kind], identity(cand_id), identity(opponent), models)))
     return {'columns': ['kind', 'stage', 'mirror', 'a', 'b', 'candidate', 'candidate_side',
-                        'wins_a', 'wins_b', 'draws', 'failures', 'cached', 'previous_round_comparison'],
+                        'wins_a', 'wins_b', 'draws', 'failures', 'cached', 'previous_round_comparison',
+                        'operations_a', 'operations_b', 'measured_turns', 'measured_fights', 'operation_limit_hits_a', 'operation_limit_hits_b'],
             'kinds': list(KINDS), 'stages': list(stage_ids), 'ids': names,
-            'rows': [[*key, *counts, flag] for (key, counts), flag in zip(merged.items(), previous)],
+            'rows': [[*key, *counts[:5], flag, *counts[5:]] for (key, counts), flag in zip(merged.items(), previous)],
             'training_matches': sessions_training}
 
 
@@ -345,11 +349,22 @@ def fixtures(store, root, states, models, source, stage=None):
 def expand(summary):
     """Pseudo-fights carrying a count, one per stored outcome of a group."""
     kinds, stages, ids = summary['kinds'], summary['stages'], summary['ids']
-    for kind, stage, mirror, a, b, candidate, side, wins_a, wins_b, draws, failures, cached, previous in summary['rows']:
+    for kind, stage, mirror, a, b, candidate, side, wins_a, wins_b, draws, failures, cached, previous, *measured in summary['rows']:
         base = {'kind': kinds[kind], 'stage': stages[stage], 'mirror': bool(mirror), 'sides': [ids[a], ids[b]],
                 'candidate': ids[candidate] if candidate >= 0 else None, 'candidate_side': side if side >= 0 else None,
                 'previous_round_comparison': bool(previous)}
+        # Group-level operation totals ride on the first outcome only, so sums never double count.
+        operations = operation_totals(measured)
         for count, result in ((wins_a, {'status': 'completed', 'winner_side': 0}), (wins_b, {'status': 'completed', 'winner_side': 1}),
                               (draws, {'status': 'completed', 'winner_side': -1}), (failures, {'status': 'failed'})):
             if count:
-                yield {**base, 'result': result, 'count': count}
+                yield {**base, 'result': result, 'count': count, **({'operations': operations} if operations else {})}
+                operations = None
+
+
+def operation_totals(measured):
+    """Engine operations of a fight group: per-side sums over fights with known operations and turns."""
+    if len(measured) < 6 or not measured[3]:
+        return None
+    ops_a, ops_b, turns, fights, limits_a, limits_b = measured[:6]
+    return {'sides': [ops_a, ops_b], 'turns': turns, 'fights': fights, 'limit_hits': [limits_a, limits_b]}

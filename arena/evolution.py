@@ -323,6 +323,10 @@ def run_generation(config, out, journal, engine, initial, interrupt=None, retry_
                 message.update(generation=generation,condition=condition,
                     content=phase(generation+1, config.get('generations', 2)) + f" {generation} competition rounds have elapsed.\n"
                         + prompt_path.read_text(encoding='utf-8') + '\nPreparation rules:\n' + PROMPT)
+                if config['scenario'].get('team_selection'):
+                    message['content'] += '\n' + (ROOT / 'prompts/team-revision.md').read_text(encoding='utf-8')
+                    if condition == 'feedback':
+                        message['content'] += (ROOT / 'prompts/team-feedback.md').read_text(encoding='utf-8')
                 if condition == "feedback":
                     counts = feedback_for(parent["id"], out / "tournament")
                     state["previous_round_feedback"] = counts

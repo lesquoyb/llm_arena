@@ -1140,9 +1140,11 @@ function resourceScatter(points, metric='size', order) {
     <div class="chart-legend">${valid.map((p,i)=>`<span tabindex="0" data-chart-model="${e(p.model||p.label)}"><i class="dot" style="background:${p.color||seriesColor(i)}"></i>${e(resourcePointLabel(p,metric))}</span>`).join('')}</div>
     ${valid.length<eligible.length?`<p class="muted">${eligible.length-valid.length} entries with missing measurements excluded from this chart.</p>`:''}`;
 }
-const RESOURCE_LABELS={size:'Size (B)',cost:'Mean cost ($)',time:'Mean time (min)',tools:'Mean tool calls',tests:'Mean preparation fights',replays:'Mean replay reads'};
-const RESOURCE_UNITS={size:'B parameters',cost:'$',time:'minute',tools:'tool call',tests:'preparation fight',replays:'replay read'};
-const RESOURCE_AMOUNT_LABELS={size:'Model size (B)',cost:'Cost (USD)',time:'Time (min)',tools:'Tool calls',tests:'Preparation fights',replays:'Replay reads'};
+const RESOURCE_LABELS={size:'Size (B)',cost:'Mean cost ($)',time:'Mean time (min)',tools:'Mean tool calls',tests:'Mean preparation fights',replays:'Mean replay reads',ops:'Engine operations / turn (k)',lines:'Lines of code'};
+const RESOURCE_UNITS={size:'B parameters',cost:'$',time:'minute',tools:'tool call',tests:'preparation fight',replays:'replay read',ops:'k operations per turn',lines:'line of code'};
+const RESOURCE_AMOUNT_LABELS={size:'Model size (B)',cost:'Cost (USD)',time:'Time (min)',tools:'Tool calls',tests:'Preparation fights',replays:'Replay reads',ops:'Ops / turn (k)',lines:'Lines of code'};
+// Measures of the model or of its AI rather than of preparation work: no per-strategy total, references included where measured.
+const RESOURCE_INTRINSIC=new Set(['size','ops','lines']);
 function resourceValue(value,metric) {
   return metric==='cost'?money(value):fmt(value,2);
 }
@@ -1151,16 +1153,18 @@ function resourceTotalLabel(point,metric) {
   return Number.isFinite(total)?resourceValue(total,metric)+' total':'Total unavailable';
 }
 function resourceEfficiencyCaption(metric) {
+  if(metric==='ops')return 'Match score in percentage points divided by thousands of engine operations per fight turn.';
+  if(metric==='lines')return 'Match score in percentage points divided by mean lines of code of the submitted AIs.';
   return metric==='size'?'Match score in percentage points divided by model size in billions of parameters.':
     'Match score in percentage points divided by average resource use per strategy.';
 }
 function resourcePointLabel(point,metric) {
-  const units={size:'B parameters',cost:'',time:'min',tools:'tool calls',tests:'preparation fights',replays:'replay reads'};
+  const units={size:'B parameters',cost:'',time:'min',tools:'tool calls',tests:'preparation fights',replays:'replay reads',ops:'k operations / turn',lines:'lines of code'};
   const value=[resourceValue(point[metric],metric),units[metric]].filter(Boolean).join(' ');
-  return `${point.label} · ${pct(point.score)} · ${value}${metric==='size'?'':` / strategy · ${resourceTotalLabel(point,metric)}`}`;
+  return `${point.label} · ${pct(point.score)} · ${value}${RESOURCE_INTRINSIC.has(metric)?'':` / strategy · ${resourceTotalLabel(point,metric)}`}`;
 }
 function resourceBars(points,metric,order) {
-  const eligible=points.filter(p=>metric==='size'||!p.reference);
+  const eligible=points.filter(p=>RESOURCE_INTRINSIC.has(metric)||!p.reference);
   const rows=orderCandidates(eligible.filter(p=>p.score!=null&&Number.isFinite(p[metric])&&p[metric]>0)
     .map(p=>({...p,efficiency:100*p.score/p[metric]})),p=>p.model||p.label,
     (a,b)=>b.efficiency-a.efficiency||a.label.localeCompare(b.label),order);
@@ -1168,11 +1172,11 @@ function resourceBars(points,metric,order) {
   const unit=RESOURCE_UNITS[metric];
   const maximum=Math.max(...rows.map(p=>p.efficiency))||1;
   const amountHeading=RESOURCE_AMOUNT_LABELS[metric];
-  return `<p class="muted">${resourceEfficiencyCaption(metric)}</p><div class="resource-bar-head"><span>Model</span><span class="resource-amount">${amountHeading}${metric==='size'?'':'<small>Avg. / total</small>'}</span><span>pp / ${e(unit)}</span></div><div class="resource-bar-list" role="region" aria-label="Performance per ${e(unit)}" tabindex="0">${rows.map(row=>{
+  return `<p class="muted">${resourceEfficiencyCaption(metric)}</p><div class="resource-bar-head"><span>Model</span><span class="resource-amount">${amountHeading}${RESOURCE_INTRINSIC.has(metric)?'':'<small>Avg. / total</small>'}</span><span>pp / ${e(unit)}</span></div><div class="resource-bar-list" role="region" aria-label="Performance per ${e(unit)}" tabindex="0">${rows.map(row=>{
     const value=fmt(row.efficiency,metric==='cost'?2:3);
     const label=`${resourcePointLabel(row,metric)} · ${value} percentage points / ${unit}`;
     const total=row.totals?.[metric];
-    return `<div class="resource-score-row" data-chart-model="${e(row.model||row.label)}" data-chart-label="${e(label)}" tabindex="0"><strong>${e(row.label)}</strong><span class="resource-amount">${resourceValue(row[metric],metric)}${metric==='size'?'':`<small>${Number.isFinite(total)?resourceValue(total,metric):'Unavailable'}</small>`}</span><div class="resource-score"><div class="workspace-bar-track"><span style="width:${100*row.efficiency/maximum}%;background:${row.color}"></span></div><b>${value}</b></div></div>`;
+    return `<div class="resource-score-row" data-chart-model="${e(row.model||row.label)}" data-chart-label="${e(label)}" tabindex="0"><strong>${e(row.label)}</strong><span class="resource-amount">${resourceValue(row[metric],metric)}${RESOURCE_INTRINSIC.has(metric)?'':`<small>${Number.isFinite(total)?resourceValue(total,metric):'Unavailable'}</small>`}</span><div class="resource-score"><div class="workspace-bar-track"><span style="width:${100*row.efficiency/maximum}%;background:${row.color}"></span></div><b>${value}</b></div></div>`;
   }).join('')}</div><div class="chart-legend">${[...new Map(rows.map(row=>[row.model||row.label,row])).values()].map(row=>`<span tabindex="0" data-chart-model="${e(row.model||row.label)}"><i class="dot" style="background:${row.color}"></i>${e(row.model||row.label)}</span>`).join('')}</div>${rows.length<eligible.length?`<small>${eligible.length-rows.length} entries with missing or zero resource measurements excluded; division by zero is undefined.</small>`:''}`;
 }
 function renderResourceChart(context) {
@@ -1185,7 +1189,7 @@ function resourcePanel(points, context) {
   points=points.map(p=>({...p,color:p.color||seriesColor(names.indexOf(p.model||p.label))}));
   S.resourcePoints ||= {};S.resourcePoints[context]=points;
   const metric=S.resourceMetric||'tools';
-  return `<div class="resource-chart" data-chart-key="resource:${e(context)}:${e(context==='workspace'?S.workspace:S.run)}"><div class="overview-section-head"><h3>Performance vs resources</h3><div class="chart-controls">${chartActions()}<label class="field">Display<select data-resource-view="${context}" aria-label="Resource chart display"><option value="bars" ${S.resourceView!=='points'?'selected':''}>Bars</option><option value="points" ${S.resourceView==='points'?'selected':''}>Points</option></select></label><label class="field">Compare by<select data-resource-axis="${context}">${[['size','Model size'],['cost','Preparation cost'],['time','Preparation time'],['tools','Tool calls'],['tests','Preparation fights'],['replays','Replay reads']].map(([id,name])=>`<option value="${id}" ${id===metric?'selected':''}>${name}</option>`).join('')}</select></label></div></div><div id="${context}-resource-chart">${renderResourceChart(context)}</div><p class="muted">Tool calls include failures. Preparation fights count both starting sides. Replay reads include pagination.</p></div>`;
+  return `<div class="resource-chart" data-chart-key="resource:${e(context)}:${e(context==='workspace'?S.workspace:S.run)}"><div class="overview-section-head"><h3>Performance vs resources</h3><div class="chart-controls">${chartActions()}<label class="field">Display<select data-resource-view="${context}" aria-label="Resource chart display"><option value="bars" ${S.resourceView!=='points'?'selected':''}>Bars</option><option value="points" ${S.resourceView==='points'?'selected':''}>Points</option></select></label><label class="field">Compare by<select data-resource-axis="${context}">${[['size','Model size'],['cost','Preparation cost'],['time','Preparation time'],['tools','Tool calls'],['tests','Preparation fights'],['replays','Replay reads'],['ops','Engine operations / turn'],['lines','Lines of code']].map(([id,name])=>`<option value="${id}" ${id===metric?'selected':''}>${name}</option>`).join('')}</select></label></div></div><div id="${context}-resource-chart">${renderResourceChart(context)}</div><p class="muted">Tool calls include failures. Preparation fights count both starting sides. Replay reads include pagination. Engine operations come from the fights of this selection; lines of code exclude blanks and comments.</p></div>`;
 }
 function overviewModelSize(d, id) {
   const pinned=d.model_metadata?.[id]?.model_size_billion;
@@ -1212,9 +1216,10 @@ function overviewResourcePoints(d,data) {
     };
     const averages=Object.fromEntries(Object.entries(totals).map(([metric,total])=>
       [metric,total!=null&&sessions.length?total/sessions.length:null]));
+    const complexity=data.complexity?.find(row=>row.model===id);
     return {reference:d.metadata.config?.models.find(model=>model.id===id)?.provider==='mock' || (!sessions.length && !!d.metadata.manifest),
       model:id,label:participantName(id),color:overviewColor(id),score:scores.get(id)??null,size:overviewModelSize(d,id),
-      totals,...averages};
+      totals,...averages,ops:complexity?.operations_per_turn==null?null:complexity.operations_per_turn/1000,lines:complexity?.lines??null};
   });
 }
 
@@ -1225,7 +1230,7 @@ function workspacePerformance(group) {
   S.workspaceResourceOrder={run,references};
   const models=[...group.models].sort((a,b)=>(b.score??-1)-(a.score??-1))
     .map(m=>({...m,color:comparisonChartColor(m.name,m.chart_profile,run)}));
-  return resourcePanel(models.map(m=>({model:m.name,color:m.color,reference:m.is_reference,totals:{tools:m.total_tool_calls,tests:m.total_test_matches,replays:m.total_replay_reads,cost:m.total_cost_usd,time:m.total_wall_seconds==null?null:m.total_wall_seconds/60},tools:m.mean_tool_calls,tests:m.mean_test_matches,replays:m.mean_replay_reads,label:`${participantName(m.name)} · ${m.round ? "R"+m.round : "Frozen"} · ${text(m.condition)}`,score:m.score,size:m.model_size_billion,cost:m.mean_cost_usd,time:m.mean_wall_seconds==null?null:m.mean_wall_seconds/60})),"workspace")+`<section class="workspace-chart"><div class="overview-section-head"><h3>Model scores</h3>${chartActions()}</div><div class="workspace-bars">${models.map(m=>`<div class="workspace-bar"><div><strong title="${e(m.name)}">${e(participantName(m.name))}</strong><small>${m.round ? `Round ${m.round}` : 'Frozen strategy'} · ${e(text(m.condition))}</small></div><div class="workspace-bar-track"><span style="width:${Math.max(0,Math.min(100,(m.score||0)*100))}%;${m.color?`background:${m.color}`:''}"></span></div><strong>${pct(m.score)}</strong></div>`).join('')}</div></section>`+
+  return resourcePanel(models.map(m=>({model:m.name,color:m.color,reference:m.is_reference,totals:{tools:m.total_tool_calls,tests:m.total_test_matches,replays:m.total_replay_reads,cost:m.total_cost_usd,time:m.total_wall_seconds==null?null:m.total_wall_seconds/60},tools:m.mean_tool_calls,tests:m.mean_test_matches,replays:m.mean_replay_reads,ops:m.mean_operations_per_turn==null?null:m.mean_operations_per_turn/1000,lines:m.mean_code_lines,label:`${participantName(m.name)} · ${m.round ? "R"+m.round : "Frozen"} · ${text(m.condition)}`,score:m.score,size:m.model_size_billion,cost:m.mean_cost_usd,time:m.mean_wall_seconds==null?null:m.mean_wall_seconds/60})),"workspace")+`<section class="workspace-chart"><div class="overview-section-head"><h3>Model scores</h3>${chartActions()}</div><div class="workspace-bars">${models.map(m=>`<div class="workspace-bar"><div><strong title="${e(m.name)}">${e(participantName(m.name))}</strong><small>${m.round ? `Round ${m.round}` : 'Frozen strategy'} · ${e(text(m.condition))}</small></div><div class="workspace-bar-track"><span style="width:${Math.max(0,Math.min(100,(m.score||0)*100))}%;${m.color?`background:${m.color}`:''}"></span></div><strong>${pct(m.score)}</strong></div>`).join('')}</div></section>`+
     table(['Participant','Size (B)','Score / B','Round / track','Win / draw / loss','Failed fights','Strategies'],group.models.map(m=>`<tr><td title="${e(m.name)}">${e(participantName(m.name))}</td><td>${fmt(m.model_size_billion,3)}</td><td>${fmt(m.score_per_billion,4)}</td><td>${m.round??'Frozen'} · ${e(text(m.condition))}</td><td>${m.wins} / ${m.draws} / ${m.losses}</td><td>${m.failed}</td><td>${m.conversations}</td></tr>`))+
     `<p class="muted">Mean score per conversation: win 1, draw 0.5, loss 0. ${group.internal_matches} same-model fights excluded. ${group.runs.length} competitions in this group.</p><details class="quiet-details"><summary>Included competitions & scenario</summary><div class="actions">${group.runs.map(id=>btn(e(S.boot.runs.find(r=>r.id===id)?.name||id),'open-run',`data-run="${e(id)}"`)).join('')}</div>${raw(group.scenario,'Scenario settings')}</details>`;
 }
@@ -2772,12 +2777,17 @@ function overviewAccept(item, scope) {
 // Fight groups from /api/fight-groups: one pseudo-fight per stored outcome, with a count.
 function expandFightGroups(value) {
   const rows=[],{kinds,stages,ids}=value;
-  for(const [kind,stage,mirror,a,b,candidate,side,winsA,winsB,draws,failures,cached,previous] of value.rows) {
+  for(const [kind,stage,mirror,a,b,candidate,side,winsA,winsB,draws,failures,cached,previous,opsA,opsB,turns,measured,limitsA,limitsB] of value.rows) {
     const base={kind:kinds[kind],stage:stages[stage],mirror:!!mirror,sides:[ids[a],ids[b]],
       candidate:candidate>=0?ids[candidate]:null,candidate_side:side>=0?side:null,previous_round_comparison:!!previous};
     const outcomes=[[winsA,{status:'completed',winner_side:0}],[winsB,{status:'completed',winner_side:1}],
       [draws,{status:'completed',winner_side:-1}],[failures,{status:'failed'}]];
-    for(const [count,result] of outcomes)if(count)rows.push({...base,count,result:cached?{...result,reference_cache:{hit:true}}:result});
+    // Group-level engine operations ride on the first outcome only, so sums never double count.
+    let operations=measured?{sides:[opsA,opsB],turns,fights:measured,limit_hits:[limitsA||0,limitsB||0]}:null;
+    for(const [count,result] of outcomes)if(count){
+      rows.push({...base,count,result:cached?{...result,reference_cache:{hit:true}}:result,...(operations?{operations}:{})});
+      operations=null;
+    }
   }
   return rows;
 }
@@ -2803,7 +2813,8 @@ function overviewData(d, scope=overviewSettings()) {
     .filter((v) => v.entries.length);
   const models = new Map(),
     matrix = new Map(),
-    history = new Map();
+    history = new Map(),
+    complexity = new Map();
   const add = (row, match, side) => {
     const result = match.result, weight = match.count || 1;
     if (result.status !== "completed") row.failures += weight;
@@ -2820,6 +2831,15 @@ function overviewData(d, scope=overviewSettings()) {
   const blank = () => ({ wins: 0, draws: 0, losses: 0, failures: 0 });
   for (const { match, entries } of selected)
     for (const item of entries) {
+      if (match.operations) {
+        // Engine work belongs to the strategy whatever the opponent, including same-model fights.
+        const row = complexity.get(item.model) || {model:item.model,operations:0,turns:0,fights:0,limit_hits:0};
+        row.operations += match.operations.sides[item.side];
+        row.turns += match.operations.turns;
+        row.fights += match.operations.fights;
+        row.limit_hits += match.operations.limit_hits[item.side];
+        complexity.set(item.model,row);
+      }
       const withinModel=overviewIdentity(match.sides[1-item.side]).model===item.model;
       if (!withinModel || scope.source==='progression') {
         if (!models.has(item.model))
@@ -2876,7 +2896,61 @@ function overviewData(d, scope=overviewSettings()) {
       .sort((a, b) => (b.score ?? -1) - (a.score ?? -1)),
     matrix: [...matrix.values()].map(finish),
     history: [...history.values()].map(({strategies,...row})=>finish({...row,strategy_count:strategies.size})),
+    complexity: overviewComplexityRows(complexity, sessions),
   };
+}
+const COMPLEXITY_MEASURES={
+  operations_per_turn:{label:'Engine operations / turn',format:value=>compactCount(value)},
+  operations_per_fight:{label:'Engine operations / fight',format:value=>compactCount(value)},
+  lines:{label:'Lines of code',format:value=>fmt(value,0)},
+  functions:{label:'Functions',format:value=>fmt(value,1)},
+  limit_hits_per_fight:{label:'Operation-limit hits / fight',format:value=>fmt(value,2)},
+};
+function compactCount(value) {
+  if(value==null||!Number.isFinite(value))return '—';
+  const size=Math.abs(value);
+  return size>=1e9?fmt(value/1e9,2)+'G':size>=1e6?fmt(value/1e6,2)+'M':size>=1e3?fmt(value/1e3,size>=1e5?0:1)+'k':fmt(value,0);
+}
+// Runtime work from fights plus static size of submitted code, one row per model.
+function overviewComplexityRows(complexity, sessions) {
+  const code=new Map();
+  for(const session of sessions) {
+    if(!session.submission||!session.code_metrics)continue;
+    const rows=code.get(session.model)||[];
+    rows.push(session.code_metrics);code.set(session.model,rows);
+  }
+  const mean=(rows,key)=>rows?.length?rows.reduce((sum,row)=>sum+row[key],0)/rows.length:null;
+  return [...new Set([...complexity.keys(),...code.keys()])].map(model=>{
+    const runtime=complexity.get(model),files=code.get(model);
+    const lines=files?.map(row=>row.lines)||[];
+    return {model,fights:runtime?.fights||0,
+      operations_per_turn:runtime?.turns?runtime.operations/runtime.turns:null,
+      operations_per_fight:runtime?.fights?runtime.operations/runtime.fights:null,
+      limit_hits_per_fight:runtime?.fights?runtime.limit_hits/runtime.fights:null,
+      strategies:files?.length||0,lines:mean(files,'lines'),functions:mean(files,'functions'),files:mean(files,'files'),
+      lines_min:lines.length?Math.min(...lines):null,lines_max:lines.length?Math.max(...lines):null};
+  });
+}
+function aiComplexity(d,data) {
+  const metric=COMPLEXITY_MEASURES[S.complexityMetric]?S.complexityMetric:'operations_per_turn';
+  const measure=COMPLEXITY_MEASURES[metric];
+  const scores=new Map(data.models.map(row=>[row.model,row.score]));
+  const score=model=>pct(scores.get(model)??null);
+  const rows=data.complexity.filter(row=>Number.isFinite(row[metric]))
+    .sort((a,b)=>b[metric]-a[metric]||participantName(a.model).localeCompare(participantName(b.model)));
+  const maximum=Math.max(0,...rows.map(row=>row[metric]))||1;
+  const head=`<div class="overview-section-head"><h2>AI complexity</h2><div class="chart-controls">${chartActions()}<label class="field">Measure<select data-complexity-metric aria-label="AI complexity measure">${Object.entries(COMPLEXITY_MEASURES).map(([id,item])=>`<option value="${id}" ${id===metric?'selected':''}>${e(item.label)}</option>`).join('')}</select></label></div></div>`;
+  if(!data.complexity.length)return `<section class="overview-card" id="ai-complexity" data-chart-key="complexity:${e(S.run)}">${head}<div class="overview-empty">No engine operations or submitted code in this selection yet.</div></section>`;
+  const runtime=metric.startsWith('operations')||metric==='limit_hits_per_fight';
+  const bars=rows.length?`<div class="complexity-bars" role="list">${rows.map(row=>{
+    const color=overviewColor(row.model),value=measure.format(row[metric]);
+    const detail=runtime?`${fmt(row.fights)} fights`:`${row.strategies} ${row.strategies===1?'strategy':'strategies'}${row.strategies>1&&metric==='lines'?` · ${row.lines_min}–${row.lines_max}`:''}`;
+    const label=`${participantName(row.model)} · ${measure.label} ${value} · ${detail} · score ${score(row.model)}`;
+    return `<div class="complexity-row" role="listitem" data-chart-model="${e(row.model)}" data-chart-label="${e(label)}" tabindex="0"><span class="complexity-name">${overviewSwatch(color)}${e(participantName(row.model))}</span><div class="workspace-bar-track"><span style="width:${100*row[metric]/maximum}%;background:${color}"></span></div><b>${e(value)}</b><small>${e(detail)} · score ${score(row.model)}</small></div>`;
+  }).join('')}</div>`:'<div class="overview-empty">No measurement for this measure in the selection.</div>';
+  const details=table(['Model','Score','Ops / turn','Ops / fight','Limit hits / fight','Measured fights','Lines of code','Functions','Files','Strategies'],
+    [...data.complexity].sort((a,b)=>(scores.get(b.model)??-1)-(scores.get(a.model)??-1)).map(row=>`<tr><td title="${e(row.model)}">${e(participantName(row.model))}</td><td>${score(row.model)}</td><td>${compactCount(row.operations_per_turn)}</td><td>${compactCount(row.operations_per_fight)}</td><td>${row.limit_hits_per_fight==null?'—':fmt(row.limit_hits_per_fight,2)}</td><td>${fmt(row.fights)}</td><td>${row.lines==null?'—':fmt(row.lines,0)+(row.strategies>1?` <small>${row.lines_min}–${row.lines_max}</small>`:'')}</td><td>${row.functions==null?'—':fmt(row.functions,1)}</td><td>${row.files==null?'—':fmt(row.files,1)}</td><td>${row.strategies}</td></tr>`));
+  return `<section class="overview-card" id="ai-complexity" data-chart-key="complexity:${e(S.run)}:${metric}">${head}<p class="muted">How much the submitted AIs compute and how large their code is. Engine operations are counted by the LeekScript engine for the whole team over the completed fights of this selection, then divided by fight turns or by fights. Lines of code exclude blank lines and comments and cover the entrypoint and the files it includes; values average each model's submitted strategies.</p>${bars}<details class="overview-details"><summary>All complexity measures by model</summary>${details}</details><small class="muted">Operations also depend on the opponent and on fight length. Operation-limit hits count turns where an AI exhausted its per-turn budget. Fixed references have no LLM-written code, so only their operations appear.</small></section>`;
 }
 function overviewFilters(d,data) {
   const options=(rows,value)=>rows.map(([id,label])=>`<option value="${e(id)}" ${id===value?'selected':''}>${e(label)}</option>`).join('');
@@ -3430,6 +3504,7 @@ function summary(d, statistics = null) {
     cost = sessions.reduce((n, s) => n + Number(s.cost_spent || 0), 0);
   return `<div class="competition-overview">${indexingNotice(S.overviewIndexing)}${overviewFilters(d, data)}${d.metadata.config?.reuse_preparations?notice(`Historical preparation metrics are included for: ${d.metadata.config.reuse_preparations.models.map(participantName).join(", ")}. Their strategies were reused from ${d.metadata.config.reuse_preparations.source}.`):""}${data.scope.source==='references'?notice('This view combines tournament fights and additional fights against evaluation references. The official ranking uses tournament fights.'):''}${data.scope.source==='progression'?notice('Unscored progression diagnostic: current LLM versions face the preceding round. This includes same-model historical opponents; results do not change tournament standings or model feedback.'):''}${failures.length ? `<div class="overview-alert">${failures.length} conversation${failures.length === 1 ? "" : "s"} need attention. <button class="table-button" data-action="overview-failures">Review & retry</button> <button class="table-button" data-action="billing-recovery">Provider recovery</button></div>` : ""}<div class="overview-kpis"><div><span>Completed fights</span><strong>${fmt(fightCount(data.selected.filter((v) => v.match.result.status === "completed")))}</strong><small>${fmt(fightCount(data.selected.filter((v) => v.match.result.status !== "completed")))} failed</small></div><div><span>Submitted strategies</span><strong>${sessions.length ? sessions.filter((s) => s.submission || s.status === "submitted").length : d.metadata.manifest?.strategies?.filter(s=>overviewAccept(overviewIdentity(s.id),data.scope)).length ?? data.models.length}${sessions.length ? `<small> / ${sessions.length}</small>` : ""}</strong><small>${d.metadata.config ? d.metadata.config.models.filter(model=>!d.roster?.withdrawn.includes(model.id)&&(!data.scope.model||data.scope.model===model.id)).length : data.models.length} active participants</small></div><div><span>Estimated API cost</span><strong>${sessions.length ? (costUnknown ? "Unknown" : money(cost)) : "N/A"}</strong><small>Selected versions</small></div><div><span>Tokens · selected versions</span><strong>${known.length ? fmt(tokens) : real.length ? "Unknown" : "N/A"}</strong><small>${known.length ? (known.length < real.length || known.some(u=>!u.complete) ? "Partial reported usage" : "Input + output") : real.length ? "Not reported by provider" : "No measured LLM usage"}</small></div></div>
   <div class="overview-charts"><section class="overview-card"><div class="overview-section-head"><h2>${data.scope.source==='references'?"Scores including evaluation references":"Model ranking"}</h2><div class="chart-controls"><label class="check"><input type="checkbox" data-overview-filter="compactRanking" ${data.scope.compactRanking?'checked':''}>Compact</label>${chartActions()}</div></div>${overviewRanking(data)}</section><section class="overview-card"><div class="overview-section-head"><h2>Evolution</h2>${chartActions()}</div>${overviewEvolution(data)}</section></div><section class="overview-card">${resourcePanel(overviewResourcePoints(d,data),"overview")}</section>
+  ${aiComplexity(d,data)}
   ${modelUsageCharts(d,data.scope)}
   ${lineageChart(d,data)}
   ${fightLengthCard(data.scope)}
@@ -4164,6 +4239,18 @@ function fightTimingView(result, record={}) {
   if(!rows.length)return '';
   return `<details class="quiet-details"><summary>Execution timing</summary>${table(['Phase','Seconds'],rows.map(([name,value])=>`<tr><td>${e(name)}</td><td>${fmt(value,3)}</td></tr>`))}${timing.data_hardlinked_files!=null?`<small>${timing.data_hardlinked_files} engine data files linked · ${timing.data_copied_files||0} copied · ${fmt((timing.data_copied_bytes||0)/1048576,2)} MB copied</small>`:''}</details>`;
 }
+const REPLAY_SIDE_COLORS=['#5278e5','#c77749'];
+// Model chart colors per side; blue/orange for self-play or when both sides would share a color.
+function replayColors(row) {
+  if(row?.mirror)return {colors:REPLAY_SIDE_COLORS,names:['Blue','Orange']};
+  const colors=(row?.sides||[]).map((id,side)=>{
+    const model=overviewIdentity(id).model,color=overviewColor(model);
+    return overviewPalette.colors?.has(model)?color:REPLAY_SIDE_COLORS[side];
+  });
+  return colors.length===2&&colors[0].toLowerCase()!==colors[1].toLowerCase()
+    ?{colors,names:['Side 1','Side 2']}:{colors:REPLAY_SIDE_COLORS,names:['Blue','Orange']};
+}
+const replayTeamColor=team=>(R?.colors||REPLAY_SIDE_COLORS)[team===1?0:1];
 async function loadMatch() {
   clearInterval(replayTimer);
   replayTimer = null;
@@ -4173,15 +4260,16 @@ async function loadMatch() {
   if (epoch !== S.epoch || S.matchPath !== path) return;
   const row = S.matches.find((m) => m.path === path),
     result = data.result;
+  const palette=replayColors(row);
   const sources=(await api('/api/match/sources',{run:S.run,path})).sources;
   if(epoch!==S.epoch||S.matchPath!==path)return;
   $("#match-detail").innerHTML =
-    `<div class="panel-title"><div><h2>${result.status === "completed" ? (result.winner_side === -1 ? "Draw" : "Winner: " + (row.mirror?(result.winner_side===0?"Blue side":"Orange side"):e(strategyName(row.sides[result.winner_side])))) : e(text(result.status))}</h2><small>Seed ${e(row.seed)} · ${result.turns == null ? "N/A turns" : countLabel(result.turns, "turn")} · ${fmt(result.elapsed_seconds, 2)} s</small></div>${status(result.status)}</div>${row.excluded_from_results?notice("This fight is kept in history and excluded from the results."):""}${row.kind === "progression" ? notice('Previous-round comparison. Diagnostic only: no tournament points and not sent as model feedback.') : row.kind === "training" ? notice("Preparation test requested by the model. Editable scripts; excluded from competition standings and matrices.", "warn") : row.kind==='evaluation'?notice("Fixed-baseline evaluation: a submitted strategy faces frozen Round 1 opponents or fixed scripts. Used to measure progress; excluded from standings and model feedback."):row.mirror?'':notice("Frozen strategies: these scripts cannot change during this round.")}${result.reference_cache?.hit?notice("Cached fixed-reference fight: exact scripts, teams, scenario, seed and engine settings were reused. This occurrence did not execute the engine."):""}${row.mirror ? notice("Self-play diagnostic: identical strategy and team on both sides. Excluded from standings and model feedback; inspect the replay for side advantages and runtime behavior.") : ""}<div class="replay-sources">${row.sides.map((id,side)=>`<div><strong>${side===0?'Blue':'Orange'} · ${e(strategyName(id))}</strong>${sources.find(source=>source.side===side)?.available?btn('View executed code','match-source',`data-side="${side}" data-path="${e(path)}"`):'<small>No archived source available</small>'}${S.detail.sessions.some(session=>session.id===id)?`<a class="button" href="#${query({view:'run',run:S.run,tab:'code',session:id})}">Code history</a>`:''}</div>`).join('')}</div>${
+    `<div class="panel-title"><div><h2>${result.status === "completed" ? (result.winner_side === -1 ? "Draw" : "Winner: " + (row.mirror?palette.names[result.winner_side]+" side":e(strategyName(row.sides[result.winner_side])))) : e(text(result.status))}</h2><small>Seed ${e(row.seed)} · ${result.turns == null ? "N/A turns" : countLabel(result.turns, "turn")} · ${fmt(result.elapsed_seconds, 2)} s</small></div>${status(result.status)}</div>${row.excluded_from_results?notice("This fight is kept in history and excluded from the results."):""}${row.kind === "progression" ? notice('Previous-round comparison. Diagnostic only: no tournament points and not sent as model feedback.') : row.kind === "training" ? notice("Preparation test requested by the model. Editable scripts; excluded from competition standings and matrices.", "warn") : row.kind==='evaluation'?notice("Fixed-baseline evaluation: a submitted strategy faces frozen Round 1 opponents or fixed scripts. Used to measure progress; excluded from standings and model feedback."):row.mirror?'':notice("Frozen strategies: these scripts cannot change during this round.")}${result.reference_cache?.hit?notice("Cached fixed-reference fight: exact scripts, teams, scenario, seed and engine settings were reused. This occurrence did not execute the engine."):""}${row.mirror ? notice("Self-play diagnostic: identical strategy and team on both sides. Excluded from standings and model feedback; inspect the replay for side advantages and runtime behavior.") : ""}<div class="replay-sources">${row.sides.map((id,side)=>`<div><strong style="border-left:4px solid ${palette.colors[side]};padding-left:6px">${palette.names[side]} · ${e(strategyName(id))}</strong>${sources.find(source=>source.side===side)?.available?btn('View executed code','match-source',`data-side="${side}" data-path="${e(path)}"`):'<small>No archived source available</small>'}${S.detail.sessions.some(session=>session.id===id)?`<a class="button" href="#${query({view:'run',run:S.run,tab:'code',session:id})}">Code history</a>`:''}</div>`).join('')}</div>${
       data.replay
         ? `<div class="replay-legend">${Object.entries(row.sides)
             .map(
               ([side, id]) =>
-                `<p style="border-left:6px solid ${Number(side) === 0 ? "#5278e5" : "#c77749"};padding-left:10px"><strong>Side ${Number(side) + 1} · ${Number(side) === 0 ? "Blue" : "Orange"}</strong>: ${e(strategyName(id))}</p>`,
+                `<p style="border-left:6px solid ${palette.colors[side]};padding-left:10px"><strong>Side ${Number(side) + 1}${palette.names[side].startsWith('Side')?'':' · '+palette.names[side]}</strong>: ${e(strategyName(id))}</p>`,
             )
             .join(
               "",
@@ -4200,6 +4288,7 @@ async function loadMatch() {
     R = {
       ...data.replay,
       fight: data.outcome.fight,
+      colors: palette.colors,
       index: 0,
       cache: new Map(),
     };
@@ -4279,7 +4368,7 @@ function replayEventText(value,entities) {
     let next=null;
     for(const item of labels){const at=text.indexOf(item.label,offset);if(at>=0&&(!next||at<next.at))next={...item,at};}
     if(!next){output+=e(text.slice(offset));break;}
-    output+=e(text.slice(offset,next.at))+`<strong class="replay-name team-${next.team===1?'blue':'orange'}">${e(next.label)}</strong>`;
+    output+=e(text.slice(offset,next.at))+`<strong class="replay-name" style="color:${replayTeamColor(next.team)}">${e(next.label)}</strong>`;
     offset=next.at+next.label.length;
   }
   return output;
@@ -4318,7 +4407,7 @@ function renderReplay(index) {
       .map((v) => {
         const c = R.cellsById.get(v.cellPos);
         if (!c) return "";
-        const color = v.team === 1 ? "#5278e5" : "#c77749";
+        const color = replayTeamColor(v.team);
         return `<g data-entity="${v.id}" data-summon="${!!v.summon}" class="${v.alive ? "" : "dead"}"><ellipse cx="${c.x}" cy="${c.y + 2}" rx="10" ry="5" fill="${color}" opacity=".18"/>${state.actor === v.id ? `<circle cx="${c.x}" cy="${c.y - 5}" r="10" fill="none" stroke="${color}" stroke-width="1"/>` : ""}${v.summon ? `<rect x="${c.x - 6}" y="${c.y - 11}" width="12" height="12" rx="2" fill="${color}"/>` : `<circle cx="${c.x}" cy="${c.y - 5}" r="7" fill="${color}"/>`}<text class="entity-label" x="${c.x}" y="${c.y - 5}">${v.id}</text><rect x="${c.x - 9}" y="${c.y - 16}" width="18" height="2" rx="1" fill="#cdd6e7"/><rect x="${c.x - 9}" y="${c.y - 16}" width="${18 * Math.max(0, Math.min(1, v.life / (v.maxLife || 1)))}" height="2" rx="1" fill="${color}"/><title>${e(v.name)} · ${v.life}/${v.maxLife} HP · cell ${v.cellPos}</title></g>`;
       })
       .join("");
@@ -4327,18 +4416,18 @@ function renderReplay(index) {
     ? `Turn ${state.turn} · ${state.last.text}`
     : "Initial positions";
   $("#replay-count").textContent = `Action ${index} / ${R.events.length}`;
-  $("#replay-entities").innerHTML = entities
-    .filter((v) => v.born)
-    .map(
-      (v) =>
-        `<div class="entity-card"><strong style="color:${v.team === 1 ? "#5278e5" : "#c77749"}">${v.summon ? "◆ Summon · " : "● "}${e(v.name)} (#${v.id})</strong><span style="float:right">${v.life} / ${v.maxLife} HP</span><div class="hp-track"><div class="hp-fill" style="width:${Math.max(0, Math.min(100, (100 * v.life) / (v.maxLife || 1)))}%;background:${v.team === 1 ? "#5278e5" : "#c77749"}"></div></div></div>`,
-    )
+  // One column per side, leeks then summons, in engine order.
+  const card = (v) => { const color = replayTeamColor(v.team);
+    return `<div class="entity-card" style="border-left:3px solid ${color}"><strong style="color:${color}">${v.summon ? "◆ Summon · " : "● "}${e(v.name)} (#${v.id})</strong><span style="float:right">${v.life} / ${v.maxLife} HP</span><div class="hp-track"><div class="hp-fill" style="width:${Math.max(0, Math.min(100, (100 * v.life) / (v.maxLife || 1)))}%;background:${color}"></div></div></div>`; };
+  const born = entities.filter((v) => v.born);
+  $("#replay-entities").innerHTML = [...new Set(born.map((v) => v.team))].sort((a, b) => a - b)
+    .map((team) => `<div class="entity-column">${born.filter((v) => v.team === team).sort((a, b) => !!a.summon - !!b.summon).map(card).join("")}</div>`)
     .join("");
   $("#replay-events").innerHTML = R.events
     .slice(Math.max(0, index - 20), Math.min(R.events.length, index + 30))
     .map(
       (ev, i) =>
-        `<button class="event-line ${ev.index === index - 1 ? "active" : ""} ${state.entities[ev.actor]?`actor-${state.entities[ev.actor].team===1?'blue':'orange'}`:''}" data-action="replay-step" data-index="${Math.max(0, index - 20) + i + 1}"><span class="mono">${ev.index + 1}</span> · T${ev.turn} · ${replayEventText(ev.text,state.entities)} <span class="muted mono">${e(pretty(ev.raw))}</span></button>`,
+        `<button class="event-line ${ev.index === index - 1 ? "active" : ""} ${state.entities[ev.actor]?'actor':''}"${state.entities[ev.actor]?` style="--actor:${replayTeamColor(state.entities[ev.actor].team)}"`:''} data-action="replay-step" data-index="${Math.max(0, index - 20) + i + 1}"><span class="mono">${ev.index + 1}</span> · T${ev.turn} · ${replayEventText(ev.text,state.entities)} <span class="muted mono">${e(pretty(ev.raw))}</span></button>`,
     )
     .join("");
   if (index === R.events.length) {
@@ -5356,6 +5445,8 @@ document.addEventListener("change", async (event) => {
       if(reuse)reuse.checked=false;
     } else if(n.matches('#competition-form input[name=participant]') || n.id==='competition-selected-only') {
       updateCompetitionSelection();
+    } else if(n.matches('[data-complexity-metric]')) {
+      S.complexityMetric=n.value;clearChartHover();LiveDOM.replace($('#ai-complexity'),aiComplexity(S.detail,overviewData(S.detail)));
     } else if(n.matches('[data-repetition-metric],[data-repetition-rounds]')) {
       if(n.matches('[data-repetition-rounds]'))S.repetitionRounds=n.value;else S.repetitionMetric=n.value;clearChartHover();LiveDOM.replace($('#repetition-variance'),repetitionVariance(S.detail,overviewData(S.detail)));
     } else if(n.matches('[data-resource-axis]')) {

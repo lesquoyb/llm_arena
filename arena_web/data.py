@@ -743,7 +743,9 @@ class Store(Workspaces):
                              "reconciliation_required": needs_reconciliation(state, state.get("model") in external),
                              "reported_reasoning_efforts": reported_efforts(state)})
         from decimal import Decimal
+        from .code_metrics import submission_metrics
         for session in sessions:
+            session['code_metrics'] = submission_metrics(safe_path(root, f"sessions/{session['id']}"), session.get('submission'))
             session['recorded_cost_spent'] = session.get('cost_spent')
             adjustment = (session.get('usage_receipts') or {}).get('cost_adjustment_usd', '0')
             if session.get('cost_spent') is not None:

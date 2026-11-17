@@ -25,7 +25,7 @@ def render(message):
         sections.append(f"Stats mode: {scenario.get('stats_mode','free')}. Upper equipment limits: {rules.get('max_weapons',3)} weapons and {rules.get('max_chips',12)} chips per member. Level, weapon-slot and RAM/chip-capacity rules may impose lower limits; validate the complete build.")
         for kind in ('weapons','chips'):
             if rules.get('allowed_'+kind) is not None: sections.append('Allowed '+kind+' IDs: '+', '.join(map(str,rules['allowed_'+kind]))+'.')
-        sections+=['Write the source files first. Use preview_build for final stats/capital and validate_team for draft checks when enabled. Call configure_team to save the actual roster, then analyze and submit. Sources alone do not configure a team. On later rounds the saved sources and configured team are inherited and can be revised.','## Fixed reference roster (opponents only)']
+        sections+=['Write the source files first. Use preview_build for final stats/capital and validate_team for draft checks when enabled. Call configure_team to save the actual roster, then analyze and submit. Sources alone do not configure a team. On later rounds the saved sources and configured team are inherited and can be revised. Complete team-building rules: corpus/rules.md, section Participant-designed teams. preview_build, validate_team and configure_team reject illegal builds and list warnings for unspent capital or unused slots.','## Fixed reference roster (opponents only)']
     else:
         sections+=['## Your fixed roster',f"Your team has {scenario['team_size']} members. Its levels, stats and equipment are fixed; do not call configure_team. The entrypoint runs once per living member per turn."]
     groups={}

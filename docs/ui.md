@@ -762,6 +762,26 @@ across repetitions. Missing measurements are excluded from that chart. Preparati
 time includes model and tool work and depends on hardware, quantization and
 concurrency. Size alone is not a measure of running cost.
 
+**AI complexity** in the competition summary shows how much each model's
+submitted AIs compute and how large their code is, one bar per model in its
+chart color. Measures:
+
+- **Engine operations / turn** and **/ fight**: LeekScript operations counted
+  by the engine for the whole team over the completed fights of the selection,
+  divided by fight turns or fights. They also depend on the opponent and on
+  fight length.
+- **Lines of code** and **Functions**: static size of the entrypoint and the
+  files it includes, without blank lines or comments, averaged over the
+  model's submitted strategies. Other submission files, such as a sparring
+  opponent for preparation tests, are not counted.
+- **Operation-limit hits / fight**: turns where an AI exhausted its per-turn
+  operation budget.
+
+All measures by model are listed under **All complexity measures by model**.
+**Performance vs resources** can also compare scores by **Engine operations /
+turn** and **Lines of code**, in competition summaries and in workspace
+comparisons; fixed references are included for operations.
+
 In **Variation between repetitions**, **Grouping → By model · feedback pooled**
 combines feedback and no-feedback branches on one row per model. Each point
 remains one repetition: selected branches are averaged within each round, then

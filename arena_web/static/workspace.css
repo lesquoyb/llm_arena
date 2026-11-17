@@ -622,3 +622,15 @@ dialog:has(form[data-form=participant]) .dialog-head, dialog:has(form[data-form=
 .overview-matrix td > small { font-size:9px; }
 .matrix-axis { font-size:10px; color:var(--muted); }
 @media (max-width: 640px) { .overview-matrix th:first-child { width:80px; } }
+/* Replay: one column per side; actor rows use the side color. */
+.entity-list > .entity-column { display:flex; flex-direction:column; gap:8px; min-width:0; }
+.event-line.actor { border-left:3px solid var(--actor); background:color-mix(in srgb, var(--actor) 6%, transparent); }
+/* AI complexity: one compact bar per model in its chart color. */
+.complexity-bars { display:grid; gap:6px; margin:12px 0; }
+.complexity-row { display:grid; grid-template-columns:minmax(110px,190px) minmax(0,1fr) 70px; grid-template-areas:"name bar value" ". note note"; align-items:center; column-gap:10px; font-size:12px; }
+.complexity-name { grid-area:name; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:600; }
+.complexity-name .overview-swatch { margin-right:6px; vertical-align:middle; }
+.complexity-row .workspace-bar-track { grid-area:bar; }
+.complexity-row > b { grid-area:value; text-align:right; font-variant-numeric:tabular-nums; }
+.complexity-row > small { grid-area:note; color:var(--muted); font-size:10px; }
+@media (max-width:640px) { .complexity-row { grid-template-columns:minmax(80px,120px) minmax(0,1fr) 56px; } }

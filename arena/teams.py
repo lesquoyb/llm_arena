@@ -54,6 +54,8 @@ def validate_team(team, scenario=None, files=None, data=None):
             integer(member['level'], 1, maximum_level(scenario), 'member level')
         if "name" in member and (not isinstance(member["name"], str) or not 1 <= len(member["name"]) <= 80):
             raise ArenaError("Member name must contain 1 to 80 characters")
+        if scenario and rules and "stats" in member:
+            raise ArenaError("Participants cannot set raw stats; allocate capital in realistic mode or keep the reference stats")
         from .stats import member_stats, STATS
         for key in ("capital", "stats"):
             if key in member and (not isinstance(member[key], dict) or set(member[key]) - set(STATS)
@@ -143,4 +145,25 @@ def team_preview(team, scenario, files, check_sources=False):
                         'chips': member['chips'], 'source_exists': member['entrypoint'] in files})
     return {'valid': True, 'members': members, 'maximum_members': scenario['team_size'],
             'source_files_checked': check_sources,
-            'missing_entrypoints': [m['entrypoint'] for m in members if not m['source_exists']]}
+            'missing_entrypoints': [m['entrypoint'] for m in members if not m['source_exists']],
+            'warnings': team_warnings(members, scenario)}
+
+
+def team_warnings(members, scenario):
+    """Legal but possibly unintended choices: unspent capital, empty slots, fewer members than allowed."""
+    warnings = []
+    if len(members) < scenario['team_size']:
+        warnings.append(f"{len(members)} of {scenario['team_size']} possible members; you may add {scenario['team_size'] - len(members)} more.")
+    rules = scenario.get('team_selection') or {}
+    for number, member in enumerate(members, 1):
+        if member.get('remaining'):
+            warnings.append(f"Member {number}: {member['remaining']} of {member['available']} capital points unspent.")
+        if 'weapon_slots' in member:
+            free = min(member['weapon_slots'], rules.get('max_weapons', 3)) - len(member['weapons'])
+            if free > 0:
+                warnings.append(f"Member {number}: {free} weapon slot{'s' if free > 1 else ''} unused.")
+        if 'chip_slots' in member:
+            free = min(member['chip_slots'], rules.get('max_chips', 12)) - len(member['chips'])
+            if free > 0:
+                warnings.append(f"Member {number}: {free} chip slot{'s' if free > 1 else ''} unused (RAM {member['chip_slots']}).")
+    return warnings
