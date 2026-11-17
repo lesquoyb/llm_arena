@@ -71,3 +71,11 @@ test('model aggregation pools feedback within rounds and keeps independent repet
   const [noInitial]=require('../arena_web/static/repetition-stats.js').poolModels(summarize(sessions.filter(row=>row.model==='model'&&row.generation===1),[],'cost'));
   assert.equal(noInitial.stats.n,1);assert.equal(noInitial.points[1].value,null);
 });
+test('all-observation view keeps every conversation without averaging',()=>{
+  const sessions=[session('a0',0,{metrics:{cost:1}}),session('b0',1,{metrics:{cost:3}}),
+    session('ac',0,{generation:1,condition:'control',metrics:{cost:5}}),session('af',0,{generation:1,condition:'feedback',metrics:{cost:7}})];
+  const [row]=require('../arena_web/static/repetition-stats.js').allObservations(summarize(sessions,[],'cost'));
+  assert.deepEqual(row.points.map(point=>[point.session,point.generation,point.condition,point.value]).sort(),
+    [['a0',0,'initial',1],['ac',1,'control',5],['af',1,'feedback',7],['b0',0,'initial',3]]);
+  assert.equal(row.stats.n,4);assert.equal(row.stats.mean,4);assert.deepEqual(row.rounds,[0,1]);assert.equal(row.groups,3);
+});

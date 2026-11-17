@@ -7,7 +7,7 @@ function fixture(count=6) {
   const context={RepetitionStats,S:{run:'fixture',repetitionFixtures:{key:JSON.stringify(['fixture','competition',null]),
     observations:sessions.map(session=>({session:session.id,opponent:'opponent',seed:101,side:0,status:'completed',winner:-1}))}},runScope:()=>({}),measuredUsage:()=>({complete:false}),
     overviewIdentity:()=>({model:'other'}),overviewColor:()=> '#167568',overviewRound:()=> 'R1 · Initial',
-    query:value=>new URLSearchParams(value).toString(),chartFullScreenButton:()=>'',
+    query:value=>new URLSearchParams(value).toString(),chartFullScreenButton:()=>'',chartActions:()=>'',orderCandidates:rows=>[...rows],participantName:name=>name,
     e:value=>String(value??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('"','&quot;'),
     fmt:value=>String(value),pct:value=>value==null?'N/A':100*value+'%',money:value=>'$'+value,
     table:(headers,rows)=>'<table>'+rows.join('')+'</table>'};
@@ -22,7 +22,7 @@ test('identical values keep all repetitions individually selectable and show exp
 });
 test('missing scheduled repetitions stay visible in coverage and single-repetition SD is unknown',()=>{
   const {context,data,detail}=fixture(1);const html=context.repetitionVariance(detail,data);
-  assert(html.includes('1/20 scored'));assert(html.includes('SD needs ≥2 repetitions'));
+  assert(html.includes('1/20 scored'));assert(html.includes('SD needs ≥2 reps'));
 });
 test('resources and absent panels render without inventing quality scores',()=>{
   const {context,data,detail}=fixture(2);data.selected=[];context.S.repetitionFixtures.observations=[];
@@ -41,4 +41,16 @@ test('pooled-model selector renders one row and one point per independent repeti
   assert.equal((html.match(/class="repetition-point"/g)||[]).length,2);
   assert(html.includes('Average of 3 conversations'));
   assert(html.includes('2/20 measured'));assert(!html.includes('NaN'));
+});
+test('every-round view puts all repetitions, rounds and tracks of a model on one row',()=>{
+  const {context,data,detail}=fixture(2);
+  data.sessions.push(...data.sessions.map(row=>({...row,id:row.id+'-c',generation:1,condition:'control'})),
+    ...data.sessions.map(row=>({...row,id:row.id+'-f',generation:1,condition:'feedback'})));
+  context.S.repetitionMetric='cost';context.S.repetitionRounds='all';
+  const html=context.repetitionVariance(detail,data);
+  assert(html.includes('By model · every round &amp; repetition'));
+  assert.equal((html.match(/class="repetition-label"/g)||[]).length,1);
+  assert.equal((html.match(/class="repetition-point"/g)||[]).length,6);
+  assert.equal((html.match(/fill="white"/g)||[]).length,2);
+  assert(html.includes('6/60 measured'));assert(!html.includes('NaN'));
 });

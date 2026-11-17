@@ -771,6 +771,13 @@ rounds, rather than replacing that branch with zero. Clicking a pooled point
 opens its latest included conversation; the tooltip gives the contributing
 conversation count. Separate rounds and separate feedback tracks remain available.
 
+**Grouping → By model · every round & repetition** puts every conversation of a
+model on one row: each repetition of each selected round and track is its own
+point, scored within its own round and track. Later rounds are darker and
+no-feedback tracks are hollow. The box and SD summarize all these observations
+together; they are not independent samples, so use the other groupings to
+estimate spread between repetitions.
+
 Detailed metrics and CSV exports include `model_size_billion`; result exports also
 include `score_per_billion` (score from 0 to 1 divided by parameter count in
 billions). This ratio complements the raw score; it is not a replacement ranking.

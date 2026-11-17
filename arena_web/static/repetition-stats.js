@@ -134,5 +134,21 @@
         validated:group.reduce((sum,row)=>sum+row.validated,0),engineFailures:group.reduce((sum,row)=>sum+row.engineFailures,0),conflicts:group.reduce((sum,row)=>sum+row.conflicts,0)};
     });
   }
-  return {describe,summarize,poolRounds,poolModels};
+  // Every repetition of every round and track on one row: observations, not independent samples.
+  function allObservations(rows) {
+    const models=new Map();
+    for(const row of rows) {
+      if(!models.has(row.model))models.set(row.model,[]);
+      models.get(row.model).push(row);
+    }
+    return [...models.values()].map(group=>{
+      const points=group.flatMap(row=>row.points.map(point=>({...point,generation:row.generation,condition:row.condition})));
+      return {...group[0],pooled:true,allObservations:true,condition:'all',rounds:[...new Set(group.map(row=>row.generation))].sort((a,b)=>a-b),
+        groups:group.length,points,stats:describe(points.map(point=>point.value)),disagreement:null,
+        commonFixtures:group.reduce((sum,row)=>sum+row.commonFixtures,0),
+        submitted:group.reduce((sum,row)=>sum+row.submitted,0),invalid:group.reduce((sum,row)=>sum+row.invalid,0),
+        validated:group.reduce((sum,row)=>sum+row.validated,0),engineFailures:group.reduce((sum,row)=>sum+row.engineFailures,0),conflicts:group.reduce((sum,row)=>sum+row.conflicts,0)};
+    });
+  }
+  return {describe,summarize,poolRounds,poolModels,allObservations};
 });
