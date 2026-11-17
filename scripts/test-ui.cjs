@@ -195,7 +195,7 @@ async function main() {
     if (process.env.ARENA_UI_FOCUS === "anthropic-effort") {
       const dialog = page.getByRole("dialog");
       await dialog.getByLabel("Provider", { exact: true }).selectOption("anthropic");
-      await dialog.getByLabel("Participant ID").fill("browser-claude");
+      await dialog.locator('[name="id"]').fill("browser-claude");
       await dialog.getByLabel("Exact model ID").fill("claude-sonnet-4-6");
       const effort = dialog.getByLabel("Reasoning effort");
       assert(await effort.locator('option[value="xhigh"]').evaluate(option => option.disabled));
@@ -217,10 +217,10 @@ async function main() {
       console.log("Browser checks passed: Anthropic effort can be selected, saved and reopened.");
       return;
     }
-    await page.getByLabel("Participant ID").fill("browser-api");
+    await page.locator('#dialog [name="id"]').fill("browser-api");
     await page.getByLabel("Provider", { exact: true }).selectOption("openai");
     assert.equal(
-      await page.getByLabel("Participant ID").inputValue(),
+      await page.locator('#dialog [name="id"]').inputValue(),
       "browser-api",
     );
     await page.locator("#dialog").evaluate((el) => {
@@ -374,7 +374,7 @@ async function main() {
       ),
     );
     assert.equal(
-      await page.getByLabel("Participant ID").inputValue(),
+      await page.locator('#dialog [name="id"]').inputValue(),
       "browser-api",
     );
     await page.getByRole("button", { name: "Save participant" }).click();

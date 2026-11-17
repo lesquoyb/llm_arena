@@ -85,8 +85,11 @@ class RoundTests(TestCase):
             finally: journal.db.close()
             self.assertEqual(conditions, {'initial', 'feedback'})
             self.assertTrue(all(row['feedback_minus_control'] is None for row in report['evolution']['paired']))
-        with self.assertRaises(ArenaError):
-            validate_config({**competition(2), 'improvement_conditions': ['control']})
+        # A no-feedback track alone is allowed; unknown, duplicated or missing tracks after Round 1 are not.
+        validate_config({**competition(2), 'improvement_conditions': ['control']})
+        for conditions in (['other'], ['feedback', 'control'], ['feedback', 'feedback'], []):
+            with self.subTest(conditions=conditions), self.assertRaises(ArenaError):
+                validate_config({**competition(2), 'improvement_conditions': conditions})
 
     def test_unbounded_competition_has_a_durable_round_boundary_and_resumes(self):
         with scratch_directory() as tmp, contextlib.redirect_stdout(io.StringIO()), mock.patch('arena.experiment.Engine', RoundEngine):
